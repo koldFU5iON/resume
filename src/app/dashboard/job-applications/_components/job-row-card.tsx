@@ -4,7 +4,6 @@ import Link from "next/link"
 import {
   ApplicationSource,
   APPLICATION_SOURCE_LABEL,
-  APPLICATION_STATUS_LABEL,
   type Job,
 } from "@/app/types/job-application"
 import { AppProgressBar } from "./app-progress-bar"
@@ -12,6 +11,7 @@ import { AppControls } from "@/components/app-item-menu"
 import { Loader2, SquareArrowOutUpRight } from "lucide-react"
 import { JobFit } from "./job-fit"
 import { JobNotes } from "./job-notes"
+import { StatusDropdown } from "./status-dropdown"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Badge } from "@/components/ui/badge"
 import { cn, formatShortDate } from "@/lib/utils"
@@ -103,9 +103,7 @@ export function JobRowCard({ job, selected, busyLabel, onToggleSelect, onEdit, o
 
       {/* Row 2: status + progress */}
       <div className="mt-2 flex items-center gap-3">
-        <Badge variant="outline" className="text-[10px] font-medium shrink-0">
-          {APPLICATION_STATUS_LABEL[status]}
-        </Badge>
+        <StatusDropdown jobId={id} status={status} />
         <div className="flex-1 min-w-0">
           <AppProgressBar progress={progress} jobId={id} />
         </div>
