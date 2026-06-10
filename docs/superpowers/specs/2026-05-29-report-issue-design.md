@@ -51,11 +51,10 @@ Button label: "Submit report". Shows "Submitting…" while pending.
 
 ---
 **Filed from:** {current page URL}
-**Reporter:** {user email}
 **Submitted:** {ISO 8601 timestamp}
 ```
 
-Reporter email is always included — all reporters are signed-in users.
+Reporter email is intentionally omitted — the issue body is public, so including it would expose personal information.
 
 ---
 
@@ -87,7 +86,7 @@ export async function createFeedbackIssue(
 ): Promise<{ ok: true } | { ok: false; message: string }>
 ```
 
-- Calls `requireProfile()` to get the reporter's email
+- Calls `requireProfile()` to enforce authentication (email is not embedded in the issue body)
 - Validates title is non-empty
 - Builds the issue body (description + metadata block)
 - `POST https://api.github.com/repos/koldFU5iON/resume/issues`

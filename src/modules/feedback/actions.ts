@@ -20,7 +20,7 @@ export async function createFeedbackIssue(
   description: string,
   currentPath: string,
 ): Promise<CreateFeedbackResult> {
-  const { session } = await requireProfile()
+  await requireProfile()
 
   const trimmedTitle = title.trim()
   if (!trimmedTitle) {
@@ -40,7 +40,6 @@ export async function createFeedbackIssue(
   bodyLines.push(
     '---',
     `**Filed from:** ${safePath}`,
-    `**Reporter:** ${session.user.email}`,
     `**Submitted:** ${new Date().toISOString()}`,
   )
 
