@@ -10,6 +10,7 @@ import { AppProgressBar } from "./app-progress-bar"
 import { AppControls } from "@/components/app-item-menu"
 import { FileText, Mail, Loader2, SquareArrowOutUpRight } from "lucide-react"
 import { JobFit } from "./job-fit"
+import { SalaryEstimate } from './salary-estimate'
 import { JobNotes } from "./job-notes"
 import { StatusDropdown } from "./status-dropdown"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -36,7 +37,7 @@ export function JobRowCard({ job, selected, busyLabel, onToggleSelect, onEdit, o
     id, jobNumber, title, company, countries, url,
     dateApplied, datePublished, lastUpdated, status, progress,
     jobFit, notes, notesIncludeInFit, applicationSource,
-    jobDescription, salaryBand,
+    jobDescription, salaryBand, salaryEstimate,
   } = job
   const showSourceBadge = applicationSource !== ApplicationSource.Cold
   const busy = Boolean(busyLabel)
@@ -147,6 +148,13 @@ export function JobRowCard({ job, selected, busyLabel, onToggleSelect, onEdit, o
           <span className="text-xs text-muted-foreground">{salaryBand}</span>
         )}
         <JobFit jobId={id} jobFit={jobFit ?? null} canAssess={!!jobDescription?.trim()} hasLLMKey={hasLLMKey} company={company ?? undefined} jdSnippet={jobDescription ? jobDescription.slice(0, 800) : undefined} />
+        <SalaryEstimate
+          jobId={id}
+          initialEstimate={salaryEstimate ?? null}
+          hasJD={!!jobDescription?.trim()}
+          hasLLMKey={hasLLMKey}
+          compact
+        />
         {dateApplied && (
           <span className="text-xs text-muted-foreground">{formatShortDate(dateApplied)}</span>
         )}
