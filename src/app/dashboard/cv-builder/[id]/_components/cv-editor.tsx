@@ -240,7 +240,7 @@ export function CvEditor({ cv }: Props) {
                 ? <Loader2 className="size-3.5 animate-spin" />
                 : <RotateCcw className="size-3.5" />
               }
-              {isPending ? 'Generating…' : 'Regenerate'}
+              <span className="hidden sm:inline">{isPending ? 'Generating…' : 'Regenerate'}</span>
             </button>
             <div className="relative">
               <button
@@ -248,7 +248,7 @@ export function CvEditor({ cv }: Props) {
                 className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted"
               >
                 <Download className="size-3.5" />
-                Export
+                <span className="hidden sm:inline">Export</span>
               </button>
               {showExport && (
                 <>
@@ -275,21 +275,21 @@ export function CvEditor({ cv }: Props) {
               className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted transition-colors"
             >
               <MessageSquare className="size-3.5" />
-              Discuss
+              <span className="hidden sm:inline">Discuss</span>
             </button>
             {cv.jobApplicationId && cv.jobApplication?.jobDescription && (
               <button
                 onClick={() => setJobPanelOpen(o => !o)}
                 className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted transition-colors"
               >
-                Job ▸
+                <span className="hidden sm:inline">Job</span> ▸
               </button>
             )}
             <button
               onClick={() => setAtsPanelOpen(o => !o)}
               className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted transition-colors"
             >
-              ATS ▸
+              <span className="hidden sm:inline">ATS</span> ▸
             </button>
             <button
               onClick={() => router.refresh()}
