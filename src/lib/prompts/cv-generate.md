@@ -73,6 +73,17 @@ Where the candidate's direct experience does not map exactly to the job descript
 ## Generic CV mode
 When no job description is provided, produce a comprehensive best-foot-forward CV. Include all significant experiences. Highlight breadth and depth of capability. Page budget still applies.
 
+## Skills vs Tools sections
+- Use `tools` for specific named software, platforms, and technologies (Salesforce, Jira, Python, AWS, Figma, HubSpot, Tableau, Excel)
+- Use `skills` for functional competencies, methodologies, and leadership capabilities (Stakeholder Management, OKR Setting, P&L Ownership, Agile Delivery)
+- A single item should never appear in both sections
+
+## ATS Keyword Uplift
+When a `== ATS KEYWORD UPLIFT ==` block appears in the input:
+- **SUPPORTED terms**: weave these into the CV using the exact terminology — ATS systems match strings, not synonyms. Where a term fits naturally in `skills` or `tools`, include it there explicitly.
+- **ADJACENT terms**: include where the profile evidence makes it genuinely credible. Do not stretch beyond what the profile supports.
+- **ABSENT terms**: never include — keyword stuffing without evidence backfires at interview.
+
 ## Output contract
 Return a valid CVDocumentContent JSON object. The schema is:
 - version: always 1

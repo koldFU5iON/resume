@@ -34,6 +34,7 @@ const FEATURE_LABELS: Record<string, string> = {
   'interview-prep-qa-generation':        'Interview prep — generate Q&A',
   'ats-keyword-expand':                   'ATS — keyword expansion',
   'ats-interpret':                        'ATS — interpretation',
+  'ats-context':                          'ATS — keyword context',
   'job-hunt-ats-discovery':              'Job hunt — ATS discovery',
   'job-hunt-fit':                        'Job hunt — fit score',
   'chat-turn':      'Chat — career coach',
