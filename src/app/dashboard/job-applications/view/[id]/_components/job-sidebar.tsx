@@ -3,7 +3,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { buttonVariants } from "@/components/ui/button"
 import { type Job } from "@/app/types/job-application"
 import { JobFit } from "@/app/dashboard/job-applications/_components/job-fit"
-import { SalaryEstimate } from '@/app/dashboard/job-applications/_components/salary-estimate'
+import { SalaryEstimate } from "@/app/dashboard/job-applications/_components/salary-estimate"
 import { StatusDropdown } from "@/app/dashboard/job-applications/_components/status-dropdown"
 import { formatDate, cn } from "@/lib/utils"
 import { FileText, Mail, ClipboardList } from "lucide-react"

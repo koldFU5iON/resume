@@ -10,7 +10,7 @@ import { AppProgressBar } from "./app-progress-bar"
 import { AppControls } from "@/components/app-item-menu"
 import { FileText, Mail, Loader2, SquareArrowOutUpRight } from "lucide-react"
 import { JobFit } from "./job-fit"
-import { SalaryEstimate } from './salary-estimate'
+import { SalaryEstimate } from "./salary-estimate"
 import { JobNotes } from "./job-notes"
 import { StatusDropdown } from "./status-dropdown"
 import { Checkbox } from "@/components/ui/checkbox"
