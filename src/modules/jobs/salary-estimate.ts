@@ -15,10 +15,16 @@ type EstimateSalaryResult =
 export async function estimateSalary(jobId: string): Promise<EstimateSalaryResult> {
   const { profile } = await requireProfile()
 
-  const job = await prisma.jobApplication.findFirst({
-    where: { id: jobId, profileId: profile.id },
-    select: { id: true, title: true, company: true, countries: true, jobDescription: true },
-  })
+  const [job, settings] = await Promise.all([
+    prisma.jobApplication.findFirst({
+      where: { id: jobId, profileId: profile.id },
+      select: { id: true, countries: true, jobDescription: true },
+    }),
+    prisma.userSettings.findUnique({
+      where: { profileId: profile.id },
+      select: { searchProfile: true },
+    }),
+  ])
 
   if (!job) return { ok: false, error: 'not_found', message: 'Job not found' }
   if (!job.jobDescription?.trim()) {
@@ -28,11 +34,6 @@ export async function estimateSalary(jobId: string): Promise<EstimateSalaryResul
       message: 'Add a job description first — salary estimation needs it.',
     }
   }
-
-  const settings = await prisma.userSettings.findUnique({
-    where: { profileId: profile.id },
-    select: { searchProfile: true },
-  })
   const searchProfile = normalizeSearchProfile(settings?.searchProfile)
   const userCurrency = searchProfile.salaryBand?.currency ?? 'GBP'
 
