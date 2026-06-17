@@ -45,6 +45,7 @@ export function SalaryEstimate({ jobId, initialEstimate, hasJD, hasLLMKey, compa
       const result = await estimateSalary(jobId)
       if (result.ok) {
         setEstimate(result.estimate)
+        setExpanded(false)
         notifyUsageUpdated()
       } else {
         toast.error(result.message, {
@@ -79,7 +80,7 @@ export function SalaryEstimate({ jobId, initialEstimate, hasJD, hasLLMKey, compa
           {isEstimated && (
             <Tooltip>
               <TooltipTrigger
-                render={<Info size={10} className="cursor-help text-muted-foreground/60" />}
+                render={<Info size={10} className="cursor-help text-muted-foreground/60" aria-label="Salary estimate info" />}
               />
               <TooltipContent side="top" className="max-w-56 text-xs">
                 AI-estimated range — not stated in the job listing
@@ -97,7 +98,7 @@ export function SalaryEstimate({ jobId, initialEstimate, hasJD, hasLLMKey, compa
           {isEstimated && (
             <Tooltip>
               <TooltipTrigger
-                render={<Info size={12} className="cursor-help text-muted-foreground/60" />}
+                render={<Info size={12} className="cursor-help text-muted-foreground/60" aria-label="Salary estimate info" />}
               />
               <TooltipContent side="top" className="max-w-64 text-xs">
                 AI-estimated range — not stated in the job listing
