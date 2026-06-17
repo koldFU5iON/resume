@@ -44,6 +44,13 @@ export async function loadCVScanPrompt(): Promise<string> {
   })
 }
 
+export async function loadATSContextPrompt(): Promise<string> {
+  const promptPath = path.join(process.cwd(), 'src/lib/prompts/cv-ats-context.md')
+  return readFile(promptPath, 'utf-8').catch(() => {
+    throw new Error('cv-ats-context.md missing from bundle — check outputFileTracingIncludes in next.config.ts')
+  })
+}
+
 export async function loadWritingContext(profileId: string): Promise<WritingContext> {
   const [rules, settings] = await Promise.all([
     loadWritingRules().catch(() => ''),
