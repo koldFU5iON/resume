@@ -13,6 +13,7 @@ import {
 
 const FEATURE_LABELS: Record<string, string> = {
   'job-fit': 'Job fit',
+  'salary-estimate': 'Salary estimate',
   'job-extract': 'Job extract',
   'cv-import': 'CV import',
   'profile-summary': 'Profile summary',
