@@ -7,6 +7,8 @@ import { analyseJob } from './analyse-job'
 import { scoreEvidence, applyRoleBudgets } from './score-evidence'
 import { scanCV } from './scan-cv'
 import { JobAnalysisSchema, type JobAnalysis } from '@/modules/jobs/schema'
+import { buildATSContext, formatATSContext } from './ats-context'
+import type { ATSContextResult } from './ats-context-schema'
 
 const SCHEMA_HINT = `
 Section types and their data shapes:
@@ -78,12 +80,30 @@ export async function generateCVContent(
     ? await scoreEvidence(profileId, snapshot, analysis)
     : applyRoleBudgets(snapshot)
 
+  // Serialize both snapshots:
+  // fullProfileText — used for ATS keyword matching (all skills/tools considered)
+  // profileText — used in the generation prompt (evidence-scored, filtered for this role)
+  const fullProfileText = serializeProfileForLLM(snapshot)
+  const profileText = serializeProfileForLLM(filteredSnapshot)
+
+  // ATS keyword context: extract JD terms and match against full profile.
+  // Non-fatal — if the call throws, generation continues without keyword uplift.
+  let atsContext: ATSContextResult | null = null
+  if (jobApp?.jobDescription) {
+    try {
+      atsContext = await buildATSContext(profileId, jobApp.jobDescription, fullProfileText)
+    } catch {
+      // continue without ATS context
+    }
+  }
+
   const userMessage = [
     jobContext,
     analysis ? formatAnalysisContext(analysis) : null,
+    atsContext ? formatATSContext(atsContext) : null,
     '',
     '== CANDIDATE PROFILE ==',
-    serializeProfileForLLM(filteredSnapshot),
+    profileText,
     '',
     '== OUTPUT SCHEMA ==',
     SCHEMA_HINT,
