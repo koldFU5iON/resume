@@ -69,7 +69,7 @@ describe('formatATSContext', () => {
 
   it('omits SUPPORTED section when supported is empty', () => {
     const output = formatATSContext({ supported: [], adjacent: [], absent: ['SAP'] })
-    expect(output).not.toContain('SUPPORTED')
+    expect(output).not.toContain('SUPPORTED (use these exact terms):')
   })
 
   it('omits ADJACENT section when adjacent is empty', () => {
@@ -78,7 +78,17 @@ describe('formatATSContext', () => {
       adjacent: [],
       absent: [],
     })
-    expect(output).not.toContain('ADJACENT')
+    expect(output).not.toContain('ADJACENT (use with care):')
+  })
+
+  it('shows preamble instructions when only supported is non-empty', () => {
+    const output = formatATSContext({
+      supported: [{ term: 'Agile', category: 'methodology', profileEvidence: null }],
+      adjacent: [],
+      absent: [],
+    })
+    expect(output).toContain('Weave SUPPORTED terms')
+    expect(output).toContain('Never use ABSENT terms')
   })
 
   it('handles null profileEvidence without printing "null"', () => {

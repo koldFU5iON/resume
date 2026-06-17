@@ -30,7 +30,7 @@ export async function buildATSContext(
 export function formatATSContext(ctx: ATSContextResult): string {
   const lines: string[] = ['== ATS KEYWORD UPLIFT ==']
 
-  if (ctx.supported.length > 0 && ctx.adjacent.length > 0) {
+  if (ctx.supported.length > 0 || ctx.adjacent.length > 0) {
     lines.push('Weave SUPPORTED terms into the CV where the underlying experience justifies them.')
     lines.push('Use ADJACENT terms only where the profile evidence makes it genuinely credible.')
     lines.push('Never use ABSENT terms — they have no profile basis.\n')
