@@ -4,6 +4,10 @@
 @import "./cv.css";
 @plugin "@tailwindcss/typography";
 
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
