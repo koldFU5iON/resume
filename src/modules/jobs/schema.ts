@@ -59,6 +59,17 @@ export const JobAnalysisSchema = z.object({
 export type JobAnalysis = z.infer<typeof JobAnalysisSchema>
 export type JobAnalysisRisk = z.infer<typeof JobAnalysisRiskSchema>
 
+export const SalaryEstimateSchema = z.object({
+  min:        z.number().nullable(),
+  max:        z.number().nullable(),
+  currency:   z.string(),
+  source:     z.enum(['extracted', 'estimated']),
+  confidence: z.enum(['low', 'medium', 'high']).optional(),
+  reasoning:  z.string().optional(),
+})
+
+export type SalaryEstimate = z.infer<typeof SalaryEstimateSchema>
+
 export const SOURCE_OPTIONS = APPLICATION_SOURCES.map(value => ({
   value,
   label: APPLICATION_SOURCE_LABEL[value],

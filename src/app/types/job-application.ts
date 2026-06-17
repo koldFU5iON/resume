@@ -80,6 +80,15 @@ export type JobFit = {
   notesUsed?: boolean
 }
 
+export type SalaryEstimate = {
+  min:         number | null
+  max:         number | null
+  currency:    string
+  source:      'extracted' | 'estimated'
+  confidence?: 'low' | 'medium' | 'high'
+  reasoning?:  string
+}
+
 export type Job = Omit<JobApplication, "status" | "progress" | "jobFit" | "applicationSource"> & {
   status: ApplicationStatusType
   progress: ApplicationProgressType
@@ -88,6 +97,7 @@ export type Job = Omit<JobApplication, "status" | "progress" | "jobFit" | "appli
   cvDocumentId?: string | null
   coverLetterDocumentId?: string | null
   interviewPrepSessionId?: string | null
+  salaryEstimate?: SalaryEstimate | null
 }
 
 export type ProfileType = {
