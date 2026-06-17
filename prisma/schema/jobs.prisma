@@ -18,6 +18,8 @@ model JobApplication {
   jobFitAssessedAt    DateTime?
   jobAnalysis         Json?
   jobAnalysedAt       DateTime?
+  salaryEstimate      Json?
+  salaryEstimatedAt   DateTime?
   jobDescription      String?
   isRecruitmentAgency Boolean   @default(false)
   recruiterName       String?
