@@ -1,4 +1,3 @@
-// src/modules/cv/ats-context-schema.ts
 import { z } from 'zod'
 
 export const ATSKeywordSchema = z.object({
