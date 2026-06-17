@@ -234,6 +234,7 @@ export function CvEditor({ cv }: Props) {
             <button
               onClick={() => setShowConfirm(true)}
               disabled={isPending}
+              aria-label={isPending ? 'Generating CV' : 'Regenerate CV'}
               className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted disabled:opacity-50"
             >
               {isPending
@@ -245,6 +246,7 @@ export function CvEditor({ cv }: Props) {
             <div className="relative">
               <button
                 onClick={() => setShowExport(v => !v)}
+                aria-label="Export CV"
                 className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted"
               >
                 <Download className="size-3.5" />
@@ -272,6 +274,7 @@ export function CvEditor({ cv }: Props) {
             </div>
             <button
               onClick={openPanel}
+              aria-label="Discuss CV with AI"
               className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted transition-colors"
             >
               <MessageSquare className="size-3.5" />
@@ -280,6 +283,7 @@ export function CvEditor({ cv }: Props) {
             {cv.jobApplicationId && cv.jobApplication?.jobDescription && (
               <button
                 onClick={() => setJobPanelOpen(o => !o)}
+                aria-label="Toggle job panel"
                 className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted transition-colors"
               >
                 <span className="hidden sm:inline">Job</span> ▸
@@ -287,6 +291,7 @@ export function CvEditor({ cv }: Props) {
             )}
             <button
               onClick={() => setAtsPanelOpen(o => !o)}
+              aria-label="Toggle ATS panel"
               className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted transition-colors"
             >
               <span className="hidden sm:inline">ATS</span> ▸
