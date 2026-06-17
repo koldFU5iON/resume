@@ -57,7 +57,7 @@ describe("SalaryEstimateSchema", () => {
   })
 
   it("accepts estimated without reasoning (optional)", () => {
-    const { reasoning, ...noReasoning } = estimated
+    const { reasoning: _reasoning, ...noReasoning } = estimated
     expect(SalaryEstimateSchema.safeParse(noReasoning).success).toBe(true)
   })
 

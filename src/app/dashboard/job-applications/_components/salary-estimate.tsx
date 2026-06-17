@@ -31,7 +31,7 @@ function formatRange(estimate: SalaryEstimateType): string {
   }
   if (estimate.min !== null) return `${prefix}${sym}${fmt(estimate.min)}+`
   if (estimate.max !== null) return `${prefix}up to ${sym}${fmt(estimate.max)}`
-  return `${prefix}${sym}?`
+  return 'not stated'
 }
 
 export function SalaryEstimate({ jobId, initialEstimate, hasJD, hasLLMKey, compact = false }: Props) {

@@ -68,7 +68,7 @@ export function JobSidebar({ job, hasLLMKey }: Props) {
       <Card>
         <CardContent className="flex flex-col gap-2 pt-4">
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            {job.salaryEstimate?.source === 'estimated' ? 'Salary estimate' : 'Salary'}
+            {job.salaryEstimate?.source === 'extracted' ? 'Salary' : 'Salary estimate'}
           </p>
           <SalaryEstimate
             jobId={job.id}
