@@ -17,7 +17,6 @@ const SECTION_LABELS: Record<string, string> = {
 // Palette: charcoal text, amber accent on all structural lines + containers
 const CHARCOAL = '#2D2D2D'
 const AMBER = '#B8862E'
-const AMBER_WASH = '#FBF6EE'
 
 // Type scale: 9.5pt body, 9pt secondary (labels/dates/titles), 8.5pt micro (headings/contact)
 const s = StyleSheet.create({
@@ -74,13 +73,6 @@ const s = StyleSheet.create({
     fontFamily: 'Helvetica-Bold',
     color: CHARCOAL,
     letterSpacing: 0.6,
-  },
-  tileWrap: {
-    backgroundColor: AMBER_WASH,
-    borderRadius: 4,
-    borderWidth: 0.5,
-    borderColor: AMBER,
-    padding: 8,
   },
   row: {
     flexDirection: 'row',
@@ -139,11 +131,7 @@ function SectionBody({ section }: { section: CVSection }) {
 
     case 'competencies':
     case 'capabilities':
-      return (
-        <View style={s.tileWrap}>
-          <TwoColList items={section.data.items} />
-        </View>
-      )
+      return <TwoColList items={section.data.items} />
 
     case 'experience': {
       const d = section.data as ExperienceData
