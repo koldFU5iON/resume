@@ -15,7 +15,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { updateSection, toggleVisibility, regenerateCVContent, addCustomSection } from '@/modules/cv/actions'
+import { DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
+import { SortableContext, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable'
+import { updateSection, toggleVisibility, regenerateCVContent, addCustomSection, reorderSections } from '@/modules/cv/actions'
 import { runATSScore } from '@/modules/cv/ats-score-action'
 import type { ATSScoreResult } from '@/modules/cv/ats-score-schema'
 import { toMarkdown, toText, sectionToPlainText } from '@/modules/cv/export'
@@ -69,6 +71,7 @@ export function CvEditor({ cv }: Props) {
 
   const { openPanel } = usePageContext()
   const router = useRouter()
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
   useWorkspaceContext({
     type: 'cv',
     cvId: cv.id,
@@ -155,6 +158,26 @@ export function CvEditor({ cv }: Props) {
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to add section')
     }
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const oldIndex = content.sections.findIndex(s => s.id === active.id)
+    const newIndex = content.sections.findIndex(s => s.id === over.id)
+    if (oldIndex === -1 || newIndex === -1) return
+
+    const prev = content
+    const reordered = arrayMove(content.sections, oldIndex, newIndex)
+    setContent(c => ({ ...c, sections: reordered }))
+    startTransition(async () => {
+      try {
+        await reorderSections(cv.id, reordered.map(s => s.id))
+      } catch {
+        setContent(prev)
+        toast.error('Failed to reorder sections. Please try again.')
+      }
+    })
   }
 
   async function handleRunATS() {
@@ -327,37 +350,41 @@ export function CvEditor({ cv }: Props) {
               </div>
             )}
             <div className="cv-document cv-print-area mx-auto w-full max-w-[794px] rounded-none shadow-none md:rounded-lg md:shadow-sm bg-background print:max-w-none print:shadow-none">
-              {content.sections.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-20 text-center">
-                  <p className="text-sm font-medium text-muted-foreground">No content yet</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Click Regenerate to generate your CV, or add a section below.
-                  </p>
-                  <div className="mt-4 w-full">
-                    <SectionGap onAdd={(heading, subtype) => handleAddCustomSection(heading, subtype, 0)} />
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <SectionGap onAdd={(heading, subtype) => handleAddCustomSection(heading, subtype, 0)} />
-                  {content.sections.map((section, index) => {
-                    const prevVisible = content.sections.slice(0, index).filter(s => s.visible).at(-1)
-                    const showHeading = prevVisible?.type !== section.type
-                    return (
-                      <Fragment key={section.id}>
-                        <CvBlock
-                          section={section}
-                          onToggleVisibility={() => handleToggleVisibility(section.id)}
-                          onCopy={() => handleCopySection(section)}
-                        >
-                          {renderBlock(section, handleUpdateSection, showHeading)}
-                        </CvBlock>
-                        <SectionGap onAdd={(heading, subtype) => handleAddCustomSection(heading, subtype, index + 1)} />
-                      </Fragment>
-                    )
-                  })}
-                </>
-              )}
+              <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+                <SortableContext items={content.sections.map(s => s.id)} strategy={verticalListSortingStrategy}>
+                  {content.sections.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-20 text-center">
+                      <p className="text-sm font-medium text-muted-foreground">No content yet</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Click Regenerate to generate your CV, or add a section below.
+                      </p>
+                      <div className="mt-4 w-full">
+                        <SectionGap onAdd={(heading, subtype) => handleAddCustomSection(heading, subtype, 0)} />
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <SectionGap onAdd={(heading, subtype) => handleAddCustomSection(heading, subtype, 0)} />
+                      {content.sections.map((section, index) => {
+                        const prevVisible = content.sections.slice(0, index).filter(s => s.visible).at(-1)
+                        const showHeading = prevVisible?.type !== section.type
+                        return (
+                          <Fragment key={section.id}>
+                            <CvBlock
+                              section={section}
+                              onToggleVisibility={() => handleToggleVisibility(section.id)}
+                              onCopy={() => handleCopySection(section)}
+                            >
+                              {renderBlock(section, handleUpdateSection, showHeading)}
+                            </CvBlock>
+                            <SectionGap onAdd={(heading, subtype) => handleAddCustomSection(heading, subtype, index + 1)} />
+                          </Fragment>
+                        )
+                      })}
+                    </>
+                  )}
+                </SortableContext>
+              </DndContext>
             </div>
           </div>
           {jobPanelOpen && cv.jobApplication && (
