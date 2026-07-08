@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition, useEffect } from 'react'
+import { useState, useTransition, useEffect, Fragment } from 'react'
 import { RotateCcw, Download, MessageSquare, Loader2, RefreshCw, X } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -15,11 +15,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { updateSection, toggleVisibility, regenerateCVContent, addCustomSection } from '@/modules/cv/actions'
+import { DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
+import { SortableContext, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable'
+import { updateSection, toggleVisibility, regenerateCVContent, addCustomSection, reorderSections } from '@/modules/cv/actions'
 import { runATSScore } from '@/modules/cv/ats-score-action'
 import type { ATSScoreResult } from '@/modules/cv/ats-score-schema'
 import { toMarkdown, toText, sectionToPlainText } from '@/modules/cv/export'
 import { SectionRail } from './section-rail'
+import { SectionGap } from './section-gap'
 import { CvBlock } from './cv-block'
 import { HeaderBlock } from './blocks/header-block'
 import { ProfileBlock } from './blocks/profile-block'
@@ -58,7 +61,8 @@ type Props = { cv: CVWithMeta }
 
 export function CvEditor({ cv }: Props) {
   const [content, setContent] = useState<CVDocumentContent>(cv.content)
-  const [isPending, startTransition] = useTransition()
+  const [, startTransition] = useTransition()
+  const [isRegenerating, setIsRegenerating] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
   const [showExport, setShowExport] = useState(false)
   const [jobPanelOpen, setJobPanelOpen] = useState(false)
@@ -68,6 +72,7 @@ export function CvEditor({ cv }: Props) {
 
   const { openPanel } = usePageContext()
   const router = useRouter()
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
   useWorkspaceContext({
     type: 'cv',
     cvId: cv.id,
@@ -88,6 +93,14 @@ export function CvEditor({ cv }: Props) {
     return () => window.removeEventListener('cv-section-updated', handleCvSectionUpdated as EventListener)
   }, [])
 
+  useEffect(() => {
+    function handleCvSectionCreated(e: CustomEvent<{ section: CVSection }>) {
+      setContent(c => ({ ...c, sections: [...c.sections, e.detail.section] }))
+    }
+    window.addEventListener('cv-section-created', handleCvSectionCreated as EventListener)
+    return () => window.removeEventListener('cv-section-created', handleCvSectionCreated as EventListener)
+  }, [])
+
   const displayTitle = cv.jobTitle && cv.company
     ? `${cv.jobTitle} · ${cv.company}`
     : 'Master CV'
@@ -100,47 +113,62 @@ export function CvEditor({ cv }: Props) {
     ? `${nameSlug}-CV-${roleSlug}_${companySlug}`
     : `${nameSlug}-CV`
 
-  function handleUpdateSection(section: CVSection) {
+  function optimisticMutate(next: CVDocumentContent, serverCall: () => Promise<unknown>, errorMessage: string) {
     const prev = content
-    setContent(c => ({
-      ...c,
-      sections: c.sections.map(s => s.id === section.id ? section : s),
-    }))
+    setContent(next)
     startTransition(async () => {
       try {
-        await updateSection(cv.id, section)
+        await serverCall()
       } catch {
         setContent(prev)
-        toast.error('Failed to save changes. Please try again.')
+        toast.error(errorMessage)
       }
     })
+  }
+
+  function handleUpdateSection(section: CVSection) {
+    optimisticMutate(
+      { ...content, sections: content.sections.map(s => s.id === section.id ? section : s) },
+      () => updateSection(cv.id, section),
+      'Failed to save changes. Please try again.',
+    )
   }
 
   function handleToggleVisibility(sectionId: string) {
-    const prev = content
-    setContent(c => ({
-      ...c,
-      sections: c.sections.map(s =>
-        s.id === sectionId ? { ...s, visible: !s.visible } : s
-      ),
-    }))
-    startTransition(async () => {
-      try {
-        await toggleVisibility(cv.id, sectionId)
-      } catch {
-        setContent(prev)
-        toast.error('Failed to save changes. Please try again.')
-      }
-    })
+    optimisticMutate(
+      { ...content, sections: content.sections.map(s => s.id === sectionId ? { ...s, visible: !s.visible } : s) },
+      () => toggleVisibility(cv.id, sectionId),
+      'Failed to save changes. Please try again.',
+    )
   }
 
-  async function handleAddCustomSection(heading: string, subtype: 'text' | 'list') {
+  async function handleAddCustomSection(heading: string, subtype: 'text' | 'list', insertIndex?: number) {
     try {
-      const newSection = await addCustomSection(cv.id, heading, subtype)
-      setContent(c => ({ ...c, sections: [...c.sections, newSection] }))
+      const newSection = await addCustomSection(cv.id, heading, subtype, insertIndex)
+      setContent(c => {
+        const idx = Math.max(0, Math.min(insertIndex ?? c.sections.length, c.sections.length))
+        const sections = [...c.sections]
+        sections.splice(idx, 0, newSection)
+        return { ...c, sections }
+      })
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to add section')
     }
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const oldIndex = content.sections.findIndex(s => s.id === active.id)
+    const newIndex = content.sections.findIndex(s => s.id === over.id)
+    if (oldIndex === -1 || newIndex === -1) return
+
+    const reordered = arrayMove(content.sections, oldIndex, newIndex)
+    optimisticMutate(
+      { ...content, sections: reordered },
+      () => reorderSections(cv.id, reordered.map(s => s.id)),
+      'Failed to reorder sections. Please try again.',
+    )
   }
 
   async function handleRunATS() {
@@ -166,6 +194,7 @@ export function CvEditor({ cv }: Props) {
 
   function confirmRegenerate() {
     setShowConfirm(false)
+    setIsRegenerating(true)
     startTransition(async () => {
       try {
         const newContent = await regenerateCVContent(cv.id)
@@ -173,6 +202,8 @@ export function CvEditor({ cv }: Props) {
         toast.success('CV regenerated successfully')
       } catch (err) {
         toast.error(err instanceof Error ? err.message : 'Regeneration failed')
+      } finally {
+        setIsRegenerating(false)
       }
     })
   }
@@ -233,14 +264,14 @@ export function CvEditor({ cv }: Props) {
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShowConfirm(true)}
-              disabled={isPending}
+              disabled={isRegenerating}
               className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted disabled:opacity-50"
             >
-              {isPending
+              {isRegenerating
                 ? <Loader2 className="size-3.5 animate-spin" />
                 : <RotateCcw className="size-3.5" />
               }
-              {isPending ? 'Generating…' : 'Regenerate'}
+              {isRegenerating ? 'Generating…' : 'Regenerate'}
             </button>
             <div className="relative">
               <button
@@ -305,7 +336,7 @@ export function CvEditor({ cv }: Props) {
         {/* Body */}
         <div className="relative flex flex-1 overflow-hidden print:overflow-visible print:h-auto print:block">
           <div className="relative flex-1 overflow-y-auto bg-muted/30 p-0 md:p-6 print:overflow-visible print:h-auto print:bg-white print:p-0">
-            {isPending && (
+            {isRegenerating && (
               <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-background/60 backdrop-blur-sm print:hidden">
                 <Loader2 className="size-8 animate-spin text-muted-foreground" />
                 <p className="text-sm font-medium text-muted-foreground">Generating your CV…</p>
@@ -313,29 +344,41 @@ export function CvEditor({ cv }: Props) {
               </div>
             )}
             <div className="cv-document cv-print-area mx-auto w-full max-w-[794px] rounded-none shadow-none md:rounded-lg md:shadow-sm bg-background print:max-w-none print:shadow-none">
-              {content.sections.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-20 text-center">
-                  <p className="text-sm font-medium text-muted-foreground">No content yet</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Click Regenerate to generate your CV.
-                  </p>
-                </div>
-              ) : (
-                content.sections.map((section, index) => {
-                  const prevVisible = content.sections.slice(0, index).filter(s => s.visible).at(-1)
-                  const showHeading = prevVisible?.type !== section.type
-                  return (
-                    <CvBlock
-                      key={section.id}
-                      section={section}
-                      onToggleVisibility={() => handleToggleVisibility(section.id)}
-                      onCopy={() => handleCopySection(section)}
-                    >
-                      {renderBlock(section, handleUpdateSection, showHeading)}
-                    </CvBlock>
-                  )
-                })
-              )}
+              <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+                <SortableContext items={content.sections.map(s => s.id)} strategy={verticalListSortingStrategy}>
+                  {content.sections.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-20 text-center">
+                      <p className="text-sm font-medium text-muted-foreground">No content yet</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Click Regenerate to generate your CV, or add a section below.
+                      </p>
+                      <div className="mt-4 w-full">
+                        <SectionGap onAdd={(heading, subtype) => handleAddCustomSection(heading, subtype, 0)} />
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <SectionGap onAdd={(heading, subtype) => handleAddCustomSection(heading, subtype, 0)} />
+                      {content.sections.map((section, index) => {
+                        const prevVisible = content.sections.slice(0, index).filter(s => s.visible).at(-1)
+                        const showHeading = prevVisible?.type !== section.type
+                        return (
+                          <Fragment key={section.id}>
+                            <CvBlock
+                              section={section}
+                              onToggleVisibility={() => handleToggleVisibility(section.id)}
+                              onCopy={() => handleCopySection(section)}
+                            >
+                              {renderBlock(section, handleUpdateSection, showHeading)}
+                            </CvBlock>
+                            <SectionGap onAdd={(heading, subtype) => handleAddCustomSection(heading, subtype, index + 1)} />
+                          </Fragment>
+                        )
+                      })}
+                    </>
+                  )}
+                </SortableContext>
+              </DndContext>
             </div>
           </div>
           {jobPanelOpen && cv.jobApplication && (
@@ -424,7 +467,6 @@ export function CvEditor({ cv }: Props) {
             atsRunning={atsRunning}
             onRunATS={handleRunATS}
             onOpenATS={() => setAtsPanelOpen(true)}
-            onAddCustomSection={handleAddCustomSection}
             hasJobDescription={!!(cv.jobApplication?.jobDescription)}
           />
         </div>

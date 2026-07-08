@@ -78,4 +78,14 @@ describe('buildSystemPrompt', () => {
     })
     expect(result).toContain('Stripe Application')
   })
+
+  it('mentions propose_cv_section_create for cv page context regardless of ATS score', async () => {
+    const result = await buildSystemPrompt('profile-1', {
+      type: 'cv',
+      cvId: 'cv-1',
+      title: 'Stripe Application',
+      company: 'Stripe',
+    })
+    expect(result).toContain('propose_cv_section_create')
+  })
 })

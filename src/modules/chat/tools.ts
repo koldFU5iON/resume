@@ -340,6 +340,21 @@ export function createChatTools(profileId: string) {
       ),
     }),
 
+    propose_cv_section_create: tool({
+      description:
+        "Propose adding a new custom section to a CV document. Use when the CV is " +
+        "missing a section the user wants (e.g. a section that doesn't map to an " +
+        "existing type). The user must confirm before it is applied.",
+      inputSchema: zodSchema(
+        z.object({
+          cvId: z.string(),
+          heading: z.string().describe('The heading for the new section'),
+          subtype: z.enum(['text', 'list']),
+          rationale: z.string().describe('Why this section should be added'),
+        }),
+      ),
+    }),
+
     propose_cv_update: tool({
       description:
         'Propose an update to a section of a CV document. The user must confirm before it is applied.',

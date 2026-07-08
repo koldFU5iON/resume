@@ -126,16 +126,17 @@ async function buildBreadcrumbs(profileId: string): Promise<string | null> {
 function formatPageContext(ctx: PageContext): string {
   switch (ctx.type) {
     case 'cv': {
-      let text =
+      const text =
         `User is reviewing CV: "${ctx.title}"${ctx.company ? ` (for ${ctx.company})` : ''}\n` +
-        `CV ID: ${ctx.cvId} — use this with get_cv_document to fetch full content`
+        `CV ID: ${ctx.cvId} — use this with get_cv_document to fetch full content\n` +
+        `Use propose_cv_update to edit an existing section, or propose_cv_section_create if ` +
+        `the CV is missing a section entirely.`
       if (ctx.atsScore) {
-        text +=
+        return text +
           `\n\n<ats_score>\n${ctx.atsScore}\n</ats_score>\n` +
           `The user has run an ATS check on this CV. Reference the breakdown above when advising ` +
-          `on CV improvements. Use propose_cv_update to suggest specific section changes. ` +
-          `Only recommend adding content that exists in the user's profile — do not suggest ` +
-          `fabricating skills or experience the candidate does not have.`
+          `on CV improvements. Only recommend adding content that exists in the user's profile — ` +
+          `do not suggest fabricating skills or experience the candidate does not have.`
       }
       return text
     }
