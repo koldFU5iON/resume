@@ -50,6 +50,7 @@ const TOOL_LABELS: Record<string, string> = {
   propose_profile_update: 'Update profile field',
   propose_tool_create: 'Add tool to profile',
   propose_cv_update: 'Update CV section',
+  propose_cv_section_create: 'Add CV section',
   propose_prep_note_update: 'Update prep note',
   propose_cover_letter_update: 'Update cover letter',
   propose_cover_letter_section_update: 'Update cover letter paragraph',
@@ -126,7 +127,8 @@ export function ToolConfirmationCard({ toolName, args, onAccept, onReject, write
         if (toolName === 'propose_cover_letter_update') return null
         if (toolName === 'propose_cover_letter_section_update') return null
         const display = args.proposedValue ?? args.proposedContent ??
-          (args.name != null ? `${args.name}${args.category ? ` · ${args.category}` : ''}` : undefined)
+          (args.name != null ? `${args.name}${args.category ? ` · ${args.category}` : ''}` : undefined) ??
+          (args.heading != null ? `${args.heading} (${args.subtype ?? 'text'})` : undefined)
         return display !== undefined ? (
           <div className="mb-3 rounded-md bg-green-50 px-2.5 py-1.5 text-xs text-green-700 dark:bg-green-950 dark:text-green-400">
             {String(display)}

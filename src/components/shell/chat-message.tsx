@@ -42,7 +42,7 @@ function CodeBlock({ children }: { children: React.ReactNode }) {
     </div>
   )
 }
-import { patchCVSectionData } from '@/modules/cv/actions'
+import { patchCVSectionData, addCustomSection } from '@/modules/cv/actions'
 import { patchProfileField, createTool } from '@/modules/profile/actions'
 import { updateBlock } from '@/modules/interview-prep/actions'
 import { updateCoverLetterContent, updateCoverLetterSection } from '@/modules/cover-letters/actions'
@@ -56,6 +56,11 @@ function buildWriteAction(toolName: string, args: Record<string, unknown>): (() 
       args.sectionId as string,
       args.proposedData as Record<string, unknown>,
     )
+  }
+  if (toolName === 'propose_cv_section_create') {
+    return async () => {
+      await addCustomSection(args.cvId as string, args.heading as string, args.subtype as 'text' | 'list')
+    }
   }
   if (toolName === 'propose_profile_update') {
     return () => patchProfileField(args.field as string, args.proposedValue as string)
