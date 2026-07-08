@@ -88,6 +88,14 @@ export function CvEditor({ cv }: Props) {
     return () => window.removeEventListener('cv-section-updated', handleCvSectionUpdated as EventListener)
   }, [])
 
+  useEffect(() => {
+    function handleCvSectionCreated(e: CustomEvent<{ section: CVSection }>) {
+      setContent(c => ({ ...c, sections: [...c.sections, e.detail.section] }))
+    }
+    window.addEventListener('cv-section-created', handleCvSectionCreated as EventListener)
+    return () => window.removeEventListener('cv-section-created', handleCvSectionCreated as EventListener)
+  }, [])
+
   const displayTitle = cv.jobTitle && cv.company
     ? `${cv.jobTitle} · ${cv.company}`
     : 'Master CV'

@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import type { CVSection } from '@/modules/cv/schema'
 
 class MarkdownPreview extends React.Component<
   { content: string },
@@ -43,7 +44,7 @@ type Props = {
   args: Record<string, unknown>
   onAccept: () => void
   onReject: () => void
-  writeAction?: () => Promise<string | void>
+  writeAction?: () => Promise<string | CVSection | void>
 }
 
 const TOOL_LABELS: Record<string, string> = {
@@ -69,6 +70,11 @@ export function ToolConfirmationCard({ toolName, args, onAccept, onReject, write
       if (toolName === 'propose_cv_update') {
         window.dispatchEvent(new CustomEvent('cv-section-updated', {
           detail: { sectionId: args.sectionId, proposedData: args.proposedData },
+        }))
+      }
+      if (toolName === 'propose_cv_section_create') {
+        window.dispatchEvent(new CustomEvent('cv-section-created', {
+          detail: { section: result },
         }))
       }
       if (toolName === 'propose_cover_letter_update') {
