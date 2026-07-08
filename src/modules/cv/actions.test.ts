@@ -106,6 +106,13 @@ describe('reorderSections', () => {
     expect(mockUpdate).not.toHaveBeenCalled()
   })
 
+  it('throws when the id list contains a duplicate id', async () => {
+    mockFindFirst.mockResolvedValue({ id: 'cv-1', generatedContent: contentWith([header, skills]) } as never)
+
+    await expect(reorderSections('cv-1', ['s1', 's1'])).rejects.toThrow('Section list out of sync')
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
   it('throws when the CV is not found', async () => {
     mockFindFirst.mockResolvedValue(null)
     await expect(reorderSections('cv-missing', [])).rejects.toThrow('CV not found')

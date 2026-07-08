@@ -202,6 +202,7 @@ export async function reorderSections(cvId: string, orderedSectionIds: string[])
   const byId = new Map(content.sections.map(s => [s.id, s]))
   const isPermutation =
     orderedSectionIds.length === content.sections.length &&
+    new Set(orderedSectionIds).size === orderedSectionIds.length &&
     orderedSectionIds.every(id => byId.has(id))
   if (!isPermutation) throw new Error('Section list out of sync')
 
