@@ -158,6 +158,7 @@ export async function addCustomSection(
   cvId: string,
   heading: string,
   subtype: 'text' | 'list',
+  insertIndex?: number,
 ): Promise<CVSection> {
   const { profile } = await requireProfile()
   const doc = await prisma.cVDocument.findFirst({
@@ -178,7 +179,8 @@ export async function addCustomSection(
       items: subtype === 'list' ? [] : null,
     },
   }
-  content.sections.push(newSection)
+  const idx = Math.max(0, Math.min(insertIndex ?? content.sections.length, content.sections.length))
+  content.sections.splice(idx, 0, newSection)
 
   await prisma.cVDocument.update({
     where: { id: cvId },
@@ -186,6 +188,30 @@ export async function addCustomSection(
   })
   revalidatePath(`/dashboard/cv-builder/${cvId}`)
   return newSection
+}
+
+export async function reorderSections(cvId: string, orderedSectionIds: string[]): Promise<void> {
+  const { profile } = await requireProfile()
+  const doc = await prisma.cVDocument.findFirst({
+    where: { id: cvId, profileId: profile.id },
+    select: { id: true, generatedContent: true },
+  })
+  if (!doc) throw new Error('CV not found')
+
+  const content = parseCVContent(doc.generatedContent)
+  const byId = new Map(content.sections.map(s => [s.id, s]))
+  const isPermutation =
+    orderedSectionIds.length === content.sections.length &&
+    orderedSectionIds.every(id => byId.has(id))
+  if (!isPermutation) throw new Error('Section list out of sync')
+
+  content.sections = orderedSectionIds.map(id => byId.get(id)!)
+
+  await prisma.cVDocument.update({
+    where: { id: cvId },
+    data: { generatedContent: JSON.stringify(content) },
+  })
+  revalidatePath(`/dashboard/cv-builder/${cvId}`)
 }
 
 export async function regenerateCVContent(cvId: string): Promise<CVDocumentContent> {
