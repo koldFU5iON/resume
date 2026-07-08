@@ -432,7 +432,6 @@ export function CvEditor({ cv }: Props) {
             atsRunning={atsRunning}
             onRunATS={handleRunATS}
             onOpenATS={() => setAtsPanelOpen(true)}
-            onAddCustomSection={handleAddCustomSection}
             hasJobDescription={!!(cv.jobApplication?.jobDescription)}
           />
         </div>
