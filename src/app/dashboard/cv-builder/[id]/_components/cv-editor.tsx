@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition, useEffect } from 'react'
+import { useState, useTransition, useEffect, Fragment } from 'react'
 import { RotateCcw, Download, MessageSquare, Loader2, RefreshCw, X } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -20,6 +20,7 @@ import { runATSScore } from '@/modules/cv/ats-score-action'
 import type { ATSScoreResult } from '@/modules/cv/ats-score-schema'
 import { toMarkdown, toText, sectionToPlainText } from '@/modules/cv/export'
 import { SectionRail } from './section-rail'
+import { SectionGap } from './section-gap'
 import { CvBlock } from './cv-block'
 import { HeaderBlock } from './blocks/header-block'
 import { ProfileBlock } from './blocks/profile-block'
@@ -142,10 +143,15 @@ export function CvEditor({ cv }: Props) {
     })
   }
 
-  async function handleAddCustomSection(heading: string, subtype: 'text' | 'list') {
+  async function handleAddCustomSection(heading: string, subtype: 'text' | 'list', insertIndex?: number) {
     try {
-      const newSection = await addCustomSection(cv.id, heading, subtype)
-      setContent(c => ({ ...c, sections: [...c.sections, newSection] }))
+      const newSection = await addCustomSection(cv.id, heading, subtype, insertIndex)
+      setContent(c => {
+        const idx = Math.max(0, Math.min(insertIndex ?? c.sections.length, c.sections.length))
+        const sections = [...c.sections]
+        sections.splice(idx, 0, newSection)
+        return { ...c, sections }
+      })
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to add section')
     }
@@ -325,24 +331,32 @@ export function CvEditor({ cv }: Props) {
                 <div className="flex flex-col items-center justify-center py-20 text-center">
                   <p className="text-sm font-medium text-muted-foreground">No content yet</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Click Regenerate to generate your CV.
+                    Click Regenerate to generate your CV, or add a section below.
                   </p>
+                  <div className="mt-4 w-full">
+                    <SectionGap onAdd={(heading, subtype) => handleAddCustomSection(heading, subtype, 0)} />
+                  </div>
                 </div>
               ) : (
-                content.sections.map((section, index) => {
-                  const prevVisible = content.sections.slice(0, index).filter(s => s.visible).at(-1)
-                  const showHeading = prevVisible?.type !== section.type
-                  return (
-                    <CvBlock
-                      key={section.id}
-                      section={section}
-                      onToggleVisibility={() => handleToggleVisibility(section.id)}
-                      onCopy={() => handleCopySection(section)}
-                    >
-                      {renderBlock(section, handleUpdateSection, showHeading)}
-                    </CvBlock>
-                  )
-                })
+                <>
+                  <SectionGap onAdd={(heading, subtype) => handleAddCustomSection(heading, subtype, 0)} />
+                  {content.sections.map((section, index) => {
+                    const prevVisible = content.sections.slice(0, index).filter(s => s.visible).at(-1)
+                    const showHeading = prevVisible?.type !== section.type
+                    return (
+                      <Fragment key={section.id}>
+                        <CvBlock
+                          section={section}
+                          onToggleVisibility={() => handleToggleVisibility(section.id)}
+                          onCopy={() => handleCopySection(section)}
+                        >
+                          {renderBlock(section, handleUpdateSection, showHeading)}
+                        </CvBlock>
+                        <SectionGap onAdd={(heading, subtype) => handleAddCustomSection(heading, subtype, index + 1)} />
+                      </Fragment>
+                    )
+                  })}
+                </>
               )}
             </div>
           </div>
