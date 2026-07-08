@@ -61,7 +61,8 @@ type Props = { cv: CVWithMeta }
 
 export function CvEditor({ cv }: Props) {
   const [content, setContent] = useState<CVDocumentContent>(cv.content)
-  const [isPending, startTransition] = useTransition()
+  const [, startTransition] = useTransition()
+  const [isRegenerating, setIsRegenerating] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
   const [showExport, setShowExport] = useState(false)
   const [jobPanelOpen, setJobPanelOpen] = useState(false)
@@ -112,38 +113,33 @@ export function CvEditor({ cv }: Props) {
     ? `${nameSlug}-CV-${roleSlug}_${companySlug}`
     : `${nameSlug}-CV`
 
-  function handleUpdateSection(section: CVSection) {
+  function optimisticMutate(next: CVDocumentContent, serverCall: () => Promise<unknown>, errorMessage: string) {
     const prev = content
-    setContent(c => ({
-      ...c,
-      sections: c.sections.map(s => s.id === section.id ? section : s),
-    }))
+    setContent(next)
     startTransition(async () => {
       try {
-        await updateSection(cv.id, section)
+        await serverCall()
       } catch {
         setContent(prev)
-        toast.error('Failed to save changes. Please try again.')
+        toast.error(errorMessage)
       }
     })
   }
 
+  function handleUpdateSection(section: CVSection) {
+    optimisticMutate(
+      { ...content, sections: content.sections.map(s => s.id === section.id ? section : s) },
+      () => updateSection(cv.id, section),
+      'Failed to save changes. Please try again.',
+    )
+  }
+
   function handleToggleVisibility(sectionId: string) {
-    const prev = content
-    setContent(c => ({
-      ...c,
-      sections: c.sections.map(s =>
-        s.id === sectionId ? { ...s, visible: !s.visible } : s
-      ),
-    }))
-    startTransition(async () => {
-      try {
-        await toggleVisibility(cv.id, sectionId)
-      } catch {
-        setContent(prev)
-        toast.error('Failed to save changes. Please try again.')
-      }
-    })
+    optimisticMutate(
+      { ...content, sections: content.sections.map(s => s.id === sectionId ? { ...s, visible: !s.visible } : s) },
+      () => toggleVisibility(cv.id, sectionId),
+      'Failed to save changes. Please try again.',
+    )
   }
 
   async function handleAddCustomSection(heading: string, subtype: 'text' | 'list', insertIndex?: number) {
@@ -167,17 +163,12 @@ export function CvEditor({ cv }: Props) {
     const newIndex = content.sections.findIndex(s => s.id === over.id)
     if (oldIndex === -1 || newIndex === -1) return
 
-    const prev = content
     const reordered = arrayMove(content.sections, oldIndex, newIndex)
-    setContent(c => ({ ...c, sections: reordered }))
-    startTransition(async () => {
-      try {
-        await reorderSections(cv.id, reordered.map(s => s.id))
-      } catch {
-        setContent(prev)
-        toast.error('Failed to reorder sections. Please try again.')
-      }
-    })
+    optimisticMutate(
+      { ...content, sections: reordered },
+      () => reorderSections(cv.id, reordered.map(s => s.id)),
+      'Failed to reorder sections. Please try again.',
+    )
   }
 
   async function handleRunATS() {
@@ -203,6 +194,7 @@ export function CvEditor({ cv }: Props) {
 
   function confirmRegenerate() {
     setShowConfirm(false)
+    setIsRegenerating(true)
     startTransition(async () => {
       try {
         const newContent = await regenerateCVContent(cv.id)
@@ -210,6 +202,8 @@ export function CvEditor({ cv }: Props) {
         toast.success('CV regenerated successfully')
       } catch (err) {
         toast.error(err instanceof Error ? err.message : 'Regeneration failed')
+      } finally {
+        setIsRegenerating(false)
       }
     })
   }
@@ -270,14 +264,14 @@ export function CvEditor({ cv }: Props) {
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShowConfirm(true)}
-              disabled={isPending}
+              disabled={isRegenerating}
               className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted disabled:opacity-50"
             >
-              {isPending
+              {isRegenerating
                 ? <Loader2 className="size-3.5 animate-spin" />
                 : <RotateCcw className="size-3.5" />
               }
-              {isPending ? 'Generating…' : 'Regenerate'}
+              {isRegenerating ? 'Generating…' : 'Regenerate'}
             </button>
             <div className="relative">
               <button
@@ -342,7 +336,7 @@ export function CvEditor({ cv }: Props) {
         {/* Body */}
         <div className="relative flex flex-1 overflow-hidden print:overflow-visible print:h-auto print:block">
           <div className="relative flex-1 overflow-y-auto bg-muted/30 p-0 md:p-6 print:overflow-visible print:h-auto print:bg-white print:p-0">
-            {isPending && (
+            {isRegenerating && (
               <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-background/60 backdrop-blur-sm print:hidden">
                 <Loader2 className="size-8 animate-spin text-muted-foreground" />
                 <p className="text-sm font-medium text-muted-foreground">Generating your CV…</p>
