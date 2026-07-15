@@ -1,6 +1,7 @@
-import { Document, Page, View, Text, StyleSheet } from '@react-pdf/renderer'
+import { Document, Page, View, Text, Link, StyleSheet } from '@react-pdf/renderer'
 import type { CVWithMeta } from '../dashboard/cv-builder/[id]/_components/cv-editor'
 import type { CVSection, HeaderData, ExperienceData, EducationData, CertificationData, LanguagesData, CustomData } from '@/modules/cv/schema'
+import { parseInlineMarkdown } from '@/modules/cv/inline-markdown'
 
 const SECTION_LABELS: Record<string, string> = {
   profile: 'Profile',
@@ -81,6 +82,7 @@ const s = StyleSheet.create({
   },
   bold: { fontFamily: 'Helvetica-Bold' },
   italic: { fontFamily: 'Helvetica-Oblique' },
+  link: { color: AMBER, textDecoration: 'none' },
   // Secondary: job titles, dates, locations — intentionally smaller than body
   meta: { fontSize: 9, color: '#111111' },
   metaRight: { fontSize: 9, color: '#111111', flexShrink: 0, textAlign: 'right' },
@@ -94,6 +96,28 @@ const s = StyleSheet.create({
   col: { flex: 1 },
   colItem: { marginBottom: 2.5 },
 })
+
+// Renders **bold**, *italic*, and bare emails/URLs as styled react-pdf runs
+// inside a single <Text> block. Line breaks in the source string are
+// preserved as-is by react-pdf's Text component.
+function InlineMarkdown({ text }: { text: string }) {
+  return (
+    <>
+      {parseInlineMarkdown(text).map((token, i) => {
+        switch (token.type) {
+          case 'bold':
+            return <Text key={i} style={s.bold}>{token.value}</Text>
+          case 'italic':
+            return <Text key={i} style={s.italic}>{token.value}</Text>
+          case 'link':
+            return <Link key={i} src={token.href} style={s.link}>{token.value}</Link>
+          default:
+            return token.value
+        }
+      })}
+    </>
+  )
+}
 
 function SectionHeading({ label }: { label: string }) {
   return (
@@ -127,7 +151,7 @@ function getSectionLabel(section: CVSection): string | undefined {
 function SectionBody({ section }: { section: CVSection }) {
   switch (section.type) {
     case 'profile':
-      return <Text>{section.data.content}</Text>
+      return <Text><InlineMarkdown text={section.data.content} /></Text>
 
     case 'competencies':
     case 'capabilities':
@@ -190,13 +214,13 @@ function SectionBody({ section }: { section: CVSection }) {
     case 'custom': {
       const d = section.data as CustomData
       return d.subtype === 'text'
-        ? <Text>{d.content ?? ''}</Text>
+        ? <Text><InlineMarkdown text={d.content ?? ''} /></Text>
         : (
           <View>
             {(d.items ?? []).map((item, i) => (
               <View key={i} style={s.bullet}>
                 <Text style={s.bulletDash}>-</Text>
-                <Text style={s.bulletText}>{item}</Text>
+                <Text style={s.bulletText}><InlineMarkdown text={item} /></Text>
               </View>
             ))}
           </View>
