@@ -121,7 +121,13 @@ function InlineMarkdown({ text }: { text: string }) {
 
 function SectionHeading({ label }: { label: string }) {
   return (
-    <View style={s.sectionHeadingWrap}>
+    // wrap={false} keeps the heading itself from splitting internally.
+    // minPresenceAhead defers it to the next page unless some room remains
+    // for content to follow — but that guard only takes effect when the
+    // heading has already-placed siblings ahead of it in the same
+    // pagination pass, which is why it must render as a sibling of
+    // SectionBody rather than nested inside a shared wrapper (see below).
+    <View style={s.sectionHeadingWrap} wrap={false} minPresenceAhead={40}>
       <Text style={s.sectionHeadingText}>{label.toUpperCase()}</Text>
     </View>
   )
@@ -264,12 +270,18 @@ export function CVPDFDocument({ cv }: { cv: CVWithMeta }) {
           // sub-heading get much tighter spacing than full sections like experience.
           const COMPACT_TYPES = new Set(['certification', 'skills', 'tools', 'languages'])
           const compact = !isFirst && COMPACT_TYPES.has(section.type)
-          return (
-            <View key={i} style={compact ? s.sectionCompact : s.section}>
-              {isFirst && label ? <SectionHeading label={label} /> : null}
+          // The heading renders as a page-level sibling of the body View,
+          // not nested inside a shared wrapper — react-pdf's pagination
+          // only lets minPresenceAhead defer an orphaned heading to the
+          // next page when it has already-placed siblings ahead of it in
+          // the same pass, which a nested wrapper (where the heading is
+          // always the first child) would prevent.
+          return [
+            isFirst && label ? <SectionHeading key={`${i}-heading`} label={label} /> : null,
+            <View key={`${i}-body`} style={compact ? s.sectionCompact : s.section}>
               <SectionBody section={section} />
-            </View>
-          )
+            </View>,
+          ]
         })}
       </Page>
     </Document>
