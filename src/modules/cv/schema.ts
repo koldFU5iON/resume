@@ -20,6 +20,7 @@ export const CapabilitiesDataSchema = z.object({ items: z.array(z.string()) })
 export const ExperienceDataSchema = z.object({
   company: z.string(),
   titles: z.array(z.string()),
+  subtitle: z.string().nullish(),
   location: z.string(),
   duration: z.string(),
   description: z.string(),

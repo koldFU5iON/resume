@@ -18,7 +18,7 @@ Section types and their data shapes:
 - profile:       { content }  -- prose, Markdown allowed
 - competencies:  { items: string[] }
 - capabilities:  { items: string[] }
-- experience:    { company, titles: string[], location, duration, description, outcomes: string[] }
+- experience:    { company, titles: string[], subtitle?, location, duration, description, outcomes: string[] }
 - education:     { institution, qualification, field?, duration, grade? }
 - certification: { name, issuer?, date?, url? }
 - skills:        { items: string[] }

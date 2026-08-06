@@ -356,7 +356,7 @@ export function CoverLetterWorkspace({ letter }: { letter: CoverLetterWithJob })
                 autoFocus={showEditor && content === ''}
               />
             ) : (
-              <div className="prose prose-sm dark:prose-invert max-w-none">
+              <div className="page-break-guides page-break-guides-content prose prose-sm dark:prose-invert max-w-none">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
                   {content || '*No content yet.*'}
                 </ReactMarkdown>

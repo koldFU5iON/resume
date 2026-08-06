@@ -24,7 +24,7 @@ Section types and their data shapes:
 - profile:       { content }  -- prose, Markdown allowed
 - competencies:  { items: string[] }
 - capabilities:  { items: string[] }
-- experience:    { company, titles: string[], location, duration, description, outcomes: string[] }
+- experience:    { company, titles: string[], subtitle?, location, duration, description, outcomes: string[] }
 - education:     { institution, qualification, field?, duration, grade? }
 - certification: { name, issuer?, date?, url? }
 - skills:        { items: string[] }
@@ -85,7 +85,7 @@ export function formatMasterCVNarrative(content: CVDocumentContent | null): stri
     for (const exp of experience) {
       const title = exp.titles.join('/')
       lines.push(
-        `- ${exp.company}${title ? ` | ${title}` : ''} — ${exp.description}${
+        `- ${exp.company}${title ? ` | ${title}` : ''}${exp.subtitle ? ` (${exp.subtitle})` : ''} — ${exp.description}${
           exp.outcomes.length ? ` Outcomes: ${exp.outcomes.join('; ')}` : ''
         }`,
       )

@@ -11,6 +11,7 @@ A CV is a marketing document. Every sentence must justify the space it consumes.
 - Order experiences most-recent first
 - Omit a section entirely if the profile has no relevant data for it
 - Achievement bullets must lead with an action verb
+- Experience `subtitle` (optional): use one short phrase that clarifies title changes or promotions within a company — e.g. "Promoted to Senior PM in 2021" or "Progressed through 3 roles". Only include it when the titles array spans a promotion or role change; omit it otherwise.
 
 ## Evidence scoring — apply to every bullet
 

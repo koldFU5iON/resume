@@ -11,11 +11,11 @@
 
 .cv-document {
   /* ---- Type scale ---- */
-  --cv-size-name:     1.25rem;    /* 20px  ≈ 15pt  — candidate name      */
-  --cv-size-headline: 0.8125rem;  /* 13px  ≈ 10pt  — headline / role     */
-  --cv-size-section:  0.6875rem;  /* 11px  ≈ 8pt   — section labels      */
-  --cv-size-body:     0.75rem;    /* 12px  = 9pt   — body text minimum   */
-  --cv-size-meta:     0.6875rem;  /* 11px  ≈ 8pt   — dates, location     */
+  --cv-size-name:     1.375rem;   /* 22px  ≈ 16.5pt — candidate name      */
+  --cv-size-headline: 0.9375rem;  /* 15px  ≈ 11pt   — headline / role     */
+  --cv-size-section:  0.75rem;    /* 12px  = 9pt    — section labels      */
+  --cv-size-body:     0.875rem;   /* 14px  = 10.5pt — body text minimum   */
+  --cv-size-meta:     0.75rem;    /* 12px  = 9pt    — dates, location     */
 
   /* ---- Spacing ---- */
   --cv-block-px: 1.875rem; /* horizontal block padding on screen  */
@@ -60,7 +60,7 @@
   line-height: 1.3;
 }
 
-/* Body copy — descriptions, profile prose. Minimum 9pt. */
+/* Body copy — descriptions, profile prose. Minimum 10.5pt. */
 .cv-body {
   font-size: var(--cv-size-body);
   line-height: 1.5;
@@ -79,6 +79,33 @@
   font-size: var(--cv-size-meta);
   line-height: 1.4;
   color: var(--muted-foreground);
+}
+
+/* ---- Page-break guides ---- */
+/* Thin line every 297mm (A4 height) marking where content will break when
+   printed. Screen-only — hidden from printed output. The interval can be
+   overridden for outputs whose content area is shorter than the full page. */
+.page-break-guides {
+  --guide-interval: 297mm;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent calc(var(--guide-interval) - 1.5px),
+    rgba(128, 128, 128, 0.5) calc(var(--guide-interval) - 1.5px),
+    rgba(128, 128, 128, 0.5) var(--guide-interval)
+  );
+}
+
+/* Cover letters export via react-pdf with 14mm top+bottom page padding, so
+   content breaks 28mm sooner than the full A4 height. */
+.page-break-guides-content {
+  --guide-interval: 269mm;
+}
+
+/* Keep each section on a single page where possible — this is what makes the
+   on-screen page-break guides reflect where print will actually break. */
+.cv-document-block {
+  break-inside: avoid;
 }
 
 /* ---- Prose override ---- */
@@ -119,6 +146,10 @@
     border-radius: 0 !important;
     box-shadow: none !important;
     padding: 12mm 15mm;
+  }
+
+  .page-break-guides {
+    background-image: none !important;
   }
 
   /* Remove on-screen horizontal padding — .cv-document padding handles it */

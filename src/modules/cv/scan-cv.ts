@@ -39,6 +39,7 @@ export function serializeCVForScan(content: CVDocumentContent): string {
       case 'experience': {
         const d = section.data
         lines.push(`${d.titles.join(' / ')} — ${d.company} | ${d.duration}`)
+        if (d.subtitle) lines.push(d.subtitle)
         if (d.description) lines.push(d.description)
         for (const outcome of d.outcomes) lines.push(`• ${outcome}`)
         break

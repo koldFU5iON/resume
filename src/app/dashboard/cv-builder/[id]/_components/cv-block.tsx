@@ -32,7 +32,7 @@ export function CvBlock({ section, onToggleVisibility, onCopy, children }: Props
       <div
         ref={setNodeRef}
         style={style}
-        className="group flex items-center justify-between border-b border-border/30 px-[30px] py-2.5 opacity-40 last:border-b-0 print:hidden"
+        className="group flex items-center justify-between border-b border-border/30 px-[15mm] py-2.5 opacity-40 last:border-b-0 print:hidden"
       >
         <span className="text-xs italic text-muted-foreground capitalize">
           {section.type} — hidden
@@ -54,7 +54,7 @@ export function CvBlock({ section, onToggleVisibility, onCopy, children }: Props
         ref={setNodeRef}
         style={style}
         className={cn(
-          'cv-document-block group relative border-b border-border/30 px-[30px] last:border-b-0 hover:bg-muted/20 print:hover:bg-transparent',
+          'cv-document-block group relative border-b border-border/30 px-[15mm] last:border-b-0 hover:bg-muted/20 print:hover:bg-transparent',
           section.type === 'certification' ? 'py-1.5' : 'py-3',
           isDragging && 'z-20 bg-background shadow-md',
         )}

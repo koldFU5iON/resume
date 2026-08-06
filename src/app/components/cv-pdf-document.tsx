@@ -19,11 +19,11 @@ const SECTION_LABELS: Record<string, string> = {
 const CHARCOAL = '#2D2D2D'
 const AMBER = '#B8862E'
 
-// Type scale: 9.5pt body, 9pt secondary (labels/dates/titles), 8.5pt micro (headings/contact)
+// Type scale: 10.5pt body, 10pt secondary (labels/dates/titles), 9.5pt micro (headings/contact)
 const s = StyleSheet.create({
   page: {
     fontFamily: 'Helvetica',
-    fontSize: 9.5,
+    fontSize: 10.5,
     color: CHARCOAL,
     paddingTop: '14mm',
     paddingBottom: '14mm',
@@ -44,16 +44,16 @@ const s = StyleSheet.create({
     lineHeight: 1.1,
   },
   headline: {
-    fontSize: 10.5,
+    fontSize: 11.5,
     marginTop: 2,
   },
   subheadline: {
-    fontSize: 9.5,
+    fontSize: 10.5,
     fontFamily: 'Helvetica-Bold',
     marginTop: 1,
   },
   contact: {
-    fontSize: 8.5,
+    fontSize: 9.5,
     color: '#444444',
     marginTop: 4,
   },
@@ -70,7 +70,7 @@ const s = StyleSheet.create({
     marginBottom: 5,
   },
   sectionHeadingText: {
-    fontSize: 8.5,
+    fontSize: 9.5,
     fontFamily: 'Helvetica-Bold',
     color: CHARCOAL,
     letterSpacing: 0.6,
@@ -84,8 +84,10 @@ const s = StyleSheet.create({
   italic: { fontFamily: 'Helvetica-Oblique' },
   link: { color: AMBER, textDecoration: 'none' },
   // Secondary: job titles, dates, locations — intentionally smaller than body
-  meta: { fontSize: 9, color: '#111111' },
-  metaRight: { fontSize: 9, color: '#111111', flexShrink: 0, textAlign: 'right' },
+  meta: { fontSize: 10, color: '#111111' },
+  metaRight: { fontSize: 10, color: '#111111', flexShrink: 0, textAlign: 'right' },
+  // Annotation under the titles line — explains promotions/title changes
+  subtitle: { fontSize: 10, fontStyle: 'italic', color: '#444444', marginTop: 1 },
   job: { marginBottom: 9 },
   jobDesc: { marginTop: 3 },
   bullet: { flexDirection: 'row', marginBottom: 2, marginTop: 1 },
@@ -172,6 +174,7 @@ function SectionBody({ section }: { section: CVSection }) {
             <Text style={s.metaRight}>{d.duration} · {d.location}</Text>
           </View>
           <Text style={[s.meta, s.italic]}>{d.titles.join(' / ')}</Text>
+          {d.subtitle ? <Text style={s.subtitle}>{d.subtitle}</Text> : null}
           {d.description ? <Text style={s.jobDesc}>{d.description}</Text> : null}
           {d.outcomes.map((o, i) => (
             <View key={i} style={s.bullet}>

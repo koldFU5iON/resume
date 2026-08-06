@@ -279,7 +279,7 @@ export function extractCVSectionTokens(cvContent: CVDocumentContent): SectionTok
         const d = section.data
         const titleText = d.titles.join(' ').toLowerCase()
         tokens.push({ text: titleText, sectionType: 'exp-title', weight: 0.9 })
-        const bodyText = [d.description, ...d.outcomes].join(' ').toLowerCase()
+        const bodyText = [d.description, d.subtitle, ...d.outcomes].filter(Boolean).join(' ').toLowerCase()
         tokens.push({ text: bodyText, sectionType: 'exp-body', weight: 0.7 })
         break
       }

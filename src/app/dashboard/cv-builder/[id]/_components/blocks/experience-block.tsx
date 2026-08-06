@@ -15,7 +15,7 @@ type Props = {
 export function ExperienceBlock({ section, onUpdate, showHeading = true }: Props) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(section.data)
-  const { company, titles, location, duration, description, outcomes } = section.data
+  const { company, titles, subtitle, location, duration, description, outcomes } = section.data
   const editTrigger = useBlockEditTrigger()
 
   const [seenTrigger, setSeenTrigger] = useState(editTrigger)
@@ -49,6 +49,7 @@ export function ExperienceBlock({ section, onUpdate, showHeading = true }: Props
           <p className="cv-meta">{duration}</p>
         </div>
         <p className="cv-meta italic">{[...titles].reverse().join(' → ')}</p>
+        {subtitle && <p className="cv-meta italic">{subtitle}</p>}
         <p className="cv-meta mb-1">{location}</p>
         <div className="prose prose-sm max-w-none">
           <ReactMarkdown>{description}</ReactMarkdown>
@@ -99,6 +100,16 @@ export function ExperienceBlock({ section, onUpdate, showHeading = true }: Props
           onChange={e => setDraft({ ...draft, titles: e.target.value.split('\n') })}
           rows={2}
           className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-ring"
+        />
+      </div>
+      <div className="space-y-1">
+        <label className="text-xs text-muted-foreground">
+          Subtitle (optional — e.g. promoted from X to Y in 2022)
+        </label>
+        <input
+          value={draft.subtitle ?? ''}
+          onChange={e => setDraft({ ...draft, subtitle: e.target.value || null })}
+          className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring"
         />
       </div>
       <div className="space-y-1">
