@@ -2,22 +2,35 @@
 import Link from "next/link"
 import { requireProfile } from "@/lib/session"
 import { listCVs } from "@/modules/cv/queries"
+import { getCareerVertical } from "@/modules/career-vertical/queries"
 import { ContentContainer } from "@/app/components/ContentContainer"
 import { buttonVariants } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { FileText, Plus } from "lucide-react"
+import { FileText, Plus, Target } from "lucide-react"
 import { formatDate } from "@/lib/utils"
 
 export default async function CVBuilderPage() {
   const { profile } = await requireProfile()
-  const cvs = await listCVs(profile.id)
+  const [cvs, careerVertical] = await Promise.all([
+    listCVs(profile.id),
+    getCareerVertical(profile.id),
+  ])
 
   return (
     <ContentContainer
       title="CV Builder"
       description="Create and manage your CVs. Generate a tailored CV from any job application, or build a master CV to share with recruiters."
     >
-      <div className="mb-4 flex justify-end">
+      <div className="mb-4 flex items-center justify-end gap-2">
+        {!careerVertical && (
+          <Link
+            href="/dashboard/career-vertical"
+            className={cn(buttonVariants({ size: "sm", variant: "outline" }))}
+          >
+            <Target className="mr-1.5 size-4" />
+            Define career vertical
+          </Link>
+        )}
         <Link href="/dashboard/cv-builder/new" className={cn(buttonVariants({ size: "sm" }))}>
           <Plus className="mr-1.5 size-4" />
           New CV
@@ -49,7 +62,12 @@ export default async function CVBuilderPage() {
                       : "Master CV"}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {cv.jobApplicationId ? "Job-specific" : "Generic"} · Updated {formatDate(cv.updatedAt)}
+                    {cv.careerVerticalId
+                      ? "Career vertical master · "
+                      : cv.jobApplicationId
+                        ? "Job-specific · "
+                        : "Generic · "}
+                    Updated {formatDate(cv.updatedAt)}
                   </p>
                 </div>
               </div>

@@ -38,6 +38,7 @@ model Profile {
   discoveredJobs DiscoveredJob[]
   jobBoardSources JobBoardSource[]
   manualJobBoards ManualJobBoard[]
+  careerVertical CareerVertical?
 }
 
 model Skill {

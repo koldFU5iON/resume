@@ -6,6 +6,7 @@ import {
   HomeIcon,
   Mail,
   MessageSquare,
+  Target,
   UserRound,
   type LucideIcon
 } from "lucide-react"
@@ -23,6 +24,7 @@ export const navGroups: { label: string; items: NavItem[] }[] = [
       { destination: '/dashboard', label: 'Home', Icon: HomeIcon },
       { destination: '/dashboard/profile', label: 'Professional Profile', Icon: UserRound },
       { destination: '/dashboard/search-context', label: 'Search Context', Icon: Compass },
+      { destination: '/dashboard/career-vertical', label: 'Career Vertical', Icon: Target },
     ],
   },
   {

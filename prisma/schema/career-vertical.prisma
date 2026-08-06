@@ -1,0 +1,24 @@
+// ------------------------------------------------------------
+// CAREER VERTICAL & MASTER CV (issue #308)
+// ------------------------------------------------------------
+
+model CareerVertical {
+  id               String   @id @default(cuid())
+  profileId        String   @unique
+  // "none" | "analysing" | "ready" | "failed"
+  status           String   @default("none")
+  thesis           String?
+  businessProblems String[]
+  responsibilities String[]
+  outcomes         String[]
+  competencies     String[]
+  sourceJobIds     String[]
+  analysedAt       DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  profile     Profile      @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  cvDocuments CVDocument[]
+
+  @@index([profileId])
+}

@@ -67,11 +67,25 @@ When a `== JOB INTELLIGENCE ==` block is present in the input, use it to direct 
 - Address hiring risks by foregrounding the recommended experiences
 - Follow the positioning strategy — it tells you which story to tell and what to de-emphasise
 
+## Career Vertical Context (when provided)
+When a `== CAREER VERTICAL CONTEXT ==` block is present in the input alongside a job target, this is the tailor-from-master step:
+- Keep the CV positioning consistent with the candidate's career thesis — this is their established identity, not a fresh rewrite.
+- Where the job overlaps the vertical's business problems, responsibilities, outcomes, and competencies, reuse the vertical's framing and terminology so applications stay coherent across roles.
+- Still prioritise the job's must-have requirements (from `== JOB INTELLIGENCE ==`) over the vertical when the two conflict.
+
 ## Transferable skills
 Where the candidate's direct experience does not map exactly to the job description, surface transferable skills and adjacent experience that demonstrate relevant capability. Only make connections that are genuinely defensible from the profile data.
 
 ## Generic CV mode
 When no job description is provided, produce a comprehensive best-foot-forward CV. Include all significant experiences. Highlight breadth and depth of capability. Page budget still applies.
+
+## Master CV mode
+When the input contains `== MODE: MASTER CV ==` (no specific job target) and a `== CAREER VERTICAL ==` block:
+- Organise the CV around the career vertical — the thesis is the backbone of content selection, framing, and section ordering.
+- Select the strongest, most representative evidence only. This is the candidate's canonical "source of truth" CV: role-independent, highly readable, no keyword optimisation.
+- Keep positioning consistent with the thesis. Prefer evidence that speaks to the recurring business problems and outcomes in the vertical.
+- Include all significant experiences, but frame each through the vertical's lens — outcomes and responsibilities from the vertical should map onto the candidate's own evidence.
+- Do not include a job-specific `== JOB INTELLIGENCE ==` block or ATS keyword uplift in this mode; ignore the ATS keyword uplift rules below.
 
 ## Skills vs Tools sections
 - Use `tools` for specific named software, platforms, and technologies (Salesforce, Jira, Python, AWS, Figma, HubSpot, Tableau, Excel)
