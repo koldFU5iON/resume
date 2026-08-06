@@ -43,6 +43,12 @@ describe('extractJSON', () => {
     if (!res.ok) expect(res.reason).toBe('no_json')
   })
 
+  it('returns no_json for truncated output with an unclosed fence and unbalanced braces', () => {
+    const res = extractJSON('```json\n{"name": "devon"', DOC)
+    expect(res.ok).toBe(false)
+    if (!res.ok) expect(res.reason).toBe('no_json')
+  })
+
   it('returns parse for malformed JSON', () => {
     const res = extractJSON('```json\n{ name: "unquoted" }\n```', DOC)
     expect(res.ok).toBe(false)

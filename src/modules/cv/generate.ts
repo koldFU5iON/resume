@@ -1,7 +1,6 @@
 import { prisma } from '@/lib/db'
-import { complete } from '@/modules/llm/client'
+import { completeJSON } from '@/modules/llm/complete-json'
 import { LLMError } from '@/modules/llm/errors'
-import { extractJSON } from '@/modules/llm/extract-json'
 import { loadWritingContext, loadCVPrompt, composeSystem } from '@/modules/llm/prompt-context'
 import { buildProfileSnapshot, serializeProfileForLLM } from '@/modules/profile/snapshot'
 import { formatMasterCVNarrative } from '@/modules/career-vertical/master-cv'
@@ -166,22 +165,26 @@ export async function generateCVContent(
     SCHEMA_HINT,
   ].filter((p): p is string => p !== null).join('\n')
 
-  const result = await complete(profileId, userMessage, {
-    system: composeSystem(rules, brief, cvPrompt),
-    feature: 'cv-generate',
-    maxOutputTokens: 4000,
-    temperature: 0.3,
-  })
-
-  // LLM output can arrive wrapped in ```json fences or padded with prose.
-  // extractJSON handles both and never throws a raw SyntaxError; an
-  // unrecoverable response surfaces as a clean invalid_output LLMError so the
-  // action can mark the CV failed instead of crashing mid-redirect.
-  const extracted = extractJSON(result.text, CVDocumentContentSchema)
+  // LLM output can arrive wrapped in ```json fences or padded with prose, and
+  // long documents occasionally run past the token cap mid-JSON. completeJSON
+  // handles fences/prose, retries once on truncation, and never throws a raw
+  // SyntaxError; an unrecoverable response surfaces as a clean invalid_output
+  // LLMError so the action can mark the CV failed instead of crashing.
+  const { extracted, finishReason, rawText } = await completeJSON(
+    profileId,
+    userMessage,
+    CVDocumentContentSchema,
+    {
+      system: composeSystem(rules, brief, cvPrompt),
+      feature: 'cv-generate',
+      temperature: 0.3,
+    },
+  )
   if (!extracted.ok) {
     console.error('[generateCVContent] failed to parse LLM output', {
       reason: extracted.reason,
-      raw: result.text.slice(0, 4000),
+      finishReason,
+      raw: rawText.slice(0, 4000),
     })
     throw new LLMError(
       'CV generation returned output that could not be parsed. Try again — if it keeps failing, switch to a different model in settings.',
