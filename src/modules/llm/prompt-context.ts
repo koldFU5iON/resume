@@ -51,6 +51,13 @@ export async function loadATSContextPrompt(): Promise<string> {
   })
 }
 
+export async function loadCareerVerticalPrompt(): Promise<string> {
+  const promptPath = path.join(process.cwd(), 'src/lib/prompts/career-vertical.md')
+  return readFile(promptPath, 'utf-8').catch(() => {
+    throw new Error('career-vertical.md missing from bundle — check outputFileTracingIncludes in next.config.ts')
+  })
+}
+
 export async function loadWritingContext(profileId: string): Promise<WritingContext> {
   const [rules, settings] = await Promise.all([
     loadWritingRules().catch(() => ''),

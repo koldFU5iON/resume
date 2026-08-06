@@ -25,6 +25,7 @@ export async function listCVs(profileId: string) {
       jobTitle: true,
       company: true,
       jobApplicationId: true,
+      careerVerticalId: true,
       createdAt: true,
       updatedAt: true,
     },

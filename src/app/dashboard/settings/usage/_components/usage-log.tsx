@@ -36,6 +36,8 @@ const FEATURE_LABELS: Record<string, string> = {
   'ats-keyword-expand':                   'ATS — keyword expansion',
   'ats-interpret':                        'ATS — interpretation',
   'ats-context':                          'ATS — keyword context',
+  'career-vertical-analyse':              'Career vertical analysis',
+  'master-cv-generate':                   'Master CV generation',
   'job-hunt-ats-discovery':              'Job hunt — ATS discovery',
   'job-hunt-fit':                        'Job hunt — fit score',
   'chat-turn':      'Chat — career coach',

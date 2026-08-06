@@ -19,6 +19,7 @@ model CVDocument {
   id               String   @id @default(cuid())
   profileId        String
   jobApplicationId String?
+  careerVerticalId String?
   templateId       String
   jobDescription   String?
   jobTitle         String?
@@ -28,10 +29,11 @@ model CVDocument {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  profile        Profile               @relation(fields: [profileId], references: [id], onDelete: Cascade)
-  template       CVTemplate            @relation(fields: [templateId], references: [id])
-  jobApplication JobApplication?       @relation(fields: [jobApplicationId], references: [id])
-  coverLetters   CoverLetterDocument[]
+  profile         Profile         @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  template        CVTemplate      @relation(fields: [templateId], references: [id])
+  jobApplication  JobApplication? @relation(fields: [jobApplicationId], references: [id])
+  careerVertical  CareerVertical? @relation(fields: [careerVerticalId], references: [id])
+  coverLetters    CoverLetterDocument[]
 
   @@index([profileId])
 }

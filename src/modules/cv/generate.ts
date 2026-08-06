@@ -42,7 +42,7 @@ export async function generateCVContent(
   profileId: string,
   jobApplicationId?: string,
 ): Promise<CVDocumentContent> {
-  const [snapshot, { rules, brief }, cvPrompt, jobApp, cvGenSettings] = await Promise.all([
+  const [snapshot, { rules, brief }, cvPrompt, jobApp, cvGenSettings, careerVertical] = await Promise.all([
     buildProfileSnapshot(profileId),
     loadWritingContext(profileId),
     loadCVPrompt(),
@@ -55,6 +55,10 @@ export async function generateCVContent(
     prisma.userSettings.findUnique({
       where: { profileId },
       select: { mergeRepeatedEmployers: true },
+    }),
+    prisma.careerVertical.findUnique({
+      where: { profileId },
+      select: { status: true, thesis: true, businessProblems: true, responsibilities: true, outcomes: true, competencies: true },
     }),
   ])
 
@@ -108,10 +112,28 @@ export async function generateCVContent(
       ].join('\n')
     : null
 
+  // Tailor-from-master context: when the candidate has a career vertical, job-
+  // targeted CVs stay consistent with their canonical positioning (issue #308).
+  const verticalReady =
+    careerVertical?.status === 'ready' && careerVertical.thesis && careerVertical.businessProblems.length > 0
+  const verticalContext =
+    jobApp?.jobDescription && verticalReady
+      ? [
+          '== CAREER VERTICAL CONTEXT ==',
+          `Career thesis: ${careerVertical.thesis}`,
+          `Business problems: ${careerVertical.businessProblems.join(', ')}`,
+          `Responsibilities: ${careerVertical.responsibilities.join(', ')}`,
+          `Outcomes: ${careerVertical.outcomes.join(', ')}`,
+          `Competencies: ${careerVertical.competencies.join(', ')}`,
+          'Keep positioning consistent with this thesis. Where the job overlaps the vertical, reuse its framing and terminology instead of rewriting the narrative from scratch.',
+        ].join('\n')
+      : null
+
   const userMessage = [
     jobContext,
     analysis ? formatAnalysisContext(analysis) : null,
     atsContext ? formatATSContext(atsContext) : null,
+    verticalContext,
     mergeInstruction ? '' : null,
     mergeInstruction,
     '',
