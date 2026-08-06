@@ -43,6 +43,20 @@ describe("CVDocumentContentSchema", () => {
     }
     expect(CVDocumentContentSchema.parse(doc).sections[0].type).toBe("experience")
   })
+
+  it("experience subtitle is optional and preserved when present", () => {
+    const doc = {
+      version: 1,
+      sections: [{
+        id: "e1", type: "experience", visible: true,
+        data: { company: "Unity", titles: ["Senior PM"], location: "Remote", duration: "2019–2023", description: "Led delivery.", outcomes: [], subtitle: "Promoted in 2021" },
+      }],
+    }
+    const parsed = CVDocumentContentSchema.parse(doc)
+    if (parsed.sections[0].type === 'experience') {
+      expect(parsed.sections[0].data.subtitle).toBe("Promoted in 2021")
+    }
+  })
 })
 
 describe("parseCVContent", () => {

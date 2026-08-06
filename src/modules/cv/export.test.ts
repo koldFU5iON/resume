@@ -41,6 +41,25 @@ describe("toMarkdown", () => {
     expect(toMarkdown(doc)).toContain("→ 40% faster cycles")
   })
 
+  it("includes the optional experience subtitle", () => {
+    const doc: CVDocumentContent = {
+      version: 1,
+      sections: [{
+        id: "e1", type: "experience", visible: true,
+        data: { company: "Unity", titles: ["Senior PM", "PM"], location: "Remote", duration: "2019–2023", description: "Led delivery.", outcomes: [], subtitle: "Promoted to Senior PM in 2021" },
+      }],
+    }
+    expect(toMarkdown(doc)).toContain("Promoted to Senior PM in 2021")
+  })
+
+  it("omits the subtitle line when absent", () => {
+    const section: CVSection = {
+      id: "e", type: "experience", visible: true,
+      data: { company: "Acme", titles: ["PM"], location: "London", duration: "2020–2022", description: "Ran projects.", outcomes: [] },
+    }
+    expect(sectionToPlainText(section)).not.toContain("Promoted")
+  })
+
   it("excludes hidden sections", () => {
     expect(toMarkdown(doc)).not.toContain("English")
   })

@@ -34,7 +34,7 @@ export function PDFDocument({ cv }: Props) {
             {d.subHeadline && <p className="text-[10pt] font-medium">{d.subHeadline}</p>}
             {d.location && <p className="text-[10pt]">{d.location}</p>}
             {contactItems.length > 0 && (
-              <p className="mt-1 text-[9pt] text-gray-600">{contactItems.join(' · ')}</p>
+              <p className="mt-1 text-[9.5pt] text-gray-600">{contactItems.join(' · ')}</p>
             )}
           </header>
         )
@@ -56,7 +56,7 @@ function PDFSection({ section, showHeading }: { section: CVSection; showHeading:
     <section className="mb-4">
       {showHeading && label && (
         <div className="border-b border-black pb-0.5 mb-2">
-          <h2 className="text-[9pt] font-bold uppercase tracking-wider">{label}</h2>
+          <h2 className="text-[9.5pt] font-bold uppercase tracking-wider">{label}</h2>
         </div>
       )}
       <PDFSectionBody section={section} />
@@ -83,10 +83,11 @@ function PDFSectionBody({ section }: { section: CVSection }) {
         <div className="mb-2">
           <div className="flex justify-between items-baseline gap-4">
             <p className="font-bold">{d.company}</p>
-            <p className="text-[9pt] text-right whitespace-nowrap shrink-0">{d.duration} · {d.location}</p>
+            <p className="text-[9.5pt] text-right whitespace-nowrap shrink-0">{d.duration} · {d.location}</p>
           </div>
-          <p className="italic text-[9.5pt]">{d.titles.join(' → ')}</p>
-          {d.description && <p className="mt-1 text-[9.5pt]">{d.description}</p>}
+          <p className="italic text-[10.5pt]">{d.titles.join(' → ')}</p>
+          {d.subtitle && <p className="italic text-[9.5pt] text-gray-500">{d.subtitle}</p>}
+          {d.description && <p className="mt-1 text-[10.5pt]">{d.description}</p>}
           {d.outcomes.length > 0 && (
             <ul className="mt-1 space-y-0.5">
               {d.outcomes.map((o, i) => (
@@ -109,7 +110,7 @@ function PDFSectionBody({ section }: { section: CVSection }) {
             <p className="font-bold">{d.institution}</p>
             <p>{d.qualification}{d.field ? `, ${d.field}` : ''}{d.grade ? ` — ${d.grade}` : ''}</p>
           </div>
-          <p className="text-[9pt] text-right whitespace-nowrap shrink-0">{d.duration}</p>
+          <p className="text-[9.5pt] text-right whitespace-nowrap shrink-0">{d.duration}</p>
         </div>
       )
     }
@@ -119,7 +120,7 @@ function PDFSectionBody({ section }: { section: CVSection }) {
       return (
         <div className="flex justify-between items-baseline gap-4">
           <p>{d.name}{d.issuer ? ` · ${d.issuer}` : ''}</p>
-          {d.date && <p className="text-[9pt] whitespace-nowrap shrink-0">{d.date}</p>}
+          {d.date && <p className="text-[9.5pt] whitespace-nowrap shrink-0">{d.date}</p>}
         </div>
       )
     }

@@ -356,7 +356,7 @@ export function CvEditor({ cv, stale = false }: Props) {
                 <p className="text-xs text-muted-foreground">This takes about 15–30 seconds</p>
               </div>
             )}
-            <div className="cv-document cv-print-area mx-auto w-full max-w-[794px] rounded-none shadow-none md:rounded-lg md:shadow-sm bg-background print:max-w-none print:shadow-none">
+            <div className="cv-document cv-print-area page-break-guides mx-auto w-full max-w-[794px] rounded-none shadow-none md:rounded-lg md:shadow-sm bg-background print:max-w-none print:shadow-none">
               <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
                 <SortableContext items={content.sections.map(s => s.id)} strategy={verticalListSortingStrategy}>
                   {content.sections.length === 0 ? (

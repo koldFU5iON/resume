@@ -28,7 +28,7 @@ export function SectionGap({ onAdd }: Props) {
 
   if (open) {
     return (
-      <div className="mx-[30px] my-2 flex flex-col gap-1.5 rounded-md border border-border bg-background p-2 print:hidden">
+      <div className="mx-[15mm] my-2 flex flex-col gap-1.5 rounded-md border border-border bg-background p-2 print:hidden">
         <input
           autoFocus
           value={heading}
@@ -62,11 +62,11 @@ export function SectionGap({ onAdd }: Props) {
   }
 
   return (
-    <div className="group/gap relative h-2 print:hidden">
+    <div className="group/gap relative h-0 print:hidden">
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="absolute inset-x-[30px] -top-2.5 flex h-5 items-center justify-center gap-1 rounded text-[10px] text-muted-foreground opacity-0 transition-opacity hover:bg-muted group-hover/gap:opacity-100"
+        className="absolute inset-x-[15mm] -top-2.5 flex h-5 items-center justify-center gap-1 rounded text-[10px] text-muted-foreground opacity-0 transition-opacity hover:bg-muted group-hover/gap:opacity-100"
       >
         <Plus className="size-3" />
         Add section
