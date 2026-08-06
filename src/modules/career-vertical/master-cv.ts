@@ -4,7 +4,18 @@ import { complete } from '@/modules/llm/client'
 import { composeSystem, loadCVPrompt, loadWritingContext } from '@/modules/llm/prompt-context'
 import { buildProfileSnapshot, serializeProfileForLLM } from '@/modules/profile/snapshot'
 import { applyRoleBudgets } from '@/modules/cv/score-evidence'
-import { CVDocumentContentSchema, parseCVContent, type CVDocumentContent } from '@/modules/cv/schema'
+import {
+  CVDocumentContentSchema,
+  parseCVContent,
+  type CapabilitiesData,
+  type CompetenciesData,
+  type CVDocumentContent,
+  type ExperienceData,
+  type HeaderData,
+  type ProfileData,
+  type SkillsData,
+  type ToolsData,
+} from '@/modules/cv/schema'
 import type { CareerVerticalThreads } from './schema'
 
 const SCHEMA_HINT = `
@@ -31,6 +42,61 @@ export function formatCareerVerticalContext(vertical: CareerVerticalThreads): st
     `Outcomes: ${vertical.outcomes.join(', ')}`,
     `Competencies: ${vertical.competencies.join(', ')}`,
   ].join('\n')
+}
+
+function sectionData<T>(content: CVDocumentContent, type: string): T | undefined {
+  return content.sections.find(s => s.type === type && s.visible)?.data as T | undefined
+}
+
+// Serializes the master CV's narrative sections for use as a tailoring seed.
+// The master owns the candidate's voice (headline, profile prose, competency
+// and skill framing); job-targeted generation adapts it rather than rewriting.
+// Returns null when there is no usable master content.
+export function formatMasterCVNarrative(content: CVDocumentContent | null): string | null {
+  if (!content || content.sections.length === 0) return null
+
+  const header = sectionData<HeaderData>(content, 'header')
+  const profile = sectionData<ProfileData>(content, 'profile')
+  const competencies = sectionData<CompetenciesData>(content, 'competencies')
+  const capabilities = sectionData<CapabilitiesData>(content, 'capabilities')
+  const skills = sectionData<SkillsData>(content, 'skills')
+  const tools = sectionData<ToolsData>(content, 'tools')
+  const experience = content.sections
+    .filter(s => s.type === 'experience' && s.visible)
+    .map(s => s.data as ExperienceData)
+
+  if (!header && !profile && !competencies && !capabilities && !skills && !tools && experience.length === 0) {
+    return null
+  }
+
+  const lines: string[] = ['== MASTER CV (CANONICAL NARRATIVE) ==']
+
+  if (header) {
+    lines.push(`Headline: ${header.headline}`)
+    if (header.subHeadline) lines.push(`Sub-headline: ${header.subHeadline}`)
+  }
+  if (profile) lines.push(`Profile: ${profile.content}`)
+  if (competencies?.items.length) lines.push(`Competencies: ${competencies.items.join(', ')}`)
+  if (capabilities?.items.length) lines.push(`Capabilities: ${capabilities.items.join(', ')}`)
+  if (skills?.items.length) lines.push(`Skills: ${skills.items.join(', ')}`)
+  if (tools?.items.length) lines.push(`Tools: ${tools.items.join(', ')}`)
+  if (experience.length > 0) {
+    lines.push('Experience (canonical wording):')
+    for (const exp of experience) {
+      const title = exp.titles.join('/')
+      lines.push(
+        `- ${exp.company}${title ? ` | ${title}` : ''} — ${exp.description}${
+          exp.outcomes.length ? ` Outcomes: ${exp.outcomes.join('; ')}` : ''
+        }`,
+      )
+    }
+  }
+
+  lines.push(
+    "Instructions: keep the headline, sub-headline, competencies, capabilities, skills and tools from this master CV unless the job explicitly requires otherwise. Reuse the profile prose, adapting it only to weave in the job's keywords. For companies listed above, reuse the canonical description and outcome wording, editing for emphasis rather than rewriting. Include experience the job explicitly requires even if it is not listed above.",
+  )
+
+  return lines.join('\n')
 }
 
 export async function generateMasterCVContent(

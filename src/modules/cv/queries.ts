@@ -16,7 +16,13 @@ export async function getCV(id: string, profileId: string) {
 }
 
 export async function listCVs(profileId: string) {
-  return prisma.cVDocument.findMany({
+  const master = await prisma.cVDocument.findFirst({
+    where: { profileId, jobApplicationId: null, careerVerticalId: { not: null } },
+    select: { updatedAt: true },
+    orderBy: { updatedAt: 'desc' },
+  })
+
+  const docs = await prisma.cVDocument.findMany({
     where: { profileId },
     orderBy: { updatedAt: 'desc' },
     select: {
@@ -26,8 +32,20 @@ export async function listCVs(profileId: string) {
       company: true,
       jobApplicationId: true,
       careerVerticalId: true,
+      masterCvUpdatedAt: true,
       createdAt: true,
       updatedAt: true,
     },
   })
+
+  // A job CV is stale when it was tailored from a master CV that has since been
+  // regenerated or edited. masterCvUpdatedAt is only set on master-derived docs.
+  return docs.map(doc => ({
+    ...doc,
+    stale:
+      doc.masterCvUpdatedAt !== null &&
+      master !== null &&
+      doc.masterCvUpdatedAt < master.updatedAt &&
+      doc.jobApplicationId !== null,
+  }))
 }

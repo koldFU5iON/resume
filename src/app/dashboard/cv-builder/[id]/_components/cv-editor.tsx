@@ -57,9 +57,9 @@ export type CVWithMeta = {
   content: CVDocumentContent
 }
 
-type Props = { cv: CVWithMeta }
+type Props = { cv: CVWithMeta; stale?: boolean }
 
-export function CvEditor({ cv }: Props) {
+export function CvEditor({ cv, stale = false }: Props) {
   const [content, setContent] = useState<CVDocumentContent>(cv.content)
   const [, startTransition] = useTransition()
   const [isRegenerating, setIsRegenerating] = useState(false)
@@ -336,6 +336,19 @@ export function CvEditor({ cv }: Props) {
         {/* Body */}
         <div className="relative flex flex-1 overflow-hidden print:overflow-visible print:h-auto print:block">
           <div className="relative flex-1 overflow-y-auto bg-muted/30 p-0 md:p-6 print:overflow-visible print:h-auto print:bg-white print:p-0">
+            {stale && !isRegenerating && (
+              <div className="mb-4 flex items-center justify-between gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 md:mt-0 print:hidden">
+                <p className="text-sm text-amber-700 dark:text-amber-400">
+                  Your master CV changed since this CV was tailored. Re-tailor it to pick up your latest positioning.
+                </p>
+                <button
+                  onClick={() => setShowConfirm(true)}
+                  className="shrink-0 rounded-md bg-amber-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-600"
+                >
+                  Re-tailor
+                </button>
+              </div>
+            )}
             {isRegenerating && (
               <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-background/60 backdrop-blur-sm print:hidden">
                 <Loader2 className="size-8 animate-spin text-muted-foreground" />

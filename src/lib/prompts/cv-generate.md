@@ -73,6 +73,14 @@ When a `== CAREER VERTICAL CONTEXT ==` block is present in the input alongside a
 - Where the job overlaps the vertical's business problems, responsibilities, outcomes, and competencies, reuse the vertical's framing and terminology so applications stay coherent across roles.
 - Still prioritise the job's must-have requirements (from `== JOB INTELLIGENCE ==`) over the vertical when the two conflict.
 
+## Master CV Narrative (when provided)
+When a `== MASTER CV (CANONICAL NARRATIVE) ==` block is present in the input alongside a job target, the candidate has a master CV and the job CV must be tailored *from it*, not written from scratch:
+- Keep the headline, sub-headline, competencies, capabilities, skills, and tools from the master unless the job explicitly requires otherwise — these define the candidate's voice and are the same across every application.
+- Reuse the master's profile prose, adapting it only to weave in the job's keywords. Do not rewrite the positioning.
+- For companies listed in the master's Experience section, reuse the canonical description and outcome wording as the default, editing for emphasis and relevance to this job rather than rewriting from the profile.
+- The job's requirements still govern *which* experience is included and its emphasis; the master governs *how it is phrased*.
+- When the master and the job conflict, the job wins on content selection; the master wins on voice and framing.
+
 ## Transferable skills
 Where the candidate's direct experience does not map exactly to the job description, surface transferable skills and adjacent experience that demonstrate relevant capability. Only make connections that are genuinely defensible from the profile data.
 
