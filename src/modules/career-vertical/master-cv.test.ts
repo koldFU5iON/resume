@@ -187,4 +187,22 @@ describe('generateMasterCVContent', () => {
     expect(result).toEqual(CONTENT)
     expect(result.sections[0].type).toBe('header')
   })
+
+  it('parses fenced JSON surrounded by prose', async () => {
+    mockComplete.mockResolvedValue({
+      text: `Sure, here it is:\n\`\`\`json\n${JSON.stringify(CONTENT)}\n\`\`\`\nLet me know if you want edits.`,
+    } as never)
+    const result = await generateMasterCVContent(PROFILE_ID, VERTICAL)
+    expect(result).toEqual(CONTENT)
+  })
+
+  it('throws a normalized LLMError instead of a raw SyntaxError when output is unparseable', async () => {
+    mockComplete.mockResolvedValue({
+      text: 'I am unable to produce a CV right now.',
+    } as never)
+    await expect(generateMasterCVContent(PROFILE_ID, VERTICAL)).rejects.toMatchObject({
+      name: 'LLMError',
+      message: expect.stringContaining('could not be parsed'),
+    })
+  })
 })

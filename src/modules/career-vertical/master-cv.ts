@@ -1,12 +1,13 @@
 // Plain module — generates the canonical Master CV from the career vertical.
 // Not a server action; persistence of the CVDocument row lives in actions.ts.
 import { complete } from '@/modules/llm/client'
+import { LLMError } from '@/modules/llm/errors'
+import { extractJSON } from '@/modules/llm/extract-json'
 import { composeSystem, loadCVPrompt, loadWritingContext } from '@/modules/llm/prompt-context'
 import { buildProfileSnapshot, serializeProfileForLLM } from '@/modules/profile/snapshot'
 import { applyRoleBudgets } from '@/modules/cv/score-evidence'
 import {
   CVDocumentContentSchema,
-  parseCVContent,
   type CapabilitiesData,
   type CompetenciesData,
   type CVDocumentContent,
@@ -133,9 +134,17 @@ export async function generateMasterCVContent(
     temperature: 0.3,
   })
 
-  const jsonMatch = result.text.match(/```(?:json)?\s*([\s\S]*?)```/)
-  const raw = jsonMatch ? jsonMatch[1].trim() : result.text.trim()
-
-  const parsed = CVDocumentContentSchema.safeParse(JSON.parse(raw))
-  return parsed.success ? parsed.data : parseCVContent(raw)
+  const extracted = extractJSON(result.text, CVDocumentContentSchema)
+  if (!extracted.ok) {
+    console.error('[generateMasterCVContent] failed to parse LLM output', {
+      reason: extracted.reason,
+      raw: result.text.slice(0, 4000),
+    })
+    throw new LLMError(
+      'Master CV generation returned output that could not be parsed. Try again — if it keeps failing, switch to a different model in settings.',
+      'invalid_output',
+      extracted.error,
+    )
+  }
+  return extracted.value
 }
