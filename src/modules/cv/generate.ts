@@ -1,5 +1,7 @@
 import { prisma } from '@/lib/db'
 import { complete } from '@/modules/llm/client'
+import { LLMError } from '@/modules/llm/errors'
+import { extractJSON } from '@/modules/llm/extract-json'
 import { loadWritingContext, loadCVPrompt, composeSystem } from '@/modules/llm/prompt-context'
 import { buildProfileSnapshot, serializeProfileForLLM } from '@/modules/profile/snapshot'
 import { formatMasterCVNarrative } from '@/modules/career-vertical/master-cv'
@@ -171,11 +173,23 @@ export async function generateCVContent(
     temperature: 0.3,
   })
 
-  const jsonMatch = result.text.match(/```(?:json)?\s*([\s\S]*?)```/)
-  const raw = jsonMatch ? jsonMatch[1].trim() : result.text.trim()
-
-  const parsed = CVDocumentContentSchema.safeParse(JSON.parse(raw))
-  const cvContent = parsed.success ? parsed.data : parseCVContent(raw)
+  // LLM output can arrive wrapped in ```json fences or padded with prose.
+  // extractJSON handles both and never throws a raw SyntaxError; an
+  // unrecoverable response surfaces as a clean invalid_output LLMError so the
+  // action can mark the CV failed instead of crashing mid-redirect.
+  const extracted = extractJSON(result.text, CVDocumentContentSchema)
+  if (!extracted.ok) {
+    console.error('[generateCVContent] failed to parse LLM output', {
+      reason: extracted.reason,
+      raw: result.text.slice(0, 4000),
+    })
+    throw new LLMError(
+      'CV generation returned output that could not be parsed. Try again — if it keeps failing, switch to a different model in settings.',
+      'invalid_output',
+      extracted.error,
+    )
+  }
+  const cvContent = extracted.value
 
   // Fire-and-forget: log recruiter scan results for generation quality monitoring.
   // Errors are swallowed — the scan never blocks the CV being returned.

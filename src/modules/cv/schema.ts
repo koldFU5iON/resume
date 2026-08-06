@@ -92,7 +92,12 @@ export function parseCVContent(raw: string): CVDocumentContent {
     const parsed = JSON.parse(raw)
     const result = CVDocumentContentSchema.safeParse(parsed)
     if (result.success) return result.data
-    console.error('[parseCVContent] schema validation failed', result.error.issues)
+    // Only log for documents that carry real content. Placeholder rows stuck at
+    // '{}' after a failed generation are expected and would spam the logs on
+    // every page load.
+    if (parsed && typeof parsed === 'object' && 'sections' in parsed) {
+      console.error('[parseCVContent] schema validation failed', result.error.issues)
+    }
     return { version: 1, sections: [] }
   } catch {
     return { version: 1, sections: [] }

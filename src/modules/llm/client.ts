@@ -7,7 +7,7 @@
 // never import from 'ai' or any provider SDK directly — adding a new provider
 // is a single addition to PROVIDERS below, with no ripple beyond this file.
 
-import { generateText, Output, type LanguageModel, type LanguageModelUsage } from 'ai'
+import { generateText, Output, NoObjectGeneratedError, type LanguageModel, type LanguageModelUsage } from 'ai'
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { createOpenAI } from '@ai-sdk/openai'
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
@@ -16,6 +16,7 @@ import { after } from 'next/server'
 import { prisma } from '@/lib/db'
 import { decrypt } from '@/lib/encryption'
 import { LLMError, normalizeLLMError } from './errors'
+import { extractJSON } from './extract-json'
 
 // Supported providers. Adding a new one is a single entry here — the factory
 // receives the user's decrypted API key and the model id and returns a
@@ -195,6 +196,21 @@ export type CompleteStructuredResult<T> = ResponseMeta & {
   object: T
 }
 
+const ZERO_USAGE: LanguageModelUsage = {
+  inputTokens: 0,
+  outputTokens: 0,
+  totalTokens: 0,
+  inputTokenDetails: {
+    noCacheTokens: undefined,
+    cacheReadTokens: undefined,
+    cacheWriteTokens: undefined,
+  },
+  outputTokenDetails: {
+    textTokens: undefined,
+    reasoningTokens: undefined,
+  },
+}
+
 export async function completeStructured<T>(
   profileId: string,
   prompt: string,
@@ -225,6 +241,25 @@ export async function completeStructured<T>(
       latencyMs,
     }
   } catch (err) {
+    // Providers without native structured output fall back to text-mode JSON
+    // for Output.object, and those models frequently wrap the result in ```json
+    // fences that the SDK's parser can't handle. Recover the object from the raw
+    // text instead of failing the call; no extra LLM round-trip is needed.
+    if (NoObjectGeneratedError.isInstance(err) && typeof err.text === 'string') {
+      const recovered = extractJSON(err.text, schema)
+      if (recovered.ok) {
+        const latencyMs = Date.now() - startedAt
+        const usage = err.usage ?? ZERO_USAGE
+        logUsage(profileId, cfg.provider, modelId, opts.feature, usage, latencyMs)
+        return {
+          object: recovered.value,
+          provider: cfg.provider,
+          model: modelId,
+          usage,
+          latencyMs,
+        }
+      }
+    }
     throw normalizeLLMError(err)
   }
 }
