@@ -71,9 +71,19 @@ export default async function CVBuilderPage() {
                   </p>
                 </div>
               </div>
-              <span className="rounded-full bg-muted px-2 py-0.5 text-xs capitalize text-muted-foreground">
-                {cv.status}
-              </span>
+              <div className="flex items-center gap-2">
+                {cv.stale && (
+                  <span
+                    className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs text-amber-600 dark:text-amber-400"
+                    title="The master CV changed since this was tailored"
+                  >
+                    Master changed
+                  </span>
+                )}
+                <span className="rounded-full bg-muted px-2 py-0.5 text-xs capitalize text-muted-foreground">
+                  {cv.status}
+                </span>
+              </div>
             </Link>
           ))}
         </div>

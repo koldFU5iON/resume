@@ -76,9 +76,14 @@ export const CVDocumentContentSchema = z.object({
 export type CVDocumentContent = z.infer<typeof CVDocumentContentSchema>
 export type CVSection = z.infer<typeof CVSectionSchema>
 export type HeaderData = z.infer<typeof HeaderDataSchema>
+export type ProfileData = z.infer<typeof ProfileDataSchema>
+export type CompetenciesData = z.infer<typeof CompetenciesDataSchema>
+export type CapabilitiesData = z.infer<typeof CapabilitiesDataSchema>
 export type ExperienceData = z.infer<typeof ExperienceDataSchema>
 export type EducationData = z.infer<typeof EducationDataSchema>
 export type CertificationData = z.infer<typeof CertificationDataSchema>
+export type SkillsData = z.infer<typeof SkillsDataSchema>
+export type ToolsData = z.infer<typeof ToolsDataSchema>
 export type LanguagesData = z.infer<typeof LanguagesDataSchema>
 export type CustomData = z.infer<typeof CustomDataSchema>
 

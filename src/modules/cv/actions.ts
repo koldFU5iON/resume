@@ -57,10 +57,10 @@ export async function createAndGenerateCV({
   })
 
   try {
-    const content = await generateCVContent(profile.id, jobApplicationId)
+    const { content, masterUpdatedAt } = await generateCVContent(profile.id, jobApplicationId)
     await prisma.cVDocument.update({
       where: { id: doc.id },
-      data: { generatedContent: JSON.stringify(content), status: 'draft' },
+      data: { generatedContent: JSON.stringify(content), status: 'draft', masterCvUpdatedAt: masterUpdatedAt },
     })
     if (jobApplicationId) {
       await prisma.jobApplication.updateMany({
@@ -229,10 +229,14 @@ export async function regenerateCVContent(cvId: string): Promise<CVDocumentConte
   })
 
   try {
-    const content = await generateCVContent(profile.id, doc.jobApplicationId ?? undefined)
+    const { content, masterUpdatedAt } = await generateCVContent(profile.id, doc.jobApplicationId ?? undefined)
     await prisma.cVDocument.update({
       where: { id: cvId },
-      data: { generatedContent: JSON.stringify(content), status: 'draft' },
+      data: {
+        generatedContent: JSON.stringify(content),
+        status: 'draft',
+        masterCvUpdatedAt: masterUpdatedAt,
+      },
     })
     revalidatePath(`/dashboard/cv-builder/${cvId}`)
     return content

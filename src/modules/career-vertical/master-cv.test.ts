@@ -14,7 +14,7 @@ vi.mock('@/modules/cv/score-evidence', () => ({
   applyRoleBudgets: vi.fn(),
 }))
 
-import { formatCareerVerticalContext, generateMasterCVContent } from './master-cv'
+import { formatCareerVerticalContext, formatMasterCVNarrative, generateMasterCVContent } from './master-cv'
 import { complete } from '@/modules/llm/client'
 import { loadCVPrompt, loadWritingContext, composeSystem } from '@/modules/llm/prompt-context'
 import { buildProfileSnapshot, serializeProfileForLLM } from '@/modules/profile/snapshot'
@@ -62,6 +62,85 @@ describe('formatCareerVerticalContext', () => {
   it('falls back to a placeholder when the thesis is null', () => {
     const out = formatCareerVerticalContext({ ...VERTICAL, thesis: null })
     expect(out).toContain('Career thesis: Not set')
+  })
+})
+
+describe('formatMasterCVNarrative', () => {
+  const FULL_CONTENT = {
+    version: 1 as const,
+    sections: [
+      {
+        id: 'header',
+        type: 'header' as const,
+        visible: true,
+        data: { name: 'Devon', headline: 'Operations Leader', subHeadline: 'Fintech', contact: { linkedin: 'x' } },
+      },
+      {
+        id: 'profile',
+        type: 'profile' as const,
+        visible: true,
+        data: { content: 'Scales operations across cross-functional teams.' },
+      },
+      {
+        id: 'comp',
+        type: 'competencies' as const,
+        visible: true,
+        data: { items: ['Programme Management', 'Process Design'] },
+      },
+      {
+        id: 'skills',
+        type: 'skills' as const,
+        visible: true,
+        data: { items: ['Stakeholder Management'] },
+      },
+      {
+        id: 'exp',
+        type: 'experience' as const,
+        visible: true,
+        data: {
+          company: 'Acme',
+          titles: ['Head of Ops', 'Ops Lead'],
+          location: 'London',
+          duration: '2020-2024',
+          description: 'Ran the operational backbone.',
+          outcomes: ['Cut cycle time 40%'],
+        },
+      },
+    ],
+  }
+
+  it('returns null for empty or missing content', () => {
+    expect(formatMasterCVNarrative(null)).toBeNull()
+    expect(formatMasterCVNarrative({ version: 1, sections: [] })).toBeNull()
+  })
+
+  it('serializes narrative sections and canonical experience wording', () => {
+    const out = formatMasterCVNarrative(FULL_CONTENT)!
+    expect(out).toContain('== MASTER CV (CANONICAL NARRATIVE) ==')
+    expect(out).toContain('Headline: Operations Leader')
+    expect(out).toContain('Sub-headline: Fintech')
+    expect(out).toContain('Profile: Scales operations across cross-functional teams.')
+    expect(out).toContain('Competencies: Programme Management, Process Design')
+    expect(out).toContain('Skills: Stakeholder Management')
+    expect(out).toContain('Acme | Head of Ops/Ops Lead — Ran the operational backbone.')
+    expect(out).toContain('Cut cycle time 40%')
+  })
+
+  it('excludes hidden sections', () => {
+    const out = formatMasterCVNarrative({
+      version: 1,
+      sections: [
+        { id: 'skills', type: 'skills' as const, visible: false, data: { items: ['Hidden'] } },
+        { id: 'exp', type: 'experience' as const, visible: false, data: { company: 'Acme', titles: [], location: '', duration: '', description: '', outcomes: [] } },
+      ],
+    })
+    expect(out).toBeNull()
+  })
+
+  it('attaches tailoring instructions', () => {
+    const out = formatMasterCVNarrative(FULL_CONTENT)!
+    expect(out).toContain('keep the headline, sub-headline, competencies')
+    expect(out).toContain('reuse the canonical description and outcome wording')
   })
 })
 

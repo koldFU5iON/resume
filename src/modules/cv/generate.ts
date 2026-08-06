@@ -2,6 +2,7 @@ import { prisma } from '@/lib/db'
 import { complete } from '@/modules/llm/client'
 import { loadWritingContext, loadCVPrompt, composeSystem } from '@/modules/llm/prompt-context'
 import { buildProfileSnapshot, serializeProfileForLLM } from '@/modules/profile/snapshot'
+import { formatMasterCVNarrative } from '@/modules/career-vertical/master-cv'
 import { CVDocumentContentSchema, parseCVContent, type CVDocumentContent } from './schema'
 import { analyseJob } from './analyse-job'
 import { scoreEvidence, applyRoleBudgets } from './score-evidence'
@@ -38,11 +39,17 @@ function formatAnalysisContext(analysis: JobAnalysis): string {
   ].join('\n')
 }
 
+export type GenerateCVResult = {
+  content: CVDocumentContent
+  masterUsed: boolean
+  masterUpdatedAt: Date | null
+}
+
 export async function generateCVContent(
   profileId: string,
   jobApplicationId?: string,
-): Promise<CVDocumentContent> {
-  const [snapshot, { rules, brief }, cvPrompt, jobApp, cvGenSettings, careerVertical] = await Promise.all([
+): Promise<GenerateCVResult> {
+  const [snapshot, { rules, brief }, cvPrompt, jobApp, cvGenSettings, careerVertical, masterDoc] = await Promise.all([
     buildProfileSnapshot(profileId),
     loadWritingContext(profileId),
     loadCVPrompt(),
@@ -59,6 +66,11 @@ export async function generateCVContent(
     prisma.careerVertical.findUnique({
       where: { profileId },
       select: { status: true, thesis: true, businessProblems: true, responsibilities: true, outcomes: true, competencies: true },
+    }),
+    prisma.cVDocument.findFirst({
+      where: { profileId, jobApplicationId: null, careerVerticalId: { not: null }, status: 'draft' },
+      select: { generatedContent: true, updatedAt: true },
+      orderBy: { updatedAt: 'desc' },
     }),
   ])
 
@@ -129,12 +141,20 @@ export async function generateCVContent(
         ].join('\n')
       : null
 
+  // Master-narrative seed: when the candidate has generated a master CV, the
+  // job CV is tailored from it (voice sections + canonical experience wording)
+  // rather than written fresh from the profile snapshot (issue #308).
+  const masterNarrative =
+    jobApp?.jobDescription && masterDoc
+      ? formatMasterCVNarrative(parseCVContent(masterDoc.generatedContent))
+      : null
+
   const userMessage = [
     jobContext,
     analysis ? formatAnalysisContext(analysis) : null,
     atsContext ? formatATSContext(atsContext) : null,
     verticalContext,
-    mergeInstruction ? '' : null,
+    masterNarrative,
     mergeInstruction,
     '',
     '== CANDIDATE PROFILE ==',
@@ -169,5 +189,9 @@ export async function generateCVContent(
     }
   }).catch(err => console.error('[generateCVContent] scan failed', err))
 
-  return cvContent
+  return {
+    content: cvContent,
+    masterUsed: Boolean(masterNarrative),
+    masterUpdatedAt: masterNarrative ? masterDoc!.updatedAt : null,
+  }
 }

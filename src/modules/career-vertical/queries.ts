@@ -12,6 +12,15 @@ export async function getMasterCVForVertical(profileId: string, careerVerticalId
   })
 }
 
+// The most recently updated master CVDocument for the profile, if any.
+export async function getLatestMasterCV(profileId: string) {
+  return prisma.cVDocument.findFirst({
+    where: { profileId, jobApplicationId: null, careerVerticalId: { not: null } },
+    select: { id: true, status: true, updatedAt: true },
+    orderBy: { updatedAt: 'desc' },
+  })
+}
+
 // Jobs that can seed a career vertical analysis — only those with a description.
 export async function listVerticalCandidateJobs(profileId: string) {
   return prisma.jobApplication.findMany({
