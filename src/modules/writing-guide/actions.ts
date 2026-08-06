@@ -6,10 +6,10 @@ import { complete, completeStructured } from '@/modules/llm/client'
 import { LLMError, type LLMErrorKind } from '@/modules/llm/errors'
 import { buildProfileSnapshot, serializeProfileForLLM } from '@/modules/profile/snapshot'
 import { loadWritingContext, composeSystem } from '@/modules/llm/prompt-context'
+import { loadPromptText } from '@/modules/prompts/loader'
+import { PROMPT_REGISTRY } from '@/modules/prompts/registry'
 import { emitSuggestion } from '@/modules/search-profile/actions'
 import { normalizeSearchProfile } from '@/modules/search-profile/schema'
-import { readFile } from 'node:fs/promises'
-import path from 'node:path'
 import { CVDocumentContentSchema } from '@/modules/cv/schema'
 import { toMarkdown } from '@/modules/cv/export'
 import { ReviewOutputSchema, Stage1BriefSchema, Stage2ArchitectureSchema, Stage4IssuesSchema } from './schema'
@@ -25,22 +25,18 @@ type ReviewResult =
   | { ok: false; error: 'not_found' | 'no_content'; message: string }
   | { ok: false; error: LLMErrorKind; message: string }
 
-async function loadGeneratePrompt(): Promise<string> {
-  return readFile(
-    path.join(process.cwd(), 'src/lib/prompts/cover-letter-generate.md'),
-    'utf-8',
-  )
+async function loadGeneratePrompt(profileId: string): Promise<string> {
+  return loadPromptText(profileId, 'cover-letter-generate')
 }
 
-async function loadReviewPrompt(): Promise<string> {
-  return readFile(
-    path.join(process.cwd(), 'src/lib/prompts/cover-letter-review.md'),
-    'utf-8',
-  )
+async function loadReviewPrompt(profileId: string): Promise<string> {
+  return loadPromptText(profileId, 'cover-letter-review')
 }
 
-async function loadPrompt(filename: string): Promise<string> {
-  return readFile(path.join(process.cwd(), `src/lib/prompts/${filename}`), 'utf-8')
+async function loadPrompt(profileId: string, filename: string): Promise<string> {
+  const def = PROMPT_REGISTRY.find(p => p.filename === filename)
+  if (!def) throw new Error(`Unknown prompt file "${filename}"`)
+  return loadPromptText(profileId, def.key)
 }
 
 type Stage1Result =
@@ -138,7 +134,7 @@ export async function analyseRole(letterId: string): Promise<Stage1Result> {
   const { writingCtx } = inputs
   const userPrompt = buildGeneratePrompt(inputs)
 
-  const stagePrompt = await loadPrompt('cl-stage1-analyse.md')
+  const stagePrompt = await loadPrompt(profile.id, 'cl-stage1-analyse.md')
   const system = composeSystem(writingCtx.rules, writingCtx.brief, writingCtx.searchProfileSummary, stagePrompt)
 
   try {
@@ -190,7 +186,7 @@ export async function buildLetterArchitecture(
   if (!inputs) return { ok: false, error: 'not_found', message: 'Cover letter not found' }
 
   const userPrompt = `# Stage 1 Brief\n\n${JSON.stringify(brief, null, 2)}`
-  const stagePrompt = await loadPrompt('cl-stage2-architecture.md')
+  const stagePrompt = await loadPrompt(profile.id, 'cl-stage2-architecture.md')
   const system = composeSystem(inputs.writingCtx.rules, inputs.writingCtx.brief, inputs.writingCtx.searchProfileSummary, stagePrompt)
 
   try {
@@ -221,7 +217,7 @@ export async function draftFromArchitecture(
     `\n\n# Candidate Details\n\n${serializeProfileForLLM(snapshot)}`,
   ].join('')
 
-  const stagePrompt = await loadPrompt('cl-stage3-draft.md')
+  const stagePrompt = await loadPrompt(profile.id, 'cl-stage3-draft.md')
   const system = composeSystem(writingCtx.rules, writingCtx.brief, writingCtx.searchProfileSummary, stagePrompt)
 
   try {
@@ -258,7 +254,7 @@ export async function reviewDraftPass(
     `\n\n# Candidate Profile (screener cross-check)\n\n${serializeProfileForLLM(snapshot)}`,
   ].join('')
 
-  const stagePrompt = await loadPrompt('cl-stage4-review.md')
+  const stagePrompt = await loadPrompt(profile.id, 'cl-stage4-review.md')
   const system = composeSystem(writingCtx.rules, writingCtx.brief, writingCtx.searchProfileSummary, stagePrompt)
 
   try {
@@ -297,7 +293,7 @@ export async function finaliseFromReview(
     `\n\n# Consider (apply voice violations only)\n\n${considerLines}`,
   ].join('')
 
-  const stagePrompt = await loadPrompt('cl-stage5-final.md')
+  const stagePrompt = await loadPrompt(profile.id, 'cl-stage5-final.md')
   const system = composeSystem(inputs.writingCtx.rules, inputs.writingCtx.brief, inputs.writingCtx.searchProfileSummary, stagePrompt)
 
   try {
@@ -336,7 +332,7 @@ export async function buildWithMe(
     userPrompt += `\n\n# Your Context\n\n${answerLines.join('\n\n')}`
   }
 
-  const systemPrompt = await loadGeneratePrompt()
+  const systemPrompt = await loadGeneratePrompt(profile.id)
   const system = composeSystem(inputs.writingCtx.rules, inputs.writingCtx.brief, inputs.writingCtx.searchProfileSummary, systemPrompt)
 
   try {
@@ -376,7 +372,7 @@ export async function reviewLetter(letterId: string): Promise<ReviewResult> {
     userPrompt += `\n\n## Job Description\n\n${job.jobDescription}`
   }
 
-  const systemPrompt = await loadReviewPrompt()
+  const systemPrompt = await loadReviewPrompt(profile.id)
   const system = composeSystem(inputs.writingCtx.rules, inputs.writingCtx.brief, inputs.writingCtx.searchProfileSummary, systemPrompt)
 
   try {

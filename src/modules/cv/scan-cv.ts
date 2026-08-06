@@ -93,7 +93,7 @@ export async function scanCV(
     .join('\n\n')
 
   try {
-    const systemPrompt = await loadCVScanPrompt()
+    const systemPrompt = await loadCVScanPrompt(profileId)
     const result = await completeStructured(
       profileId,
       userMessage,

@@ -30,6 +30,9 @@ vi.mock('@/modules/llm/prompt-context', () => ({
   loadWritingContext: vi.fn().mockResolvedValue({ rules: '', brief: null, searchProfileSummary: null }),
   composeSystem: vi.fn().mockReturnValue('system prompt'),
 }))
+vi.mock('@/modules/prompts/loader', () => ({
+  loadPromptText: vi.fn().mockResolvedValue('prompt'),
+}))
 vi.mock('@/modules/llm/client', () => ({
   complete: vi.fn(),
   completeStructured: vi.fn(),

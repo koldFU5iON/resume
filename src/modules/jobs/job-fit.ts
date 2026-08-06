@@ -60,7 +60,7 @@ export async function assessJobFit(jobId: string): Promise<AssessJobFitResult> {
       where: { profileId: profile.id },
       select: { searchProfile: true, writingBrief: true },
     }),
-    loadWritingRules(),
+    loadWritingRules(profile.id),
   ])
 
   const writingCtx: WritingContext = { rules, brief: settings?.writingBrief ?? null, searchProfileSummary: null }

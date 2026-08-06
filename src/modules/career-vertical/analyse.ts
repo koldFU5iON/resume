@@ -31,7 +31,7 @@ export async function runCareerVerticalAnalysis(
   const [snapshot, { rules, brief, searchProfileSummary }, systemPrompt] = await Promise.all([
     buildProfileSnapshot(profileId),
     loadWritingContext(profileId),
-    loadCareerVerticalPrompt(),
+    loadCareerVerticalPrompt(profileId),
   ])
 
   const targetRoles = targetJobs

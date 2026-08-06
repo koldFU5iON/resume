@@ -53,7 +53,7 @@ export async function generateCVContent(
   const [snapshot, { rules, brief }, cvPrompt, jobApp, cvGenSettings, careerVertical, masterDoc] = await Promise.all([
     buildProfileSnapshot(profileId),
     loadWritingContext(profileId),
-    loadCVPrompt(),
+    loadCVPrompt(profileId),
     jobApplicationId
       ? prisma.jobApplication.findFirst({
           where: { id: jobApplicationId, profileId },

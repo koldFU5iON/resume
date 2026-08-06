@@ -106,7 +106,7 @@ export async function generateMasterCVContent(
   const [snapshot, { rules, brief }, cvPrompt] = await Promise.all([
     buildProfileSnapshot(profileId),
     loadWritingContext(profileId),
-    loadCVPrompt(),
+    loadCVPrompt(profileId),
   ])
 
   // Master CV = strongest evidence only. Deterministic role budgets cap the

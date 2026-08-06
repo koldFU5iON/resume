@@ -8,7 +8,7 @@ export default async function Page() {
   const { profile } = await requireProfile()
 
   const [writingRules, settings] = await Promise.all([
-    loadWritingRules().catch(() => ''),
+    loadWritingRules(profile.id).catch(() => ''),
     prisma.userSettings.findUnique({
       where: { profileId: profile.id },
       select: { writingBrief: true },

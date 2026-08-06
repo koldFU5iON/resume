@@ -20,7 +20,7 @@ export async function analyseJob(
   try {
     const [snapshot, systemPrompt] = await Promise.all([
       buildProfileSnapshot(profileId),
-      loadCVJobAnalysisPrompt(),
+      loadCVJobAnalysisPrompt(profileId),
     ])
 
     const userMessage = [

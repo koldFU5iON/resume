@@ -30,6 +30,10 @@ model UserSettings {
   /// When true, the CV generation prompt instructs the LLM to merge multiple
   /// roles at the same company into a single entry showing the promotion journey.
   mergeRepeatedEmployers Boolean @default(false)
+  /// Per-user overrides for the bundled system prompts in src/lib/prompts/.
+  /// Shape: { [promptKey: string]: string } — only keys with overrides present.
+  /// Keys and defaults are registered in src/modules/prompts/registry.ts.
+  customPrompts         Json?
   writingBrief          String?
   onboardingCompletedAt DateTime?
   onboardingSkippedAt   DateTime?

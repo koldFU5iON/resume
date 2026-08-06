@@ -7,7 +7,7 @@ export async function buildATSContext(
   jobDescription: string,
   profileText: string,
 ): Promise<ATSContextResult> {
-  const systemPrompt = await loadATSContextPrompt()
+  const systemPrompt = await loadATSContextPrompt(profileId)
 
   const userMessage = [
     '== JOB DESCRIPTION ==',

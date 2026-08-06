@@ -370,7 +370,7 @@ export async function scoreDiscoveredJob(jobId: string): Promise<ScoreResult> {
       where: { profileId: profile.id },
       select: { onboardingContext: true, writingBrief: true },
     }),
-    loadWritingRules(),
+    loadWritingRules(profile.id),
   ])
 
   const context = normalizeOnboardingContext(settings?.onboardingContext)

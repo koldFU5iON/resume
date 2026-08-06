@@ -66,7 +66,7 @@ export async function scoreEvidence(
   ].filter((p): p is string => p !== null).join('\n')
 
   try {
-    const systemPrompt = await loadEvidenceScoringPrompt()
+    const systemPrompt = await loadEvidenceScoringPrompt(profileId)
     const result = await completeStructured(
       profileId,
       userMessage,
