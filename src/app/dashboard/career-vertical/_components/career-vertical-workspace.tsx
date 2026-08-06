@@ -3,7 +3,7 @@
 import { useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Loader2, Sparkles } from 'lucide-react'
+import { ChevronDown, Loader2, Search, Sparkles } from 'lucide-react'
 import type { CareerVertical } from '@prisma/client'
 import { analyseCareerVertical, generateMasterCV } from '@/modules/career-vertical/actions'
 import { Badge } from '@/components/ui/badge'
@@ -17,6 +17,7 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Input } from '@/components/ui/input'
 import { cn, formatDate } from '@/lib/utils'
 
 type CandidateJob = {
@@ -68,6 +69,8 @@ const STATUS_BADGE: Record<string, { label: string; variant: 'success' | 'info' 
   failed: { label: 'Failed', variant: 'destructive' },
 }
 
+const PAGE_SIZE = 20
+
 export function CareerVerticalWorkspace({
   initialVertical,
   jobs,
@@ -83,9 +86,33 @@ export function CareerVerticalWorkspace({
   const [error, setError] = useState<string | null>(null)
   const [isAnalysing, startAnalyse] = useTransition()
   const [isGenerating, startGenerate] = useTransition()
+  const [listOpen, setListOpen] = useState(true)
+  const [query, setQuery] = useState('')
+  const [page, setPage] = useState(1)
 
   const analysableJobs = useMemo(() => jobs.filter(j => j.jobDescription?.trim()), [jobs])
   const selectedCount = selected.size
+
+  const matchesQuery = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return jobs
+    return jobs.filter(j => {
+      const title = j.title.toLowerCase()
+      const company = j.company?.toLowerCase() ?? ''
+      return title.includes(q) || company.includes(q)
+    })
+  }, [jobs, query])
+
+  const analysableMatches = useMemo(
+    () => matchesQuery.filter(j => j.jobDescription?.trim()),
+    [matchesQuery],
+  )
+
+  const totalPages = Math.max(1, Math.ceil(matchesQuery.length / PAGE_SIZE))
+  const pageJobs = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE
+    return matchesQuery.slice(start, start + PAGE_SIZE)
+  }, [matchesQuery, page])
 
   const toggleJob = (id: string) => {
     setError(null)
@@ -95,6 +122,20 @@ export function CareerVerticalWorkspace({
       else next.add(id)
       return next
     })
+  }
+
+  const selectAllMatching = () => {
+    setError(null)
+    setSelected(prev => {
+      const next = new Set(prev)
+      for (const job of analysableMatches) next.add(job.id)
+      return next
+    })
+  }
+
+  const clearSelection = () => {
+    setError(null)
+    setSelected(new Set())
   }
 
   const handleAnalyse = () => {
@@ -154,55 +195,115 @@ export function CareerVerticalWorkspace({
       {/* Step 1 — analyse target roles */}
       <Card>
         <CardHeader>
-          <CardTitle>1. Choose your target roles</CardTitle>
-          <CardDescription>
-            Select the jobs you&apos;re interested in. Currnt analyses their descriptions to surface the hiring pattern behind them. Only jobs with a description can be analysed.
-          </CardDescription>
+          <button
+            type="button"
+            onClick={() => setListOpen(v => !v)}
+            className="flex w-full items-start justify-between gap-2 text-left"
+            aria-expanded={listOpen}
+          >
+            <div className="min-w-0">
+              <CardTitle>1. Choose your target roles</CardTitle>
+              <CardDescription>
+                Select the jobs you&apos;re interested in. Currnt analyses their descriptions to surface the hiring pattern behind them. Only jobs with a description can be analysed.
+              </CardDescription>
+            </div>
+            <ChevronDown
+              className={cn(
+                'mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform duration-200',
+                !listOpen && '-rotate-90',
+              )}
+            />
+          </button>
         </CardHeader>
-        <CardContent>
-          {jobs.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No job applications yet. Add some from{' '}
-              <Link href="/dashboard/job-applications" className="underline underline-offset-2">
-                Applications
-              </Link>{' '}
-              first — the more target roles you include, the sharper the analysis.
-            </p>
-          ) : (
-            <ul className="divide-y divide-border">
-              {jobs.map(job => {
-                const hasDescription = Boolean(job.jobDescription?.trim())
-                return (
-                  <li key={job.id} className="flex items-center gap-3 py-2.5">
-                    <Checkbox
-                      id={`job-${job.id}`}
-                      checked={selected.has(job.id)}
-                      onCheckedChange={() => hasDescription && toggleJob(job.id)}
-                      disabled={!hasDescription || isAnalysing}
-                      aria-label={`Select ${job.title}`}
+        {listOpen && (
+          <CardContent>
+            {jobs.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No job applications yet. Add some from{' '}
+                <Link href="/dashboard/job-applications" className="underline underline-offset-2">
+                  Applications
+                </Link>{' '}
+                first — the more target roles you include, the sharper the analysis.
+              </p>
+            ) : (
+              <>
+                <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <div className="relative flex-1">
+                    <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      value={query}
+                      onChange={e => {
+                        setQuery(e.target.value)
+                        setPage(1)
+                      }}
+                      placeholder="Search by title or company — e.g. 'program manager'"
+                      className="pl-8"
+                      disabled={isAnalysing}
                     />
-                    <label
-                      htmlFor={`job-${job.id}`}
-                      className={cn(
-                        'flex min-w-0 flex-1 items-center justify-between gap-2 text-sm',
-                        hasDescription ? 'cursor-pointer' : 'cursor-not-allowed opacity-50',
-                      )}
-                    >
-                      <span className="truncate font-medium">
-                        {job.company ? `${job.title} · ${job.company}` : job.title}
-                      </span>
-                      {!hasDescription && <span className="shrink-0 text-xs text-muted-foreground">no description</span>}
-                    </label>
-                  </li>
-                )
-              })}
-            </ul>
-          )}
-        </CardContent>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {analysableMatches.length > 0 && (
+                      <Button size="sm" variant="outline" onClick={selectAllMatching} disabled={isAnalysing}>
+                        Select all {analysableMatches.length}
+                      </Button>
+                    )}
+                    {selectedCount > 0 && (
+                      <Button size="sm" variant="ghost" onClick={clearSelection} disabled={isAnalysing}>
+                        Clear
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                <ul className="divide-y divide-border">
+                  {pageJobs.map(job => {
+                    const hasDescription = Boolean(job.jobDescription?.trim())
+                    return (
+                      <li key={job.id} className="flex items-center gap-3 py-2.5">
+                        <Checkbox
+                          id={`job-${job.id}`}
+                          checked={selected.has(job.id)}
+                          onCheckedChange={() => hasDescription && toggleJob(job.id)}
+                          disabled={!hasDescription || isAnalysing}
+                          aria-label={`Select ${job.title}`}
+                        />
+                        <label
+                          htmlFor={`job-${job.id}`}
+                          className={cn(
+                            'flex min-w-0 flex-1 items-center justify-between gap-2 text-sm',
+                            hasDescription ? 'cursor-pointer' : 'cursor-not-allowed opacity-50',
+                          )}
+                        >
+                          <span className="truncate font-medium">
+                            {job.company ? `${job.title} · ${job.company}` : job.title}
+                          </span>
+                          {!hasDescription && <span className="shrink-0 text-xs text-muted-foreground">no description</span>}
+                        </label>
+                      </li>
+                    )
+                  })}
+                </ul>
+                {totalPages > 1 && (
+                  <div className="mt-3 flex items-center justify-between">
+                    <Button size="sm" variant="ghost" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1 || isAnalysing}>
+                      Previous
+                    </Button>
+                    <span className="text-xs text-muted-foreground">
+                      Page {page} of {totalPages}
+                    </span>
+                    <Button size="sm" variant="ghost" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages || isAnalysing}>
+                      Next
+                    </Button>
+                  </div>
+                )}
+              </>
+            )}
+          </CardContent>
+        )}
         {jobs.length > 0 && (
           <CardFooter className="justify-between gap-3">
             <span className="text-xs text-muted-foreground">
               {selectedCount} of {analysableJobs.length} jobs with descriptions selected
+              {query.trim() && ` · ${matchesQuery.length} matching`}
             </span>
             <Button size="sm" onClick={handleAnalyse} disabled={!canAnalyse}>
               {isAnalysing && <Loader2 className="mr-1.5 size-4 animate-spin" />}
