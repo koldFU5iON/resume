@@ -54,8 +54,8 @@ export function CvBlock({ section, onToggleVisibility, onCopy, children }: Props
         ref={setNodeRef}
         style={style}
         className={cn(
-          'cv-document-block group relative border-b border-border/30 px-[15mm] last:border-b-0 hover:bg-muted/20 print:hover:bg-transparent',
-          section.type === 'certification' ? 'py-1.5' : 'py-3',
+          'cv-document-block group relative px-[15mm] hover:bg-muted/20 print:hover:bg-transparent',
+          section.type === 'certification' ? 'py-2' : 'py-4',
           isDragging && 'z-20 bg-background shadow-md',
         )}
       >

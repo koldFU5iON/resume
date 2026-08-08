@@ -58,7 +58,7 @@ const s = StyleSheet.create({
     marginTop: 4,
   },
   section: {
-    marginBottom: 11,
+    marginBottom: 13,
   },
   sectionCompact: {
     marginBottom: 6,
@@ -68,6 +68,7 @@ const s = StyleSheet.create({
     borderBottomColor: AMBER,
     paddingBottom: 2,
     marginBottom: 5,
+    marginTop: 5,
   },
   sectionHeadingText: {
     fontSize: 9.5,
@@ -83,12 +84,14 @@ const s = StyleSheet.create({
   bold: { fontFamily: 'Helvetica-Bold' },
   italic: { fontFamily: 'Helvetica-Oblique' },
   link: { color: AMBER, textDecoration: 'none' },
-  // Secondary: job titles, dates, locations — intentionally smaller than body
+  // Secondary: dates, locations — intentionally smaller than body
   meta: { fontSize: 10, color: '#111111' },
   metaRight: { fontSize: 10, color: '#111111', flexShrink: 0, textAlign: 'right' },
+  // Role titles within a job — semibold anchor line, mirrors .cv-role-title
+  role: { fontFamily: 'Helvetica-Bold', fontSize: 10, marginTop: 1 },
   // Annotation under the titles line — explains promotions/title changes
   subtitle: { fontSize: 10, fontStyle: 'italic', color: '#444444', marginTop: 1 },
-  job: { marginBottom: 9 },
+  job: { marginBottom: 10 },
   jobDesc: { marginTop: 3 },
   bullet: { flexDirection: 'row', marginBottom: 2, marginTop: 1 },
   bulletDash: { width: 10, color: '#333333' },
@@ -142,10 +145,10 @@ function TwoColList({ items }: { items: string[] }) {
   return (
     <View style={s.twoColWrap}>
       <View style={s.col}>
-        {left.map((item, i) => <Text key={i} style={s.colItem}>- {item}</Text>)}
+        {left.map((item, i) => <Text key={i} style={s.colItem}>– {item}</Text>)}
       </View>
       <View style={s.col}>
-        {right.map((item, i) => <Text key={i} style={s.colItem}>- {item}</Text>)}
+        {right.map((item, i) => <Text key={i} style={s.colItem}>– {item}</Text>)}
       </View>
     </View>
   )
@@ -173,12 +176,12 @@ function SectionBody({ section }: { section: CVSection }) {
             <Text style={s.bold}>{d.company}</Text>
             <Text style={s.metaRight}>{d.duration} · {d.location}</Text>
           </View>
-          <Text style={[s.meta, s.italic]}>{d.titles.join(' / ')}</Text>
+          <Text style={s.role}>{d.titles.join(' – ')}</Text>
           {d.subtitle ? <Text style={s.subtitle}>{d.subtitle}</Text> : null}
           {d.description ? <Text style={s.jobDesc}>{d.description}</Text> : null}
           {d.outcomes.map((o, i) => (
             <View key={i} style={s.bullet}>
-              <Text style={s.bulletDash}>-</Text>
+              <Text style={s.bulletDash}>–</Text>
               <Text style={s.bulletText}>{o}</Text>
             </View>
           ))}
@@ -228,7 +231,7 @@ function SectionBody({ section }: { section: CVSection }) {
           <View>
             {(d.items ?? []).map((item, i) => (
               <View key={i} style={s.bullet}>
-                <Text style={s.bulletDash}>-</Text>
+                <Text style={s.bulletDash}>–</Text>
                 <Text style={s.bulletText}><InlineMarkdown text={item} /></Text>
               </View>
             ))}

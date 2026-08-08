@@ -44,20 +44,20 @@ export function ExperienceBlock({ section, onUpdate, showHeading = true }: Props
             <h2 className="cv-section-heading">Professional Experience</h2>
           </div>
         )}
-        <div className="flex items-baseline justify-between">
+        <div className="flex items-baseline justify-between gap-4">
           <p className="cv-item-title">{company}</p>
-          <p className="cv-meta">{duration}</p>
+          <p className="cv-meta shrink-0 text-right">{duration}</p>
         </div>
-        <p className="cv-meta italic">{[...titles].reverse().join(' → ')}</p>
+        <p className="cv-role-title">{[...titles].reverse().join(' → ')}</p>
         {subtitle && <p className="cv-meta italic">{subtitle}</p>}
-        <p className="cv-meta mb-1">{location}</p>
-        <div className="prose prose-sm max-w-none">
+        <p className="cv-meta">{location}</p>
+        <div className="prose prose-sm mt-1.5 max-w-none">
           <ReactMarkdown>{description}</ReactMarkdown>
         </div>
-        <ul className="mt-1.5 space-y-1">
+        <ul className="mt-2 space-y-1">
           {outcomes.map((o, i) => (
             <li key={i} className="cv-bullet flex gap-2">
-              <span className="shrink-0">→</span>
+              <span className="shrink-0">–</span>
               <ReactMarkdown components={{ p: ({ children }) => <span>{children}</span> }}>
                 {o}
               </ReactMarkdown>

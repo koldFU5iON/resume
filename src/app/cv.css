@@ -50,6 +50,11 @@
   text-transform: uppercase;
   letter-spacing: 0.1em;
   color: var(--foreground);
+  /* Extra space above section labels so a new section reads as a distinct
+     group rather than merging into the previous block. Collapses through
+     the borderless heading wrapper, so it never shows for repeated blocks
+     (showHeading=false). */
+  margin-top: 0.5rem;
 }
 
 /* Primary item name (company, institution) */
@@ -58,6 +63,16 @@
   font-weight: 600;
   color: var(--foreground);
   line-height: 1.3;
+}
+
+/* Role titles within an experience entry — the line recruiters scan first.
+   Same size as body but semibold and full-contrast so it anchors the block
+   against the muted description and bullets below it. */
+.cv-role-title {
+  font-size: var(--cv-size-body);
+  font-weight: 600;
+  color: var(--foreground);
+  line-height: 1.4;
 }
 
 /* Body copy — descriptions, profile prose. Minimum 10.5pt. */
