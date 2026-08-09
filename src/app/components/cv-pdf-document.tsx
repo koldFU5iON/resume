@@ -178,11 +178,13 @@ function SectionBody({ section }: { section: CVSection }) {
           </View>
           <Text style={s.role}>{d.titles.join(' – ')}</Text>
           {d.subtitle ? <Text style={s.subtitle}>{d.subtitle}</Text> : null}
-          {d.description ? <Text style={s.jobDesc}>{d.description}</Text> : null}
+          {d.description ? (
+            <Text style={s.jobDesc}><InlineMarkdown text={d.description} /></Text>
+          ) : null}
           {d.outcomes.map((o, i) => (
             <View key={i} style={s.bullet}>
               <Text style={s.bulletDash}>–</Text>
-              <Text style={s.bulletText}>{o}</Text>
+              <Text style={s.bulletText}><InlineMarkdown text={o} /></Text>
             </View>
           ))}
         </View>
