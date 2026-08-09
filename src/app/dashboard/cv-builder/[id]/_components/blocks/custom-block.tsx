@@ -1,9 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-import { Check, X, Plus, Trash2 } from 'lucide-react'
+import { Check, X } from 'lucide-react'
 import { useBlockEditTrigger } from '../cv-block'
 import { MarkdownProse } from '@/components/ui/markdown-prose'
+import { SortableItemList } from './sortable-item-list'
 import type { CVSection } from '@/modules/cv/schema'
 
 type Props = {
@@ -85,27 +86,12 @@ export function CustomBlock({ section, onUpdate, showHeading = true }: Props) {
         </div>
       ) : (
         <div className="space-y-2">
-          {draftItems.map((item, i) => (
-            <div key={i} className="flex gap-2">
-              <input
-                value={item}
-                onChange={e => setDraftItems(draftItems.map((d, j) => j === i ? e.target.value : d))}
-                className="flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring"
-              />
-              <button
-                onClick={() => setDraftItems(draftItems.filter((_, j) => j !== i))}
-                className="rounded p-1.5 text-muted-foreground hover:bg-muted"
-              >
-                <Trash2 className="size-3.5" />
-              </button>
-            </div>
-          ))}
-          <button
-            onClick={() => setDraftItems([...draftItems, ''])}
-            className="flex items-center gap-1 rounded-md border border-dashed border-border px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted"
-          >
-            <Plus className="size-3" />Add
-          </button>
+          <SortableItemList
+            items={draftItems}
+            onChange={setDraftItems}
+            placeholder="Item"
+            addLabel="Add item"
+          />
         </div>
       )}
 

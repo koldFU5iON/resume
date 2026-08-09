@@ -1,9 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-import { Check, X, Plus, Trash2 } from 'lucide-react'
+import { Check, X } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import { useBlockEditTrigger } from '../cv-block'
+import { SortableItemList } from './sortable-item-list'
 import type { CVSection, ExperienceData } from '@/modules/cv/schema'
 
 type Props = {
@@ -122,36 +123,13 @@ export function ExperienceBlock({ section, onUpdate, showHeading = true }: Props
         />
       </div>
       <div className="space-y-1">
-        <label className="text-xs text-muted-foreground">Outcomes</label>
-        {draft.outcomes.map((o, i) => (
-          <div key={i} className="flex gap-2">
-            <input
-              value={o}
-              onChange={e =>
-                setDraft({
-                  ...draft,
-                  outcomes: draft.outcomes.map((x, j) => (j === i ? e.target.value : x)),
-                })
-              }
-              className="flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring"
-            />
-            <button
-              onClick={() =>
-                setDraft({ ...draft, outcomes: draft.outcomes.filter((_, j) => j !== i) })
-              }
-              className="rounded p-1.5 text-muted-foreground hover:bg-muted"
-            >
-              <Trash2 className="size-3.5" />
-            </button>
-          </div>
-        ))}
-        <button
-          onClick={() => setDraft({ ...draft, outcomes: [...draft.outcomes, ''] })}
-          className="flex items-center gap-1 rounded-md border border-dashed border-border px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted"
-        >
-          <Plus className="size-3" />
-          Add outcome
-        </button>
+        <label className="text-xs text-muted-foreground">Outcomes — drag to prioritise</label>
+        <SortableItemList
+          items={draft.outcomes}
+          onChange={outcomes => setDraft({ ...draft, outcomes })}
+          placeholder="Achievement or outcome"
+          addLabel="Add achievement"
+        />
       </div>
       <div className="flex gap-2">
         <button
