@@ -10,7 +10,7 @@ vi.mock('@/lib/db', () => ({
 }))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 
-import { addCustomSection, reorderSections } from './actions'
+import { addCustomSection, reorderSections, patchCVSectionData } from './actions'
 import { prisma } from '@/lib/db'
 import type { CVDocumentContent } from './schema'
 
@@ -116,5 +116,55 @@ describe('reorderSections', () => {
   it('throws when the CV is not found', async () => {
     mockFindFirst.mockResolvedValue(null)
     await expect(reorderSections('cv-missing', [])).rejects.toThrow('CV not found')
+  })
+})
+
+describe('patchCVSectionData', () => {
+  const exp = {
+    id: 'exp-1',
+    type: 'experience' as const,
+    visible: true,
+    data: {
+      company: 'Acme',
+      titles: ['PM'],
+      location: 'Remote',
+      duration: '2020–2024',
+      description: 'Built things.',
+      outcomes: ['Shipped 10x'],
+    },
+  }
+
+  beforeEach(() => vi.clearAllMocks())
+
+  it('writes a full valid proposal', async () => {
+    mockFindFirst.mockResolvedValue({ id: 'cv-1', generatedContent: contentWith([header, exp]) } as never)
+    mockUpdate.mockResolvedValue({} as never)
+
+    await patchCVSectionData('cv-1', 'exp-1', {
+      ...exp.data,
+      description: 'Rebuilt everything.',
+    })
+
+    const saved = savedContent()
+    expect(saved.sections).toHaveLength(2)
+    const section = saved.sections[1] as { data: Record<string, unknown> }
+    expect(section.data.description).toBe('Rebuilt everything.')
+    expect(section.data.outcomes).toEqual(['Shipped 10x'])
+  })
+
+  it('rejects a malformed proposal without writing (no CV corruption)', async () => {
+    mockFindFirst.mockResolvedValue({ id: 'cv-1', generatedContent: contentWith([header, exp]) } as never)
+
+    await expect(
+      patchCVSectionData('cv-1', 'exp-1', { outcomes: 'not-an-array' }),
+    ).rejects.toThrow('was not applied')
+
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
+  it('throws Section not found when the section is missing', async () => {
+    mockFindFirst.mockResolvedValue({ id: 'cv-1', generatedContent: contentWith([header]) } as never)
+
+    await expect(patchCVSectionData('cv-1', 'nope', {})).rejects.toThrow('Section not found')
   })
 })

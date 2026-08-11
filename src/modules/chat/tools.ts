@@ -357,13 +357,15 @@ export function createChatTools(profileId: string) {
 
     propose_cv_update: tool({
       description:
-        'Propose an update to a section of a CV document. The user must confirm before it is applied.',
+        'Propose an update to a section of a CV document. The user must confirm before it is applied. ' +
+        'proposedData must contain the COMPLETE data object for the section (same shape as returned by get_cv_document), ' +
+        'including all required fields (e.g. outcomes: string[] for experience). Omitted required fields cause the change to be rejected.',
       inputSchema: zodSchema(
         z.object({
           cvId: z.string(),
           sectionId: z.string().describe('The id of the CVSection to update'),
           sectionType: z.string().describe('The type of the section (e.g. "profile", "experience")'),
-          proposedData: z.record(z.string(), z.unknown()).describe('Full proposed data object for the section'),
+          proposedData: z.record(z.string(), z.unknown()).describe('Full proposed data object for the section — must include every required field'),
           rationale: z.string().describe('Why this change improves the CV'),
         }),
       ),
