@@ -15,6 +15,31 @@ export function useBlockEditTrigger() {
   return useContext(BlockEditTrigger)
 }
 
+// Edit-state for a CV block. `pick` selects the editable value out of the section
+// (whole `data` for most blocks, a single field for others). The draft is re-seeded
+// from the latest section data every time edit mode is entered, so a coach/AI edit
+// that landed while the block was mounted can never be shown stale in the form and
+// then blindly saved back, overwriting the fresher server state.
+export function useBlockEdit<T extends CVSection, D>(
+  section: T,
+  pick: (section: T) => D,
+) {
+  const [editing, setEditing] = useState(false)
+  const editTrigger = useBlockEditTrigger()
+
+  const [draft, setDraft] = useState<D>(() => pick(section))
+  const [seenTrigger, setSeenTrigger] = useState(editTrigger)
+  if (seenTrigger !== editTrigger) {
+    setSeenTrigger(editTrigger)
+    if (editTrigger > 0) {
+      setDraft(pick(section))
+      setEditing(true)
+    }
+  }
+
+  return { editing, setEditing, draft, setDraft }
+}
+
 type Props = {
   section: CVSection
   onToggleVisibility: () => void
