@@ -88,6 +88,31 @@ export type ToolsData = z.infer<typeof ToolsDataSchema>
 export type LanguagesData = z.infer<typeof LanguagesDataSchema>
 export type CustomData = z.infer<typeof CustomDataSchema>
 
+// Merge an (LLM-proposed) data object onto an existing section, then validate
+// the result against the section's schema. Persists nothing — throws if the
+// merged section is invalid so the CV document can never be corrupted.
+export function mergeSectionData(
+  existing: CVSection,
+  proposedData: Record<string, unknown>,
+): CVSection {
+  if (proposedData == null || typeof proposedData !== 'object') {
+    throw new Error('The AI proposed an invalid CV change and it was not applied.')
+  }
+  const candidate = { ...existing, data: { ...existing.data, ...proposedData } }
+  const parsed = CVSectionSchema.safeParse(candidate)
+  if (!parsed.success) {
+    const fields = parsed.error.issues
+      .map(i => i.path.join('.') || i.code)
+      .join(', ')
+    console.error('[mergeSectionData] proposed CV section rejected', parsed.error.issues)
+    throw new Error(
+      `The AI's CV change was incomplete (${fields}) and was not applied. ` +
+      'Try a more focused change, or ask the coach to keep all existing fields.',
+    )
+  }
+  return parsed.data
+}
+
 export function parseCVContent(raw: string): CVDocumentContent {
   try {
     const parsed = JSON.parse(raw)
@@ -98,6 +123,19 @@ export function parseCVContent(raw: string): CVDocumentContent {
     // every page load.
     if (parsed && typeof parsed === 'object' && 'sections' in parsed) {
       console.error('[parseCVContent] schema validation failed', result.error.issues)
+    }
+    // Salvage: one corrupt section should not blank the whole CV. Keep the
+    // sections that individually validate so the rest of the document survives.
+    if (Array.isArray(parsed?.sections)) {
+      const sections = parsed.sections.filter(
+        (s: unknown): s is CVSection => CVSectionSchema.safeParse(s).success,
+      )
+      if (sections.length !== parsed.sections.length) {
+        console.error(
+          `[parseCVContent] dropped ${parsed.sections.length - sections.length} invalid section(s)`,
+        )
+      }
+      return { version: 1, sections }
     }
     return { version: 1, sections: [] }
   } catch {

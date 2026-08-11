@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { CVDocumentContentSchema, parseCVContent } from "./schema"
+import { CVDocumentContentSchema, parseCVContent, mergeSectionData } from "./schema"
 
 const headerSection = {
   id: "header",
@@ -103,5 +103,56 @@ describe("parseCVContent", () => {
     if (result.sections[0].type === 'custom') {
       expect(result.sections[0].data.items).toEqual(['Figma', 'Notion'])
     }
+  })
+
+  it('salvages valid sections when one section is corrupt (coach wrote invalid data)', () => {
+    const raw = JSON.stringify({
+      version: 1,
+      sections: [
+        headerSection,
+        { id: 'exp', type: 'experience', visible: true, data: { company: 'X', titles: [], location: '', duration: '', description: '' } },
+      ],
+    })
+    const result = parseCVContent(raw)
+    expect(result.sections).toHaveLength(1)
+    expect(result.sections[0].id).toBe('header')
+  })
+})
+
+describe("mergeSectionData", () => {
+  const exp = {
+    id: 'exp',
+    type: 'experience' as const,
+    visible: true,
+    data: {
+      company: 'Acme',
+      titles: ['PM'],
+      location: 'Remote',
+      duration: '2020–2024',
+      description: 'Built things.',
+      outcomes: ['Shipped 10x'],
+    },
+  }
+
+  it('fills missing declared fields from the existing section (no data loss)', () => {
+    // The LLM often proposes only the field it changed, omitting required arrays.
+    const merged = mergeSectionData(exp, { description: 'Rebuilt everything.' })
+    expect(merged.data).toMatchObject({
+      company: 'Acme',
+      description: 'Rebuilt everything.',
+      outcomes: ['Shipped 10x'],
+    })
+    expect(merged.data).toBeTypeOf('object')
+  })
+
+  it('throws instead of persisting malformed proposals', () => {
+    expect(() => mergeSectionData(exp, { outcomes: 'not-an-array' })).toThrow()
+  })
+
+  it('preserves id, type and visible from the existing section', () => {
+    const merged = mergeSectionData(exp, { description: 'New.' })
+    expect(merged.id).toBe('exp')
+    expect(merged.type).toBe('experience')
+    expect(merged.visible).toBe(true)
   })
 })

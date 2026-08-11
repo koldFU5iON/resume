@@ -69,7 +69,10 @@ export function ToolConfirmationCard({ toolName, args, onAccept, onReject, write
       const result = await writeAction()
       if (toolName === 'propose_cv_update') {
         window.dispatchEvent(new CustomEvent('cv-section-updated', {
-          detail: { sectionId: args.sectionId, proposedData: args.proposedData },
+          detail: {
+            sectionId: args.sectionId,
+            section: result ?? (args.proposedData as Record<string, unknown>),
+          },
         }))
       }
       if (toolName === 'propose_cv_section_create') {

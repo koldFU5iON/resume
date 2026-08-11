@@ -3,7 +3,7 @@
 import { prisma } from '@/lib/db'
 import { requireProfile } from '@/lib/session'
 import { revalidatePath } from 'next/cache'
-import { parseCVContent, type CVSection, type CVDocumentContent } from './schema'
+import { parseCVContent, mergeSectionData, CVSectionSchema, type CVSection, type CVDocumentContent } from './schema'
 import { generateCVContent } from './generate'
 
 export async function createAndGenerateCV({
@@ -91,7 +91,15 @@ export async function updateSection(cvId: string, section: CVSection): Promise<v
   const content = parseCVContent(doc.generatedContent)
   const idx = content.sections.findIndex(s => s.id === section.id)
   if (idx === -1) throw new Error('Section not found')
-  content.sections[idx] = section
+
+  // Validate the incoming section before writing so a bad payload can never
+  // corrupt the stored CV document.
+  const parsed = CVSectionSchema.safeParse(section)
+  if (!parsed.success) {
+    console.error('[updateSection] invalid section rejected', parsed.error.issues)
+    throw new Error('Invalid section data. No changes were saved.')
+  }
+  content.sections[idx] = parsed.data
 
   await prisma.cVDocument.update({
     where: { id: cvId },
@@ -101,12 +109,14 @@ export async function updateSection(cvId: string, section: CVSection): Promise<v
 }
 
 // Used by the AI chat assistant when applying a proposed section update.
-// Fetches the current section, merges only the data field, preserves visible/id/type.
+// Merges the LLM-proposed fields onto the current section data and validates
+// the result BEFORE persisting, so a partial/malformed proposal can never
+// corrupt the stored CV document.
 export async function patchCVSectionData(
   cvId: string,
   sectionId: string,
   data: Record<string, unknown>,
-): Promise<void> {
+): Promise<CVSection> {
   const { profile } = await requireProfile()
   const doc = await prisma.cVDocument.findFirst({
     where: { id: cvId, profileId: profile.id },
@@ -118,14 +128,17 @@ export async function patchCVSectionData(
   const idx = content.sections.findIndex(s => s.id === sectionId)
   if (idx === -1) throw new Error('Section not found')
 
-  // Merge only the data field — preserves id, type, visible from the existing section
-  content.sections[idx] = { ...content.sections[idx], data } as CVSection
+  // Merge only the data field — preserves id, type, visible from the existing
+  // section. mergeSectionData validates; it throws rather than write bad data.
+  const merged = mergeSectionData(content.sections[idx], data)
+  content.sections[idx] = merged
 
   await prisma.cVDocument.update({
     where: { id: cvId },
     data: { generatedContent: JSON.stringify(content) },
   })
   revalidatePath(`/dashboard/cv-builder/${cvId}`)
+  return merged
 }
 
 export async function toggleVisibility(cvId: string, sectionId: string): Promise<void> {

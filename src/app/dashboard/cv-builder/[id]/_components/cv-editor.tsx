@@ -81,11 +81,11 @@ export function CvEditor({ cv, stale = false }: Props) {
   })
 
   useEffect(() => {
-    function handleCvSectionUpdated(e: CustomEvent<{ sectionId: string; proposedData: Record<string, unknown> }>) {
+    function handleCvSectionUpdated(e: CustomEvent<{ sectionId: string; section: CVSection | Record<string, unknown> }>) {
       setContent(c => ({
         ...c,
         sections: c.sections.map(s =>
-          s.id === e.detail.sectionId ? { ...s, data: e.detail.proposedData } as typeof s : s
+          s.id === e.detail.sectionId ? { ...s, data: (e.detail.section as CVSection).data ?? e.detail.section } as typeof s : s
         ),
       }))
     }
