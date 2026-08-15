@@ -5,7 +5,6 @@ import type {
   FullProfile,
   RoleActivityKindType,
   CompetencyOriginType,
-  LanguageProficiencyType,
 } from "@/app/types/profile"
 
 // Loads experience + its activities + the profile's skills — everything
@@ -85,10 +84,7 @@ export async function getFullProfile(): Promise<FullProfile> {
       ...c,
       origin: c.origin as CompetencyOriginType,
     })),
-    languages: row.languages.map((l) => ({
-      ...l,
-      proficiency: l.proficiency as LanguageProficiencyType,
-    })),
+    languages: row.languages,
     tools: row.tools,
     projects: row.projects.map(p => ({
       ...p,

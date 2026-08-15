@@ -132,7 +132,7 @@ function PDFSectionBody({ section }: { section: CVSection }) {
     case 'languages': {
       const d = section.data as LanguagesData
       return (
-        <p>{d.items.map(l => `${l.name} (${l.proficiency})`).join(' · ')}</p>
+        <p>{d.items.map(l => l.proficiency ? `${l.name} (${l.proficiency})` : l.name).join(' · ')}</p>
       )
     }
 

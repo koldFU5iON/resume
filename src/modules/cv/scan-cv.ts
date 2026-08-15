@@ -61,7 +61,7 @@ export function serializeCVForScan(content: CVDocumentContent): string {
         lines.push(`${section.data.name}${section.data.issuer ? ' — ' + section.data.issuer : ''}`)
         break
       case 'languages':
-        lines.push('LANGUAGES: ' + section.data.items.map((l) => `${l.name} (${l.proficiency})`).join(', '))
+        lines.push('LANGUAGES: ' + section.data.items.map(l => l.proficiency ? `${l.name} (${l.proficiency})` : l.name).join(', '))
         break
       default:
         break
