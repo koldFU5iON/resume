@@ -206,6 +206,15 @@ describe("sectionToPlainText — additional sections", () => {
     expect(sectionToPlainText(section)).toContain("fluent")
   })
 
+  it("renders languages without an optional proficiency", () => {
+    const section: CVSection = {
+      id: "lang", type: "languages", visible: true,
+      data: { items: [{ name: "French" }] },
+    }
+    expect(sectionToPlainText(section)).toContain("French")
+    expect(sectionToPlainText(section)).not.toContain("(")
+  })
+
   it("experience with no outcomes produces no trailing blank line", () => {
     const section: CVSection = {
       id: "e", type: "experience", visible: true,

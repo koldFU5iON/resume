@@ -222,7 +222,7 @@ function SectionBody({ section }: { section: CVSection }) {
 
     case 'languages': {
       const d = section.data as LanguagesData
-      return <Text>{d.items.map(l => `${l.name} (${l.proficiency})`).join(' / ')}</Text>
+      return <Text>{d.items.map(l => l.proficiency ? `${l.name} (${l.proficiency})` : l.name).join(' / ')}</Text>
     }
 
     case 'custom': {

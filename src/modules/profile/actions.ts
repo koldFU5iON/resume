@@ -250,12 +250,12 @@ export async function deleteSkill(id: string) {
 
 // ── Languages ─────────────────────────────────────────────────────────────────
 
-type LanguageData = { name: string; proficiency: string }
+type LanguageData = { name: string; proficiency?: string }
 
 export async function createLanguage(data: LanguageData) {
   const { profile } = await requireProfile()
   const language = await prisma.language.create({
-    data: { ...data, profileId: profile.id },
+    data: { ...data, proficiency: data.proficiency?.trim() || null, profileId: profile.id },
   })
   revalidatePath('/dashboard/profile')
   return language
@@ -263,7 +263,10 @@ export async function createLanguage(data: LanguageData) {
 
 export async function updateLanguage(id: string, data: LanguageData) {
   const { profile } = await requireProfile()
-  const language = await prisma.language.update({ where: { id, profileId: profile.id }, data })
+  const language = await prisma.language.update({
+    where: { id, profileId: profile.id },
+    data: { ...data, proficiency: data.proficiency?.trim() || null },
+  })
   revalidatePath('/dashboard/profile')
   return language
 }

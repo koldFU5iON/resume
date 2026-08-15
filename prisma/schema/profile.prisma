@@ -186,7 +186,7 @@ model Language {
   id          String   @id @default(cuid())
   profileId   String
   name        String
-  proficiency String // "native" | "fluent" | "professional" | "intermediate" | "basic"
+  proficiency String?
   order       Int      @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

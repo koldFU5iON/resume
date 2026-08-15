@@ -25,15 +25,6 @@ export const CompetencyOrigin = {
 } as const
 export type CompetencyOriginType = typeof CompetencyOrigin[keyof typeof CompetencyOrigin]
 
-export const LanguageProficiency = {
-  Native: "native",
-  Fluent: "fluent",
-  Professional: "professional",
-  Intermediate: "intermediate",
-  Basic: "basic",
-} as const
-export type LanguageProficiencyType = typeof LanguageProficiency[keyof typeof LanguageProficiency]
-
 // --- domain types: narrow the String/JSON columns to real types ---
 
 export type RoleActivity = Omit<RoleActivityRow, "kind" | "tags"> & {
@@ -41,7 +32,7 @@ export type RoleActivity = Omit<RoleActivityRow, "kind" | "tags"> & {
   tags: string[]
 }
 export type Competency = Omit<CompetencyRow, "origin"> & { origin: CompetencyOriginType }
-export type Language = Omit<LanguageRow, "proficiency"> & { proficiency: LanguageProficiencyType }
+export type Language = LanguageRow
 export type Experience = Omit<ExperienceRow, "tags"> & { tags: string[] }
 export type Skill = Omit<SkillRow, "tags"> & { tags: string[] }
 export type Education = Omit<EducationRow, "tags"> & { tags: string[] }

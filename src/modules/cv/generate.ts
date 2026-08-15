@@ -23,7 +23,7 @@ Section types and their data shapes:
 - certification: { name, issuer?, date?, url? }
 - skills:        { items: string[] }
 - tools:         { items: string[] }
-- languages:     { items: [{ name, proficiency }] }
+- languages:     { items: [{ name, proficiency? }] }  -- proficiency is an optional free-text label
 `
 
 function formatAnalysisContext(analysis: JobAnalysis): string {

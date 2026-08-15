@@ -36,20 +36,13 @@ type CertType = FullProfile['certifications'][number]
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const proficiencyVariant: Record<string, 'success' | 'info' | 'warning'> = {
-  native: 'success',
-  fluent: 'success',
-  professional: 'info',
-  intermediate: 'warning',
-}
-
 const toDateInput = (d?: Date | string | null) =>
   d ? new Date(d).toISOString().split('T')[0] : ''
 
 const HELP: Record<string, string> = {
   'Skills': 'Technical and professional skills with proficiency level and years of experience. The AI uses these to match you against job requirements.',
   'Tools': 'Software, platforms, and apps you use regularly (e.g. Figma, Jira, VS Code). Listed separately from skills for clarity on a CV.',
-  'Languages': 'Spoken languages and your proficiency level.',
+  'Languages': 'Spoken languages and an optional proficiency label.',
   'Core Competencies': 'Behavioural and interpersonal strengths — leadership, communication, adaptability. Most impactful when backed by evidence in your experience bullets.',
   'Education': 'Academic qualifications, degrees, and formal training.',
   'Certifications': 'Professional certifications and credentials. Add expiry dates to flag ones due for renewal.',
@@ -433,9 +426,7 @@ function LanguagesSection({ initial }: { initial: LanguageType[] }) {
             {languages.map(lang => (
               <div key={lang.id} className="group relative flex items-center justify-between py-1.5 border-b border-border last:border-0">
                 <span className="text-sm font-medium">{lang.name}</span>
-                <Badge variant={proficiencyVariant[lang.proficiency] ?? 'secondary'} className="text-xs capitalize">
-                  {lang.proficiency}
-                </Badge>
+                {lang.proficiency && <Badge variant="secondary" className="text-xs">{lang.proficiency}</Badge>}
                 <RowControls label={lang.name} onEdit={() => openEdit(lang)} onDelete={() => handleDelete(lang.id)} />
               </div>
             ))}
@@ -457,12 +448,10 @@ function LanguageDialog({
   saving: boolean
   saveError: string | null
 }) {
-  const [proficiency, setProficiency] = useState(editing?.proficiency ?? 'intermediate')
-
   const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     const fd = new FormData(e.currentTarget)
-    onSave({ name: fd.get('name') as string, proficiency })
+    onSave({ name: fd.get('name') as string, proficiency: fd.get('proficiency') as string })
   }
 
   return (
@@ -478,15 +467,8 @@ function LanguageDialog({
               <Input id="lang-name" name="name" defaultValue={editing?.name} required />
             </Field>
             <Field>
-              <Label>Proficiency</Label>
-              <Select value={proficiency} onValueChange={(v) => v && setProficiency(v as typeof proficiency)}>
-                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {['native', 'fluent', 'professional', 'intermediate', 'basic'].map(p => (
-                    <SelectItem key={p} value={p} className="capitalize">{p}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label htmlFor="lang-proficiency">Proficiency <span className="text-muted-foreground">(optional)</span></Label>
+              <Input id="lang-proficiency" name="proficiency" defaultValue={editing?.proficiency ?? ''} placeholder="e.g. Native, C1, Conversational" />
             </Field>
           </FieldGroup>
           {saveError && <p className="mt-3 text-sm text-destructive">{saveError}</p>}

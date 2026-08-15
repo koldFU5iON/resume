@@ -61,7 +61,7 @@ export type ProfileSnapshot = {
 
   languages: Array<{
     name: string
-    proficiency: string
+    proficiency: string | null
   }>
 
   projects: Array<{
@@ -237,7 +237,7 @@ export function serializeProfileForLLM(snapshot: ProfileSnapshot): string {
   // Languages
   if (snapshot.languages.length > 0) {
     lines.push('## Languages')
-    lines.push(snapshot.languages.map(l => `${l.name} (${l.proficiency})`).join(', '))
+    lines.push(snapshot.languages.map(l => l.proficiency ? `${l.name} (${l.proficiency})` : l.name).join(', '))
     lines.push('')
   }
 
