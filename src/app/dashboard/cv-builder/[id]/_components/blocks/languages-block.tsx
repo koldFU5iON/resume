@@ -1,8 +1,7 @@
 'use client'
 
-import { useState } from 'react'
 import { Check, X, Plus, Trash2 } from 'lucide-react'
-import { useBlockEditTrigger } from '../cv-block'
+import { useBlockEdit } from '../cv-block'
 import type { CVSection, LanguagesData } from '@/modules/cv/schema'
 
 type Props = {
@@ -12,15 +11,7 @@ type Props = {
 }
 
 export function LanguagesBlock({ section, onUpdate, showHeading = true }: Props) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(section.data.items)
-  const editTrigger = useBlockEditTrigger()
-
-  const [seenTrigger, setSeenTrigger] = useState(editTrigger)
-  if (seenTrigger !== editTrigger) {
-    setSeenTrigger(editTrigger)
-    if (editTrigger > 0) setEditing(true)
-  }
+  const { editing, setEditing, draft, setDraft } = useBlockEdit(section, s => s.data.items)
 
   function save() {
     onUpdate({ ...section, data: { items: draft.filter(i => Boolean(i.name)) } })

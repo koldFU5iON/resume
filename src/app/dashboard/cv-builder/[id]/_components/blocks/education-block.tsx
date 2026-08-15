@@ -1,8 +1,7 @@
 'use client'
 
-import { useState } from 'react'
 import { Check, X } from 'lucide-react'
-import { useBlockEditTrigger } from '../cv-block'
+import { useBlockEdit } from '../cv-block'
 import type { CVSection, EducationData } from '@/modules/cv/schema'
 
 type Props = {
@@ -12,16 +11,8 @@ type Props = {
 }
 
 export function EducationBlock({ section, onUpdate, showHeading = true }: Props) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(section.data)
+  const { editing, setEditing, draft, setDraft } = useBlockEdit(section, s => s.data)
   const { institution, qualification, field, duration, grade } = section.data
-  const editTrigger = useBlockEditTrigger()
-
-  const [seenTrigger, setSeenTrigger] = useState(editTrigger)
-  if (seenTrigger !== editTrigger) {
-    setSeenTrigger(editTrigger)
-    if (editTrigger > 0) setEditing(true)
-  }
 
   function save() {
     onUpdate({ ...section, data: draft })

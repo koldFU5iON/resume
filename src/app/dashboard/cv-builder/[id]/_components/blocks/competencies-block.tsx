@@ -1,8 +1,7 @@
 'use client'
 
-import { useState } from 'react'
 import { Check, X } from 'lucide-react'
-import { useBlockEditTrigger } from '../cv-block'
+import { useBlockEdit } from '../cv-block'
 import { SortableItemList } from './sortable-item-list'
 import type { CVSection } from '@/modules/cv/schema'
 
@@ -13,15 +12,7 @@ type Props = {
 }
 
 export function CompetenciesBlock({ section, onUpdate, showHeading = true }: Props) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(section.data.items)
-  const editTrigger = useBlockEditTrigger()
-
-  const [seenTrigger, setSeenTrigger] = useState(editTrigger)
-  if (seenTrigger !== editTrigger) {
-    setSeenTrigger(editTrigger)
-    if (editTrigger > 0) setEditing(true)
-  }
+  const { editing, setEditing, draft, setDraft } = useBlockEdit(section, s => s.data.items)
 
   function save() {
     onUpdate({ ...section, data: { items: draft.filter(Boolean) } })

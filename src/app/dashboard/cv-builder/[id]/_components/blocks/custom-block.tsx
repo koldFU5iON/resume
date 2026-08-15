@@ -1,8 +1,7 @@
 'use client'
 
-import { useState } from 'react'
 import { Check, X } from 'lucide-react'
-import { useBlockEditTrigger } from '../cv-block'
+import { useBlockEdit } from '../cv-block'
 import { MarkdownProse } from '@/components/ui/markdown-prose'
 import { SortableItemList } from './sortable-item-list'
 import type { CVSection } from '@/modules/cv/schema'
@@ -14,35 +13,34 @@ type Props = {
 }
 
 export function CustomBlock({ section, onUpdate, showHeading = true }: Props) {
-  const [editing, setEditing] = useState(false)
-  const [draftHeading, setDraftHeading] = useState(section.data.heading)
-  const [draftContent, setDraftContent] = useState(section.data.content ?? '')
-  const [draftItems, setDraftItems] = useState(section.data.items ?? [])
-  const editTrigger = useBlockEditTrigger()
-
-  const [seenTrigger, setSeenTrigger] = useState(editTrigger)
-  if (seenTrigger !== editTrigger) {
-    setSeenTrigger(editTrigger)
-    if (editTrigger > 0) setEditing(true)
-  }
+  const { editing, setEditing, draft, setDraft } = useBlockEdit(
+    section,
+    s => ({
+      heading: s.data.heading,
+      content: s.data.content ?? '',
+      items: s.data.items ?? [],
+    }),
+  )
 
   function save() {
     onUpdate({
       ...section,
       data: {
         ...section.data,
-        heading: draftHeading,
-        content: section.data.subtype === 'text' ? draftContent : null,
-        items: section.data.subtype === 'list' ? draftItems.filter(Boolean) : null,
+        heading: draft.heading,
+        content: section.data.subtype === 'text' ? draft.content : null,
+        items: section.data.subtype === 'list' ? draft.items.filter(Boolean) : null,
       },
     })
     setEditing(false)
   }
 
   function cancel() {
-    setDraftHeading(section.data.heading)
-    setDraftContent(section.data.content ?? '')
-    setDraftItems(section.data.items ?? [])
+    setDraft({
+      heading: section.data.heading,
+      content: section.data.content ?? '',
+      items: section.data.items ?? [],
+    })
     setEditing(false)
   }
 
@@ -68,8 +66,8 @@ export function CustomBlock({ section, onUpdate, showHeading = true }: Props) {
       <div className="space-y-1">
         <label className="text-xs text-muted-foreground">Section Heading</label>
         <input
-          value={draftHeading}
-          onChange={e => setDraftHeading(e.target.value)}
+          value={draft.heading}
+          onChange={e => setDraft({ ...draft, heading: e.target.value })}
           className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring"
         />
       </div>
@@ -78,8 +76,8 @@ export function CustomBlock({ section, onUpdate, showHeading = true }: Props) {
         <div className="space-y-1">
           <label className="text-xs text-muted-foreground">Content</label>
           <textarea
-            value={draftContent}
-            onChange={e => setDraftContent(e.target.value)}
+            value={draft.content}
+            onChange={e => setDraft({ ...draft, content: e.target.value })}
             rows={6}
             className="w-full resize-y rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring"
           />
@@ -87,8 +85,8 @@ export function CustomBlock({ section, onUpdate, showHeading = true }: Props) {
       ) : (
         <div className="space-y-2">
           <SortableItemList
-            items={draftItems}
-            onChange={setDraftItems}
+            items={draft.items}
+            onChange={items => setDraft({ ...draft, items })}
             placeholder="Item"
             addLabel="Add item"
           />
