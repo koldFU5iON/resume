@@ -45,7 +45,7 @@ export const CertificationDataSchema = z.object({
 export const SkillsDataSchema = z.object({ items: z.array(z.string()) })
 export const ToolsDataSchema = z.object({ items: z.array(z.string()) })
 export const LanguagesDataSchema = z.object({
-  items: z.array(z.object({ name: z.string(), proficiency: z.string() })),
+  items: z.array(z.object({ name: z.string(), proficiency: z.string().optional() })),
 })
 
 export const CustomDataSchema = z.object({

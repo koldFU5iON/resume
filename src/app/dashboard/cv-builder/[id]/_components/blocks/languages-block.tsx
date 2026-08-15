@@ -50,7 +50,7 @@ export function LanguagesBlock({ section, onUpdate, showHeading = true }: Props)
                 <div className="flex-1 space-y-1">
                   <label className="text-xs text-muted-foreground">Proficiency</label>
                   <input
-                    value={item.proficiency}
+                    value={item.proficiency ?? ''}
                     onChange={e => setDraft(draft.map((d, j) => j === i ? { ...d, proficiency: e.target.value } : d))}
                     className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring"
                   />
@@ -75,7 +75,7 @@ export function LanguagesBlock({ section, onUpdate, showHeading = true }: Props)
         </div>
       ) : (
         <p className="cv-body">
-          {section.data.items.map(l => `${l.name} (${l.proficiency})`).join(' · ')}
+          {section.data.items.map(l => l.proficiency ? `${l.name} (${l.proficiency})` : l.name).join(' · ')}
         </p>
       )}
     </div>
