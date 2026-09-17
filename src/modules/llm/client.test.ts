@@ -122,6 +122,25 @@ describe('LLM client logging', () => {
     await expect(complete('profile-1', 'hello', { feature: 'test' })).resolves.not.toThrow()
   })
 
+  it('omits unsupported sampling parameters for Claude v5 models', async () => {
+    mockFindUnique.mockResolvedValueOnce({
+      ...fakeSettings,
+      llmModel: 'claude-sonnet-5',
+    } as never)
+
+    await complete('profile-1', 'hello', { feature: 'test', temperature: 0.2 })
+
+    expect(mockGenerateText.mock.calls[0][0]).not.toHaveProperty('temperature')
+  })
+
+  it('keeps sampling parameters for supported models', async () => {
+    await complete('profile-1', 'hello', { feature: 'test', temperature: 0.2 })
+
+    expect(mockGenerateText).toHaveBeenCalledWith(
+      expect.objectContaining({ temperature: 0.2 }),
+    )
+  })
+
   it('recovers fenced JSON when the SDK cannot parse the output', async () => {
     const schema = z.object({ name: z.string() })
     mockGenerateText.mockRejectedValueOnce(

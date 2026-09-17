@@ -61,6 +61,15 @@ type ResolvedConfig = {
   apiKey: string
 }
 
+function samplingOptions(provider: string, model: string, temperature: number | undefined) {
+  // Anthropic's v5 Sonnet and Opus models reject non-default sampling values.
+  // Keep existing tuning for earlier Claude models and other providers.
+  if (provider === 'anthropic' && /^claude-(?:sonnet|opus)-[5-9](?:\D|$)/.test(model)) {
+    return {}
+  }
+  return temperature === undefined ? {} : { temperature }
+}
+
 async function resolveConfig(profileId: string): Promise<ResolvedConfig> {
   const settings = await prisma.userSettings.findUnique({
     where: { profileId },
@@ -175,7 +184,7 @@ export async function complete(
       prompt,
       system: opts.system,
       maxOutputTokens: opts.maxOutputTokens,
-      temperature: opts.temperature,
+      ...samplingOptions(cfg.provider, modelId, opts.temperature),
     })
     const latencyMs = Date.now() - startedAt
     logUsage(profileId, cfg.provider, modelId, opts.feature, result.usage, latencyMs)
@@ -228,7 +237,7 @@ export async function completeStructured<T>(
       prompt,
       system: opts.system,
       maxOutputTokens: opts.maxOutputTokens,
-      temperature: opts.temperature,
+      ...samplingOptions(cfg.provider, modelId, opts.temperature),
       output: Output.object({ schema }),
     })
     const latencyMs = Date.now() - startedAt
