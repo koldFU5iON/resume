@@ -17,6 +17,7 @@ import { cn } from '@/lib/utils'
 import { usePageContext } from '@/lib/context/page-context'
 import type { PageContext } from '@/modules/chat/schema'
 import { getChatSettings, saveChatModel } from '@/modules/llm/actions'
+import { splitThinkingContent } from '@/modules/chat/thinking'
 import { ChatMessage } from './chat-message'
 import { toast } from 'sonner'
 
@@ -41,7 +42,10 @@ function persistMessages(messages: UIMessage[]) {
       .map(m => ({
         id: m.id,
         role: m.role as 'user' | 'assistant',
-        text: m.parts?.filter(isTextUIPart).map(p => p.text).join('\n') ?? '',
+        text: m.parts
+          ?.filter(isTextUIPart)
+          .map(p => m.role === 'assistant' ? splitThinkingContent(p.text).content : p.text)
+          .join('\n') ?? '',
       }))
       .filter(m => m.text && !m.text.startsWith('[navigated to '))
     if (saved.length > 0) {
@@ -144,6 +148,18 @@ export function ChatPanel({ open, onClose }: ChatPanelProps) {
 
   // Persist messages to sessionStorage on every update
   useEffect(() => { persistMessages(messages) }, [messages])
+
+  useEffect(() => {
+    if (status !== 'ready') return
+    setMessages(current => current.map(message => ({
+      ...message,
+      parts: message.parts?.map(part =>
+        message.role === 'assistant' && isTextUIPart(part)
+          ? { ...part, text: splitThinkingContent(part.text).content }
+          : part,
+      ),
+    })))
+  }, [setMessages, status])
 
   useEffect(() => {
     if (open && !settings) {

@@ -6,6 +6,7 @@ import { Bot, Check, Copy, User, Loader2, ChevronRight } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { cn } from '@/lib/utils'
+import { splitThinkingContent } from '@/modules/chat/thinking'
 import type React from 'react'
 
 function extractText(node: React.ReactNode): string {
@@ -142,39 +143,50 @@ export function ChatMessage({ message, onToolOutput }: ChatMessageProps) {
       <div className={cn('flex max-w-[85%] flex-col gap-2', isUser && 'items-end')}>
         {message.parts?.map((part, i) => {
           if (isTextUIPart(part)) {
+            const { content, isThinking } = isUser
+              ? { content: part.text, isThinking: false }
+              : splitThinkingContent(part.text)
             return (
               <div key={`text-${i}`} className="group/msg">
-                <div
-                  className={cn(
-                    'rounded-2xl px-3.5 py-2 text-sm leading-relaxed',
-                    isUser
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-muted text-foreground',
-                  )}
-                >
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
-                    components={{
-                      p: ({ children }) => <p className="mb-1 last:mb-0">{children}</p>,
-                      ul: ({ children }) => <ul className="mb-1 ml-4 list-disc last:mb-0">{children}</ul>,
-                      ol: ({ children }) => <ol className="mb-1 ml-4 list-decimal last:mb-0">{children}</ol>,
-                      li: ({ children }) => <li className="mb-0.5">{children}</li>,
-                      strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
-                      code: ({ children }) => (
-                        <code className="rounded bg-black/10 px-1 py-0.5 text-xs font-mono dark:bg-white/10">
-                          {children}
-                        </code>
-                      ),
-                      pre: ({ children }) => <CodeBlock>{children}</CodeBlock>,
-                    }}
+                {isThinking && !isUser && (
+                  <div className="mb-2 flex items-center gap-1.5 rounded-lg border bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
+                    <Loader2 className="size-3 animate-spin" />
+                    Thinking…
+                  </div>
+                )}
+                {content && (
+                  <div
+                    className={cn(
+                      'rounded-2xl px-3.5 py-2 text-sm leading-relaxed',
+                      isUser
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-muted text-foreground',
+                    )}
                   >
-                    {part.text}
-                  </ReactMarkdown>
-                </div>
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        p: ({ children }) => <p className="mb-1 last:mb-0">{children}</p>,
+                        ul: ({ children }) => <ul className="mb-1 ml-4 list-disc last:mb-0">{children}</ul>,
+                        ol: ({ children }) => <ol className="mb-1 ml-4 list-decimal last:mb-0">{children}</ol>,
+                        li: ({ children }) => <li className="mb-0.5">{children}</li>,
+                        strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+                        code: ({ children }) => (
+                          <code className="rounded bg-black/10 px-1 py-0.5 text-xs font-mono dark:bg-white/10">
+                            {children}
+                          </code>
+                        ),
+                        pre: ({ children }) => <CodeBlock>{children}</CodeBlock>,
+                      }}
+                    >
+                      {content}
+                    </ReactMarkdown>
+                  </div>
+                )}
                 {!isUser && (
                   <div className="mt-1 flex gap-1 opacity-0 transition-opacity group-hover/msg:opacity-100">
                     <button
-                      onClick={() => handleCopy(part.text, i)}
+                      onClick={() => handleCopy(content, i)}
                       className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
                       aria-label="Copy message"
                     >
