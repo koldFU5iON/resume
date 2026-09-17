@@ -272,15 +272,23 @@ export async function getLLMConfigStatus(profileId: string): Promise<{
   provider: string | null
   model: string | null
   availableModels: { id: string; name: string }[] | null
+  availableModelsUpdatedAt: Date | null
 }> {
   const settings = await prisma.userSettings.findUnique({
     where: { profileId },
-    select: { llmProvider: true, llmModel: true, llmApiKey: true, availableModels: true },
+    select: {
+      llmProvider: true,
+      llmModel: true,
+      llmApiKey: true,
+      availableModels: true,
+      availableModelsUpdatedAt: true,
+    },
   })
   return {
     configured: !!settings?.llmApiKey,
     provider: settings?.llmProvider ?? null,
     model: settings?.llmModel ?? null,
     availableModels: (settings?.availableModels as { id: string; name: string }[] | null) ?? null,
+    availableModelsUpdatedAt: settings?.availableModelsUpdatedAt ?? null,
   }
 }

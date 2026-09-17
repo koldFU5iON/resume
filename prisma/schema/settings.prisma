@@ -12,6 +12,8 @@ model UserSettings {
   llmBaseUrl            String?
   /// Cached model list from the provider. Shape: { id: string; name: string }[]
   availableModels       Json?
+  /// When the cached provider model list was last fetched successfully.
+  availableModelsUpdatedAt DateTime?
   defaultTemplateId     String?
   theme                 String    @default("system")
   exportFormat          String    @default("pdf")

@@ -43,7 +43,7 @@ const components: Components = {
 
 export function MarkdownProse({ content }: { content: string }) {
   return (
-    <div className="prose max-w-[72ch]">
+    <div className="prose dark:prose-invert max-w-[72ch]">
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
         {content}
       </ReactMarkdown>

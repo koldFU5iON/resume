@@ -24,6 +24,7 @@ type Props = {
     model: string
     keyConfigured: boolean
     availableModels: ProviderModel[] | null
+    availableModelsUpdatedAt: Date | null
   }
 }
 
@@ -41,6 +42,9 @@ export function LLMSettingsForm({ initial }: Props) {
   const [availableModels, setAvailableModels] = useState<ProviderModel[] | null>(
     initial.availableModels,
   )
+  const [availableModelsUpdatedAt, setAvailableModelsUpdatedAt] = useState<Date | null>(
+    initial.availableModelsUpdatedAt,
+  )
   const [selectedModel, setSelectedModel] = useState(initial.model)
   const [modelError, setModelError] = useState<string | null>(null)
   const [saving, startSaveTransition] = useTransition()
@@ -51,6 +55,7 @@ export function LLMSettingsForm({ initial }: Props) {
     if (!next) return
     setProvider(next)
     setAvailableModels(null)
+    setAvailableModelsUpdatedAt(null)
     setModelError(null)
   }
 
@@ -61,6 +66,7 @@ export function LLMSettingsForm({ initial }: Props) {
         const { models } = await saveLLMApiKey({ provider, apiKey })
         setKeyConfigured(true)
         setAvailableModels(models)
+        setAvailableModelsUpdatedAt(new Date())
         setSelectedModel(models[0]?.id ?? '')
         setApiKey('')
         toast.success('Key saved and models loaded')
@@ -90,6 +96,7 @@ export function LLMSettingsForm({ initial }: Props) {
       try {
         const models = await refreshModels()
         setAvailableModels(models)
+        setAvailableModelsUpdatedAt(new Date())
         toast.success('Models refreshed')
       } catch (err) {
         setModelError(
@@ -110,6 +117,7 @@ export function LLMSettingsForm({ initial }: Props) {
       await clearLLMApiKey()
       setKeyConfigured(false)
       setAvailableModels(null)
+      setAvailableModelsUpdatedAt(null)
       setSelectedModel('')
       toast.success('API key removed')
     } catch {
@@ -200,7 +208,7 @@ export function LLMSettingsForm({ initial }: Props) {
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <Label>Model</Label>
-          {keyConfigured && availableModels !== null && (
+          {keyConfigured && (
             <button
               type="button"
               onClick={handleRefresh}
@@ -248,8 +256,8 @@ export function LLMSettingsForm({ initial }: Props) {
         {modelError && <p className="text-xs text-destructive">{modelError}</p>}
         {availableModels !== null && !modelError && (
           <p className="text-xs text-muted-foreground">
-            {availableModels.length} model{availableModels.length !== 1 ? 's' : ''} · saves on
-            select
+            {availableModels.length} model{availableModels.length !== 1 ? 's' : ''} · saves on select
+            {availableModelsUpdatedAt && ` · refreshed ${availableModelsUpdatedAt.toLocaleString()}`}
           </p>
         )}
       </div>

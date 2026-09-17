@@ -48,7 +48,7 @@ export function ProfileBlock({ section, onUpdate, showHeading = true }: Props) {
           </div>
         </div>
       ) : (
-        <div className="prose prose-sm max-w-none">
+        <div className="prose prose-sm dark:prose-invert max-w-none">
           <ReactMarkdown>{section.data.content}</ReactMarkdown>
         </div>
       )}

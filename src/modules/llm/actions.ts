@@ -37,12 +37,14 @@ export async function saveLLMApiKey(
       llmProvider: provider,
       llmApiKey: encrypt(input.apiKey.trim()),
       availableModels: models,
+      availableModelsUpdatedAt: new Date(),
     },
     create: {
       profileId: profile.id,
       llmProvider: provider,
       llmApiKey: encrypt(input.apiKey.trim()),
       availableModels: models,
+      availableModelsUpdatedAt: new Date(),
     },
   })
 
@@ -79,7 +81,7 @@ export async function refreshModels(): Promise<ProviderModel[]> {
 
   await prisma.userSettings.update({
     where: { profileId: profile.id },
-    data: { availableModels: models },
+    data: { availableModels: models, availableModelsUpdatedAt: new Date() },
   })
 
   revalidatePath('/dashboard/settings/llm')
@@ -91,7 +93,11 @@ export async function clearLLMApiKey(): Promise<void> {
 
   await prisma.userSettings.update({
     where: { profileId: profile.id },
-    data: { llmApiKey: null, availableModels: Prisma.JsonNull },
+    data: {
+      llmApiKey: null,
+      availableModels: Prisma.JsonNull,
+      availableModelsUpdatedAt: null,
+    },
   })
 
   revalidatePath('/dashboard/settings/llm')

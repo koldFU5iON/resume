@@ -18,6 +18,7 @@ export default async function Page() {
           model: status.model ?? '',
           keyConfigured: status.configured,
           availableModels: status.availableModels,
+          availableModelsUpdatedAt: status.availableModelsUpdatedAt,
         }}
       />
     </ContentContainer>
