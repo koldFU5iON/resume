@@ -8,13 +8,15 @@ import { Watchlist } from './_components/watchlist'
 import { DiscoveredJobs } from './_components/discovered-jobs'
 import { JobBoardSources } from './_components/job-board-sources'
 import { ScanStatusBar } from './_components/scan-status-bar'
+import { ScoutInvites } from './_components/scout-invites'
 import { Settings2 } from 'lucide-react'
 import { buttonVariants } from '@/components/ui/button'
+import { listScoutInvites } from '@/modules/scout-inbox/service'
 
 export default async function JobHuntPage() {
-  await requireProfile()
+  const { profile } = await requireProfile()
 
-  const [watches, jobs, boardSources, criteria, keyStatus, summary, manualBoards] = await Promise.all([
+  const [watches, jobs, boardSources, criteria, keyStatus, summary, manualBoards, scoutInvites] = await Promise.all([
     getWatchlist(),
     getDiscoveredJobs(),
     getBoardSources(),
@@ -22,6 +24,7 @@ export default async function JobHuntPage() {
     getJobBoardKeyStatus(),
     getScanSummary(),
     getManualBoards(),
+    listScoutInvites(profile.id),
   ])
 
   const availableProviders = new Set<string>([
@@ -76,8 +79,11 @@ export default async function JobHuntPage() {
           />
         </aside>
 
-        <aside className="lg:sticky lg:top-6">
-          <JobBoardSources sources={boardSources} availableProviders={availableProviders} manualBoards={manualBoards} />
+          <aside className="lg:sticky lg:top-6">
+          <div className="space-y-6">
+            <JobBoardSources sources={boardSources} availableProviders={availableProviders} manualBoards={manualBoards} />
+            <ScoutInvites invites={scoutInvites} />
+          </div>
         </aside>
 
         <div className="min-w-0">

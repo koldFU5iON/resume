@@ -6,12 +6,13 @@ import { cn } from '@/lib/utils'
 import { JobQueueRow } from './job-queue-row'
 import type { DiscoveredJobWithWatch } from './job-queue-row'
 
-type FilterTab = 'all' | 'company' | 'board' | 'scored'
+type FilterTab = 'all' | 'company' | 'board' | 'scout' | 'scored'
 
 const TABS: { value: FilterTab; label: string }[] = [
   { value: 'all',     label: 'All' },
   { value: 'company', label: 'Company' },
   { value: 'board',   label: 'Boards' },
+  { value: 'scout',   label: 'Scout' },
   { value: 'scored',  label: 'Scored' },
 ]
 
@@ -82,6 +83,7 @@ export function DiscoveredJobs({ jobs }: Props) {
     if (!showIgnored && j.status === 'ignored') return false
     if (tab === 'company') return j.watch != null
     if (tab === 'board')   return j.boardSource != null
+    if (tab === 'scout')   return j.source === 'SCOUT'
     if (tab === 'scored')  return j.fitLabel != null
     return true
   })
@@ -133,6 +135,8 @@ export function DiscoveredJobs({ jobs }: Props) {
               ? 'No company roles found yet. Scan a watched company to discover matching roles.'
               : tab === 'board'
               ? 'No board roles found yet. Enable a job board source and click Scan.'
+              : tab === 'scout'
+              ? 'No Scout roles have been shared yet.'
               : 'No roles found yet.'}
           </p>
         </div>

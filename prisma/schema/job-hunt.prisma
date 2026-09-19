@@ -23,6 +23,42 @@ model CompanyWatch {
   @@index([profileId, status])
 }
 
+enum ScoutTriageStatus {
+  PENDING
+  PROCESSING
+  COMPLETE
+  FAILED
+}
+
+enum ScoutVerdict {
+  PRIORITY
+  REVIEW
+  PASS
+}
+
+enum DiscoveredJobSource {
+  COMPANY
+  BOARD
+  SCOUT
+}
+
+model ScoutInvite {
+  id          String    @id @default(cuid())
+  profileId   String
+  name        String
+  hashedToken String    @unique
+  prefix      String
+  createdAt   DateTime  @default(now())
+  expiresAt   DateTime?
+  lastUsedAt  DateTime?
+  revokedAt   DateTime?
+
+  profile     Profile         @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  submissions DiscoveredJob[]
+
+  @@index([profileId])
+}
+
 // provider values: 'remotive' | 'remoteok' | 'adzuna' | 'jsearch'
 // 'web-search' is reserved for Issue #216 (agentic sweep — not yet implemented)
 model JobBoardSource {
@@ -72,16 +108,27 @@ model DiscoveredJob {
   fitJustification String?
   status           String    @default("new")
   importedJobId    String?
+  source           DiscoveredJobSource @default(BOARD)
+  scoutInviteId    String?
+  scoutNote        String?
+  triageStatus     ScoutTriageStatus   @default(COMPLETE)
+  scoutVerdict     ScoutVerdict?
+  scoutFeedback    String?
+  triagedAt        DateTime?
   createdAt        DateTime  @default(now())
 
   watch       CompanyWatch?   @relation(fields: [watchId], references: [id], onDelete: Cascade)
   boardSource JobBoardSource? @relation(fields: [boardSourceId], references: [id], onDelete: Cascade)
   profile     Profile         @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  scoutInvite ScoutInvite?    @relation(fields: [scoutInviteId], references: [id], onDelete: SetNull)
 
   @@unique([watchId, externalId])
   @@unique([boardSourceId, externalId])
   @@index([profileId])
   @@index([profileId, status])
+  @@index([profileId, source])
+  @@index([profileId, triageStatus])
+  @@index([scoutInviteId])
   @@index([watchId])
   @@index([boardSourceId])
 }

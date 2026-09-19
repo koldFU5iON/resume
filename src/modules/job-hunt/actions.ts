@@ -284,6 +284,7 @@ export async function scanCompany(watchId: string): Promise<ScanResult> {
       data: newJobs.map((j) => ({
         watchId,
         profileId: profile.id,
+        source: 'COMPANY',
         externalId: j.externalId,
         title: j.title,
         company: watch.name,

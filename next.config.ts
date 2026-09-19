@@ -2,6 +2,12 @@ import path from "node:path";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  async headers() {
+    return [{
+      source: '/scout/:path*',
+      headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }],
+    }]
+  },
   serverExternalPackages: ['@react-pdf/renderer'],
   // Pin the workspace root so Turbopack doesn't pick up the stray lockfile
   // at /home/devons/ as the project root.
