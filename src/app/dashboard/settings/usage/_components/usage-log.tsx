@@ -40,6 +40,7 @@ const FEATURE_LABELS: Record<string, string> = {
   'master-cv-generate':                   'Master CV generation',
   'job-hunt-ats-discovery':              'Job hunt — ATS discovery',
   'job-hunt-fit':                        'Job hunt — fit score',
+  'scout-triage':                        'Scout Inbox — triage',
   'chat-turn':      'Chat — career coach',
   'chat-summarize': 'Chat — session summary',
 }

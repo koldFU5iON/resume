@@ -31,7 +31,7 @@ export async function getDiscoveredJobs(filters?: {
   watchIds?: string[]
   boardSourceIds?: string[]
   statuses?: string[]
-  sourceType?: 'company' | 'board'
+  sourceType?: 'company' | 'board' | 'scout'
 }) {
   const { profile } = await requireProfile()
 
@@ -39,11 +39,13 @@ export async function getDiscoveredJobs(filters?: {
     where: {
       profileId: profile.id,
       status: filters?.statuses ? { in: filters.statuses } : { notIn: ['ignored'] },
-      ...(filters?.sourceType === 'company'
-        ? { watchId: { not: null }, boardSourceId: null }
-        : filters?.sourceType === 'board'
-          ? { boardSourceId: { not: null }, watchId: null }
-          : {}),
+       ...(filters?.sourceType === 'company'
+         ? { source: 'COMPANY' }
+         : filters?.sourceType === 'board'
+           ? { source: 'BOARD' }
+           : filters?.sourceType === 'scout'
+             ? { source: 'SCOUT' }
+           : {}),
       ...(filters?.watchIds?.length ? { watchId: { in: filters.watchIds } } : {}),
       ...(filters?.boardSourceIds?.length
         ? { boardSourceId: { in: filters.boardSourceIds } }

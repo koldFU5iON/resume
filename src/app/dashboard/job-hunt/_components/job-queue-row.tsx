@@ -31,6 +31,9 @@ export type DiscoveredJobWithWatch = {
   fitScore: number | null
   status: string
   importedJobId: string | null
+  source: 'COMPANY' | 'BOARD' | 'SCOUT'
+  scoutVerdict: 'PRIORITY' | 'REVIEW' | 'PASS' | null
+  triageStatus: 'PENDING' | 'PROCESSING' | 'COMPLETE' | 'FAILED'
   watch: { name: string; atsProvider: string } | null
   boardSource: { provider: string } | null
 }
@@ -124,6 +127,16 @@ export function JobQueueRow({ job }: { job: DiscoveredJobWithWatch }) {
           {job.boardSource && (
             <span className="text-xs px-2 py-0.5 rounded-full border font-medium bg-emerald-50 text-emerald-700 border-emerald-200">
               board
+            </span>
+          )}
+          {job.source === 'SCOUT' && (
+            <span className="text-xs px-2 py-0.5 rounded-full border font-medium bg-sky-50 text-sky-700 border-sky-200">
+              scout
+            </span>
+          )}
+          {job.scoutVerdict && (
+            <span className="text-xs px-2 py-0.5 rounded-full border font-medium bg-violet-50 text-violet-700 border-violet-200">
+              {job.scoutVerdict.toLowerCase()}
             </span>
           )}
         </div>

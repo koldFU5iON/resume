@@ -46,6 +46,19 @@ export type CaptureFailure = {
 
 export type CaptureResult = CaptureSuccess | CaptureFailure
 
+export type PreparedJobCapture = {
+  url: string
+  title: string
+  company: string
+  jobNumber: string | null
+  jobDescription: string | null
+  countries: string[]
+  datePublished: Date | null
+  salaryBand: string | null
+  duplicate: DuplicateMatch | null
+  fieldsExtracted: string[]
+}
+
 // Required fields for a "real enough" record. If extraction can't satisfy
 // these and the caller didn't supply overrides, we reject — better than
 // quietly creating a placeholder no agent will know to fix later.
@@ -56,60 +69,33 @@ export async function captureJobFromUrl(
   profileId: string,
   input: CaptureInput,
 ): Promise<CaptureResult> {
-  const url = input.url.trim()
-  if (!url) return { ok: false, status: 400, error: 'url is required' }
-
-  // Loose URL validation — extractJobFromUrl will fail fast on garbage anyway,
-  // but rejecting obvious non-URLs at the boundary keeps error messages clean.
-  try { new URL(url) } catch {
-    return { ok: false, status: 400, error: 'url is not a valid URL' }
-  }
-
-  const extraction = await extractJobFromUrl(url)
-  if (!extraction.ok) {
-    return { ok: false, status: 422, error: `Could not extract job details: ${extraction.error}` }
-  }
-  const data = extraction.data
-
-  const title = data.title?.trim() || PLACEHOLDER_TITLE
-  const company = data.company?.trim() || PLACEHOLDER_COMPANY
-
-  // Dedupe — match on jobNumber first (strong), then title+company (weak).
-  const matches = await findPotentialDuplicatesForProfile(profileId, {
-    jobNumber: data.jobNumber,
-    title,
-    company,
-  })
-  const duplicate = matches[0] ?? null
+  const prepared = await prepareJobCapture(profileId, input.url)
+  if (!prepared.ok) return prepared
   const strategy = input.dedupeStrategy ?? 'return_existing'
 
-  if (duplicate && strategy === 'return_existing') {
+  if (prepared.data.duplicate && strategy === 'return_existing') {
     return {
       ok: true,
       created: false,
-      job: { id: duplicate.id, title: duplicate.title, company: duplicate.company ?? '' },
-      duplicate,
-      extraction: { fieldsExtracted: extractedFieldList(data) },
+      job: { id: prepared.data.duplicate.id, title: prepared.data.duplicate.title, company: prepared.data.duplicate.company ?? '' },
+      duplicate: prepared.data.duplicate,
+      extraction: { fieldsExtracted: prepared.data.fieldsExtracted },
     }
   }
-
-  const countries = data.location
-    ? data.location.split(',').map(s => s.trim()).filter(Boolean)
-    : []
 
   const created = await prisma.jobApplication.create({
     data: {
       profileId,
-      url,
-      title,
-      company,
-      jobNumber: data.jobNumber ?? null,
-      jobDescription: data.jobDescription ?? null,
-      countries,
-      datePublished: data.datePublished ?? null,
+      url: prepared.data.url,
+      title: prepared.data.title,
+      company: prepared.data.company,
+      jobNumber: prepared.data.jobNumber,
+      jobDescription: prepared.data.jobDescription,
+      countries: prepared.data.countries,
+      datePublished: prepared.data.datePublished,
       notes: input.notes?.trim() || null,
       applicationSource: input.applicationSource ?? 'cold',
-      salaryBand: data.salaryBand ?? null,
+      salaryBand: prepared.data.salaryBand,
       // status + progress default to "not started"; intake doesn't auto-apply.
     },
     select: { id: true, title: true, company: true },
@@ -119,8 +105,49 @@ export async function captureJobFromUrl(
     ok: true,
     created: true,
     job: created,
-    duplicate, // null when no match; non-null when match existed but strategy was create_anyway
-    extraction: { fieldsExtracted: extractedFieldList(data) },
+    duplicate: prepared.data.duplicate, // null when no match; non-null when match existed but strategy was create_anyway
+    extraction: { fieldsExtracted: prepared.data.fieldsExtracted },
+  }
+}
+
+export async function prepareJobCapture(
+  profileId: string,
+  rawUrl: string,
+): Promise<{ ok: true; data: PreparedJobCapture } | CaptureFailure> {
+  const url = rawUrl.trim()
+  if (!url) return { ok: false, status: 400, error: 'url is required' }
+
+  try { new URL(url) } catch {
+    return { ok: false, status: 400, error: 'url is not a valid URL' }
+  }
+
+  const extraction = await extractJobFromUrl(url)
+  if (!extraction.ok) {
+    return { ok: false, status: 422, error: `Could not extract job details: ${extraction.error}` }
+  }
+  const data = extraction.data
+  const title = data.title?.trim() || PLACEHOLDER_TITLE
+  const company = data.company?.trim() || PLACEHOLDER_COMPANY
+  const matches = await findPotentialDuplicatesForProfile(profileId, {
+    jobNumber: data.jobNumber,
+    title,
+    company,
+  })
+
+  return {
+    ok: true,
+    data: {
+      url,
+      title,
+      company,
+      jobNumber: data.jobNumber ?? null,
+      jobDescription: data.jobDescription ?? null,
+      countries: data.location ? data.location.split(',').map(s => s.trim()).filter(Boolean) : [],
+      datePublished: data.datePublished ?? null,
+      salaryBand: data.salaryBand ?? null,
+      duplicate: matches[0] ?? null,
+      fieldsExtracted: extractedFieldList(data),
+    },
   }
 }
 

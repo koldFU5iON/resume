@@ -104,6 +104,7 @@ export async function scanBoardSource(sourceId: string): Promise<ScanResult> {
       data: newListings.map((j) => ({
         boardSourceId: sourceId,
         profileId: profile.id,
+        source: 'BOARD',
         externalId: j.externalId,
         title: j.title,
         company: j.company,
