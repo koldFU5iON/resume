@@ -98,7 +98,8 @@ const s = StyleSheet.create({
   bulletText: { flex: 1 },
   // Two explicit columns side by side (flexWrap unreliable in react-pdf)
   twoColWrap: { flexDirection: 'row' },
-  col: { flex: 1 },
+  // Keep the text in adjacent capability and competency columns distinct.
+  col: { flex: 1, paddingRight: 8 },
   colItem: { marginBottom: 2.5 },
 })
 
@@ -172,17 +173,19 @@ function SectionBody({ section }: { section: CVSection }) {
       const d = section.data as ExperienceData
       return (
         <View style={s.job}>
-          <View style={s.row}>
-            <Text style={s.bold}>{d.company}</Text>
-            <Text style={s.metaRight}>{d.duration} · {d.location}</Text>
+          <View wrap={false}>
+            <View style={s.row}>
+              <Text style={s.bold}>{d.company}</Text>
+              <Text style={s.metaRight}>{d.duration} · {d.location}</Text>
+            </View>
+            <Text style={s.role}>{d.titles.join(' – ')}</Text>
+            {d.subtitle ? <Text style={s.subtitle}>{d.subtitle}</Text> : null}
           </View>
-          <Text style={s.role}>{d.titles.join(' – ')}</Text>
-          {d.subtitle ? <Text style={s.subtitle}>{d.subtitle}</Text> : null}
           {d.description ? (
             <Text style={s.jobDesc}><InlineMarkdown text={d.description} /></Text>
           ) : null}
           {d.outcomes.map((o, i) => (
-            <View key={i} style={s.bullet}>
+            <View key={i} style={s.bullet} wrap={false}>
               <Text style={s.bulletDash}>–</Text>
               <Text style={s.bulletText}><InlineMarkdown text={o} /></Text>
             </View>
