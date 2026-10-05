@@ -91,7 +91,7 @@ const s = StyleSheet.create({
   role: { fontFamily: 'Helvetica-Bold', fontSize: 10, marginTop: 1 },
   // Annotation under the titles line — explains promotions/title changes
   subtitle: { fontSize: 10, fontStyle: 'italic', color: '#444444', marginTop: 1 },
-  job: { marginBottom: 10 },
+  jobEnd: { marginBottom: 10 },
   jobDesc: { marginTop: 3 },
   bullet: { flexDirection: 'row', marginBottom: 2, marginTop: 1 },
   bulletDash: { width: 10, color: '#333333' },
@@ -160,6 +160,35 @@ function getSectionLabel(section: CVSection): string | undefined {
   return SECTION_LABELS[section.type]
 }
 
+function ExperienceEntry({ section }: { section: CVSection }) {
+  const d = section.data as ExperienceData
+
+  return (
+    <>
+      {/* This must be a page-level sibling: nested unbreakable Views can overlap
+          when React-PDF splits their parent at a page boundary. */}
+      <View wrap={false} minPresenceAhead={24}>
+        <View style={s.row}>
+          <Text style={s.bold}>{d.company}</Text>
+          <Text style={s.metaRight}>{d.duration} · {d.location}</Text>
+        </View>
+        <Text style={s.role}>{d.titles.join(' – ')}</Text>
+        {d.subtitle ? <Text style={s.subtitle}>{d.subtitle}</Text> : null}
+      </View>
+      {d.description ? (
+        <Text style={s.jobDesc}><InlineMarkdown text={d.description} /></Text>
+      ) : null}
+      {d.outcomes.map((o, i) => (
+        <View key={i} style={s.bullet} wrap={false}>
+          <Text style={s.bulletDash}>–</Text>
+          <Text style={s.bulletText}><InlineMarkdown text={o} /></Text>
+        </View>
+      ))}
+      <View style={s.jobEnd} />
+    </>
+  )
+}
+
 function SectionBody({ section }: { section: CVSection }) {
   switch (section.type) {
     case 'profile':
@@ -168,31 +197,6 @@ function SectionBody({ section }: { section: CVSection }) {
     case 'competencies':
     case 'capabilities':
       return <TwoColList items={section.data.items} />
-
-    case 'experience': {
-      const d = section.data as ExperienceData
-      return (
-        <View style={s.job}>
-          <View wrap={false}>
-            <View style={s.row}>
-              <Text style={s.bold}>{d.company}</Text>
-              <Text style={s.metaRight}>{d.duration} · {d.location}</Text>
-            </View>
-            <Text style={s.role}>{d.titles.join(' – ')}</Text>
-            {d.subtitle ? <Text style={s.subtitle}>{d.subtitle}</Text> : null}
-          </View>
-          {d.description ? (
-            <Text style={s.jobDesc}><InlineMarkdown text={d.description} /></Text>
-          ) : null}
-          {d.outcomes.map((o, i) => (
-            <View key={i} style={s.bullet} wrap={false}>
-              <Text style={s.bulletDash}>–</Text>
-              <Text style={s.bulletText}><InlineMarkdown text={o} /></Text>
-            </View>
-          ))}
-        </View>
-      )
-    }
 
     case 'education': {
       const d = section.data as EducationData
@@ -289,9 +293,13 @@ export function CVPDFDocument({ cv }: { cv: CVWithMeta }) {
           // always the first child) would prevent.
           return [
             isFirst && label ? <SectionHeading key={`${i}-heading`} label={label} /> : null,
-            <View key={`${i}-body`} style={compact ? s.sectionCompact : s.section}>
-              <SectionBody section={section} />
-            </View>,
+            section.type === 'experience'
+              ? <ExperienceEntry key={`${i}-body`} section={section} />
+              : (
+                <View key={`${i}-body`} style={compact ? s.sectionCompact : s.section}>
+                  <SectionBody section={section} />
+                </View>
+              ),
           ]
         })}
       </Page>
