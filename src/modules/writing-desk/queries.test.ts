@@ -75,7 +75,7 @@ describe("listWritingDeskSourceCVs", () => {
 describe("listWritingDeskJobs", () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it("lists non-archived jobs with a summary of each desk", async () => {
+  it("lists non-archived jobs, treating a typed desk as started even before content is written", async () => {
     mockJobFindMany.mockResolvedValue([
       {
         id: "job-1",
@@ -95,7 +95,7 @@ describe("listWritingDeskJobs", () => {
         company: null,
         status: "applied",
         lastUpdated: new Date("2026-03-03T00:00:00Z"),
-        writingDesk: { documentType: null, content: "", updatedAt: new Date("2026-03-03T00:00:00Z") },
+        writingDesk: { documentType: "cover-letter", content: "", updatedAt: new Date("2026-03-03T00:00:00Z") },
       },
       {
         id: "job-3",
@@ -114,7 +114,6 @@ describe("listWritingDeskJobs", () => {
         company: "Acme",
         status: "in-progress",
         documentType: "cv",
-        hasContent: true,
         deskUpdatedAt: new Date("2026-03-05T00:00:00Z"),
       },
       {
@@ -122,8 +121,7 @@ describe("listWritingDeskJobs", () => {
         title: "Engineer",
         company: null,
         status: "applied",
-        documentType: null,
-        hasContent: false,
+        documentType: "cover-letter",
         deskUpdatedAt: new Date("2026-03-03T00:00:00Z"),
       },
       {
@@ -132,7 +130,6 @@ describe("listWritingDeskJobs", () => {
         company: "Globex",
         status: "not started",
         documentType: null,
-        hasContent: false,
         deskUpdatedAt: null,
       },
     ])

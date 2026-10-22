@@ -42,9 +42,9 @@ export default async function WritingDeskIndexPage() {
         <div className="divide-y divide-border/50 rounded-md border">
           {jobs.map(job => {
             const days = job.deskUpdatedAt ? daysAgo(job.deskUpdatedAt) : null
-            const deskLabel = job.hasContent
+            const deskLabel = job.documentType
               ? [
-                  job.documentType ? DOCUMENT_TYPE_LABELS[job.documentType] : "Draft",
+                  DOCUMENT_TYPE_LABELS[job.documentType],
                   days !== null ? formatRelative(days) : null,
                 ]
                   .filter(Boolean)

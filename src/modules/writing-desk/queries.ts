@@ -93,7 +93,6 @@ export type WritingDeskJobOption = {
   company: string | null
   status: ApplicationStatusType
   documentType: WritingDeskDocumentType | null
-  hasContent: boolean
   deskUpdatedAt: Date | null
 }
 
@@ -109,7 +108,7 @@ export async function listWritingDeskJobs(profileId: string): Promise<WritingDes
       status: true,
       lastUpdated: true,
       writingDesk: {
-        select: { documentType: true, content: true, updatedAt: true },
+        select: { documentType: true, updatedAt: true },
       },
     },
   })
@@ -120,7 +119,6 @@ export async function listWritingDeskJobs(profileId: string): Promise<WritingDes
     company: job.company,
     status: job.status as ApplicationStatusType,
     documentType: (job.writingDesk?.documentType as WritingDeskDocumentType | null) ?? null,
-    hasContent: Boolean(job.writingDesk?.content.trim()),
     deskUpdatedAt: job.writingDesk?.updatedAt ?? null,
   }))
 }
