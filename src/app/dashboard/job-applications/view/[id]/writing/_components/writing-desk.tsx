@@ -1,8 +1,6 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import ReactMarkdown from "react-markdown"
-import remarkGfm from "remark-gfm"
 import { Download, Sparkles } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -17,6 +15,8 @@ import {
 import { writingDeskMarkdownToText } from "@/modules/writing-desk/markdown"
 import type { WritingDeskDocumentType } from "@/modules/writing-desk/schema"
 import type { WritingDeskSourceOption, WritingDeskWithJob } from "@/modules/writing-desk/queries"
+import { WritingDeskPreview } from "@/app/components/writing-desk-preview"
+import { AvailableBlocks } from "./available-blocks"
 
 type SaveState = "idle" | "saving" | "saved" | "failed" | "conflict"
 
@@ -46,7 +46,9 @@ export function WritingDesk({
   const [saveState, setSaveState] = useState<SaveState>("idle")
   const [mode, setMode] = useState<"markdown" | "preview">("markdown")
   const [showExport, setShowExport] = useState(false)
+  const [blocksOpen, setBlocksOpen] = useState(false)
   const contentRef = useRef(desk.content)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const revisionRef = useRef(desk.revision)
   const pendingValueRef = useRef<string | null>(null)
   const savingRef = useRef(false)
@@ -152,6 +154,26 @@ export function WritingDesk({
     setSaveState("idle")
     if (timerRef.current) clearTimeout(timerRef.current)
     timerRef.current = setTimeout(() => void flushSave(), 900)
+  }
+
+  function insertSnippet(snippet: string) {
+    const element = textareaRef.current
+    const start = element?.selectionStart ?? contentRef.current.length
+    const end = element?.selectionEnd ?? start
+    const before = contentRef.current.slice(0, start)
+    const after = contentRef.current.slice(end)
+    const leading = before.length > 0 && !before.endsWith("\n") ? "\n\n" : ""
+    const trailing = after.length > 0 && !after.startsWith("\n") ? "\n\n" : ""
+    const next = `${before}${leading}${snippet}${trailing}${after}`
+    handleChange(next)
+    setMode("markdown")
+    window.requestAnimationFrame(() => {
+      const target = textareaRef.current
+      if (!target) return
+      const position = (before + leading + snippet).length
+      target.focus()
+      target.setSelectionRange(position, position)
+    })
   }
 
   async function chooseType(type: WritingDeskDocumentType) {
@@ -269,6 +291,7 @@ export function WritingDesk({
           <option value="">Use a previous CV...</option>
           {sourceCVs.map(source => <option key={source.id} value={source.id}>{source.label}</option>)}
         </select>
+        <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setBlocksOpen(true)}>Blocks</Button>
         <div className="flex overflow-hidden rounded-md border text-xs">
           <button type="button" onClick={() => setMode("markdown")} className={cn("px-3 py-1.5", mode === "markdown" ? "bg-foreground text-background" : "text-muted-foreground")}>Markdown</button>
           <button type="button" onClick={() => setMode("preview")} className={cn("px-3 py-1.5", mode === "preview" ? "bg-foreground text-background" : "text-muted-foreground")}>Preview</button>
@@ -291,9 +314,10 @@ export function WritingDesk({
       </div>
       <div className="flex flex-1 overflow-hidden bg-secondary p-5">
         <div className="mx-auto flex w-full max-w-[794px] flex-1 flex-col overflow-y-auto rounded-md bg-background p-5 shadow-sm">
-          {mode === "markdown" ? <textarea value={content} onChange={event => handleChange(event.target.value)} className="min-h-[500px] flex-1 resize-none bg-transparent font-mono text-sm leading-relaxed outline-none" placeholder="Start writing..." /> : <div className="prose prose-sm dark:prose-invert max-w-none"><ReactMarkdown remarkPlugins={[remarkGfm]}>{content || "*No content yet.*"}</ReactMarkdown></div>}
+          {mode === "markdown" ? <textarea ref={textareaRef} value={content} onChange={event => handleChange(event.target.value)} className="min-h-[500px] flex-1 resize-none bg-transparent font-mono text-sm leading-relaxed outline-none" placeholder="Start writing..." /> : <WritingDeskPreview markdown={content} documentType={documentType} />}
         </div>
       </div>
+      <AvailableBlocks open={blocksOpen} onOpenChange={setBlocksOpen} onInsert={insertSnippet} />
     </div>
   )
 }
