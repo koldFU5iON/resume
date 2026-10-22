@@ -254,16 +254,27 @@ function renderHeading(node: Extract<RootContent, { type: "heading" }>, profile:
   return <Text style={style}><Inline nodes={node.children} /></Text>
 }
 
+function hasOnlyLists(children: WritingDeskContent[]): boolean {
+  return children.length > 0 && children.every(child => child.type === "list")
+}
+
 function renderSemanticBlock(block: WritingDeskBlockNode, profile: WritingDeskDocumentProfile): ReactNode {
   if (block.blockId === "header") return <HeaderBlock block={block} profile={profile} />
   if (block.blockId === "skills" || block.blockId === "inline-list") {
-    const list = listItemsFrom(block.children)
-    if (list) return <InlineList list={list} />
+    if (hasOnlyLists(block.children)) {
+      const lists = block.children as List[]
+      return <>{lists.map((list, index) => <InlineList key={index} list={list} />)}</>
+    }
+    if (block.children.length === 0) return null
     return <>{block.children.map((child, index) => <View key={index}>{renderNode(child, profile)}</View>)}</>
   }
   if (block.blockId === "compact-list") {
-    const list = listItemsFrom(block.children)
-    if (list) return <CompactList list={list} />
+    if (hasOnlyLists(block.children)) {
+      const lists = block.children as List[]
+      return <>{lists.map((list, index) => <CompactList key={index} list={list} />)}</>
+    }
+    if (block.children.length === 0) return null
+    return <>{block.children.map((child, index) => <View key={index}>{renderNode(child, profile)}</View>)}</>
   }
   return <>{block.children.map((child, index) => <View key={index}>{renderNode(child, profile)}</View>)}</>
 }

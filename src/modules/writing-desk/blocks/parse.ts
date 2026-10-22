@@ -42,7 +42,7 @@ function transformNode(node: RootContent): WritingDeskContent {
     if (nested) {
       diagnostics.push({
         severity: "warning",
-        message: "Nested blocks are not supported yet. Their content is preserved.",
+        message: "Nested blocks are not supported. Their content is preserved and rendered as fallback.",
         line: node.position?.start.line,
         column: node.position?.start.column,
       })
@@ -62,7 +62,7 @@ function transformNode(node: RootContent): WritingDeskContent {
     const block: WritingDeskBlockNode = {
       type: "writingDeskBlock",
       name: node.name,
-      blockId: definition?.id ?? null,
+      blockId: definition && !nested ? definition.id : null,
       children,
       diagnostics,
     }

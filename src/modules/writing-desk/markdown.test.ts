@@ -28,7 +28,7 @@ describe("parseWritingDeskDocument", () => {
   it("recognises the canonical semantic and functional blocks", () => {
     const children = parseWritingDeskMarkdown([
       ":::header",
-      "# Devon Stanton",
+      "# Morgan Ellis",
       "## Program Manager",
       ":::",
       "",
@@ -89,6 +89,13 @@ describe("parseWritingDeskDocument", () => {
     const document = parseWritingDeskDocument(":::inline-list\nA paragraph\n:::")
     expect(document.diagnostics[0]).toMatchObject({ blockId: "inline-list", severity: "warning" })
     expect(writingDeskMarkdownToText(":::inline-list\nA paragraph\n:::")).toBe("A paragraph")
+  })
+
+  it("preserves mixed content in blocks via fallback", () => {
+    const markdown = ":::skills\nIntro text\n\n- JavaScript\n- React\n:::"
+    const document = parseWritingDeskDocument(markdown)
+    expect(document.children[0]).toMatchObject({ type: "writingDeskBlock" })
+    expect(writingDeskMarkdownToText(markdown)).toBe("Intro text\n- JavaScript\n- React")
   })
 
   it("handles CRLF and empty documents", () => {

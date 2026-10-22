@@ -60,12 +60,10 @@ export function remarkWritingDeskPreview() {
         return
       }
 
-      if (definition.preview.renderer === "inline-list") {
-        const listIndex = directive.children.findIndex(child => child.type === "list")
-        if (listIndex !== -1) {
-          const list = directive.children[listIndex] as List
-          directive.children.splice(listIndex, 1, listToInlineParagraph(list))
-        }
+      const onlyLists =
+        directive.children.length > 0 && directive.children.every(child => child.type === "list")
+      if (definition.preview.renderer === "inline-list" && onlyLists) {
+        directive.children = directive.children.map(child => listToInlineParagraph(child as List))
       }
 
       directive.data = {

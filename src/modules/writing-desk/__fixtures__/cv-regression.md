@@ -1,8 +1,8 @@
 :::header
-# Devon Stanton
+# Morgan Ellis
 ## Program Manager
 ### Program & Operations Leader | Systems Thinker
-devonstanton.com | linkedin.com/in/devonstanton | devon@example.com
+morganellis.dev | linkedin.com/in/morgan-ellis | morgan.ellis@example.com
 :::
 
 ## Professional Profile
@@ -24,10 +24,10 @@ Program and operations leader with more than a decade of experience building del
 
 ## Professional Experience
 
-### Blizzard Entertainment
-**Snr. PR Manager** · Versailles, France · 2016 - 2025
+### Northstar Interactive
+**Senior Program Manager** · Lyon, France · 2016 - 2025
 
-Strategic lead for Blizzard's European organisation across eight markets. Primary bridge between EU country teams and global leadership across program governance, budget management, and cross-functional delivery.
+Strategic lead for Northstar's European organisation across eight markets. Primary bridge between EU country teams and global leadership across program governance, budget management, and cross-functional delivery.
 
 :::compact-list
 - Owned the EU program governance model — steering committee cadence, stage-gate reviews, and reporting lines across eight country teams.
@@ -35,26 +35,26 @@ Strategic lead for Blizzard's European organisation across eight markets. Primar
 - Led the cross-market rollout of a unified release-readiness process adopted by all eight EU territories.
 - Cut launch-blocking issues by roughly 40% across the first four titles shipped under the new process.
 - Restructured the regional reporting stack into a single program dashboard, reducing weekly status-reporting effort by roughly a day per cycle.
-- Drove the operational integration of a newly acquired studio into Blizzard's EU delivery model, reaching full delivery cadence two months ahead of plan.
+- Drove the operational integration of a newly acquired studio into Northstar's EU delivery model, reaching full delivery cadence two months ahead of plan.
 - Acted as the primary escalation point between EU delivery teams and global leadership.
 :::
 
-### Unity Technologies
-**Program Manager** · Paris, France · 2013 - 2016
+### Veridia Labs
+**Program Manager** · Nantes, France · 2013 - 2016
 
 Ran cross-functional delivery programs for the engine's live-services roadmap, coordinating engineering, QA, and documentation against fixed release dates.
 
 :::compact-list
 - Coordinated multi-team delivery schedules for the engine's live-services roadmap.
 - Maintained the cross-functional risk register and ran fortnightly risk reviews.
-- Established Unity's first standardized program intake and prioritization process, giving leadership a single ranked view of around 30 in-flight initiatives.
+- Established Veridia's first standardized program intake and prioritization process, giving leadership a single ranked view of around 30 in-flight initiatives.
 - Ran the delivery program for a major editor release across engineering, QA, and docs, shipping on the committed date with zero P0 regressions at launch.
 - Built a shared release-readiness checklist used by every live-services team.
 - Introduced a monthly delivery review that reduced late-stage scope surprises.
 :::
 
-### Digital Distribution Coordinator
-**Program Coordinator** · Paris, France · 2006 - 2008
+### Meadowline Digital
+**Program Coordinator** · Bordeaux, France · 2006 - 2008
 
 Coordinated digital release planning and storefront operations for a portfolio of casual and mobile titles.
 
@@ -73,7 +73,7 @@ Coordinated digital release planning and storefront operations for a portfolio o
 - Documented post-launch retrospectives and follow-up actions.
 :::
 
-### Marketing Coordinator
+### Harcourt Creative
 **Marketing Operations** · Lille, France · 2002 - 2004
 
 Coordinated campaign delivery and reporting for regional consumer promotions.
@@ -88,8 +88,8 @@ Coordinated campaign delivery and reporting for regional consumer promotions.
 - Documented repeatable campaign checklists for future launches.
 :::
 
-### Production Assistant
-**Production Support** · Paris, France · 2004 - 2006
+### Fieldstone Studio
+**Production Support** · Bordeaux, France · 2004 - 2006
 
 Supported production scheduling, meeting cadence, and reporting for an internal development studio.
 
@@ -102,8 +102,8 @@ Supported production scheduling, meeting cadence, and reporting for an internal 
 - Supported onboarding for new production staff.
 :::
 
-### Electronic Arts
-**Senior Producer** · Lyon, France · 2010 - 2013
+### Cedarstream Studios
+**Senior Producer** · Rennes, France · 2010 - 2013
 
 Led production for a portfolio of online features and content updates across two studios.
 
@@ -116,8 +116,8 @@ Led production for a portfolio of online features and content updates across two
 - Partnered with analytics to define launch success measures.
 :::
 
-### Ubisoft
-**Production Coordinator** · Paris, France · 2008 - 2010
+### Ashmere Games
+**Production Coordinator** · Bordeaux, France · 2008 - 2010
 
 Coordinated production scheduling and reporting for a multi-team development programme.
 
@@ -128,8 +128,8 @@ Coordinated production scheduling and reporting for a multi-team development pro
 - Improved milestone forecasting accuracy through consistent variance tracking.
 :::
 
-### Community Program Lead
-**Volunteer** · Paris, France · 2015 - 2020
+### Willowbridge Mentoring
+**Volunteer Program Lead** · Lyon, France · 2015 - 2020
 
 Led a volunteer program supporting early-career production professionals.
 
@@ -144,8 +144,8 @@ Led a volunteer program supporting early-career production professionals.
 - Grew the program from a single cohort to three annual cohorts.
 :::
 
-### Board Member
-**Advisory Board** · Paris, France · 2018 - 2022
+### Oakhill Arts Initiative
+**Advisory Board Member** · Lyon, France · 2018 - 2022
 
 Advised a nonprofit arts organization on operating cadence and program reporting.
 
@@ -180,7 +180,7 @@ Advised a nonprofit arts organization on operating cadence and program reporting
 
 ## Education
 
-### University of Example
+### Greysmere University
 **BSc, Business Information Systems** · 2005 - 2008
 
 ## Professional Development

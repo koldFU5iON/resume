@@ -78,6 +78,22 @@ describe("WritingDeskPDFDocument", () => {
     }
   })
 
+  it("preserves mixed paragraph and list content inside a block", async () => {
+    const markdown = [
+      ":::skills",
+      "Tools & technologies I use daily.",
+      "",
+      "- JavaScript",
+      "- TypeScript",
+      ":::",
+    ].join("\n")
+    const { pdf } = await render(markdown, "cv")
+    const { text } = await extractText(pdf, { mergePages: true })
+    expect(text).toContain("Tools & technologies I use daily.")
+    expect(text).toContain("JavaScript")
+    expect(text).toContain("TypeScript")
+  })
+
   it("renders general documents without CV section assumptions", async () => {
     const markdown = "# Dear Hiring Manager\n\nI am writing to apply for the role.\n\n:::inline-list\n- React\n- TypeScript\n:::"
     const { pdf } = await render(markdown, "cover-letter")

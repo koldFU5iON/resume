@@ -55,10 +55,10 @@ export const BLOCK_REGISTRY: Record<BlockId, BlockDefinition> = {
     accepts: "header",
     example: [
       ":::header",
-      "# Devon Stanton",
+      "# Morgan Ellis",
       "## Program Manager",
       "### Program & Operations Leader | Systems Thinker",
-      "devonstanton.com | linkedin.com/in/devonstanton",
+      "morganellis.dev | linkedin.com/in/morgan-ellis",
       ":::",
     ].join("\n"),
     preview: { renderer: "header" },

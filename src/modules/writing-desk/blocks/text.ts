@@ -56,23 +56,33 @@ function tableText(table: Table): string {
     .join("\n")
 }
 
-function findList(children: WritingDeskContent[]): List | undefined {
-  return children.find((child): child is List => child.type === "list")
-}
-
 function blockText(node: WritingDeskContent | WritingDeskBlockNode): string {
   if (node.type === "writingDeskBlock") {
     const definition = node.blockId ? getBlockDefinition(node.blockId) : undefined
+    const hasOnlyLists = node.children.length > 0 && node.children.every(child => child.type === "list")
     if (definition?.plainText === "inline-list") {
-      const list = findList(node.children)
-      if (list) return list.children.map(item => listItemText(item)).join(" · ")
+      if (hasOnlyLists) {
+        const lists = node.children.filter((child): child is List => child.type === "list")
+        return lists
+          .map(list => list.children.map(item => listItemText(item)).join(" · "))
+          .filter(Boolean)
+          .join("\n")
+      }
+      if (node.children.length === 0) return ""
       return node.children.map(blockText).join("\n")
     }
     if (definition?.plainText === "compact-list") {
-      const list = findList(node.children)
-      if (list) return listText(list, () => "-")
+      if (hasOnlyLists) {
+        const lists = node.children.filter((child): child is List => child.type === "list")
+        return lists
+          .map(list => listText(list, () => "-"))
+          .filter(Boolean)
+          .join("\n")
+      }
+      if (node.children.length === 0) return ""
       return node.children.map(blockText).join("\n")
     }
+    if (node.children.length === 0) return ""
     return node.children.map(blockText).join("\n")
   }
 
