@@ -9,6 +9,7 @@ type OwnershipTable =
   | 'jobApplication'
   | 'interviewPrepSession'
   | 'coverLetterDocument'
+  | 'writingDeskDocument'
 
 // Security: every tool verifies the resource belongs to the session's profileId.
 // profileId is always resolved server-side from the session cookie — never from
@@ -32,6 +33,9 @@ export async function assertOwnership(
       break
     case 'coverLetterDocument':
       row = await prisma.coverLetterDocument.findUnique(q)
+      break
+    case 'writingDeskDocument':
+      row = await prisma.writingDeskDocument.findUnique(q)
       break
   }
   if (!row || row.profileId !== profileId) {
@@ -311,6 +315,27 @@ export function createChatTools(profileId: string) {
       },
     }),
 
+    get_writing_desk: tool({
+      description: 'Fetch a Writing Desk document, its revision, linked job context, and optional source CV metadata.',
+      inputSchema: zodSchema(z.object({ deskId: z.string() })),
+      execute: async ({ deskId }) => {
+        await assertOwnership('writingDeskDocument', deskId, profileId)
+        const desk = await prisma.writingDeskDocument.findUnique({
+          where: { id: deskId },
+          select: {
+            id: true,
+            content: true,
+            revision: true,
+            documentType: true,
+            sourceLabel: true,
+            jobApplication: { select: { id: true, title: true, company: true, jobDescription: true, notes: true } },
+          },
+        })
+        if (!desk) throw new Error('Writing desk not found')
+        return desk
+      },
+    }),
+
     // Write tools — no execute → client handles with confirmation card.
     // SECURITY: the PATCH route called on acceptance MUST independently verify
     // ownership (assertOwnership or equivalent). It cannot trust cvId/sessionId
@@ -379,6 +404,19 @@ export function createChatTools(profileId: string) {
           letterId: z.string().describe('The ID of the cover letter to update'),
           proposedContent: z.string().describe('The full proposed markdown content for the cover letter'),
           rationale: z.string().describe('Brief explanation of what changed and why'),
+        }),
+      ),
+    }),
+
+    propose_writing_desk_update: tool({
+      description:
+        'Propose a full replacement of a Writing Desk Markdown document. Call get_writing_desk first and pass its current revision. The user must confirm before it is applied.',
+      inputSchema: zodSchema(
+        z.object({
+          deskId: z.string(),
+          expectedRevision: z.number().int().positive(),
+          proposedContent: z.string(),
+          rationale: z.string(),
         }),
       ),
     }),

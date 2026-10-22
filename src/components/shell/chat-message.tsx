@@ -48,6 +48,7 @@ import type { CVSection } from '@/modules/cv/schema'
 import { patchProfileField, createTool } from '@/modules/profile/actions'
 import { updateBlock } from '@/modules/interview-prep/actions'
 import { updateCoverLetterContent, updateCoverLetterSection } from '@/modules/cover-letters/actions'
+import { updateWritingDeskContent } from '@/modules/writing-desk/actions'
 import { ToolConfirmationCard } from './tool-confirmation-card'
 import { FeedbackSubmissionCard } from './feedback-submission-card'
 
@@ -87,6 +88,16 @@ function buildWriteAction(toolName: string, args: Record<string, unknown>): (() 
       args.sectionId as string,
       args.proposedContent as string,
     )
+  }
+  if (toolName === 'propose_writing_desk_update') {
+    return async () => {
+      const result = await updateWritingDeskContent(
+        args.deskId as string,
+        args.proposedContent as string,
+        args.expectedRevision as number,
+      )
+      if (!result.ok) throw new Error('The document changed while this proposal was being reviewed. Generate a new proposal before applying it.')
+    }
   }
   return undefined
 }

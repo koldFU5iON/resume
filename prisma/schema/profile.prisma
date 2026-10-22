@@ -25,6 +25,7 @@ model Profile {
   certifications  Certification[]
   cvDocuments     CVDocument[]
   coverLetters    CoverLetterDocument[]
+  writingDesks    WritingDeskDocument[]
   jobApplications JobApplication[]
   competencies    Competency[]
   languages       Language[]

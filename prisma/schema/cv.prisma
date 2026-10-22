@@ -35,6 +35,7 @@ model CVDocument {
   jobApplication  JobApplication? @relation(fields: [jobApplicationId], references: [id])
   careerVertical  CareerVertical? @relation(fields: [careerVerticalId], references: [id])
   coverLetters    CoverLetterDocument[]
+  writingDeskSources WritingDeskDocument[] @relation("WritingDeskSourceCV")
 
   @@index([profileId])
 }

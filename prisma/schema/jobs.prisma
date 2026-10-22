@@ -36,6 +36,7 @@ model JobApplication {
   events              ApplicationEvent[]
   cvDocuments         CVDocument[]
   coverLetters        CoverLetterDocument[]
+  writingDesk         WritingDeskDocument?
   interviewPrepSessions InterviewPrepSession[]
 
   @@index([profileId])
