@@ -4,6 +4,7 @@ import type {
   WritingDeskContent,
   WritingDeskDiagnostic,
 } from "./types"
+import { isFlattenableListBlock } from "./shape"
 
 function nodeHasContent(node: WritingDeskContent): boolean {
   if ("value" in node && typeof node.value === "string") return node.value.trim().length > 0
@@ -36,12 +37,14 @@ function validateList(children: WritingDeskContent[]): WritingDeskDiagnostic[] {
   if (!hasNodeType(children, "list")) {
     return [{ severity: "warning", message: "This block expects a Markdown list. Its content will be preserved as text." }]
   }
-  return []
-}
-
-function validateNonEmpty(children: WritingDeskContent[]): WritingDeskDiagnostic[] {
-  if (!hasContent(children)) {
-    return [{ severity: "warning", message: "This block is empty." }]
+  if (!isFlattenableListBlock(children)) {
+    return [
+      {
+        severity: "warning",
+        message:
+          "This block can only lay out simple lists. Its content is preserved with ordinary Markdown formatting.",
+      },
+    ]
   }
   return []
 }
@@ -154,12 +157,4 @@ export const BLOCK_LIST = Object.values(BLOCK_REGISTRY)
 
 export function getBlockDefinition(id: string): BlockDefinition | undefined {
   return BLOCK_REGISTRY[id as BlockId]
-}
-
-export function isBlockId(id: string): id is BlockId {
-  return id in BLOCK_REGISTRY
-}
-
-export function blockExamples(): Array<{ definition: BlockDefinition; example: string }> {
-  return BLOCK_LIST.map(definition => ({ definition, example: definition.example }))
 }

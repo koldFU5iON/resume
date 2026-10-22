@@ -5,6 +5,7 @@ import remarkDirective from "remark-directive"
 import remarkGfm from "remark-gfm"
 import remarkParse from "remark-parse"
 import { getBlockDefinition } from "./registry"
+import { remarkPreserveDirectives } from "./remark-preserve-directives"
 import type {
   WritingDeskBlockNode,
   WritingDeskContent,
@@ -37,7 +38,9 @@ function transformNode(node: RootContent): WritingDeskContent {
       })
     }
 
-    const children = node.children.map(transformNode)
+    const children = node.children
+      .filter(child => !(child as { data?: { directiveLabel?: boolean } }).data?.directiveLabel)
+      .map(transformNode)
     const nested = children.some(child => child.type === "writingDeskBlock")
     if (nested) {
       diagnostics.push({
@@ -83,9 +86,11 @@ const processor = unified()
   .use(remarkParse)
   .use(remarkGfm)
   .use(remarkDirective)
+  .use(remarkPreserveDirectives)
 
 export function parseWritingDeskDocument(markdown: string): WritingDeskDocument {
-  const tree = processor.parse(markdown) as Root
+  const parsed = processor.parse(markdown) as Root
+  const tree = processor.runSync(parsed, { value: markdown }) as Root
   const children = (tree.children as RootContent[]).map(transformNode)
   const diagnostics = children.flatMap(child => child.type === "writingDeskBlock" ? child.diagnostics : [])
   return { type: "writingDeskDocument", children, diagnostics }

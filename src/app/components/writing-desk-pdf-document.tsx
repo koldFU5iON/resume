@@ -2,6 +2,7 @@ import { Document, Link, Page, StyleSheet, Text, View } from "@react-pdf/rendere
 import type { ReactNode } from "react"
 import type { List, ListItem, PhrasingContent, RootContent, Table } from "mdast"
 import { parseWritingDeskDocument } from "@/modules/writing-desk/blocks/parse"
+import { isFlattenableListBlock, simpleListItemInline } from "@/modules/writing-desk/blocks/shape"
 import {
   profileForDocumentType,
   type WritingDeskBlockNode,
@@ -143,14 +144,13 @@ function plainText(node: unknown): string {
 }
 
 function listItemInline(item: ListItem): ReactNode {
+  const inline = simpleListItemInline(item)
+  if (inline) return <Inline nodes={inline} />
+  // Complex items only reach here through the regular-list fallback.
   return item.children.map((child, index) => {
     if (child.type === "paragraph") return <Inline key={index} nodes={child.children} />
     return plainText(child)
   })
-}
-
-function listItemsFrom(children: WritingDeskContent[]): List | undefined {
-  return children.find((child): child is List => child.type === "list")
 }
 
 function InlineList({ list }: { list: List }) {
@@ -254,29 +254,35 @@ function renderHeading(node: Extract<RootContent, { type: "heading" }>, profile:
   return <Text style={style}><Inline nodes={node.children} /></Text>
 }
 
-function hasOnlyLists(children: WritingDeskContent[]): boolean {
-  return children.length > 0 && children.every(child => child.type === "list")
-}
-
 function renderSemanticBlock(block: WritingDeskBlockNode, profile: WritingDeskDocumentProfile): ReactNode {
   if (block.blockId === "header") return <HeaderBlock block={block} profile={profile} />
   if (block.blockId === "skills" || block.blockId === "inline-list") {
-    if (hasOnlyLists(block.children)) {
+    if (isFlattenableListBlock(block.children)) {
       const lists = block.children as List[]
       return <>{lists.map((list, index) => <InlineList key={index} list={list} />)}</>
     }
     if (block.children.length === 0) return null
-    return <>{block.children.map((child, index) => <View key={index}>{renderNode(child, profile)}</View>)}</>
+    return <>{renderFallbackChildren(block.children, profile)}</>
   }
   if (block.blockId === "compact-list") {
-    if (hasOnlyLists(block.children)) {
+    if (isFlattenableListBlock(block.children)) {
       const lists = block.children as List[]
       return <>{lists.map((list, index) => <CompactList key={index} list={list} />)}</>
     }
     if (block.children.length === 0) return null
-    return <>{block.children.map((child, index) => <View key={index}>{renderNode(child, profile)}</View>)}</>
+    return <>{renderFallbackChildren(block.children, profile)}</>
   }
-  return <>{block.children.map((child, index) => <View key={index}>{renderNode(child, profile)}</View>)}</>
+  return <>{renderFallbackChildren(block.children, profile)}</>
+}
+
+function renderFallbackChildren(children: WritingDeskContent[], profile: WritingDeskDocumentProfile): ReactNode[] {
+  return children.map((child, index) => {
+    // Nested blocks are unsupported; render their children as ordinary Markdown.
+    if (child.type === "writingDeskBlock") {
+      return <View key={index}>{renderFallbackChildren(child.children, profile)}</View>
+    }
+    return <View key={index}>{renderNode(child, profile)}</View>
+  })
 }
 
 function renderNode(node: WritingDeskContent, profile: WritingDeskDocumentProfile): ReactNode {
@@ -326,9 +332,14 @@ function renderBlocks(nodes: WritingDeskContent[], profile: WritingDeskDocumentP
       nodes[index + 1]?.type === "paragraph"
     ) {
       const next = nodes[index + 1] as Extract<RootContent, { type: "paragraph" }>
+      // Keep only the heading unbreakable (with a little lead-in room); the
+      // paragraph may wrap across a page boundary so a long role summary can
+      // never overflow the page.
       rendered.push(
-        <View key={index} wrap={false} minPresenceAhead={24}>
-          <Text style={styles.cvRole}><Inline nodes={node.children} /></Text>
+        <View key={index}>
+          <View wrap={false} minPresenceAhead={24}>
+            <Text style={styles.cvRole}><Inline nodes={node.children} /></Text>
+          </View>
           <Text style={styles.compactParagraph}><Inline nodes={next.children} /></Text>
         </View>,
       )

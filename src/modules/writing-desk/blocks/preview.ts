@@ -1,6 +1,7 @@
 import type { List, ListItem, Paragraph, PhrasingContent, Root } from "mdast"
-import { visit } from "unist-util-visit"
+import { visitParents } from "unist-util-visit-parents"
 import { getBlockDefinition } from "./registry"
+import { isFlattenableListBlock, simpleListItemInline } from "./shape"
 import type { WritingDeskContent, WritingDeskDiagnostic } from "./types"
 
 type DirectiveNode = {
@@ -11,8 +12,8 @@ type DirectiveNode = {
 }
 
 function itemPhrasing(item: ListItem): PhrasingContent[] {
-  const first = item.children[0]
-  if (first?.type === "paragraph") return first.children
+  const inline = simpleListItemInline(item)
+  if (inline) return inline
   return [{ type: "text", value: plainText(item) }]
 }
 
@@ -20,7 +21,7 @@ function plainText(node: unknown): string {
   if (!node || typeof node !== "object") return ""
   if ("value" in node && typeof node.value === "string") return node.value
   if ("children" in node && Array.isArray(node.children)) {
-    return node.children.map(plainText).join("")
+    return node.children.map(plainText).join(" ")
   }
   return ""
 }
@@ -40,9 +41,25 @@ function firstDiagnostic(children: WritingDeskContent[], definition: ReturnType<
 
 export function remarkWritingDeskPreview() {
   return (tree: Root) => {
-    visit(tree, node => {
+    visitParents(tree, (node, ancestors) => {
       if ((node as { type: string }).type !== "containerDirective") return
       const directive = node as unknown as DirectiveNode
+
+      // Nested blocks are unsupported: the parser nulls their blockId and falls
+      // back to ordinary Markdown. Mirror that here so preview and PDF agree —
+      // no block styling and no label/flattening for a nested directive.
+      const nested = ancestors.some(
+        ancestor => (ancestor as { type: string }).type === "containerDirective",
+      )
+      if (nested) {
+        directive.data = {
+          ...directive.data,
+          hName: "div",
+          hProperties: {},
+        }
+        return
+      }
+
       const definition = getBlockDefinition(directive.name)
       const diagnostic = firstDiagnostic(directive.children, definition)
 
@@ -60,9 +77,12 @@ export function remarkWritingDeskPreview() {
         return
       }
 
-      const onlyLists =
-        directive.children.length > 0 && directive.children.every(child => child.type === "list")
-      if (definition.preview.renderer === "inline-list" && onlyLists) {
+      // Drop directive labels such as `:::header[Hidden label]`.
+      directive.children = directive.children.filter(
+        child => !(child as { data?: { directiveLabel?: boolean } }).data?.directiveLabel,
+      )
+
+      if (definition.preview.renderer === "inline-list" && isFlattenableListBlock(directive.children)) {
         directive.children = directive.children.map(child => listToInlineParagraph(child as List))
       }
 

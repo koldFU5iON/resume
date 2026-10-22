@@ -6,6 +6,7 @@ import remarkDirective from "remark-directive"
 import remarkGfm from "remark-gfm"
 import type { Components } from "react-markdown"
 import { remarkWritingDeskPreview } from "@/modules/writing-desk/blocks/preview"
+import { remarkPreserveDirectives } from "@/modules/writing-desk/blocks/remark-preserve-directives"
 import { profileForDocumentType } from "@/modules/writing-desk/blocks/types"
 import type { WritingDeskDocumentType } from "@/modules/writing-desk/schema"
 
@@ -62,7 +63,12 @@ export function WritingDeskPreview({
       data-writing-desk-profile={profile}
     >
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkDirective, remarkWritingDeskPreview]}
+        remarkPlugins={[
+          remarkGfm,
+          remarkDirective,
+          remarkPreserveDirectives,
+          remarkWritingDeskPreview,
+        ]}
         components={components}
       >
         {markdown || "*No content yet.*"}

@@ -8,6 +8,7 @@ import type {
 } from "mdast"
 import { parseWritingDeskDocument } from "./parse"
 import { getBlockDefinition } from "./registry"
+import { isFlattenableListBlock } from "./shape"
 import type { WritingDeskBlockNode, WritingDeskContent } from "./types"
 
 function inlineText(nodes: PhrasingContent[]): string {
@@ -59,28 +60,20 @@ function tableText(table: Table): string {
 function blockText(node: WritingDeskContent | WritingDeskBlockNode): string {
   if (node.type === "writingDeskBlock") {
     const definition = node.blockId ? getBlockDefinition(node.blockId) : undefined
-    const hasOnlyLists = node.children.length > 0 && node.children.every(child => child.type === "list")
-    if (definition?.plainText === "inline-list") {
-      if (hasOnlyLists) {
-        const lists = node.children.filter((child): child is List => child.type === "list")
-        return lists
-          .map(list => list.children.map(item => listItemText(item)).join(" · "))
-          .filter(Boolean)
-          .join("\n")
-      }
-      if (node.children.length === 0) return ""
-      return node.children.map(blockText).join("\n")
+    const flattenable = isFlattenableListBlock(node.children)
+    if (definition?.plainText === "inline-list" && flattenable) {
+      const lists = node.children.filter((child): child is List => child.type === "list")
+      return lists
+        .map(list => list.children.map(item => listItemText(item)).join(" · "))
+        .filter(Boolean)
+        .join("\n")
     }
-    if (definition?.plainText === "compact-list") {
-      if (hasOnlyLists) {
-        const lists = node.children.filter((child): child is List => child.type === "list")
-        return lists
-          .map(list => listText(list, () => "-"))
-          .filter(Boolean)
-          .join("\n")
-      }
-      if (node.children.length === 0) return ""
-      return node.children.map(blockText).join("\n")
+    if (definition?.plainText === "compact-list" && flattenable) {
+      const lists = node.children.filter((child): child is List => child.type === "list")
+      return lists
+        .map(list => listText(list, () => "-"))
+        .filter(Boolean)
+        .join("\n")
     }
     if (node.children.length === 0) return ""
     return node.children.map(blockText).join("\n")

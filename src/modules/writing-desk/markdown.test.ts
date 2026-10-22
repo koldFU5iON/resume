@@ -104,6 +104,60 @@ describe("parseWritingDeskDocument", () => {
   })
 })
 
+describe("inline and leaf directive preservation", () => {
+  const cases: Array<[string, string, string]> = [
+    ["times", "Meeting at 10:30", "Meeting at 10:30"],
+    ["ratios", "ratio 3:1", "ratio 3:1"],
+    ["word:word", "Skills:JavaScript and Tools:Figma", "Skills:JavaScript and Tools:Figma"],
+    ["mailto", "mailto:devon@example.com or devon:hello", "mailto:devon@example.com or devon:hello"],
+    ["inline leaf", "before ::leaf after", "before ::leaf after"],
+  ]
+
+  it.each(cases)("keeps %s text intact in plain text", (_label, markdown, expected) => {
+    expect(writingDeskMarkdownToText(markdown)).toBe(expected)
+  })
+
+  it("does not treat colon text as a directive node", () => {
+    const children = parseWritingDeskMarkdown("Meeting at 10:30, ratio 3:1")
+    expect(children[0]).toMatchObject({ type: "paragraph" })
+    expect(JSON.stringify(children)).not.toContain("Directive")
+  })
+
+  it("preserves a standalone leaf directive line verbatim", () => {
+    expect(writingDeskMarkdownToText("Contact\n\n::note")).toBe("Contact\n\n::note")
+  })
+})
+
+describe("list item content fidelity", () => {
+  it("preserves nested list items via Markdown fallback", () => {
+    const markdown = ":::inline-list\n- Languages\n  - TypeScript\n  - Go\n- Leadership\n:::"
+    const result = writingDeskMarkdownToText(markdown)
+    expect(result).toContain("Languages")
+    expect(result).toContain("TypeScript")
+    expect(result).toContain("Go")
+    expect(result).toContain("Leadership")
+  })
+
+  it("preserves a second paragraph inside an item", () => {
+    const markdown = ":::skills\n- JavaScript\n\n  Deep experience\n- React\n:::"
+    const result = writingDeskMarkdownToText(markdown)
+    expect(result).toContain("JavaScript")
+    expect(result).toContain("Deep experience")
+    expect(result).toContain("React")
+  })
+
+  it("warns when a list block cannot be flattened", () => {
+    const document = parseWritingDeskDocument(":::inline-list\n- Languages\n  - TypeScript\n- Leadership\n:::")
+    expect(document.diagnostics.some(issue => issue.message.includes("simple lists"))).toBe(true)
+  })
+})
+
+describe("directive labels", () => {
+  it("does not render a directive label as body text", () => {
+    expect(writingDeskMarkdownToText(":::header[Hidden label]\n# Morgan Ellis\n:::")).toBe("Morgan Ellis")
+  })
+})
+
 describe("writingDeskMarkdownToText", () => {
   it("renders inline lists with dot separators", () => {
     expect(writingDeskMarkdownToText(":::inline-list\n- JavaScript\n- React\n- Communications\n:::")).toBe(

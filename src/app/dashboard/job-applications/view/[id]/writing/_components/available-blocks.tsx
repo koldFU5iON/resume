@@ -16,10 +16,15 @@ import {
 import { BLOCK_LIST } from "@/modules/writing-desk/blocks/registry"
 import type { BlockDefinition } from "@/modules/writing-desk/blocks/types"
 
-function profileLabel(definition: BlockDefinition): string {
-  return Object.keys(definition.pdf)
-    .map(profile => profile === "cv" ? "CV" : "General")
-    .join(" · ")
+function acceptsLabel(definition: BlockDefinition): string {
+  switch (definition.accepts) {
+    case "header":
+      return "Headings & contact lines"
+    case "list":
+      return "A Markdown list"
+    default:
+      return "Markdown content"
+  }
 }
 
 export function AvailableBlocks({
@@ -87,7 +92,7 @@ export function AvailableBlocks({
               </div>
               <pre className="mt-3 overflow-x-auto rounded-md bg-muted p-2.5 font-mono text-[11px] leading-relaxed text-foreground"><code>{definition.example}</code></pre>
               <dl className="mt-2.5 grid gap-1 text-[11px] text-muted-foreground">
-                <div><dt className="inline font-medium text-foreground">Profiles: </dt><dd className="inline">{profileLabel(definition)}</dd></div>
+                <div><dt className="inline font-medium text-foreground">Accepts: </dt><dd className="inline">{acceptsLabel(definition)}</dd></div>
                 <div><dt className="inline font-medium text-foreground">ATS: </dt><dd className="inline">{definition.ats.safe ? "Safe" : "Check profile fallback"}{definition.ats.note ? ` — ${definition.ats.note}` : ""}</dd></div>
               </dl>
               <div className="mt-3 flex gap-2">

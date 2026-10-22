@@ -162,8 +162,10 @@ export function WritingDesk({
     const end = element?.selectionEnd ?? start
     const before = contentRef.current.slice(0, start)
     const after = contentRef.current.slice(end)
-    const leading = before.length > 0 && !before.endsWith("\n") ? "\n\n" : ""
-    const trailing = after.length > 0 && !after.startsWith("\n") ? "\n\n" : ""
+    const leading =
+      before.length > 0 ? (before.endsWith("\n\n") ? "" : before.endsWith("\n") ? "\n" : "\n\n") : ""
+    const trailing =
+      after.length > 0 ? (after.startsWith("\n\n") ? "" : after.startsWith("\n") ? "\n" : "\n\n") : ""
     const next = `${before}${leading}${snippet}${trailing}${after}`
     handleChange(next)
     setMode("markdown")

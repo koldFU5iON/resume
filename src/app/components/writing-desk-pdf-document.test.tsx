@@ -94,6 +94,46 @@ describe("WritingDeskPDFDocument", () => {
     expect(text).toContain("TypeScript")
   })
 
+  it("preserves inline and leaf directive text in the PDF", async () => {
+    const markdown = [
+      "Meeting at 10:30, ratio 3:1.",
+      "",
+      "Contact",
+      "",
+      "::note",
+    ].join("\n")
+    const { pdf } = await render(markdown, "cover-letter")
+    const { text } = await extractText(pdf, { mergePages: true })
+    expect(text).toContain("10:30")
+    expect(text).toContain("3:1")
+    expect(text).toContain("::note")
+  })
+
+  it("preserves nested list items in a block via Markdown fallback", async () => {
+    const markdown = [
+      ":::inline-list",
+      "- Languages",
+      "  - TypeScript",
+      "  - Go",
+      "- Leadership",
+      ":::",
+    ].join("\n")
+    const { pdf } = await render(markdown, "cv")
+    const { text } = await extractText(pdf, { mergePages: true })
+    expect(text).toContain("Languages")
+    expect(text).toContain("TypeScript")
+    expect(text).toContain("Go")
+    expect(text).toContain("Leadership")
+  })
+
+  it("does not render a directive label as body text", async () => {
+    const markdown = ":::header[Hidden label]\n# Morgan Ellis\n## Program Manager\n:::"
+    const { pdf } = await render(markdown, "cv")
+    const { text } = await extractText(pdf, { mergePages: true })
+    expect(text).toContain("Morgan Ellis")
+    expect(text).not.toContain("Hidden label")
+  })
+
   it("renders general documents without CV section assumptions", async () => {
     const markdown = "# Dear Hiring Manager\n\nI am writing to apply for the role.\n\n:::inline-list\n- React\n- TypeScript\n:::"
     const { pdf } = await render(markdown, "cover-letter")
