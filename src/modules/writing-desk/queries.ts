@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db"
+import type { ApplicationStatusType } from "@/app/types/job-application"
 import type { WritingDeskDocumentType } from "./schema"
 
 export type WritingDeskSourceOption = {
@@ -83,5 +84,41 @@ export async function listWritingDeskSourceCVs(profileId: string): Promise<Writi
     sourceType: cv.jobApplicationId === null && cv.careerVerticalId !== null
       ? "master-cv"
       : "previous-cv",
+  }))
+}
+
+export type WritingDeskJobOption = {
+  id: string
+  title: string
+  company: string | null
+  status: ApplicationStatusType
+  documentType: WritingDeskDocumentType | null
+  deskUpdatedAt: Date | null
+}
+
+/** Non-archived jobs with a summary of their writing desk, for the desk picker. */
+export async function listWritingDeskJobs(profileId: string): Promise<WritingDeskJobOption[]> {
+  const jobs = await prisma.jobApplication.findMany({
+    where: { profileId, archivedAt: null },
+    orderBy: { lastUpdated: "desc" },
+    select: {
+      id: true,
+      title: true,
+      company: true,
+      status: true,
+      lastUpdated: true,
+      writingDesk: {
+        select: { documentType: true, updatedAt: true },
+      },
+    },
+  })
+
+  return jobs.map(job => ({
+    id: job.id,
+    title: job.title,
+    company: job.company,
+    status: job.status as ApplicationStatusType,
+    documentType: (job.writingDesk?.documentType as WritingDeskDocumentType | null) ?? null,
+    deskUpdatedAt: job.writingDesk?.updatedAt ?? null,
   }))
 }
