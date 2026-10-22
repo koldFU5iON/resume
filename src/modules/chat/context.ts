@@ -155,6 +155,14 @@ function formatPageContext(ctx: PageContext): string {
           ? `\n\n<user_braindump>The user has written these raw notes about the role — use them as context when drafting or advising:\n${ctx.braindump}\n</user_braindump>`
           : '')
       )
+    case 'writing_desk':
+      return (
+        `User is writing a ${ctx.documentType} document for "${ctx.title}"${ctx.company ? ` at ${ctx.company}` : ''}\n` +
+        `Writing Desk ID: ${ctx.deskId} — use get_writing_desk to fetch its Markdown, revision, job, and source CV context.\n` +
+        `Use get_profile_section to retrieve relevant profile evidence before making substantive career claims. ` +
+        `Do not invent employers, qualifications, achievements, responsibilities, or metrics. Identify uncertainty and ask for clarification when evidence is missing.\n` +
+        `Use propose_writing_desk_update for a full Markdown replacement. Include the revision returned by get_writing_desk; the user must review and confirm it before it can be applied.`
+      )
     case 'interview_prep':
       return (
         `User is in an interview prep session` +

@@ -7,6 +7,7 @@ import {
   LucideIcon,
   Mail,
   MoreHorizontal,
+  NotebookPen,
   Pencil,
   Trash
 } from "lucide-react"
@@ -85,6 +86,11 @@ export function AppControls({ id, cvDocumentId, coverLetterDocumentId, onEdit, o
               action={onCreateCoverLetter ? undefined : `/dashboard/cover-letters/new?jobId=${id}`}
             />
           )}
+          <AppControlsItem
+            Icon={NotebookPen}
+            label="Open writing desk"
+            action={`/dashboard/job-applications/view/${id}/writing`}
+          />
           <AppControlsItem
             Icon={FilePlus}
             label="Add File"

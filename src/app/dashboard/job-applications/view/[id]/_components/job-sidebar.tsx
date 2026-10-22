@@ -6,7 +6,7 @@ import { JobFit } from "@/app/dashboard/job-applications/_components/job-fit"
 import { SalaryPopover } from "@/app/dashboard/job-applications/_components/salary-popover"
 import { StatusDropdown } from "@/app/dashboard/job-applications/_components/status-dropdown"
 import { formatDate, cn } from "@/lib/utils"
-import { FileText, Mail, ClipboardList } from "lucide-react"
+import { FileText, Mail, ClipboardList, NotebookPen } from "lucide-react"
 
 interface Props {
   job: Job
@@ -135,6 +135,23 @@ export function JobSidebar({ job, hasLLMKey }: Props) {
                 Create cover letter
               </Link>
             )}
+          </CardContent>
+        </Card>
+
+        {/* Writing Desk */}
+        <Card>
+          <CardContent className="flex flex-col gap-1.5 pt-3 pb-3">
+            <div className="flex items-center gap-1.5">
+              <NotebookPen size={13} className="shrink-0 text-muted-foreground" />
+              <p className="text-xs font-medium">Writing Desk</p>
+            </div>
+            <p className="text-xs text-muted-foreground">Free-form application writing</p>
+            <Link
+              href={`/dashboard/job-applications/view/${job.id}/writing`}
+              className={cn(buttonVariants({ variant: "outline", size: "sm" }), "h-7 text-xs")}
+            >
+              Open writing desk →
+            </Link>
           </CardContent>
         </Card>
 

@@ -55,6 +55,7 @@ const TOOL_LABELS: Record<string, string> = {
   propose_prep_note_update: 'Update prep note',
   propose_cover_letter_update: 'Update cover letter',
   propose_cover_letter_section_update: 'Update cover letter paragraph',
+  propose_writing_desk_update: 'Update writing desk document',
   submit_feedback: 'Submit feedback',
 }
 
@@ -95,6 +96,15 @@ export function ToolConfirmationCard({ toolName, args, onAccept, onReject, write
           },
         }))
       }
+      if (toolName === 'propose_writing_desk_update') {
+        window.dispatchEvent(new CustomEvent('writing-desk-updated', {
+          detail: {
+            deskId: args.deskId,
+            proposedContent: args.proposedContent,
+            revision: (args.expectedRevision as number) + 1,
+          },
+        }))
+      }
       onAccept()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to apply change')
@@ -114,7 +124,7 @@ export function ToolConfirmationCard({ toolName, args, onAccept, onReject, write
           {String(args.currentValue ?? args.currentContent)}
         </div>
       )}
-      {toolName === 'propose_cover_letter_update' && args.proposedContent != null && (
+      {(toolName === 'propose_cover_letter_update' || toolName === 'propose_writing_desk_update') && args.proposedContent != null && (
         <div className="mb-3 max-h-64 overflow-y-auto rounded-md border border-border bg-muted/30 px-3 py-2 text-xs">
           <MarkdownPreview content={String(args.proposedContent)} />
         </div>
@@ -133,7 +143,7 @@ export function ToolConfirmationCard({ toolName, args, onAccept, onReject, write
         </>
       )}
       {(() => {
-        if (toolName === 'propose_cover_letter_update') return null
+        if (toolName === 'propose_cover_letter_update' || toolName === 'propose_writing_desk_update') return null
         if (toolName === 'propose_cover_letter_section_update') return null
         const display = args.proposedValue ?? args.proposedContent ??
           (args.name != null ? `${args.name}${args.category ? ` · ${args.category}` : ''}` : undefined) ??

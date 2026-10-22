@@ -1,0 +1,24 @@
+// ------------------------------------------------------------
+// WRITING DESK
+// ------------------------------------------------------------
+
+model WritingDeskDocument {
+  id                 String   @id @default(cuid())
+  profileId          String
+  jobApplicationId   String   @unique
+  documentType       String?
+  content            String   @default("")
+  revision           Int      @default(1)
+  sourceType         String?
+  sourceCvDocumentId String?
+  sourceLabel        String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  profile      Profile        @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  jobApplication JobApplication @relation(fields: [jobApplicationId], references: [id], onDelete: Cascade)
+  sourceCv     CVDocument?    @relation("WritingDeskSourceCV", fields: [sourceCvDocumentId], references: [id], onDelete: SetNull)
+
+  @@index([profileId])
+  @@index([sourceCvDocumentId])
+}

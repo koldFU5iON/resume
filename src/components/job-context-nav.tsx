@@ -8,7 +8,7 @@ export type JobContextNavProps = {
   cvDocumentId: string | null
   coverLetterDocumentId: string | null
   interviewPrepSessionId: string | null
-  current: 'cv' | 'cover-letter' | 'prep'
+  current: 'cv' | 'cover-letter' | 'prep' | 'writing-desk'
 }
 
 export function JobContextNav({
@@ -39,6 +39,17 @@ export function JobContextNav({
           className="text-muted-foreground hover:text-foreground"
         >
           ← Hub
+        </Link>
+        <Link
+          href={`/dashboard/job-applications/view/${jobId}/writing`}
+          className={cn(
+            'hover:text-foreground',
+            current === 'writing-desk'
+              ? 'font-medium text-foreground'
+              : 'text-muted-foreground',
+          )}
+        >
+          Writing Desk
         </Link>
         {cvDocumentId && (
           <Link

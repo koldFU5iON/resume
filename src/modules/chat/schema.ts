@@ -22,6 +22,16 @@ export const PageContextSchema = z.discriminatedUnion('type', [
     braindump: z.string().optional(),
   }),
   z.object({
+    type: z.literal('writing_desk'),
+    deskId: z.string(),
+    jobId: z.string(),
+    title: z.string(),
+    company: z.string().optional(),
+    documentType: z.enum(['cv', 'cover-letter', 'interview-prep', 'other']),
+    revision: z.number().int().positive(),
+    sourceCvDocumentId: z.string().optional(),
+  }),
+  z.object({
     type: z.literal('interview_prep'),
     sessionId: z.string(),
     company: z.string().optional(),
