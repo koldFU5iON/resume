@@ -6,6 +6,7 @@ import {
   HomeIcon,
   Mail,
   MessageSquare,
+  NotebookPen,
   Target,
   UserRound,
   type LucideIcon
@@ -39,6 +40,7 @@ export const navGroups: { label: string; items: NavItem[] }[] = [
     items: [
       { destination: '/dashboard/cv-builder', label: 'CV Builder', Icon: FileText },
       { destination: '/dashboard/cover-letters', label: 'Cover Letters', Icon: Mail },
+      { destination: '/dashboard/writing-desk', label: 'Writing Desk', Icon: NotebookPen },
       { destination: '/dashboard/interview-prep', label: 'Interview Prep', Icon: MessageSquare },
     ],
   },

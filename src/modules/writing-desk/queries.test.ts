@@ -4,14 +4,16 @@ vi.mock("@/lib/db", () => ({
   prisma: {
     writingDeskDocument: { findFirst: vi.fn() },
     cVDocument: { findMany: vi.fn() },
+    jobApplication: { findMany: vi.fn() },
   },
 }))
 
 import { prisma } from "@/lib/db"
-import { getWritingDesk, listWritingDeskSourceCVs } from "./queries"
+import { getWritingDesk, listWritingDeskJobs, listWritingDeskSourceCVs } from "./queries"
 
 const mockDeskFindFirst = vi.mocked(prisma.writingDeskDocument.findFirst)
 const mockCVFindMany = vi.mocked(prisma.cVDocument.findMany)
+const mockJobFindMany = vi.mocked(prisma.jobApplication.findMany)
 
 describe("getWritingDesk", () => {
   beforeEach(() => vi.clearAllMocks())
@@ -67,5 +69,77 @@ describe("listWritingDeskSourceCVs", () => {
       },
       orderBy: { updatedAt: "desc" },
     })
+  })
+})
+
+describe("listWritingDeskJobs", () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it("lists non-archived jobs with a summary of each desk", async () => {
+    mockJobFindMany.mockResolvedValue([
+      {
+        id: "job-1",
+        title: "Staff Engineer",
+        company: "Acme",
+        status: "in-progress",
+        lastUpdated: new Date("2026-03-04T00:00:00Z"),
+        writingDesk: {
+          documentType: "cv",
+          content: "# Jane Doe",
+          updatedAt: new Date("2026-03-05T00:00:00Z"),
+        },
+      },
+      {
+        id: "job-2",
+        title: "Engineer",
+        company: null,
+        status: "applied",
+        lastUpdated: new Date("2026-03-03T00:00:00Z"),
+        writingDesk: { documentType: null, content: "", updatedAt: new Date("2026-03-03T00:00:00Z") },
+      },
+      {
+        id: "job-3",
+        title: "Designer",
+        company: "Globex",
+        status: "not started",
+        lastUpdated: new Date("2026-03-02T00:00:00Z"),
+        writingDesk: null,
+      },
+    ] as never)
+
+    await expect(listWritingDeskJobs("profile-1")).resolves.toEqual([
+      {
+        id: "job-1",
+        title: "Staff Engineer",
+        company: "Acme",
+        status: "in-progress",
+        documentType: "cv",
+        hasContent: true,
+        deskUpdatedAt: new Date("2026-03-05T00:00:00Z"),
+      },
+      {
+        id: "job-2",
+        title: "Engineer",
+        company: null,
+        status: "applied",
+        documentType: null,
+        hasContent: false,
+        deskUpdatedAt: new Date("2026-03-03T00:00:00Z"),
+      },
+      {
+        id: "job-3",
+        title: "Designer",
+        company: "Globex",
+        status: "not started",
+        documentType: null,
+        hasContent: false,
+        deskUpdatedAt: null,
+      },
+    ])
+
+    expect(mockJobFindMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { profileId: "profile-1", archivedAt: null },
+      orderBy: { lastUpdated: "desc" },
+    }))
   })
 })
