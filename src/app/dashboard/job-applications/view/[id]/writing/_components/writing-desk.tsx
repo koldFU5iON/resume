@@ -50,6 +50,7 @@ export function WritingDesk({
   const revisionRef = useRef(desk.revision)
   const pendingValueRef = useRef<string | null>(null)
   const savingRef = useRef(false)
+  const conflictRef = useRef(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const { openPanel } = usePageContext()
 
@@ -88,6 +89,7 @@ export function WritingDesk({
       if (detail.deskId !== desk.id) return
       if (timerRef.current) clearTimeout(timerRef.current)
       pendingValueRef.current = null
+      conflictRef.current = false
       contentRef.current = detail.proposedContent
       revisionRef.current = detail.revision
       setContent(detail.proposedContent)
@@ -99,14 +101,25 @@ export function WritingDesk({
     return () => window.removeEventListener("writing-desk-updated", handleWritingDeskUpdated)
   }, [desk.id, recoveryKey])
 
+  useEffect(() => {
+    function warnOnPendingChanges(event: BeforeUnloadEvent) {
+      if (pendingValueRef.current === null && !savingRef.current) return
+      event.preventDefault()
+      event.returnValue = ""
+    }
+    window.addEventListener("beforeunload", warnOnPendingChanges)
+    return () => window.removeEventListener("beforeunload", warnOnPendingChanges)
+  }, [])
+
   async function flushSave() {
-    if (savingRef.current || pendingValueRef.current === null || saveState === "conflict") return
+    if (savingRef.current || pendingValueRef.current === null || conflictRef.current) return
     const value = pendingValueRef.current
     savingRef.current = true
     setSaveState("saving")
     try {
       const result = await updateWritingDeskContent(desk.id, value, revisionRef.current)
       if (!result.ok) {
+        conflictRef.current = true
         setSaveState("conflict")
         toast.error("This desk changed elsewhere. Your local draft is preserved.")
         return
@@ -130,8 +143,13 @@ export function WritingDesk({
     setContent(value)
     contentRef.current = value
     pendingValueRef.current = value
-    setSaveState("idle")
     try { localStorage.setItem(recoveryKey, value) } catch {}
+    if (conflictRef.current) {
+      // The server moved on. Keep the local draft, but don't try to save over it.
+      setSaveState("conflict")
+      return
+    }
+    setSaveState("idle")
     if (timerRef.current) clearTimeout(timerRef.current)
     timerRef.current = setTimeout(() => void flushSave(), 900)
   }
@@ -140,6 +158,7 @@ export function WritingDesk({
     if (documentType && documentType !== type && contentRef.current.trim() && !window.confirm("Change the document type? Your Markdown will stay unchanged.")) return
     const result = await setWritingDeskDocumentType(desk.id, type, revisionRef.current)
     if (!result.ok) {
+      conflictRef.current = true
       setSaveState("conflict")
       return
     }
@@ -153,10 +172,15 @@ export function WritingDesk({
     if (contentRef.current.trim() && !window.confirm("Replace the current document with this CV? This cannot be undone.")) return
     const result = await setWritingDeskSource(desk.id, cvId, revisionRef.current)
     if (!result.ok) {
+      conflictRef.current = true
       setSaveState("conflict")
       return
     }
     // The server is the source of truth for the Markdown snapshot; refresh after selection.
+    // Drop the stale local draft first — otherwise the recovery effect restores it over the new source.
+    try { localStorage.removeItem(recoveryKey) } catch {}
+    pendingValueRef.current = null
+    setSaveState("saved")
     window.location.reload()
   }
 
@@ -185,6 +209,14 @@ export function WritingDesk({
     void flushSave()
   }
 
+  // Conflict recovery: "Copy draft" keeps the local text for a manual merge,
+  // "Reload" discards it in favour of the newer server version.
+  function reloadFromServer() {
+    try { localStorage.removeItem(recoveryKey) } catch {}
+    pendingValueRef.current = null
+    window.location.reload()
+  }
+
   if (!documentType) {
     return (
       <div className="flex flex-1 items-center justify-center bg-secondary p-6">
@@ -211,7 +243,7 @@ export function WritingDesk({
     )
   }
 
-  const saveLabel = saveState === "saving" ? "Saving..." : saveState === "saved" ? "Saved" : saveState === "failed" ? "Save failed" : saveState === "conflict" ? "Conflict - reload to continue" : ""
+  const saveLabel = saveState === "saving" ? "Saving..." : saveState === "saved" ? "Saved" : saveState === "failed" ? "Save failed" : saveState === "conflict" ? "Conflict - copy your draft or reload" : ""
 
   return (
     <div className="flex h-full flex-col">
@@ -243,6 +275,10 @@ export function WritingDesk({
         </div>
         {saveLabel && <span className={cn("text-xs", saveState === "failed" || saveState === "conflict" ? "text-destructive" : "text-muted-foreground")}>{saveLabel}</span>}
         {saveState === "failed" && <button type="button" onClick={retrySave} className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground">Retry</button>}
+        {saveState === "conflict" && <>
+          <button type="button" onClick={() => void copyText(contentRef.current, "Local draft")} className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground">Copy draft</button>
+          <button type="button" onClick={reloadFromServer} className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground">Reload server version</button>
+        </>}
         <div className="relative">
           <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setShowExport(value => !value)}><Download className="mr-1 size-3" />Export</Button>
           {showExport && <div className="absolute right-0 z-20 mt-1 w-44 rounded-md border bg-background py-1 shadow-md">

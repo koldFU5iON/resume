@@ -13,10 +13,10 @@ function filename(title: string): string {
 
 export async function GET(
   _request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
+  { params }: { params: Promise<{ jobId: string }> },
 ) {
-  const [{ id }, { profile }] = await Promise.all([params, requireProfile()])
-  const desk = await getWritingDesk(profile.id, id)
+  const [{ jobId }, { profile }] = await Promise.all([params, requireProfile()])
+  const desk = await getWritingDesk(profile.id, jobId)
   if (!desk) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
   const title = `${desk.documentType ?? "writing-desk"}-${desk.jobApplication.title}`
