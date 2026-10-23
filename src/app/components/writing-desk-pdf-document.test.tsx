@@ -94,6 +94,61 @@ describe("WritingDeskPDFDocument", () => {
     expect(text).toContain("TypeScript")
   })
 
+  it("renders nested bullets as separate, ordered items in an ordinary list", async () => {
+    const markdown = [
+      "- Led delivery",
+      "  - Shipped 3 titles",
+      "  - Cut cycle time 20%",
+      "- Second item",
+    ].join("\n")
+    const { pdf } = await render(markdown, "cv")
+    const { text } = await extractText(pdf, { mergePages: true })
+
+    const bullets = text.match(/•/g) ?? []
+    expect(bullets.length).toBe(4)
+    expect(text).not.toContain("Led deliveryShipped")
+    const leadIdx = text.indexOf("Led delivery")
+    const shippedIdx = text.indexOf("Shipped 3 titles")
+    const cutIdx = text.indexOf("Cut cycle time 20%")
+    const secondIdx = text.indexOf("Second item")
+    expect(leadIdx).toBeLessThan(shippedIdx)
+    expect(shippedIdx).toBeLessThan(cutIdx)
+    expect(cutIdx).toBeLessThan(secondIdx)
+  })
+
+  it("renders multi-paragraph items as separate lines", async () => {
+    const markdown = [
+      "- First para",
+      "",
+      "  Second para",
+      "- Another",
+    ].join("\n")
+    const { pdf } = await render(markdown, "cv")
+    const { text } = await extractText(pdf, { mergePages: true })
+    expect(text).toContain("First para")
+    expect(text).toContain("Second para")
+    expect(text).not.toContain("First paraSecond para")
+    expect(text.indexOf("First para")).toBeLessThan(text.indexOf("Second para"))
+  })
+
+  it("renders nested bullets through a skills block fallback", async () => {
+    const markdown = [
+      ":::skills",
+      "- Languages",
+      "  - TypeScript",
+      "  - Go",
+      "- Leadership",
+      ":::",
+    ].join("\n")
+    const { pdf } = await render(markdown, "cv")
+    const { text } = await extractText(pdf, { mergePages: true })
+    expect(text).not.toContain("LanguagesTypeScript")
+    expect(text).toContain("Languages")
+    expect(text).toContain("TypeScript")
+    expect(text).toContain("Go")
+    expect(text).toContain("Leadership")
+  })
+
   it("preserves inline and leaf directive text in the PDF", async () => {
     const markdown = [
       "Meeting at 10:30, ratio 3:1.",

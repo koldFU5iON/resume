@@ -75,6 +75,7 @@ const styles = StyleSheet.create({
   compactListItem: { flexDirection: "row", marginBottom: 1 },
   marker: { width: 12, color: "#333333" },
   listText: { flex: 1 },
+  nestedList: { marginTop: 2, marginLeft: 12 },
   bold: { fontFamily: "Helvetica-Bold" },
   italic: { fontFamily: "Helvetica-Oblique" },
   strike: { textDecoration: "line-through" },
@@ -146,11 +147,11 @@ function plainText(node: unknown): string {
 function listItemInline(item: ListItem): ReactNode {
   const inline = simpleListItemInline(item)
   if (inline) return <Inline nodes={inline} />
-  // Complex items only reach here through the regular-list fallback.
-  return item.children.map((child, index) => {
-    if (child.type === "paragraph") return <Inline key={index} nodes={child.children} />
-    return plainText(child)
-  })
+  // First paragraph is the item's primary line; anything else (nested lists,
+  // extra paragraphs) is rendered by the block-level list renderers.
+  const first = item.children[0]
+  if (first?.type === "paragraph") return <Inline nodes={first.children} />
+  return plainText(item)
 }
 
 function InlineList({ list }: { list: List }) {
@@ -171,11 +172,33 @@ function CompactList({ list }: { list: List }) {
   ))}</View>
 }
 
-function RegularList({ list }: { list: List }) {
+function ListItemBody({ item, profile }: { item: ListItem; profile: WritingDeskDocumentProfile }) {
+  const [first, ...rest] = item.children
+  return (
+    <View style={styles.listText}>
+      {first ? (
+        first.type === "paragraph"
+          ? <Text><Inline nodes={first.children} /></Text>
+          : renderNode(first as WritingDeskContent, profile)
+      ) : null}
+      {rest.map((child, index) => {
+        if (child.type === "paragraph") {
+          return <Text key={index} style={styles.compactParagraph}><Inline nodes={child.children} /></Text>
+        }
+        if (child.type === "list") {
+          return <View key={index} style={styles.nestedList}><RegularList list={child} profile={profile} /></View>
+        }
+        return <View key={index}>{renderNode(child as WritingDeskContent, profile)}</View>
+      })}
+    </View>
+  )
+}
+
+function RegularList({ list, profile }: { list: List; profile: WritingDeskDocumentProfile }) {
   return <View style={styles.list}>{list.children.map((item, index) => (
     <View key={index} style={styles.listItem} wrap={false}>
       <Text style={styles.marker}>{list.ordered ? `${index + 1}.` : "•"}</Text>
-      <Text style={styles.listText}>{listItemInline(item)}</Text>
+      <ListItemBody item={item} profile={profile} />
     </View>
   ))}</View>
 }
@@ -294,7 +317,7 @@ function renderNode(node: WritingDeskContent, profile: WritingDeskDocumentProfil
     case "paragraph":
       return <Text style={styles.paragraph}><Inline nodes={node.children} /></Text>
     case "list":
-      return <RegularList list={node} />
+      return <RegularList list={node} profile={profile} />
     case "table":
       return <TableBlock table={node} />
     case "code":
