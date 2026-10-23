@@ -8,7 +8,7 @@ import type {
 } from "mdast"
 import { parseWritingDeskDocument } from "./parse"
 import { getBlockDefinition } from "./registry"
-import { isFlattenableListBlock } from "./shape"
+import { isListLayoutBlock } from "./shape"
 import type { WritingDeskBlockNode, WritingDeskContent } from "./types"
 
 function inlineText(nodes: PhrasingContent[]): string {
@@ -60,18 +60,20 @@ function tableText(table: Table): string {
 function blockText(node: WritingDeskContent | WritingDeskBlockNode): string {
   if (node.type === "writingDeskBlock") {
     const definition = node.blockId ? getBlockDefinition(node.blockId) : undefined
-    const flattenable = isFlattenableListBlock(node.children)
-    if (definition?.plainText === "inline-list" && flattenable) {
-      const lists = node.children.filter((child): child is List => child.type === "list")
-      return lists
-        .map(list => list.children.map(item => listItemText(item)).join(" · "))
+    const listLayout = isListLayoutBlock(node.children)
+    if (definition?.plainText === "inline-list" && listLayout) {
+      return node.children
+        .map(child =>
+          child.type === "list"
+            ? child.children.map(item => listItemText(item)).join(" · ")
+            : blockText(child),
+        )
         .filter(Boolean)
         .join("\n")
     }
-    if (definition?.plainText === "compact-list" && flattenable) {
-      const lists = node.children.filter((child): child is List => child.type === "list")
-      return lists
-        .map(list => listText(list, () => "-"))
+    if (definition?.plainText === "compact-list" && listLayout) {
+      return node.children
+        .map(child => child.type === "list" ? listText(child, () => "-") : blockText(child))
         .filter(Boolean)
         .join("\n")
     }

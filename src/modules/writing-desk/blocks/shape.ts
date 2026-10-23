@@ -16,13 +16,15 @@ function isSimpleList(list: List): boolean {
 }
 
 /**
- * True when the block contains only lists, every list is simple, and there is
- * no other content. This is the precondition for inline/compact flattening.
+ * True when the block can use list layout: every list is simple and the only
+ * other content is headings, which render normally above or between lists.
+ * This lets a block like `:::inline-list` include its own section heading.
  */
-export function isFlattenableListBlock(children: WritingDeskContent[]): boolean {
+export function isListLayoutBlock(children: WritingDeskContent[]): boolean {
   return (
     children.length > 0 &&
-    children.every(child => child.type === "list" && isSimpleList(child))
+    children.some(child => child.type === "list") &&
+    children.every(child => child.type === "list" ? isSimpleList(child) : child.type === "heading")
   )
 }
 

@@ -4,7 +4,7 @@ import type {
   WritingDeskContent,
   WritingDeskDiagnostic,
 } from "./types"
-import { isFlattenableListBlock } from "./shape"
+import { isListLayoutBlock } from "./shape"
 
 function nodeHasContent(node: WritingDeskContent): boolean {
   if ("value" in node && typeof node.value === "string") return node.value.trim().length > 0
@@ -37,7 +37,16 @@ function validateList(children: WritingDeskContent[]): WritingDeskDiagnostic[] {
   if (!hasNodeType(children, "list")) {
     return [{ severity: "warning", message: "This block expects a Markdown list. Its content will be preserved as text." }]
   }
-  if (!isFlattenableListBlock(children)) {
+  if (!isListLayoutBlock(children)) {
+    const hasUnsupported = children.some(child => child.type !== "list" && child.type !== "heading")
+    if (hasUnsupported) {
+      return [
+        {
+          severity: "warning",
+          message: "This block mixes other content with a list. Its content is preserved with ordinary Markdown formatting.",
+        },
+      ]
+    }
     return [
       {
         severity: "warning",

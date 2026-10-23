@@ -50,6 +50,15 @@ describe("remarkWritingDeskPreview", () => {
     expect(text).toContain("JavaScript · React")
   })
 
+  it("flattens the list while keeping a heading inside an inline-list block", () => {
+    const tree = run(":::inline-list\n## Core Competencies\n\n- Product Operations\n- Operating Model Design\n:::")
+    const text = allText(tree).join("")
+    expect(text).toContain("Core Competencies")
+    expect(text).toContain("Product Operations · Operating Model Design")
+    const directive = tree.children[0] as { data?: { hProperties?: Record<string, string> } }
+    expect(directive.data?.hProperties?.["data-wd-valid"]).toBe("true")
+  })
+
   it("falls back to Markdown for nested list items without dropping content", () => {
     const tree = run(":::inline-list\n- Languages\n  - TypeScript\n  - Go\n- Leadership\n:::")
     const text = allText(tree).join(" ")

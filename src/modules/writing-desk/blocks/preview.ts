@@ -1,7 +1,7 @@
 import type { List, ListItem, Paragraph, PhrasingContent, Root } from "mdast"
 import { visitParents } from "unist-util-visit-parents"
 import { getBlockDefinition } from "./registry"
-import { isFlattenableListBlock, simpleListItemInline } from "./shape"
+import { isListLayoutBlock, simpleListItemInline } from "./shape"
 import type { WritingDeskContent, WritingDeskDiagnostic } from "./types"
 
 type DirectiveNode = {
@@ -82,8 +82,10 @@ export function remarkWritingDeskPreview() {
         child => !(child as { data?: { directiveLabel?: boolean } }).data?.directiveLabel,
       )
 
-      if (definition.preview.renderer === "inline-list" && isFlattenableListBlock(directive.children)) {
-        directive.children = directive.children.map(child => listToInlineParagraph(child as List))
+      if (definition.preview.renderer === "inline-list" && isListLayoutBlock(directive.children)) {
+        directive.children = directive.children.map(child =>
+          child.type === "list" ? listToInlineParagraph(child) : child,
+        )
       }
 
       directive.data = {

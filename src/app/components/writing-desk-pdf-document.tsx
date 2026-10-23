@@ -2,7 +2,7 @@ import { Document, Link, Page, StyleSheet, Text, View } from "@react-pdf/rendere
 import type { ReactNode } from "react"
 import type { List, ListItem, PhrasingContent, RootContent, Table } from "mdast"
 import { parseWritingDeskDocument } from "@/modules/writing-desk/blocks/parse"
-import { isFlattenableListBlock, simpleListItemInline } from "@/modules/writing-desk/blocks/shape"
+import { isListLayoutBlock, simpleListItemInline } from "@/modules/writing-desk/blocks/shape"
 import {
   profileForDocumentType,
   type WritingDeskBlockNode,
@@ -290,17 +290,23 @@ function renderHeading(node: Extract<RootContent, { type: "heading" }>, profile:
 function renderSemanticBlock(block: WritingDeskBlockNode, profile: WritingDeskDocumentProfile): ReactNode {
   if (block.blockId === "header") return <HeaderBlock block={block} profile={profile} />
   if (block.blockId === "skills" || block.blockId === "inline-list") {
-    if (isFlattenableListBlock(block.children)) {
-      const lists = block.children as List[]
-      return <>{lists.map((list, index) => <InlineList key={index} list={list} />)}</>
+    if (isListLayoutBlock(block.children)) {
+      return <>{block.children.map((child, index) =>
+        child.type === "list"
+          ? <InlineList key={index} list={child} />
+          : <View key={index}>{renderNode(child, profile)}</View>,
+      )}</>
     }
     if (block.children.length === 0) return null
     return <>{renderFallbackChildren(block.children, profile)}</>
   }
   if (block.blockId === "compact-list") {
-    if (isFlattenableListBlock(block.children)) {
-      const lists = block.children as List[]
-      return <>{lists.map((list, index) => <CompactList key={index} list={list} />)}</>
+    if (isListLayoutBlock(block.children)) {
+      return <>{block.children.map((child, index) =>
+        child.type === "list"
+          ? <CompactList key={index} list={child} />
+          : <View key={index}>{renderNode(child, profile)}</View>,
+      )}</>
     }
     if (block.children.length === 0) return null
     return <>{renderFallbackChildren(block.children, profile)}</>

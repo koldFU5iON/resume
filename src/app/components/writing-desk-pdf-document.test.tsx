@@ -204,6 +204,21 @@ describe("WritingDeskPDFDocument", () => {
     expect(text).toContain("Leadership")
   })
 
+  it("renders a heading and inline list inside the same block", async () => {
+    const markdown = [
+      ":::inline-list",
+      "## Core Competencies",
+      "",
+      "- Product Operations",
+      "- Operating Model Design",
+      ":::",
+    ].join("\n")
+    const { pdf } = await render(markdown, "cv")
+    const { text } = await extractText(pdf, { mergePages: true })
+    expect(text).toContain("CORE COMPETENCIES")
+    expect(text).toContain("Product Operations · Operating Model Design")
+  })
+
   it("does not render a directive label as body text", async () => {
     const markdown = ":::header[Hidden label]\n# Morgan Ellis\n## Program Manager\n:::"
     const { pdf } = await render(markdown, "cv")

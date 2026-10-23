@@ -150,6 +150,20 @@ describe("list item content fidelity", () => {
     const document = parseWritingDeskDocument(":::inline-list\n- Languages\n  - TypeScript\n- Leadership\n:::")
     expect(document.diagnostics.some(issue => issue.message.includes("simple lists"))).toBe(true)
   })
+
+  it("allows a heading alongside a list and keeps the heading above the inline list", () => {
+    const markdown = ":::inline-list\n## Core Competencies\n\n- Product Operations\n- Operating Model Design\n:::"
+    const document = parseWritingDeskDocument(markdown)
+    expect(document.diagnostics).toHaveLength(0)
+    expect(writingDeskMarkdownToText(markdown)).toBe(
+      "Core Competencies\nProduct Operations · Operating Model Design",
+    )
+  })
+
+  it("warns when unsupported content is mixed with a list", () => {
+    const document = parseWritingDeskDocument(":::inline-list\nA paragraph\n\n- Product Operations\n:::")
+    expect(document.diagnostics[0]?.message).toContain("mixes other content")
+  })
 })
 
 describe("directive labels", () => {
