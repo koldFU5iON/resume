@@ -94,6 +94,29 @@ describe("WritingDeskPDFDocument", () => {
     expect(text).toContain("TypeScript")
   })
 
+  it("paginates a parent item with many sub-bullets without compressing lines", async () => {
+    const subs = Array.from({ length: 90 }, (_, index) => `  - Sub item ${index + 1}`)
+    const { pdf } = await render(["- Parent item", ...subs].join("\n"), "cv")
+    const { text, totalPages } = await extractText(pdf, { mergePages: true })
+
+    expect(totalPages).toBeGreaterThan(1)
+    expect(text).toContain("Parent item")
+    expect(text).toContain("Sub item 1")
+    expect(text).toContain("Sub item 90")
+
+    const items = await extractTextItems(pdf)
+    const gaps: number[] = []
+    for (const page of items.items) {
+      const ys = [...new Set(page.filter(item => item.str.trim()).map(item => Math.round(item.y)))].sort(
+        (a, b) => a - b,
+      )
+      for (let i = 1; i < ys.length; i++) gaps.push(ys[i] - ys[i - 1])
+    }
+    // Normal line spacing stays ~17pt; a compressed (overlapping) list would
+    // collapse toward ~8pt.
+    expect(Math.min(...gaps)).toBeGreaterThanOrEqual(10)
+  })
+
   it("renders nested bullets as separate, ordered items in an ordinary list", async () => {
     const markdown = [
       "- Led delivery",

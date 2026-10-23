@@ -71,7 +71,9 @@ const styles = StyleSheet.create({
   compactParagraph: { marginBottom: 2 },
   list: { marginBottom: 6 },
   compactList: { marginBottom: 3 },
-  listItem: { flexDirection: "row", marginBottom: 2.5 },
+  listItem: { marginBottom: 2.5 },
+  listFirstLine: { flexDirection: "row" },
+  listRest: { marginLeft: 12 },
   compactListItem: { flexDirection: "row", marginBottom: 1 },
   marker: { width: 12, color: "#333333" },
   listText: { flex: 1 },
@@ -172,16 +174,11 @@ function CompactList({ list }: { list: List }) {
   ))}</View>
 }
 
-function ListItemBody({ item, profile }: { item: ListItem; profile: WritingDeskDocumentProfile }) {
-  const [first, ...rest] = item.children
+function ListItemRest({ children, profile }: { children: ListItem["children"]; profile: WritingDeskDocumentProfile }) {
+  if (children.length === 0) return null
   return (
-    <View style={styles.listText}>
-      {first ? (
-        first.type === "paragraph"
-          ? <Text><Inline nodes={first.children} /></Text>
-          : renderNode(first as WritingDeskContent, profile)
-      ) : null}
-      {rest.map((child, index) => {
+    <View style={styles.listRest}>
+      {children.map((child, index) => {
         if (child.type === "paragraph") {
           return <Text key={index} style={styles.compactParagraph}><Inline nodes={child.children} /></Text>
         }
@@ -195,12 +192,25 @@ function ListItemBody({ item, profile }: { item: ListItem; profile: WritingDeskD
 }
 
 function RegularList({ list, profile }: { list: List; profile: WritingDeskDocumentProfile }) {
-  return <View style={styles.list}>{list.children.map((item, index) => (
-    <View key={index} style={styles.listItem} wrap={false}>
-      <Text style={styles.marker}>{list.ordered ? `${index + 1}.` : "•"}</Text>
-      <ListItemBody item={item} profile={profile} />
-    </View>
-  ))}</View>
+  return <View style={styles.list}>{list.children.map((item, index) => {
+    const [first, ...rest] = item.children
+    const firstIsParagraph = first?.type === "paragraph"
+    const restChildren = firstIsParagraph ? rest : item.children
+
+    return (
+      <View key={index} style={styles.listItem}>
+        {/* Only the marker and the item's first line are kept together so long
+            nested lists and extra paragraphs can wrap and paginate normally. */}
+        <View style={styles.listFirstLine} wrap={false} minPresenceAhead={12}>
+          <Text style={styles.marker}>{list.ordered ? `${index + 1}.` : "•"}</Text>
+          {first?.type === "paragraph" ? (
+            <Text style={styles.listText}><Inline nodes={first.children} /></Text>
+          ) : null}
+        </View>
+        <ListItemRest profile={profile}>{restChildren}</ListItemRest>
+      </View>
+    )
+  })}</View>
 }
 
 function TableBlock({ table }: { table: Table }) {
