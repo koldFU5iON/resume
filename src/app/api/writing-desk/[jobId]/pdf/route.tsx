@@ -20,7 +20,7 @@ export async function GET(
   if (!desk) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
   const title = `${desk.documentType ?? "writing-desk"}-${desk.jobApplication.title}`
-  const buffer = await renderToBuffer(<WritingDeskPDFDocument markdown={desk.content} title={title} />)
+  const buffer = await renderToBuffer(<WritingDeskPDFDocument markdown={desk.content} title={title} documentType={desk.documentType} />)
 
   return new NextResponse(Buffer.from(buffer), {
     headers: {
