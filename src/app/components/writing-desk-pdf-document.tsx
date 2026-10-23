@@ -73,7 +73,7 @@ const styles = StyleSheet.create({
   compactList: { marginBottom: 3 },
   listItem: { marginBottom: 2.5 },
   listFirstLine: { flexDirection: "row" },
-  listRest: { marginLeft: 12 },
+  listRest: { marginLeft: 12, marginTop: 1 },
   compactListItem: { flexDirection: "row", marginBottom: 1 },
   marker: { width: 12, color: "#333333" },
   listText: { flex: 1 },
@@ -201,7 +201,7 @@ function RegularList({ list, profile }: { list: List; profile: WritingDeskDocume
       <View key={index} style={styles.listItem}>
         {/* Only the marker and the item's first line are kept together so long
             nested lists and extra paragraphs can wrap and paginate normally. */}
-        <View style={styles.listFirstLine} wrap={false} minPresenceAhead={12}>
+        <View style={styles.listFirstLine} minPresenceAhead={10}>
           <Text style={styles.marker}>{list.ordered ? `${index + 1}.` : "•"}</Text>
           {first?.type === "paragraph" ? (
             <Text style={styles.listText}><Inline nodes={first.children} /></Text>
