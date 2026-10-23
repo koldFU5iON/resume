@@ -74,7 +74,8 @@ const styles = StyleSheet.create({
   listItem: { marginBottom: 2.5 },
   listFirstLine: { flexDirection: "row" },
   listRest: { marginLeft: 12 },
-  compactListItem: { flexDirection: "row", marginBottom: 1 },
+  compactListItem: { marginBottom: 1 },
+  compactListRow: { flexDirection: "row" },
   marker: { width: 12, color: "#333333" },
   listText: { flex: 1 },
   nestedList: { marginTop: 2, marginLeft: 12 },
@@ -167,9 +168,15 @@ function InlineList({ list }: { list: List }) {
 
 function CompactList({ list }: { list: List }) {
   return <View style={styles.compactList}>{list.children.map((item, index) => (
-    <View key={index} style={styles.compactListItem} wrap={false}>
-      <Text style={styles.marker}>•</Text>
-      <Text style={styles.listText}>{listItemInline(item)}</Text>
+    // The unbreakable row sits inside its own breakable wrapper, mirroring
+    // RegularList. When unbreakable rows are direct children of the list View,
+    // React-PDF can split the list at a page edge and stack the deferred rows
+    // on top of each other at the bottom of the page.
+    <View key={index} style={styles.compactListItem}>
+      <View style={styles.compactListRow} wrap={false}>
+        <Text style={styles.marker}>•</Text>
+        <Text style={styles.listText}>{listItemInline(item)}</Text>
+      </View>
     </View>
   ))}</View>
 }
