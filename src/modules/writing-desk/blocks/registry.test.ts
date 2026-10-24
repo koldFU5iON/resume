@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { BLOCK_LIST } from "./registry"
+import { BLOCK_LIST, getBlockDefinition } from "./registry"
 import { parseWritingDeskMarkdown } from "./parse"
 import { profileForDocumentType } from "./types"
 
@@ -30,5 +30,9 @@ describe("block registry", () => {
     expect(profileForDocumentType("interview-prep")).toBe("general")
     expect(profileForDocumentType("other")).toBe("general")
     expect(profileForDocumentType(null)).toBe("general")
+  })
+
+  it.each(["constructor", "toString", "hasOwnProperty", "__proto__"])("does not resolve inherited name %s", name => {
+    expect(getBlockDefinition(name)).toBeUndefined()
   })
 })

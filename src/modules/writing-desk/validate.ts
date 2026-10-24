@@ -25,6 +25,41 @@ function blockLine(block: WritingDeskBlockNode): number | undefined {
   return block.position?.start.line ?? block.diagnostics.find(d => d.line !== undefined)?.line
 }
 
+const OPENER = /^ {0,3}(:{3,})([A-Za-z][\w-]*)/
+const CLOSER = /^ {0,3}(:{3,})[ \t]*$/
+const CODE_FENCE = /^ {0,3}(`{3,}|~{3,})/
+
+/** Reports container fences that are opened but never closed, ignoring code fences. */
+function findUnclosedBlocks(markdown: string): DraftIssue[] {
+  const stack: Array<{ name: string; line: number; colons: number }> = []
+  let fence: { char: string; length: number } | null = null
+  markdown.split(/\r?\n/).forEach((text, index) => {
+    const line = index + 1
+    const code = CODE_FENCE.exec(text)
+    if (fence) {
+      if (code && code[1][0] === fence.char && code[1].length >= fence.length && text.trim() === code[1]) fence = null
+      return
+    }
+    if (code) {
+      fence = { char: code[1][0], length: code[1].length }
+      return
+    }
+    const closer = CLOSER.exec(text)
+    if (closer) {
+      const top = stack[stack.length - 1]
+      if (top && closer[1].length >= top.colons) stack.pop()
+      return
+    }
+    const opener = OPENER.exec(text)
+    if (opener) stack.push({ name: opener[2], line, colons: opener[1].length })
+  })
+  return stack.map(open => ({
+    severity: "error" as const,
+    message: `Block ':::${open.name}' opened at line ${open.line} is never closed with ':::'`,
+    line: open.line,
+  }))
+}
+
 export function validateDraftMarkdown(markdown: string, guide?: StructureGuide): DraftValidation {
   const issues: DraftIssue[] = []
 
@@ -56,6 +91,8 @@ export function validateDraftMarkdown(markdown: string, guide?: StructureGuide):
       issues.push({ severity: diagnostic.severity, message: diagnostic.message, line: diagnostic.line })
     }
   })
+
+  issues.push(...findUnclosedBlocks(markdown))
 
   if (guide) {
     for (const section of guide.sections) {
