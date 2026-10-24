@@ -3,22 +3,41 @@
 // ------------------------------------------------------------
 
 model WritingDeskDocument {
-  id                 String   @id @default(cuid())
+  id                 String    @id @default(cuid())
   profileId          String
-  jobApplicationId   String   @unique
+  jobApplicationId   String    @unique
   documentType       String?
-  content            String   @default("")
-  revision           Int      @default(1)
+  content            String    @default("")
+  revision           Int       @default(1)
   sourceType         String?
   sourceCvDocumentId String?
   sourceLabel        String?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  draftContent       String?
+  draftRevision      Int       @default(0)
+  draftUpdatedAt     DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
-  profile      Profile        @relation(fields: [profileId], references: [id], onDelete: Cascade)
-  jobApplication JobApplication @relation(fields: [jobApplicationId], references: [id], onDelete: Cascade)
-  sourceCv     CVDocument?    @relation("WritingDeskSourceCV", fields: [sourceCvDocumentId], references: [id], onDelete: SetNull)
+  profile        Profile                 @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  jobApplication JobApplication          @relation(fields: [jobApplicationId], references: [id], onDelete: Cascade)
+  sourceCv       CVDocument?             @relation("WritingDeskSourceCV", fields: [sourceCvDocumentId], references: [id], onDelete: SetNull)
+  draftEvents    WritingDeskDraftEvent[]
 
   @@index([profileId])
   @@index([sourceCvDocumentId])
+}
+
+// Provenance log for agent writes to a desk's draft. Never rendered into
+// document content.
+model WritingDeskDraftEvent {
+  id            String   @id @default(cuid())
+  writingDeskId String
+  apiTokenId    String?
+  tool          String
+  detail        Json?
+  createdAt     DateTime @default(now())
+
+  writingDesk WritingDeskDocument @relation(fields: [writingDeskId], references: [id], onDelete: Cascade)
+
+  @@index([writingDeskId, createdAt])
 }
