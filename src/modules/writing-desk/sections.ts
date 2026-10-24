@@ -19,6 +19,7 @@ export type SectionOpResult =
       reason: "section_not_found" | "hash_mismatch" | "invalid_op"
       sections: DraftSection[]
       current?: DraftSection
+      message?: string
     }
 
 export function hashSectionText(text: string): string {
@@ -125,7 +126,40 @@ export function applySectionOp(
   const fail = (
     reason: "section_not_found" | "hash_mismatch" | "invalid_op",
     current?: DraftSection,
-  ): SectionOpResult => ({ ok: false, reason, sections, current })
+    message?: string,
+  ): SectionOpResult =>
+    message === undefined
+      ? { ok: false, reason, sections, current }
+      : { ok: false, reason, sections, current, message }
+
+  const INVARIANT_MESSAGE =
+    "content would merge or rename neighbouring sections; close every ::: fence and start new sections with a heading"
+  const same = (a: DraftSection, b: DraftSection) =>
+    a.id === b.id && a.text === b.text
+  // Re-split the result and confirm untouched sections survived unchanged.
+  // `index` is where new content starts; `removed` is the replaced/removed count.
+  const verify = (
+    md: string,
+    index: number,
+    removed: number,
+    added: boolean,
+    current?: DraftSection,
+  ): SectionOpResult => {
+    const after = splitSections(md)
+    const prefix = sections.slice(0, index)
+    const suffix = sections.slice(index + removed)
+    const ok =
+      after.length >= prefix.length + suffix.length + (added ? 1 : 0) &&
+      prefix.every((p, i) => same(p, after[i])) &&
+      suffix.every((x, i) =>
+        added
+          ? same(x, after[after.length - suffix.length + i])
+          : // removal: ids of later duplicates may shift, text must not
+            x.text === after[after.length - suffix.length + i].text,
+      ) &&
+      (added || after.length === prefix.length + suffix.length)
+    return ok ? { ok: true, markdown: md } : fail("invalid_op", current, INVARIANT_MESSAGE)
+  }
 
   if (op.type === "insert") {
     const hasAfter = op.afterSectionId !== undefined
@@ -146,7 +180,7 @@ export function applySectionOp(
     }
     const next: Array<{ text: string }> = [...sections]
     next.splice(index, 0, incoming)
-    return { ok: true, markdown: joinSections(next) }
+    return verify(joinSections(next), index, 0, true)
   }
 
   const index = sections.findIndex((s) => s.id === op.sectionId)
@@ -158,10 +192,11 @@ export function applySectionOp(
   if (op.type === "replace") {
     if (!op.content.trim()) return fail("invalid_op", target)
     next[index] = { text: op.content }
-  } else if (op.type === "remove") {
-    next.splice(index, 1)
-  } else {
-    return fail("invalid_op")
+    return verify(joinSections(next), index, 1, true, target)
   }
-  return { ok: true, markdown: joinSections(next) }
+  if (op.type === "remove") {
+    next.splice(index, 1)
+    return verify(joinSections(next), index, 1, false, target)
+  }
+  return fail("invalid_op")
 }

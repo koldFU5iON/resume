@@ -192,7 +192,9 @@ describe("applySectionOp", () => {
   })
 
   it("inserts at start and end", () => {
-    const start = applySectionOp(SAMPLE, {
+    // SAMPLE starts with a preamble, which an inserted heading would swallow
+    // (rejected by the invariant), so use a heading-first document here.
+    const start = applySectionOp("## Existing\n\nx\n", {
       type: "insert",
       position: "start",
       content: "## First\n\n1",
@@ -258,5 +260,74 @@ describe("applySectionOp", () => {
     if (!result.ok) return
     expect(result.markdown).toContain("Did other things by hand.")
     expect(result.markdown).toContain("PhD.")
+  })
+
+  describe("structural invariant", () => {
+    const DOC = "## A\n\na\n\n## B\n\nb\n\n## C\n\nc\n"
+    const secs = splitSections(DOC)
+    const get = (id: string) => secs.find((s) => s.id === id)!
+
+    it("rejects replace with unclosed ::: content", () => {
+      const r = applySectionOp(DOC, {
+        type: "replace",
+        sectionId: "a",
+        expectedHash: get("a").hash,
+        content: ":::skills\n- x",
+      })
+      expect(r).toMatchObject({ ok: false, reason: "invalid_op" })
+      if (!r.ok) expect(r.message).toMatch(/close every :::/)
+    })
+
+    it("rejects insert with unclosed ::: content", () => {
+      const r = applySectionOp(DOC, {
+        type: "insert",
+        afterSectionId: "a",
+        content: ":::skills\n- x",
+      })
+      expect(r).toMatchObject({ ok: false, reason: "invalid_op" })
+    })
+
+    it("rejects plain-text replace that would merge into the neighbour", () => {
+      const r = applySectionOp(DOC, {
+        type: "replace",
+        sectionId: "b",
+        expectedHash: get("b").hash,
+        content: "just text, no heading",
+      })
+      expect(r).toMatchObject({ ok: false, reason: "invalid_op" })
+    })
+
+    it("rejects replace whose duplicate slug would rename a later section", () => {
+      const r = applySectionOp(DOC, {
+        type: "replace",
+        sectionId: "b",
+        expectedHash: get("b").hash,
+        content: "## C\n\nz",
+      })
+      expect(r).toMatchObject({ ok: false, reason: "invalid_op" })
+    })
+
+    it("allows replace that adds a new heading section after the target", () => {
+      const r = applySectionOp(DOC, {
+        type: "replace",
+        sectionId: "b",
+        expectedHash: get("b").hash,
+        content: "## B\n\nb2\n\n## Projects\n\np",
+      })
+      expect(r.ok).toBe(true)
+      if (r.ok) expect(ids(r.markdown)).toEqual(["a", "b", "projects", "c"])
+    })
+
+    it("allows removing the first of two duplicate-slug sections", () => {
+      const dup = "## E\n\n1\n\n## E\n\n2\n"
+      const first = splitSections(dup)[0]
+      const r = applySectionOp(dup, {
+        type: "remove",
+        sectionId: "e",
+        expectedHash: first.hash,
+      })
+      expect(r.ok).toBe(true)
+      if (r.ok) expect(r.markdown).toBe("## E\n\n2\n")
+    })
   })
 })
