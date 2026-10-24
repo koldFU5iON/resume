@@ -79,9 +79,25 @@ describe("getJobContext", () => {
   it("marks the job description as untrusted data", async () => {
     mockJob.mockResolvedValue(job as never)
     const result = await getJobContext("profile-1", "job-1")
-    expect(result.untrustedFields).toEqual(["job.jobDescription"])
+    expect(result.untrustedFields).toEqual(["job.title", "job.company", "job.jobDescription"])
     expect(result.untrustedNotice).toMatch(/untrusted/i)
     expect(result.untrustedNotice).toMatch(/not instructions/i)
+    for (const f of ["job.title", "job.company", "job.jobDescription"]) {
+      expect(result.untrustedNotice).toContain(f)
+    }
+    expect(result.untrustedNotice).toMatch(/profile and masterCv are the user's own/i)
+  })
+
+  it("caps a 100,000-character title and company with a marker", async () => {
+    mockJob.mockResolvedValue({ ...job, title: "t".repeat(100_000), company: "c".repeat(100_000) } as never)
+    const result = await getJobContext("profile-1", "job-1")
+    expect(result.job.title.length).toBeLessThan(400)
+    expect(result.job.title).toContain("[truncated")
+    expect(result.job.company!.length).toBeLessThan(400)
+    expect(result.job.company).toContain("[truncated")
+    const text = JSON.stringify(result)
+    expect(() => JSON.parse(text)).not.toThrow()
+    expect(text.length).toBeLessThan(MAX_TOOL_RESPONSE_CHARS)
   })
 
   it("returns masterCv null and the default guide without a master CV", async () => {
@@ -110,11 +126,13 @@ describe("getJobContext", () => {
 
   it("stays valid JSON under the response cap for worst-case field sizes", async () => {
     const nasty = '"\n'.repeat(60_000)
-    mockJob.mockResolvedValue({ ...job, jobDescription: nasty } as never)
+    const huge = "x".repeat(100_000)
+    mockJob.mockResolvedValue({ ...job, title: huge, company: huge, jobDescription: nasty } as never)
     mockSerialize.mockReturnValue(nasty)
     mockCv.mockResolvedValue({ generatedContent: masterContent(["header"], nasty) } as never)
     const result = await getJobContext("profile-1", "job-1")
     const text = JSON.stringify(result)
+    expect(text.length).toBeLessThan(MAX_TOOL_RESPONSE_CHARS)
     expect(text.length).toBeLessThan(MAX_TOOL_RESPONSE_CHARS - 2_000)
     expect(() => JSON.parse(text)).not.toThrow()
     expect(result.job.jobDescription).toContain("[truncated")
