@@ -152,6 +152,32 @@ describe('checkFacts', () => {
       expect(checkFacts(toMarkdown({ version: 1, sections: [...sections, ...tail] } as CVDocumentContent), profile)).toEqual([])
     })
 
+    it('checks qualifications on real education output without an Education heading', () => {
+      const edu = (institution: string, qualification: string) => ({
+        id: 'ed', type: 'education' as const, visible: true,
+        data: { institution, qualification, field: 'Finance', duration: '2012 – 2015', grade: 'First' },
+      })
+      const build = (e: ReturnType<typeof edu>) =>
+        toMarkdown({ version: 1, sections: [...sections, e] } as CVDocumentContent)
+      const bad = checkFacts(build(edu('Elsewhere Business School', 'MBA')), profile)
+      expect(bad.map(x => x.kind)).toEqual(['qualification'])
+      expect(bad[0].excerpt).toContain('MBA')
+      expect(checkFacts(build(edu('University of Leeds', 'BSc')), profile)).toEqual([])
+      expect(checkFacts(build(edu('Elsewhere', 'BSc (Hons)')), profile)).toEqual([])
+      expect(checkFacts(build(edu('Elsewhere', 'Certificate in Basic Skills')), profile)).toEqual([])
+      expect(checkFacts(build(edu('Elsewhere', 'Manager Diploma')), profile)).toEqual([])
+    })
+
+    it('does not raise qualification warnings for experience, certification or skills output', () => {
+      const out = toMarkdown({ version: 1, sections: [
+        ...sections,
+        exp('Acme Corp', ['Master Planner', 'MBA Programme Lead'], 'Mar 2019 – Present'),
+        { id: 'c', type: 'certification', visible: true, data: { name: 'PhD prep course', issuer: 'MA Institute', date: '2019' } },
+        { id: 's', type: 'skills', visible: true, data: { items: ['MSc-level statistics', 'Bachelor'] } },
+      ] } as CVDocumentContent)
+      expect(checkFacts(out, profile)).toEqual([])
+    })
+
     it('recognises an entry with a subtitle line', () => {
       const e = exp('Globex', ['Developer'], '2014 – 2019')
       ;(e.data as Record<string, unknown>).subtitle = 'Promoted twice'

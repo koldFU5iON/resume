@@ -23,6 +23,7 @@ const RANGE = new RegExp(
 // An entry's own date line as toMarkdown writes it: optional "Location · " prefix, then only the range.
 const DATE_LINE = new RegExp(`^(?:[^·|]{0,60}[·|]\\s*)*${RANGE.source}\\s*$`, 'i')
 const BULLET_START = /^(?:[-+→•>]|\*\s|\d+[.)]\s)/
+const EDU_DURATION_LINE = new RegExp(`^${RANGE.source}(?:\\s*[·|].*)?$`, 'i')
 const ITALIC_LINE = /^_[^_].*_$/
 const EXPERIENCE_HEADING = /^(?:professional experience|work experience|experience|work history|employment)\b/i
 
@@ -105,6 +106,25 @@ function excerptOf(line: string): string {
 
 export function checkFacts(markdown: string, profile: ProfileSnapshot): FactWarning[] {
   const warnings: FactWarning[] = []
+
+  function checkQualification(line: string, scope: string): void {
+    const keywords = degreeKeywords(line)
+    if (keywords.length === 0) return
+    const recognised =
+      profile.educations.some(
+        e => containsName(scope, e.qualification) || containsName(scope, e.institution),
+      ) ||
+      profile.educations.some(e =>
+        keywords.some(k => new RegExp(`(?<![\\p{L}\\p{N}])${escapeRe(k)}`, 'iu').test(e.qualification)),
+      )
+    if (!recognised) {
+      warnings.push({
+        kind: 'qualification',
+        message: 'This qualification does not match any qualification or institution in your profile.',
+        excerpt: excerptOf(line),
+      })
+    }
+  }
   const lines = markdown.split(/\r?\n/)
 
   let fence: { char: string; length: number } | null = null
@@ -112,6 +132,9 @@ export function checkFacts(markdown: string, profile: ProfileSnapshot): FactWarn
   let inExperience = false
   // Shape tracking for a `###` entry outside an experience section (real toMarkdown output):
   // heading, italic titles line, optional italic subtitle line, then the date line.
+  // Same for an education entry: heading, `Qualification · field` line, then a duration line.
+  let edu: 'dead' | 'qual' | 'dur' = 'dead'
+  let eduQualLine = ''
   let entry: 'dead' | 'titles' | 'afterTitles' | 'dateNext' = 'dead'
   // Content since the most recent heading (inclusive), used as context for a date line.
   let context: string[] = []
@@ -140,30 +163,26 @@ export function checkFacts(markdown: string, profile: ProfileSnapshot): FactWarn
       }
       context = [text]
       entry = heading[1].length === 3 ? 'titles' : 'dead'
+      edu = heading[1].length === 3 ? 'qual' : 'dead'
       if (!inExperience || heading[1].length <= 2 || !isDateLine(text, true)) continue
     } else {
       context.push(text)
     }
 
     if (inEducation) {
-      const keywords = degreeKeywords(text)
-      if (keywords.length === 0) continue
-      const scope = context.join('\n')
-      const recognised =
-        profile.educations.some(
-          e => containsName(scope, e.qualification) || containsName(scope, e.institution),
-        ) ||
-        profile.educations.some(e =>
-          keywords.some(k => new RegExp(`(?<![\\p{L}\\p{N}])${escapeRe(k)}`, 'iu').test(e.qualification)),
-        )
-      if (!recognised) {
-        warnings.push({
-          kind: 'qualification',
-          message: 'This qualification does not match any qualification or institution in your profile.',
-          excerpt: excerptOf(text),
-        })
-      }
+      checkQualification(text, context.join('\n'))
       continue
+    }
+
+    if (!inEducation && !heading) {
+      if (edu === 'qual') {
+        const plausible = text.length <= 80 && !ITALIC_LINE.test(text) && !BULLET_START.test(text) && !/[.!?]$/.test(text)
+        edu = plausible ? 'dur' : 'dead'
+        eduQualLine = text
+      } else if (edu === 'dur') {
+        edu = 'dead'
+        if (EDU_DURATION_LINE.test(text)) checkQualification(eduQualLine, context.join('\n'))
+      }
     }
 
     let gate = inExperience
