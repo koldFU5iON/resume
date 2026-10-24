@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { checkFacts } from './fact-check'
+import { toMarkdown } from '@/modules/cv/export'
+import type { CVDocumentContent } from '@/modules/cv/schema'
 import type { ProfileSnapshot } from '@/modules/profile/snapshot'
 
 const d = (y: number, m: number) => new Date(Date.UTC(y, m - 1, 1))
@@ -19,7 +21,7 @@ const profile = {
 } as ProfileSnapshot
 
 describe('checkFacts', () => {
-  it('is silent when employer and dates match (real master CV shape)', () => {
+  it('is silent when employer and dates match (entries under an Experience heading)', () => {
     const md = [
       '## Experience', '',
       '### Acme Corp', '_Developer → Senior Engineer_', 'London · Mar 2019 – Present', '',
@@ -110,5 +112,65 @@ describe('checkFacts', () => {
   it('ignores code fences and directive markers', () => {
     const md = '## Experience\n```\nInitech 2015 - 2016\n```\n\n:::hero 2010 - 2011\n:::'
     expect(checkFacts(md, profile)).toEqual([])
+  })
+
+  describe('real toMarkdown output (no Experience parent heading)', () => {
+    const exp = (company: string, titles: string[], duration: string, location = 'London') => ({
+      id: company, type: 'experience' as const, visible: true,
+      data: { company, titles, location, duration, description: 'Did things in 2017 - 2018.', outcomes: ['Ran 2019 - 2021 campaign'] },
+    })
+    const sections: CVDocumentContent['sections'] = [
+      { id: 'h', type: 'header', visible: true, data: { name: 'Ada', headline: 'Engineer', contact: {} } },
+      { id: 'p', type: 'profile', visible: true, data: { content: 'Worked 2015 - 2018 across sectors.' } },
+    ]
+    const tail: CVDocumentContent['sections'] = [
+      { id: 'ed', type: 'education', visible: true, data: { institution: 'University of Leeds', qualification: 'BSc', field: 'Computer Science', duration: '2012 – 2015' } },
+      { id: 'c', type: 'certification', visible: true, data: { name: 'AWS', issuer: 'Amazon', date: '2019 - 2022' } },
+      { id: 's', type: 'skills', visible: true, data: { items: ['Python 2015 - 2018'] } },
+    ]
+    const md = (...entries: ReturnType<typeof exp>[]) =>
+      toMarkdown({ version: 1, sections: [...sections, ...entries, ...tail] } as CVDocumentContent)
+
+    it('warns on dates and invented employers, and is silent on correct entries', () => {
+      const out = md(
+        exp('Acme Corp', ['Developer', 'Senior Engineer'], 'Mar 2019 – Present'),
+        exp('Globex', ['Developer'], '2014 – 2019', 'Remote'),
+        exp('Initech', ['Wizard'], '2015 – 2016'),
+      )
+      const w = checkFacts(out, profile)
+      expect(w.map(x => x.kind)).toEqual(['dates', 'employer'])
+      expect(w[0].message).toContain('Globex')
+      expect(w[1].excerpt).toContain('2015')
+    })
+
+    it('is silent when every entry is correct, and for education, certification and skills', () => {
+      const out = md(
+        exp('Acme Corp', ['Developer', 'Senior Engineer'], 'Mar 2019 – Present'),
+        exp('Globex', ['Developer'], '2016 – 2019', 'Remote'),
+      )
+      expect(checkFacts(out, profile)).toEqual([])
+      expect(checkFacts(toMarkdown({ version: 1, sections: [...sections, ...tail] } as CVDocumentContent), profile)).toEqual([])
+    })
+
+    it('recognises an entry with a subtitle line', () => {
+      const e = exp('Globex', ['Developer'], '2014 – 2019')
+      ;(e.data as Record<string, unknown>).subtitle = 'Promoted twice'
+      expect(checkFacts(md(e), profile).map(x => x.kind)).toEqual(['dates'])
+    })
+
+    it('does not treat a ### entry without a titles line as experience', () => {
+      expect(checkFacts('## Projects\n\n### Side thing\n2018 - 2020', profile)).toEqual([])
+      expect(checkFacts('### Side thing\n_Hobby_\nsome prose\n2018 - 2020', profile)).toEqual([])
+    })
+  })
+
+  it('handles multi-segment date lines under both shapes', () => {
+    const lines = ['**Developer** · Lyon, France · 2014 - 2019', 'Lyon, France · Remote · 2014 - 2019']
+    for (const l of lines) {
+      expect(checkFacts(`## Experience\n### Globex\n${l}`, profile).map(x => x.kind)).toEqual(['dates'])
+      expect(checkFacts(`### Globex\n_Developer_\n${l}`, profile).map(x => x.kind)).toEqual(['dates'])
+    }
+    expect(checkFacts('## Experience\n### Globex\nLyon · Remote · 2016 - 2019', profile)).toEqual([])
+    expect(checkFacts('## Experience\n### Globex\nI was in Lyon, France, and then moved on · 2014 - 2019 and more', profile)).toEqual([])
   })
 })

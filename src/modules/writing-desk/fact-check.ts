@@ -21,8 +21,9 @@ const RANGE = new RegExp(
 )
 
 // An entry's own date line as toMarkdown writes it: optional "Location · " prefix, then only the range.
-const DATE_LINE = new RegExp(`^(?:[^·]*·\\s*)?${RANGE.source}\\s*$`, 'i')
-const BULLET_START = /^(?:[-*+→•>]|\d+[.)]\s)/
+const DATE_LINE = new RegExp(`^(?:[^·|]{0,60}[·|]\\s*)*${RANGE.source}\\s*$`, 'i')
+const BULLET_START = /^(?:[-+→•>]|\*\s|\d+[.)]\s)/
+const ITALIC_LINE = /^_[^_].*_$/
 const EXPERIENCE_HEADING = /^(?:professional experience|work experience|experience|work history|employment)\b/i
 
 function isDateLine(text: string, isHeading: boolean): boolean {
@@ -109,6 +110,9 @@ export function checkFacts(markdown: string, profile: ProfileSnapshot): FactWarn
   let fence: { char: string; length: number } | null = null
   let inEducation = false
   let inExperience = false
+  // Shape tracking for a `###` entry outside an experience section (real toMarkdown output):
+  // heading, italic titles line, optional italic subtitle line, then the date line.
+  let entry: 'dead' | 'titles' | 'afterTitles' | 'dateNext' = 'dead'
   // Content since the most recent heading (inclusive), used as context for a date line.
   let context: string[] = []
 
@@ -135,6 +139,7 @@ export function checkFacts(markdown: string, profile: ProfileSnapshot): FactWarn
         inExperience = EXPERIENCE_HEADING.test(heading[2].trim())
       }
       context = [text]
+      entry = heading[1].length === 3 ? 'titles' : 'dead'
       if (!inExperience || heading[1].length <= 2 || !isDateLine(text, true)) continue
     } else {
       context.push(text)
@@ -161,7 +166,16 @@ export function checkFacts(markdown: string, profile: ProfileSnapshot): FactWarn
       continue
     }
 
-    if (!inExperience || !isDateLine(text, Boolean(heading))) continue
+    let gate = inExperience
+    if (!heading && !inExperience) {
+      if (entry === 'titles') entry = ITALIC_LINE.test(text) ? 'afterTitles' : 'dead'
+      else if (entry === 'afterTitles' && ITALIC_LINE.test(text)) entry = 'dateNext'
+      else if (entry === 'afterTitles' || entry === 'dateNext') {
+        gate = true
+        entry = 'dead'
+      }
+    }
+    if (!gate || !isDateLine(text, Boolean(heading))) continue
     const range = parseRange(text)
     if (!range) continue
     const scope = context.join('\n')
