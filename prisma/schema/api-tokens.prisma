@@ -22,6 +22,11 @@ model ApiToken {
   createdAt   DateTime  @default(now())
   lastUsedAt  DateTime?
   revokedAt   DateTime?
+  // Capabilities granted to the token: 'capture' | 'mcp:read' | 'mcp:write'.
+  // Default backfills existing rows with capture only.
+  scopes      String[]  @default(["capture"])
+  // Null = never expires.
+  expiresAt   DateTime?
 
   profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
 

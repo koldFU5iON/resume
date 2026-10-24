@@ -6,6 +6,7 @@ import {
   createApiToken as createApiTokenInternal,
   listApiTokens as listApiTokensInternal,
   revokeApiToken as revokeApiTokenInternal,
+  type ApiTokenScope,
   type CreatedToken,
   type ApiTokenSummary,
 } from './service'
@@ -14,9 +15,17 @@ import {
 // service with the current user's profile so callers can't smuggle in a
 // foreign profileId.
 
-export async function createApiTokenAction(name: string): Promise<CreatedToken> {
+export async function createApiTokenAction(
+  name: string,
+  scopes?: ApiTokenScope[],
+  expiresInDays?: number | null,
+): Promise<CreatedToken> {
   const { profile } = await requireProfile()
-  const result = await createApiTokenInternal(profile.id, name)
+  const expiresAt =
+    expiresInDays && expiresInDays > 0
+      ? new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000)
+      : null
+  const result = await createApiTokenInternal(profile.id, name, { scopes, expiresAt })
   revalidatePath('/dashboard/settings/api-tokens')
   return result
 }

@@ -23,6 +23,15 @@ function hashToken(raw: string): string {
   return createHash('sha256').update(raw).digest('hex')
 }
 
+export const API_TOKEN_SCOPES = ['capture', 'mcp:read', 'mcp:write'] as const
+export type ApiTokenScope = (typeof API_TOKEN_SCOPES)[number]
+
+export type VerifiedToken = {
+  profileId: string
+  tokenId: string
+  scopes: ApiTokenScope[]
+}
+
 export type CreatedToken = {
   id: string
   token: string  // raw token — only returned at creation
@@ -33,13 +42,21 @@ export type CreatedToken = {
 export async function createApiToken(
   profileId: string,
   name: string,
+  opts: { scopes?: ApiTokenScope[]; expiresAt?: Date | null } = {},
 ): Promise<CreatedToken> {
   const raw = generateRawToken()
   const hashed = hashToken(raw)
   const prefix = raw.slice(0, PREFIX_DISPLAY_LEN)
 
   const record = await prisma.apiToken.create({
-    data: { profileId, name: name.trim() || 'Untitled token', hashedToken: hashed, prefix },
+    data: {
+      profileId,
+      name: name.trim() || 'Untitled token',
+      hashedToken: hashed,
+      prefix,
+      scopes: opts.scopes ?? ['capture'],
+      expiresAt: opts.expiresAt ?? null,
+    },
     select: { id: true, prefix: true, name: true },
   })
   return { id: record.id, token: raw, prefix: record.prefix, name: record.name }
@@ -53,14 +70,17 @@ export type ApiTokenSummary = {
   createdAt: Date
   lastUsedAt: Date | null
   revokedAt: Date | null
+  scopes: ApiTokenScope[]
+  expiresAt: Date | null
 }
 
 export async function listApiTokens(profileId: string): Promise<ApiTokenSummary[]> {
-  return prisma.apiToken.findMany({
+  const rows = await prisma.apiToken.findMany({
     where: { profileId },
-    select: { id: true, name: true, prefix: true, createdAt: true, lastUsedAt: true, revokedAt: true },
+    select: { id: true, name: true, prefix: true, createdAt: true, lastUsedAt: true, revokedAt: true, scopes: true, expiresAt: true },
     orderBy: [{ revokedAt: 'asc' }, { createdAt: 'desc' }],
   })
+  return rows.map(r => ({ ...r, scopes: r.scopes as ApiTokenScope[] }))
 }
 
 export async function revokeApiToken(profileId: string, tokenId: string): Promise<void> {
@@ -75,27 +95,28 @@ export async function revokeApiToken(profileId: string, tokenId: string): Promis
 // profile id (and the token id, for logging) when the bearer token is valid.
 // Returns null for anything that doesn't validate, so the caller controls the
 // 401 response shape.
-export async function verifyApiToken(rawToken: string): Promise<{ profileId: string; tokenId: string } | null> {
+export async function verifyApiToken(rawToken: string): Promise<VerifiedToken | null> {
   if (!rawToken.startsWith(TOKEN_NAMESPACE)) return null
   const hashed = hashToken(rawToken)
 
   const record = await prisma.apiToken.findUnique({
     where: { hashedToken: hashed },
-    select: { id: true, profileId: true, revokedAt: true },
+    select: { id: true, profileId: true, revokedAt: true, scopes: true, expiresAt: true },
   })
   if (!record || record.revokedAt) return null
+  if (record.expiresAt && record.expiresAt.getTime() <= Date.now()) return null
 
   // Best-effort lastUsedAt update — don't block the response if it fails.
   void prisma.apiToken
     .update({ where: { id: record.id }, data: { lastUsedAt: new Date() } })
     .catch(() => {})
 
-  return { profileId: record.profileId, tokenId: record.id }
+  return { profileId: record.profileId, tokenId: record.id, scopes: record.scopes as ApiTokenScope[] }
 }
 
 // Convenience for API route handlers — pulls the bearer token out of the
 // Authorization header and verifies it. Returns null if anything's off.
-export async function verifyBearerHeader(authHeader: string | null): Promise<{ profileId: string; tokenId: string } | null> {
+export async function verifyBearerHeader(authHeader: string | null): Promise<VerifiedToken | null> {
   if (!authHeader) return null
   const match = authHeader.match(/^Bearer\s+(\S+)$/i)
   if (!match) return null
