@@ -44,3 +44,32 @@ describe('insert_section tool', () => {
     expect(err.message).toMatch(/with a preamble; use afterSectionId/)
   })
 })
+
+describe('insert_section input validation', () => {
+  const msg = (input: object) => {
+    const r = insertSectionTool.inputSchema.safeParse(input)
+    return r.success ? null : r.error.issues.map(i => i.message).join(' | ')
+  }
+
+  it('rejects both afterSectionId and position', () => {
+    expect(msg({ jobId: 'j', afterSectionId: 'a', position: 'end', content: 'c' })).toMatch(
+      /Provide exactly one of afterSectionId or position \('start' \| 'end'\)/,
+    )
+  })
+
+  it('rejects neither afterSectionId nor position', () => {
+    expect(msg({ jobId: 'j', content: 'c' })).toMatch(/Provide exactly one of afterSectionId or position/)
+  })
+
+  it('accepts exactly one', () => {
+    expect(msg({ jobId: 'j', position: 'end', content: 'c' })).toBeNull()
+    expect(msg({ jobId: 'j', afterSectionId: 'a', content: 'c' })).toBeNull()
+  })
+
+  it('rejects blank content with an actionable message', () => {
+    expect(msg({ jobId: 'j', position: 'end', content: '  \n ' })).toMatch(
+      /content must not be empty; use remove_section to delete a section/,
+    )
+    expect(editDraftSection).not.toHaveBeenCalled()
+  })
+})

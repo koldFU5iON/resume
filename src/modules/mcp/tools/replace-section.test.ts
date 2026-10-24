@@ -60,3 +60,12 @@ describe('replace_section tool', () => {
     expect(err.message).toMatch(/get_draft/)
   })
 })
+
+describe('replace_section input validation', () => {
+  it('rejects blank content with an actionable message', () => {
+    const r = replaceSectionTool.inputSchema.safeParse({ jobId: 'j', sectionId: 's', expectedHash: 'h', content: ' \n' })
+    expect(r.success).toBe(false)
+    expect(JSON.stringify(r.error?.issues)).toMatch(/content must not be empty; use remove_section to delete a section/)
+    expect(editDraftSection).not.toHaveBeenCalled()
+  })
+})

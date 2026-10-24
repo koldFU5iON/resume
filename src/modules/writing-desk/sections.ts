@@ -26,12 +26,15 @@ export function hashSectionText(text: string): string {
   return createHash("sha256").update(text.trim()).digest("hex").slice(0, 12)
 }
 
+// Ids are addressable by agents and echoed in tool results, so they are bounded at the source.
+const MAX_ID_LENGTH = 80
+
 function slug(text: string): string {
   const s = text
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
-  return s || "section"
+  return s.slice(0, MAX_ID_LENGTH).replace(/-+$/g, "") || "section"
 }
 
 const FENCE = /^\s*(```|~~~)/
@@ -72,7 +75,7 @@ export function splitSections(markdown: string): DraftSection[] {
     if (depth === 0) {
       const open = DIRECTIVE_OPEN.exec(line)
       if (open) {
-        start(open[1])
+        start(open[1].slice(0, MAX_ID_LENGTH))
         depth = 1
         current.lines.push(line)
         continue

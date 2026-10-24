@@ -64,3 +64,24 @@ describe('create_draft tool', () => {
     expect(err.message).toMatch(/line 9: error: Unclosed directive/)
   })
 })
+
+describe('create_draft input validation', () => {
+  it('rejects blank content with an actionable message', () => {
+    const r = createDraftTool.inputSchema.safeParse({ jobId: 'j', content: '   ' })
+    expect(r.success).toBe(false)
+    expect(JSON.stringify(r.error?.issues)).toMatch(/content must not be empty/)
+    expect(createDraft).not.toHaveBeenCalled()
+  })
+
+  it('on invalid with no issues and the generic message says what is likely wrong', async () => {
+    vi.mocked(createDraft).mockResolvedValue({
+      ok: false,
+      reason: 'invalid',
+      message: 'The draft failed validation. Fix the listed errors and retry.',
+    } as never)
+    const err = (await createDraftTool.handler(ctx, { jobId: 'j1', content: 'c' }).catch((e: unknown) => e)) as Error
+    expect(err.message).toMatch(/no specific error was reported/)
+    expect(err.message).toMatch(/arguments/)
+    expect(err.message).not.toMatch(/Fix the listed errors/)
+  })
+})

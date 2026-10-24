@@ -8,7 +8,7 @@ const inputSchema = z.object({
   jobId: z.string().min(1).max(100).describe('The job id returned by list_jobs.'),
   sectionId: z.string().min(1).max(200).describe('Section id from get_draft.'),
   expectedHash: z.string().min(1).max(100).describe('The hash of that section from get_draft.'),
-  content: z.string().max(MAX_WRITING_DESK_CONTENT_LENGTH).describe('Replacement Markdown for the section.'),
+  content: z.string().max(MAX_WRITING_DESK_CONTENT_LENGTH).refine(c => c.trim().length > 0, { message: 'content must not be empty; use remove_section to delete a section' }).describe('Replacement Markdown for the section.'),
 })
 
 export const replaceSectionTool: McpToolDefinition = {

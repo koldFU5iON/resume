@@ -6,7 +6,7 @@ import { writeResult } from './draft-view'
 
 const inputSchema = z.object({
   jobId: z.string().min(1).max(100).describe('The job id returned by list_jobs.'),
-  content: z.string().min(1).max(MAX_WRITING_DESK_CONTENT_LENGTH).describe('The full CV as Markdown.'),
+  content: z.string().max(MAX_WRITING_DESK_CONTENT_LENGTH).refine(c => c.trim().length > 0, { message: 'content must not be empty; use remove_section to delete a section' }).describe('The full CV as Markdown.'),
 })
 
 export const createDraftTool: McpToolDefinition = {

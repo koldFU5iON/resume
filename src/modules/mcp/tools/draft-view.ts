@@ -1,86 +1,91 @@
 import type { DraftFailure, DraftResult, DraftState } from '@/modules/writing-desk/draft'
 import { McpToolError } from '../errors'
-import { capText } from '../limits'
+import { capField, capText, escapedLength } from '../limits'
 
 // A draft can be 500,000 characters but one tool response must stay well under
 // MAX_TOOL_RESPONSE_CHARS (60,000) as valid JSON, so the draft is capped
-// BEFORE serialising. Section hashes are always of the FULL text, so edits
-// against a truncated section remain safe.
-const MAX_SECTION_TEXT = 6_000
-const MAX_TOTAL_TEXT = 20_000
-const MAX_SECTIONS = 80
-const MAX_WARNINGS = 15
-const MAX_ISSUES = 25
-const MAX_FIELD = 200
+// BEFORE serialising, measuring JSON-escaped length. Section hashes are always
+// of the FULL text, so edits against a truncated section remain safe. Section
+// ids are bounded at their source (sections.ts), never clipped here.
+const TARGET_JSON_CHARS = 50_000
+const MAX_FIELD_ESCAPED = 600
+const MAX_FIELD_CHARS = 200
 const MAX_FAILURE_TEXT = 8_000
+const MAX_ERROR_MESSAGE = 10_000
+const MAX_LISTED_IDS = 100
+const MAX_ID_IN_MESSAGE = 100
 
-const clip = (s: string) => (s.length > MAX_FIELD ? `${s.slice(0, MAX_FIELD)}...` : s)
+// Progressively tighter limits; the loop in draftView uses the first that fits.
+const LEVELS = [
+  { total: 20_000, per: 6_000, sections: 80, warnings: 15, issues: 25 },
+  { total: 10_000, per: 3_000, sections: 60, warnings: 10, issues: 15 },
+  { total: 4_000, per: 1_500, sections: 40, warnings: 5, issues: 8 },
+  { total: 0, per: 0, sections: 30, warnings: 0, issues: 0 },
+  { total: 0, per: 0, sections: 10, warnings: 0, issues: 0 },
+  { total: 0, per: 0, sections: 3, warnings: 0, issues: 0 },
+]
 
-type ViewSection = {
-  id: string
-  hash: string
-  text: string
-  truncated?: true
-  fullLength?: number
-}
+const clip = (s: string) => capField(s, MAX_FIELD_ESCAPED, MAX_FIELD_CHARS)
+const clipId = (id: string) => (id.length > MAX_ID_IN_MESSAGE ? `${id.slice(0, MAX_ID_IN_MESSAGE)}...` : id)
 
-function capSections(sections: DraftState['sections']): ViewSection[] {
-  let budget = MAX_TOTAL_TEXT
-  return sections.slice(0, MAX_SECTIONS).map(({ id, hash, text }) => {
-    const allowed = Math.min(MAX_SECTION_TEXT, budget)
-    if (text.length <= allowed) {
-      budget -= text.length
+type Level = (typeof LEVELS)[number]
+
+function capSections(sections: DraftState['sections'], level: Level) {
+  let budget = level.total
+  return sections.slice(0, level.sections).map(({ id, hash, text }) => {
+    const allowed = Math.min(level.per, budget)
+    if (allowed > 0 && text.length <= allowed && escapedLength(text) <= allowed) {
+      budget -= escapedLength(text)
       return { id, hash, text }
     }
-    budget -= allowed
-    return { id, hash, text: text.slice(0, allowed), truncated: true, fullLength: text.length }
+    const shown = allowed > 0 ? capField(text, allowed, allowed) : ''
+    budget -= allowed > 0 ? escapedLength(shown) : 0
+    return { id, hash, text: shown, truncated: true as const, fullLength: text.length }
   })
 }
 
-// The agent-facing view of a draft: capped, valid JSON, truncation flagged.
-export function draftView(state: DraftState) {
-  let sections = capSections(state.sections)
+function buildView(state: DraftState, level: Level) {
+  const sections = capSections(state.sections, level)
   const sectionsOmitted = state.sections.length - sections.length
   const warnings = state.warnings
-    .slice(0, MAX_WARNINGS)
+    .slice(0, level.warnings)
     .map(w => ({ kind: w.kind, message: clip(w.message), excerpt: clip(w.excerpt) }))
   const issues = state.issues
-    .slice(0, MAX_ISSUES)
+    .slice(0, level.issues)
     .map(i => ({ severity: i.severity, message: clip(i.message), line: i.line }))
-
-  const build = () => {
-    const truncatedSections = sections.filter(s => s.truncated).length
-    const cut =
-      truncatedSections > 0 ||
-      sectionsOmitted > 0 ||
-      warnings.length < state.warnings.length ||
-      issues.length < state.issues.length
-    return {
-      jobId: state.jobId,
-      draftRevision: state.draftRevision,
-      sections,
-      warnings,
-      issues,
-      ...(cut
-        ? {
-            truncated: true,
-            notice:
-              `Output was shortened to fit the response limit: ${truncatedSections} section text(s) truncated ` +
-              `(marked truncated: true; the text shown is only a prefix), ${sectionsOmitted} later section(s) not listed, ` +
-              `${state.warnings.length - warnings.length} warning(s) and ${state.issues.length - issues.length} issue(s) not shown. ` +
-              'Do not compute edits from truncated text. Each hash is of the full section text, so replace_section or ' +
-              'remove_section with that hash is still safe.',
-          }
-        : {}),
-    }
+  const truncatedSections = sections.filter(s => 'truncated' in s).length
+  const cut =
+    truncatedSections > 0 ||
+    sectionsOmitted > 0 ||
+    warnings.length < state.warnings.length ||
+    issues.length < state.issues.length
+  return {
+    jobId: state.jobId,
+    draftRevision: state.draftRevision,
+    sections,
+    warnings,
+    issues,
+    ...(cut
+      ? {
+          truncated: true as const,
+          notice:
+            `Output was shortened to fit the response limit: ${truncatedSections} section text(s) truncated ` +
+            `(marked truncated: true; the text shown is only a prefix), ${sectionsOmitted} later section(s) not listed, ` +
+            `${state.warnings.length - warnings.length} warning(s) and ${state.issues.length - issues.length} issue(s) not shown. ` +
+            'Do not compute edits from truncated text. Each hash is of the full section text, so replace_section or ' +
+            'remove_section with that hash is still safe.',
+        }
+      : {}),
   }
+}
 
-  let view = build()
-  // Pathological escaping (quotes, control characters) can inflate JSON; fall
-  // back to ids and hashes only rather than ever returning broken JSON.
-  if (JSON.stringify(view).length > 50_000) {
-    sections = sections.map(s => ({ id: s.id, hash: s.hash, text: '', truncated: true, fullLength: s.text.length }))
-    view = build()
+// The agent-facing view of a draft: capped, always valid JSON under the cap,
+// truncation flagged.
+export function draftView(state: DraftState) {
+  let view = buildView(state, LEVELS[0])
+  for (const level of LEVELS) {
+    view = buildView(state, level)
+    if (JSON.stringify(view).length <= TARGET_JSON_CHARS) break
   }
   return view
 }
@@ -88,17 +93,25 @@ export function draftView(state: DraftState) {
 function issueLines(failure: DraftFailure): string {
   return (failure.issues ?? [])
     .slice(0, 50)
-    .map(i => `- ${i.line !== undefined ? `line ${i.line}: ` : ''}${i.severity}: ${clip(i.message)}`)
+    .map(i => `- ${i.line !== undefined ? `line ${i.line}: ` : ''}${i.severity}: ${i.message.slice(0, MAX_FIELD_CHARS)}`)
     .join('\n')
 }
 
 const RETRY = 'Re-read the draft with get_draft and retry.'
 
 // Turns a failed DraftResult into an actionable client-visible error.
-export function draftFailureError(failure: DraftFailure): McpToolError {
+function describeFailure(failure: DraftFailure): McpToolError {
   switch (failure.reason) {
     case 'invalid': {
       const lines = issueLines(failure)
+      if (!lines && failure.message.startsWith('The draft failed validation')) {
+        return new McpToolError(
+          'The edit was rejected as invalid but no specific error was reported. The arguments or content are ' +
+            'likely malformed: check that the section id and hash are current (get_draft), that insert_section has ' +
+            'exactly one of afterSectionId or position, and that content is non-empty Markdown that follows the ' +
+            'writing contract. Nothing was written.',
+        )
+      }
       return new McpToolError(`${failure.message}${lines ? `\n${lines}` : ''}\nNothing was written.`)
     }
     case 'hash_mismatch': {
@@ -108,7 +121,7 @@ export function draftFailureError(failure: DraftFailure): McpToolError {
       )
     }
     case 'section_not_found': {
-      const ids = (failure.sections ?? []).slice(0, 100).map(s => s.id).join(', ')
+      const ids = (failure.sections ?? []).slice(0, MAX_LISTED_IDS).map(s => clipId(s.id)).join(', ')
       return new McpToolError(`${failure.message} Current section ids: ${ids || '(none)'}.\n${RETRY}`)
     }
     case 'draft_exists':
@@ -122,6 +135,11 @@ export function draftFailureError(failure: DraftFailure): McpToolError {
     default:
       return new McpToolError(failure.message)
   }
+}
+
+// The message is capped overall so no failure can flood the client.
+export function draftFailureError(failure: DraftFailure): McpToolError {
+  return new McpToolError(capText(describeFailure(failure).message, MAX_ERROR_MESSAGE))
 }
 
 export function unwrapDraft(result: DraftResult): DraftState {

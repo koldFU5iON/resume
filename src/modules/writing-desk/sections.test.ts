@@ -331,3 +331,25 @@ describe("applySectionOp", () => {
     })
   })
 })
+
+describe("bounded section ids", () => {
+  it("limits a very long heading id to 80 characters", () => {
+    const [section] = splitSections(`## ${"word ".repeat(600)}\nbody`)
+    expect(section.id.length).toBeLessThanOrEqual(80)
+    expect(section.id.endsWith("-")).toBe(false)
+  })
+
+  it("keeps duplicate suffixing for headings sharing the same 80-character prefix", () => {
+    const base = "a".repeat(100)
+    const result = splitSections(`## ${base}x\none\n\n## ${base}y\ntwo`)
+    const [first, second] = result.map((r) => r.id)
+    expect(first).toBe("a".repeat(80))
+    expect(second).toBe(`${"a".repeat(80)}-2`)
+  })
+
+  it("is deterministic and bounds long directive names", () => {
+    const md = `:::${"b".repeat(300)}\n- x\n:::\n`
+    expect(splitSections(md)[0].id).toBe(splitSections(md)[0].id)
+    expect(splitSections(md)[0].id.length).toBeLessThanOrEqual(80)
+  })
+})
