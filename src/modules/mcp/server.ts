@@ -22,7 +22,11 @@ export function createMcpServer(
   auth: VerifiedToken,
   tools: McpToolDefinition[] = ALL_MCP_TOOLS,
 ): McpServer {
-  const server = new McpServer({ name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION })
+  const server = new McpServer(
+    { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
+    // Declared up front so tools/list answers (empty) even when no tool is registered.
+    { capabilities: { tools: {} } },
+  )
   const ctx: McpToolContext = { profileId: auth.profileId, tokenId: auth.tokenId }
 
   for (const tool of toolsForScopes(tools, auth.scopes)) {

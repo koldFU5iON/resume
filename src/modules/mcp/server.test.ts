@@ -160,7 +160,7 @@ describe("createMcpServer resources", () => {
 describe("createMcpServer capture-only token", () => {
   it("gets neither tools nor the contract resource", async () => {
     const client = await connect(["capture"])
-    const { tools } = await client.listTools().catch(() => ({ tools: [] }))
+    const { tools } = await client.listTools()
     expect(tools).toEqual([])
     await expect(client.listResources()).rejects.toThrow(/Method not found/)
   })
