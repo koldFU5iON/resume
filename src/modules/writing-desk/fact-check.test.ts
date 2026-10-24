@@ -30,7 +30,7 @@ describe('checkFacts', () => {
   })
 
   it('warns on a wrong start year and names the profile dates', () => {
-    const w = checkFacts('### Globex\n_Developer_\nRemote · 2014 - 2019', profile)
+    const w = checkFacts('## Experience\n### Globex\n_Developer_\nRemote · 2014 - 2019', profile)
     expect(w).toHaveLength(1)
     expect(w[0].kind).toBe('dates')
     expect(w[0].message).toContain('Jan 2016')
@@ -38,28 +38,45 @@ describe('checkFacts', () => {
   })
 
   it('compares months when the draft gives one', () => {
-    const w = checkFacts('### Acme Corp\nLondon · Jun 2019 - Present', profile)
+    const w = checkFacts('## Experience\n### Acme Corp\nLondon · Jun 2019 - Present', profile)
     expect(w.map(x => x.kind)).toEqual(['dates'])
-    expect(checkFacts('### Acme Corp\nLondon · 03/2019 - Present', profile)).toEqual([])
+    expect(checkFacts('## Experience\n### Acme Corp\nLondon · 03/2019 - Present', profile)).toEqual([])
   })
 
   it('warns when Present is claimed for an ended role', () => {
-    const w = checkFacts('### Globex\n2016 – Present', profile)
+    const w = checkFacts('## Experience\n### Globex\n2016 – Present', profile)
     expect(w.map(x => x.kind)).toEqual(['dates'])
   })
 
   it('warns when a current role is given an end date', () => {
-    expect(checkFacts('### Acme Corp\nMar 2019 - Dec 2022', profile).map(x => x.kind)).toEqual(['dates'])
+    expect(checkFacts('## Experience\n### Acme Corp\nMar 2019 - Dec 2022', profile).map(x => x.kind)).toEqual(['dates'])
   })
 
   it('warns on an invented employer on a date line', () => {
-    const w = checkFacts('### Initech\n_Engineer_\nLondon · 2015 - 2016', profile)
+    const w = checkFacts('## Experience\n### Initech\n_Engineer_\nLondon · 2015 - 2016', profile)
     expect(w).toHaveLength(1)
     expect(w[0].kind).toBe('employer')
   })
 
-  it('handles single-line entries naming the employer', () => {
-    expect(checkFacts('**Globex** - Developer, 01/2016 - 02/2019', profile)).toEqual([])
+  it('checks a heading line that itself carries the range', () => {
+    expect(checkFacts('## Work History\n### Globex (2016 – 2019)', profile)).toEqual([])
+    expect(checkFacts('## Work History\n### Globex (2014 – 2019)', profile).map(x => x.kind)).toEqual(['dates'])
+  })
+
+  it('stays silent on ranges in outcome bullets and prose under an experience entry', () => {
+    const acme = '## Experience\n### Acme Corp\nLondon · Mar 2019 – Present\n\n'
+    expect(checkFacts(`${acme}→ Ran 2019 - 2021 growth campaign`, profile)).toEqual([])
+    expect(checkFacts(`${acme}- Ran 2019 - 2021 growth campaign`, profile)).toEqual([])
+    expect(checkFacts(`${acme}Revenue FY2020 - 2021 up 5%`, profile)).toEqual([])
+    const globex = '## Experience\n### Globex\nRemote · 2016 – 2019\n\n'
+    expect(checkFacts(`${globex}Between 2017 - 2018 I led a migration.`, profile)).toEqual([])
+  })
+
+  it('stays silent outside experience sections', () => {
+    expect(checkFacts('## Profile\n\nI worked from 2015 - 2018 across sectors.', profile)).toEqual([])
+    expect(checkFacts('## Certifications\n\n- **AWS** (2019 - 2022)', profile)).toEqual([])
+    expect(checkFacts('## Projects\n\n### Side thing\n2018 - 2020', profile)).toEqual([])
+    expect(checkFacts('## Skills\n\nPython 2015 - 2018', profile)).toEqual([])
   })
 
   it('accepts a merged tenure spanning several profile roles', () => {
@@ -67,7 +84,7 @@ describe('checkFacts', () => {
       { ...profile.experiences[1], company: 'Globex', startDate: d(2016, 1), endDate: d(2017, 12) },
       { ...profile.experiences[1], company: 'Globex', role: 'Lead', startDate: d(2018, 1), endDate: d(2019, 2) },
     ] } as ProfileSnapshot
-    expect(checkFacts('### Globex\n2016 - 2019', p)).toEqual([])
+    expect(checkFacts('## Experience\n### Globex\n2016 - 2019', p)).toEqual([])
   })
 
   it('accepts a recognised degree and flags an invented one', () => {
@@ -91,7 +108,7 @@ describe('checkFacts', () => {
   })
 
   it('ignores code fences and directive markers', () => {
-    const md = '```\nInitech 2015 - 2016\n```\n\n:::hero 2010 - 2011\n:::'
+    const md = '## Experience\n```\nInitech 2015 - 2016\n```\n\n:::hero 2010 - 2011\n:::'
     expect(checkFacts(md, profile)).toEqual([])
   })
 })

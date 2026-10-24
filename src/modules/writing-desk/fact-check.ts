@@ -20,6 +20,16 @@ const RANGE = new RegExp(
   'i',
 )
 
+// An entry's own date line as toMarkdown writes it: optional "Location · " prefix, then only the range.
+const DATE_LINE = new RegExp(`^(?:[^·]*·\\s*)?${RANGE.source}\\s*$`, 'i')
+const BULLET_START = /^(?:[-*+→•>]|\d+[.)]\s)/
+const EXPERIENCE_HEADING = /^(?:professional experience|work experience|experience|work history|employment)\b/i
+
+function isDateLine(text: string, isHeading: boolean): boolean {
+  if (isHeading) return RANGE.test(text)
+  return !BULLET_START.test(text) && DATE_LINE.test(text)
+}
+
 type Point = { year: number; month: number | null }
 type Range = { start: Point; end: Point | 'present' }
 
@@ -98,6 +108,7 @@ export function checkFacts(markdown: string, profile: ProfileSnapshot): FactWarn
 
   let fence: { char: string; length: number } | null = null
   let inEducation = false
+  let inExperience = false
   // Content since the most recent heading (inclusive), used as context for a date line.
   let context: string[] = []
 
@@ -119,11 +130,15 @@ export function checkFacts(markdown: string, profile: ProfileSnapshot): FactWarn
 
     const heading = /^(#{1,6})\s+(.*)$/.exec(text)
     if (heading) {
-      if (heading[1].length <= 2) inEducation = /education/i.test(heading[2])
+      if (heading[1].length <= 2) {
+        inEducation = /education/i.test(heading[2])
+        inExperience = EXPERIENCE_HEADING.test(heading[2].trim())
+      }
       context = [text]
-      continue
+      if (!inExperience || heading[1].length <= 2 || !isDateLine(text, true)) continue
+    } else {
+      context.push(text)
     }
-    context.push(text)
 
     if (inEducation) {
       const keywords = degreeKeywords(text)
@@ -146,6 +161,7 @@ export function checkFacts(markdown: string, profile: ProfileSnapshot): FactWarn
       continue
     }
 
+    if (!inExperience || !isDateLine(text, Boolean(heading))) continue
     const range = parseRange(text)
     if (!range) continue
     const scope = context.join('\n')
