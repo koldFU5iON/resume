@@ -8,6 +8,10 @@ import { MAX_TOOL_RESPONSE_CHARS } from "./limits"
 import type { McpToolDefinition } from "./registry"
 import { createMcpServer } from "./server"
 
+vi.mock("./context", () => ({
+  getWritingContractForProfile: vi.fn(async () => "contract-stub"),
+}))
+
 const readHandler = vi.fn(async (ctx: unknown, args: unknown) => ({ ctx, args }))
 const writeHandler = vi.fn(async () => ({ written: true }))
 
@@ -132,5 +136,23 @@ describe("createMcpServer", () => {
     // JSON.stringify adds two quote characters around the string.
     expect(text.length).toBeLessThan(MAX_TOOL_RESPONSE_CHARS + 50)
     expect(text.endsWith("\n[truncated: 102 characters omitted]")).toBe(true)
+  })
+})
+
+describe("createMcpServer resources", () => {
+  it("lists tools and resources, and reads the contract, for an mcp:read token", async () => {
+    const client = await connect(["mcp:read"])
+    const { tools } = await client.listTools()
+    expect(tools.length).toBeGreaterThan(0)
+    const { resources } = await client.listResources()
+    expect(resources.map(r => r.uri)).toContain("currnt://writing-contract/cv")
+    const read = await client.readResource({ uri: "currnt://writing-contract/cv" })
+    expect(String((read.contents[0] as { text: string }).text)).toContain("contract-stub")
+  })
+
+  it("does not expose the contract resource to a write-only token", async () => {
+    const client = await connect(["mcp:write"])
+    // No resource is registered, so the SDK installs no resources capability.
+    await expect(client.listResources()).rejects.toThrow(/Method not found/)
   })
 })

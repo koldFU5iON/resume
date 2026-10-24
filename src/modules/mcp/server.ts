@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import type { VerifiedToken } from '@/modules/api-tokens/service'
+import { getWritingContractForProfile } from './context'
 import { McpToolError } from './errors'
 import { capText } from './limits'
 import { toolsForScopes, type McpToolContext, type McpToolDefinition } from './registry'
@@ -8,6 +9,7 @@ import { ALL_MCP_TOOLS } from './tools'
 
 export const MCP_SERVER_NAME = 'currnt'
 export const MCP_SERVER_VERSION = '0.1.0'
+export const WRITING_CONTRACT_URI = 'currnt://writing-contract/cv'
 
 function errorResult(message: string): CallToolResult {
   return { content: [{ type: 'text', text: message }], isError: true }
@@ -40,6 +42,27 @@ export function createMcpServer(
           return errorResult('Internal error')
         }
       },
+    )
+  }
+
+  if (auth.scopes.includes('mcp:read')) {
+    server.registerResource(
+      'cv-writing-contract',
+      WRITING_CONTRACT_URI,
+      {
+        title: 'CV writing contract',
+        description: 'Block catalogue, structure guidance and rules for drafting a CV.',
+        mimeType: 'text/plain',
+      },
+      async uri => ({
+        contents: [
+          {
+            uri: uri.href,
+            mimeType: 'text/plain',
+            text: await getWritingContractForProfile(auth.profileId),
+          },
+        ],
+      }),
     )
   }
 
