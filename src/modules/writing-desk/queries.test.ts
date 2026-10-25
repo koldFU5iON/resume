@@ -7,13 +7,40 @@ vi.mock("@/lib/db", () => ({
     jobApplication: { findMany: vi.fn() },
   },
 }))
+vi.mock("@/modules/profile/snapshot", () => ({ buildProfileSnapshot: vi.fn() }))
+vi.mock("./draft", () => ({ listDraftEvents: vi.fn() }))
+vi.mock("./fact-check", () => ({ checkFacts: vi.fn() }))
+vi.mock("./validate", () => ({ validateDraftMarkdown: vi.fn() }))
 
 import { prisma } from "@/lib/db"
+import { buildProfileSnapshot } from "@/modules/profile/snapshot"
+import { listDraftEvents } from "./draft"
+import { checkFacts } from "./fact-check"
+import { validateDraftMarkdown } from "./validate"
 import { getWritingDesk, listWritingDeskJobs, listWritingDeskSourceCVs } from "./queries"
 
 const mockDeskFindFirst = vi.mocked(prisma.writingDeskDocument.findFirst)
 const mockCVFindMany = vi.mocked(prisma.cVDocument.findMany)
 const mockJobFindMany = vi.mocked(prisma.jobApplication.findMany)
+const mockBuildProfileSnapshot = vi.mocked(buildProfileSnapshot)
+const mockListDraftEvents = vi.mocked(listDraftEvents)
+const mockCheckFacts = vi.mocked(checkFacts)
+const mockValidateDraftMarkdown = vi.mocked(validateDraftMarkdown)
+
+const DESK_ROW = {
+  id: "desk-1",
+  content: "# Live",
+  revision: 3,
+  documentType: "cv",
+  sourceType: null,
+  sourceCvDocumentId: null,
+  sourceLabel: null,
+  draftContent: null,
+  draftRevision: 0,
+  draftUpdatedAt: null,
+  updatedAt: new Date("2026-10-20T00:00:00Z"),
+  jobApplication: { id: "job-1", title: "Engineer", company: "Acme", jobDescription: null },
+}
 
 describe("getWritingDesk", () => {
   beforeEach(() => vi.clearAllMocks())
@@ -26,6 +53,59 @@ describe("getWritingDesk", () => {
     expect(mockDeskFindFirst).toHaveBeenCalledWith(expect.objectContaining({
       where: { profileId: "profile-1", jobApplicationId: "job-1" },
     }))
+  })
+
+  it("returns a null draft and skips fact-checking when the desk has no draft", async () => {
+    mockDeskFindFirst.mockResolvedValue(DESK_ROW as never)
+
+    const desk = await getWritingDesk("profile-1", "job-1")
+
+    expect(desk).toEqual({
+      id: "desk-1",
+      content: "# Live",
+      revision: 3,
+      documentType: "cv",
+      sourceType: null,
+      sourceCvDocumentId: null,
+      sourceLabel: null,
+      jobApplication: { id: "job-1", title: "Engineer", company: "Acme", jobDescription: null },
+      draft: null,
+    })
+    expect(mockBuildProfileSnapshot).not.toHaveBeenCalled()
+    expect(mockListDraftEvents).not.toHaveBeenCalled()
+  })
+
+  it("fills the pending draft with fact-check warnings, structural issues and recent events", async () => {
+    const draftUpdatedAt = new Date("2026-10-23T10:00:00Z")
+    const eventAt = new Date("2026-10-23T09:59:00Z")
+    const snapshot = { experience: [] }
+    const warnings = [{ kind: "employer", message: "Globex is not in your profile.", excerpt: "Globex" }]
+    const issues = [{ severity: "warning", message: "Missing profile section." }]
+    mockDeskFindFirst.mockResolvedValue({
+      ...DESK_ROW,
+      draftContent: "# Draft",
+      draftRevision: 4,
+      draftUpdatedAt,
+    } as never)
+    mockBuildProfileSnapshot.mockResolvedValue(snapshot as never)
+    mockCheckFacts.mockReturnValue(warnings as never)
+    mockValidateDraftMarkdown.mockReturnValue({ ok: true, issues } as never)
+    mockListDraftEvents.mockResolvedValue([{ tool: "replace_section", createdAt: eventAt, apiTokenId: "token-1" }])
+
+    const desk = await getWritingDesk("profile-1", "job-1")
+
+    expect(desk?.draft).toEqual({
+      content: "# Draft",
+      draftRevision: 4,
+      updatedAt: draftUpdatedAt,
+      warnings,
+      issues,
+      events: [{ tool: "replace_section", createdAt: eventAt }],
+    })
+    expect(mockBuildProfileSnapshot).toHaveBeenCalledWith("profile-1")
+    expect(mockCheckFacts).toHaveBeenCalledWith("# Draft", snapshot)
+    expect(mockValidateDraftMarkdown).toHaveBeenCalledWith("# Draft")
+    expect(mockListDraftEvents).toHaveBeenCalledWith("profile-1", "desk-1", expect.any(Number))
   })
 })
 
