@@ -156,5 +156,5 @@ export const BLOCK_REGISTRY: Record<BlockId, BlockDefinition> = {
 export const BLOCK_LIST = Object.values(BLOCK_REGISTRY)
 
 export function getBlockDefinition(id: string): BlockDefinition | undefined {
-  return BLOCK_REGISTRY[id as BlockId]
+  return Object.hasOwn(BLOCK_REGISTRY, id) ? BLOCK_REGISTRY[id as BlockId] : undefined
 }

@@ -1,6 +1,13 @@
 import { prisma } from "@/lib/db"
 import type { ApplicationStatusType } from "@/app/types/job-application"
+import { buildProfileSnapshot } from "@/modules/profile/snapshot"
+import { listDraftEvents } from "./draft"
+import { checkFacts, type FactWarning } from "./fact-check"
 import type { WritingDeskDocumentType } from "./schema"
+import { validateDraftMarkdown, type DraftIssue } from "./validate"
+
+/** How many agent draft events the review screen lists. */
+const DRAFT_HISTORY_LIMIT = 10
 
 export type WritingDeskSourceOption = {
   id: string
@@ -22,6 +29,15 @@ export type WritingDeskWithJob = {
     company: string | null
     jobDescription: string | null
   }
+  /** The pending agent draft awaiting the owner's review, or null. */
+  draft: {
+    content: string
+    draftRevision: number
+    updatedAt: Date
+    warnings: FactWarning[]
+    issues: DraftIssue[]
+    events: Array<{ tool: string; createdAt: Date }>
+  } | null
 }
 
 function sourceLabel(cv: {
@@ -41,6 +57,17 @@ export function getWritingDeskSourceLabel(cv: Parameters<typeof sourceLabel>[0])
   return sourceLabel(cv)
 }
 
+/**
+ * Events are logged per desk, so earlier (accepted or discarded) drafts share
+ * the log. Every draft starts with create_draft, so newest-first, the pending
+ * draft's history ends at the first create_draft.
+ */
+function currentDraftEvents(events: Array<{ tool: string; createdAt: Date }>) {
+  const start = events.findIndex(event => event.tool === "create_draft")
+  const current = start === -1 ? events : events.slice(0, start + 1)
+  return current.map(event => ({ tool: event.tool, createdAt: event.createdAt }))
+}
+
 export async function getWritingDesk(
   profileId: string,
   jobApplicationId: string,
@@ -55,13 +82,39 @@ export async function getWritingDesk(
       sourceType: true,
       sourceCvDocumentId: true,
       sourceLabel: true,
+      draftContent: true,
+      draftRevision: true,
+      draftUpdatedAt: true,
+      updatedAt: true,
       jobApplication: {
         select: { id: true, title: true, company: true, jobDescription: true },
       },
     },
   })
+  if (!desk) return null
 
-  return desk as WritingDeskWithJob | null
+  const { draftContent, draftRevision, draftUpdatedAt, updatedAt, ...live } = desk
+  let draft: WritingDeskWithJob["draft"] = null
+  if (draftContent !== null) {
+    const [profile, events] = await Promise.all([
+      buildProfileSnapshot(profileId),
+      listDraftEvents(profileId, desk.id, DRAFT_HISTORY_LIMIT),
+    ])
+    draft = {
+      content: draftContent,
+      draftRevision,
+      updatedAt: draftUpdatedAt ?? updatedAt,
+      warnings: checkFacts(draftContent, profile),
+      issues: validateDraftMarkdown(draftContent).issues,
+      events: currentDraftEvents(events),
+    }
+  }
+
+  return {
+    ...live,
+    documentType: live.documentType as WritingDeskDocumentType | null,
+    draft,
+  }
 }
 
 export async function listWritingDeskSourceCVs(profileId: string): Promise<WritingDeskSourceOption[]> {

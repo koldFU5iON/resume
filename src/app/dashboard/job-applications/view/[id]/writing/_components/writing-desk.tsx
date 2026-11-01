@@ -1,7 +1,8 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { Download, Sparkles } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { Download, FileCheck2, Sparkles } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -17,6 +18,7 @@ import type { WritingDeskDocumentType } from "@/modules/writing-desk/schema"
 import type { WritingDeskSourceOption, WritingDeskWithJob } from "@/modules/writing-desk/queries"
 import { WritingDeskPreview } from "@/app/components/writing-desk-preview"
 import { AvailableBlocks } from "./available-blocks"
+import { DraftReview } from "./draft-review"
 
 type SaveState = "idle" | "saving" | "saved" | "failed" | "conflict"
 
@@ -47,6 +49,7 @@ export function WritingDesk({
   const [mode, setMode] = useState<"markdown" | "preview">("markdown")
   const [showExport, setShowExport] = useState(false)
   const [blocksOpen, setBlocksOpen] = useState(false)
+  const [reviewing, setReviewing] = useState(true)
   const contentRef = useRef(desk.content)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const revisionRef = useRef(desk.revision)
@@ -55,6 +58,7 @@ export function WritingDesk({
   const conflictRef = useRef(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const { openPanel } = usePageContext()
+  const router = useRouter()
 
   useWorkspaceContext(documentType ? {
     type: "writing_desk",
@@ -169,6 +173,7 @@ export function WritingDesk({
     const next = `${before}${leading}${snippet}${trailing}${after}`
     handleChange(next)
     setMode("markdown")
+    setReviewing(false)
     window.requestAnimationFrame(() => {
       const target = textareaRef.current
       if (!target) return
@@ -241,6 +246,14 @@ export function WritingDesk({
     window.location.reload()
   }
 
+  // Returning to the review re-reads the server so the live side of the
+  // comparison (and the revision Accept is checked against) includes any
+  // edits just made in the live editor.
+  function toggleReview() {
+    if (!reviewing) router.refresh()
+    setReviewing(value => !value)
+  }
+
   if (!documentType) {
     return (
       <div className="flex flex-1 items-center justify-center bg-secondary p-6">
@@ -267,6 +280,7 @@ export function WritingDesk({
     )
   }
 
+  const showReview = desk.draft !== null && reviewing
   const saveLabel = saveState === "saving" ? "Saving..." : saveState === "saved" ? "Saved" : saveState === "failed" ? "Save failed" : saveState === "conflict" ? "Conflict - copy your draft or reload" : ""
 
   return (
@@ -295,8 +309,8 @@ export function WritingDesk({
         </select>
         <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setBlocksOpen(true)}>Blocks</Button>
         <div className="flex overflow-hidden rounded-md border text-xs">
-          <button type="button" onClick={() => setMode("markdown")} className={cn("px-3 py-1.5", mode === "markdown" ? "bg-foreground text-background" : "text-muted-foreground")}>Markdown</button>
-          <button type="button" onClick={() => setMode("preview")} className={cn("px-3 py-1.5", mode === "preview" ? "bg-foreground text-background" : "text-muted-foreground")}>Preview</button>
+          <button type="button" onClick={() => { setMode("markdown"); setReviewing(false) }} className={cn("px-3 py-1.5", !showReview && mode === "markdown" ? "bg-foreground text-background" : "text-muted-foreground")}>Markdown</button>
+          <button type="button" onClick={() => { setMode("preview"); setReviewing(false) }} className={cn("px-3 py-1.5", !showReview && mode === "preview" ? "bg-foreground text-background" : "text-muted-foreground")}>Preview</button>
         </div>
         {saveLabel && <span className={cn("text-xs", saveState === "failed" || saveState === "conflict" ? "text-destructive" : "text-muted-foreground")}>{saveLabel}</span>}
         {saveState === "failed" && <button type="button" onClick={retrySave} className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground">Retry</button>}
@@ -314,7 +328,26 @@ export function WritingDesk({
         </div>
         <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs" onClick={openPanel}><Sparkles className="size-3.5" />Ask coach</Button>
       </div>
-      <div className="flex flex-1 overflow-hidden bg-secondary p-5">
+      {desk.draft && (
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2">
+          <div className="flex min-w-0 flex-1 items-start gap-2">
+            <FileCheck2 className="mt-0.5 size-4 shrink-0 text-amber-700 dark:text-amber-400" />
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-amber-700 dark:text-amber-400">Draft ready for review</p>
+              <p className="text-xs text-amber-700/80 dark:text-amber-400/80">An agent prepared a draft for this job. Your live document stays unchanged until you accept it.</p>
+            </div>
+          </div>
+          <Button variant="outline" size="sm" className="h-7 text-xs" onClick={toggleReview}>
+            {reviewing ? "Open live editor" : "Back to review"}
+          </Button>
+        </div>
+      )}
+      {desk.draft && (
+        <div className={cn("flex-1 overflow-y-auto bg-secondary p-5", !showReview && "hidden")}>
+          <DraftReview desk={desk} />
+        </div>
+      )}
+      <div className={cn("flex flex-1 overflow-hidden bg-secondary p-5", showReview && "hidden")}>
         <div className="mx-auto flex w-full max-w-[794px] flex-1 flex-col overflow-y-auto rounded-md bg-background p-5 shadow-sm">
           {mode === "markdown" ? <textarea ref={textareaRef} value={content} onChange={event => handleChange(event.target.value)} className="min-h-[500px] flex-1 resize-none bg-transparent font-mono text-sm leading-relaxed outline-none" placeholder="Start writing..." /> : <WritingDeskPreview markdown={content} documentType={documentType} />}
         </div>

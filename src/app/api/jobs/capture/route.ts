@@ -33,6 +33,13 @@ export async function POST(request: Request) {
     )
   }
 
+  if (!auth.scopes.includes('capture')) {
+    return NextResponse.json(
+      { error: 'forbidden', message: 'Token lacks the capture scope' },
+      { status: 403 },
+    )
+  }
+
   let body: unknown
   try {
     body = await request.json()

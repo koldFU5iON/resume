@@ -1,5 +1,6 @@
+import type { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db"
-import type { ApplicationStatusType, Job } from "@/app/types/job-application"
+import { ApplicationStatus, type ApplicationStatusType, type Job } from "@/app/types/job-application"
 import { requireProfile } from "@/lib/session"
 
 export type DashboardJobSlim = {
@@ -193,6 +194,52 @@ export async function getJobAssets(jobId: string, profileId: string): Promise<Jo
     coverLetterDocumentId: job.coverLetters[0]?.id ?? null,
     interviewPrepSessionId: job.interviewPrepSessions[0]?.id ?? null,
   }
+}
+
+export type AgentJobInclude = 'active' | 'rejected' | 'archived' | 'all'
+
+export type AgentJobSummary = {
+  id: string
+  title: string
+  company: string | null
+  status: ApplicationStatusType
+  dateApplied: Date | null
+  lastUpdated: Date
+}
+
+/**
+ * Session-free job list for external agents (MCP). Always scoped to profileId.
+ * - active:   not archived and not rejected (default)
+ * - rejected: rejected and not archived
+ * - archived: archived, any status
+ * - all:      no status/archive filter
+ */
+export async function listJobsForAgent(
+  profileId: string,
+  opts: { include?: AgentJobInclude; company?: string },
+): Promise<AgentJobSummary[]> {
+  const include = opts.include ?? 'active'
+  const where: Prisma.JobApplicationWhereInput = { profileId }
+
+  if (include === 'active') {
+    where.archivedAt = null
+    where.status = { not: ApplicationStatus.Rejected }
+  } else if (include === 'rejected') {
+    where.archivedAt = null
+    where.status = ApplicationStatus.Rejected
+  } else if (include === 'archived') {
+    where.archivedAt = { not: null }
+  }
+
+  const company = opts.company?.trim()
+  if (company) where.company = { contains: company, mode: 'insensitive' }
+
+  const jobs = await prisma.jobApplication.findMany({
+    where,
+    orderBy: { lastUpdated: 'desc' },
+    select: { id: true, title: true, company: true, status: true, dateApplied: true, lastUpdated: true },
+  })
+  return jobs as AgentJobSummary[]
 }
 
 export type ActiveJobForNav = {
