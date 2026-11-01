@@ -107,6 +107,27 @@ describe("getWritingDesk", () => {
     expect(mockValidateDraftMarkdown).toHaveBeenCalledWith("# Draft")
     expect(mockListDraftEvents).toHaveBeenCalledWith("profile-1", "desk-1", expect.any(Number))
   })
+
+  it("lists only the pending draft's events, stopping at the create_draft that started it", async () => {
+    const at = (minute: number) => new Date(`2026-10-23T10:${String(minute).padStart(2, "0")}:00Z`)
+    mockDeskFindFirst.mockResolvedValue({ ...DESK_ROW, draftContent: "# Draft", draftRevision: 9, draftUpdatedAt: at(30) } as never)
+    mockBuildProfileSnapshot.mockResolvedValue({} as never)
+    mockCheckFacts.mockReturnValue([])
+    mockValidateDraftMarkdown.mockReturnValue({ ok: true, issues: [] })
+    mockListDraftEvents.mockResolvedValue([
+      { tool: "remove_section", createdAt: at(30), apiTokenId: "token-1" },
+      { tool: "create_draft", createdAt: at(20), apiTokenId: "token-1" },
+      { tool: "replace_section", createdAt: at(10), apiTokenId: "token-1" },
+      { tool: "create_draft", createdAt: at(5), apiTokenId: "token-1" },
+    ])
+
+    const desk = await getWritingDesk("profile-1", "job-1")
+
+    expect(desk?.draft?.events).toEqual([
+      { tool: "remove_section", createdAt: at(30) },
+      { tool: "create_draft", createdAt: at(20) },
+    ])
+  })
 })
 
 describe("listWritingDeskSourceCVs", () => {

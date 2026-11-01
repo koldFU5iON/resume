@@ -57,6 +57,17 @@ export function getWritingDeskSourceLabel(cv: Parameters<typeof sourceLabel>[0])
   return sourceLabel(cv)
 }
 
+/**
+ * Events are logged per desk, so earlier (accepted or discarded) drafts share
+ * the log. Every draft starts with create_draft, so newest-first, the pending
+ * draft's history ends at the first create_draft.
+ */
+function currentDraftEvents(events: Array<{ tool: string; createdAt: Date }>) {
+  const start = events.findIndex(event => event.tool === "create_draft")
+  const current = start === -1 ? events : events.slice(0, start + 1)
+  return current.map(event => ({ tool: event.tool, createdAt: event.createdAt }))
+}
+
 export async function getWritingDesk(
   profileId: string,
   jobApplicationId: string,
@@ -95,7 +106,7 @@ export async function getWritingDesk(
       updatedAt: draftUpdatedAt ?? updatedAt,
       warnings: checkFacts(draftContent, profile),
       issues: validateDraftMarkdown(draftContent).issues,
-      events: events.map(event => ({ tool: event.tool, createdAt: event.createdAt })),
+      events: currentDraftEvents(events),
     }
   }
 
