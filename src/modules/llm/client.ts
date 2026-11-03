@@ -185,6 +185,15 @@ export async function complete(
       system: opts.system,
       maxOutputTokens: opts.maxOutputTokens,
       ...samplingOptions(cfg.provider, modelId, opts.temperature),
+      ...(cfg.provider === 'anthropic'
+        ? {
+            providerOptions: {
+              anthropic: {
+                cacheControl: { type: 'ephemeral' as const },
+              },
+            },
+          }
+        : {}),
     })
     const latencyMs = Date.now() - startedAt
     logUsage(profileId, cfg.provider, modelId, opts.feature, result.usage, latencyMs)
@@ -239,6 +248,15 @@ export async function completeStructured<T>(
       maxOutputTokens: opts.maxOutputTokens,
       ...samplingOptions(cfg.provider, modelId, opts.temperature),
       output: Output.object({ schema }),
+      ...(cfg.provider === 'anthropic'
+        ? {
+            providerOptions: {
+              anthropic: {
+                cacheControl: { type: 'ephemeral' as const },
+              },
+            },
+          }
+        : {}),
     })
     const latencyMs = Date.now() - startedAt
     logUsage(profileId, cfg.provider, modelId, opts.feature, result.usage, latencyMs)
