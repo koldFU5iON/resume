@@ -27,7 +27,8 @@ are bound to the exact resource URL.
    This implementation supports DCR, not Client ID Metadata Documents (CIMD).
    Leave client ID/secret blank when automatic registration is selected.
 4. Sign in with your existing currnt account. On the currnt consent screen,
-   review the app name, return host, signed-in account, and requested access.
+   review the return host, signed-in account, and requested access. App names
+   are supplied by the connecting app and are not verified identities.
 5. **Create and edit CV drafts** is checked by default when requested. Uncheck
    it for read-only access, or choose **Deny** to cancel.
 6. Enable the connection in a chat and ask: “List my active job applications.”
@@ -93,7 +94,8 @@ Fact checks are advisory; review claims yourself before accepting.
 
 In currnt **Settings → API tokens**, choose **Disconnect** beside a connected
 app. This removes your consent and refresh tokens; MCP checks consent on every
-request, so existing access tokens stop working immediately. Other users of
+request, so existing access tokens stop working immediately. Tokens are bound
+to that consent record; reconnecting does not restore old tokens. Other users of
 the same client remain connected. Disconnect it in the AI app too if you want
 to remove its entry there.
 
@@ -115,6 +117,9 @@ they never add provenance text to a CV or PDF.
   Tokens without the MCP audience are refused. Clients must send `resource`
   at code exchange and refresh. Provider 1.6 omits it from the consent query;
   the issuer permits only this one resource at token exchange.
+- Public registration is limited to five requests per IP per minute, with
+  database-backed rate limits shared across server instances.
+- Discovery GET and OPTIONS responses permit cross-origin metadata requests.
 - No application LLM calls are made by MCP; generation runs in your AI client.
 
 ## Local verification
@@ -132,7 +137,7 @@ npm run build
 and clients and cleans them up afterward. It checks registration, login
 continuation, signed/denied consent, PKCE, code replay, real token exchange,
 scope filtering, ownership, draft editing and acceptance, refresh rotation,
-and immediate per-user disconnect.
+unique consent, registration rate limits, and per-user disconnect/reconnect.
 
 These local checks do not establish a successful hosted ChatGPT or Claude
 connection. After deployment, test each client through list jobs → draft →

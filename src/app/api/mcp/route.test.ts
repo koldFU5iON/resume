@@ -34,11 +34,26 @@ describe("POST /api/mcp", () => {
     const res = await POST(rpc({ jsonrpc: "2.0", id: 1, method: "tools/list" }, {}))
     expect(res.status).toBe(401)
     expect(res.headers.get('www-authenticate')).toContain('/.well-known/oauth-protected-resource/api/mcp')
+    expect(res.headers.get('www-authenticate')).not.toContain('error=')
     expect(mockVerify).toHaveBeenCalledWith(null)
     expect(await res.json()).toEqual({
       error: "unauthorized",
       message: "Missing or invalid Bearer token",
     })
+  })
+
+  it('returns invalid_token only when credentials were supplied', async () => {
+    mockVerify.mockResolvedValue(null)
+    const res = await POST(rpc({ jsonrpc: '2.0', id: 1, method: 'tools/list' }))
+    expect(res.status).toBe(401)
+    expect(res.headers.get('www-authenticate')).toContain('error="invalid_token"')
+  })
+
+  it('refuses an authenticated offline-only token with insufficient_scope', async () => {
+    mockVerify.mockResolvedValue({ profileId: 'p1', tokenId: 'oauth:c1', scopes: [] })
+    const res = await POST(rpc({ jsonrpc: '2.0', id: 1, method: 'tools/list' }))
+    expect(res.status).toBe(403)
+    expect(res.headers.get('www-authenticate')).toContain('error="insufficient_scope"')
   })
 
   it("returns 403 for a valid token with only the capture scope", async () => {

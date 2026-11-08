@@ -22,7 +22,7 @@ export async function POST(request: Request) {
   if (!auth) {
     return NextResponse.json(
       { error: 'unauthorized', message: 'Missing or invalid Bearer token' },
-      { status: 401, headers: { 'WWW-Authenticate': mcpAuthChallenge('invalid_token') } },
+      { status: 401, headers: { 'WWW-Authenticate': mcpAuthChallenge(request.headers.has('authorization') ? 'invalid_token' : undefined) } },
     )
   }
 

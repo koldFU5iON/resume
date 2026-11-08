@@ -29,7 +29,8 @@ export default async function McpConsentPage({ searchParams }: {
     <div className="space-y-6">
       <div className="space-y-2">
         <h1 className="break-words text-2xl font-semibold">Connect {details.name}?</h1>
-        <p className="break-words text-sm text-muted-foreground">Return address: {details.redirectHost}</p>
+        <p className="break-words text-sm font-medium">Return address: {details.redirectHost}</p>
+        <p className="text-sm text-muted-foreground">App names are supplied by the connecting app. Only approve access if you trust this return address.</p>
         <p className="break-words text-sm text-muted-foreground">Signed in as {session.user.email}</p>
       </div>
       <ConsentForm {...details} />

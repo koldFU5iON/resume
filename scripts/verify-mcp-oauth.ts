@@ -1,6 +1,7 @@
 // Local Postgres integration check. Never runs against a remote database.
 import assert from 'node:assert/strict'
 import { createHash, randomBytes } from 'node:crypto'
+import { normalizeIP } from '@better-auth/core/utils/ip'
 
 async function main() {
   process.loadEnvFile('.env.local')
@@ -17,11 +18,13 @@ async function main() {
   const runId = randomBytes(8).toString('hex')
   const users: string[] = []
   const clients: string[] = []
+  const ip = normalizeIP(`2001:db8:${runId.slice(0, 4)}:${runId.slice(4, 8)}::1`)
+  const registrationIp = normalizeIP(`2001:db8:${runId.slice(8, 12)}:${runId.slice(12, 16)}::1`)
 
-  async function request(path: string, body?: unknown, cookie?: string, form = false) {
+  async function request(path: string, body?: unknown, cookie?: string, form = false, requestIp = ip) {
     return auth.handler(new Request(`${issuer}${path}`, {
       method: body === undefined ? 'GET' : 'POST',
-      headers: { origin, ...(cookie ? { cookie } : {}),
+      headers: { origin, 'x-forwarded-for': requestIp, ...(cookie ? { cookie } : {}),
         ...(body === undefined ? {} : { 'content-type': form ? 'application/x-www-form-urlencoded' : 'application/json' }) },
       ...(body === undefined ? {} : { body: form ? new URLSearchParams(body as Record<string, string>).toString() : JSON.stringify(body) }),
     }))
@@ -89,7 +92,9 @@ async function main() {
     const unauthenticated = await rpc(undefined, 'tools/list')
     assert.equal(unauthenticated.status, 401)
     assert(unauthenticated.headers.get('www-authenticate')?.includes('resource_metadata='))
-    const [owner, other] = await Promise.all([signup('owner'), signup('other')])
+    assert(!unauthenticated.headers.get('www-authenticate')?.includes('error='))
+    const owner = await signup('owner')
+    const other = await signup('other')
     const clientId = await register()
     const login = await authorize(clientId)
     assert.equal(login.location.pathname, '/mcp/login')
@@ -99,6 +104,10 @@ async function main() {
     const approved = await consent(clientId, owner.cookie, 'mcp:read mcp:write offline_access')
     const tokens = await json(await exchange(clientId, approved.code, approved.verifier))
     assert(tokens.access_token && tokens.refresh_token)
+    await assert.rejects(() => prisma.oauthConsent.create({ data: {
+      id: `duplicate-${runId}`, clientId, userId: owner.id, scopes: ['mcp:read'],
+      createdAt: new Date(), updatedAt: new Date(),
+    } }), (error: unknown) => (error as { code?: string }).code === 'P2002')
     assert(!(await exchange(clientId, approved.code, approved.verifier)).ok, 'Authorization code replay must fail')
     const toolList = await json(await rpc(tokens.access_token, 'tools/list'))
     assert.equal(toolList.result.tools.length, 8)
@@ -160,10 +169,29 @@ async function main() {
     assert.equal((await rpc(tokens.access_token, 'tools/list')).status, 401)
     assert(!(await request('/oauth2/token', { grant_type: 'refresh_token', client_id: clientId, refresh_token: refreshed.refresh_token, resource }, undefined, true)).ok)
     assert.equal((await rpc(readTokens.access_token, 'tools/list')).status, 200)
-    console.log('PASS wrong PKCE/resource, expired codes, refresh replay, immediate revocation, and other-user isolation')
+    const reconnected = await consent(clientId, owner.cookie, 'mcp:read mcp:write offline_access')
+    const reconnectTokens = await json(await exchange(clientId, reconnected.code, reconnected.verifier))
+    assert.equal((await rpc(reconnectTokens.access_token, 'tools/list')).status, 200)
+    assert.equal((await rpc(tokens.access_token, 'tools/list')).status, 401)
+    console.log('PASS unique consent, PKCE/resource, expired codes, refresh replay, disconnect/reconnect, and user isolation')
+
+    for (let i = 0; i < 6; i++) {
+      const response = await request('/oauth2/register', {
+        client_name: `Rate limit check ${runId}`, redirect_uris: ['https://client.example/callback'],
+        token_endpoint_auth_method: 'none', grant_types: ['authorization_code'], response_types: ['code'],
+      }, undefined, false, registrationIp)
+      if (i < 5) clients.push((await json(response)).client_id)
+      else {
+        assert.equal(response.status, 429)
+        assert(Number(response.headers.get('x-retry-after')) > 0)
+      }
+    }
+    assert(await prisma.rateLimit.count({ where: { key: { startsWith: registrationIp } } }))
+    console.log('PASS persistent registration limit: five allowed, sixth returns 429')
   } finally {
     await prisma.oauthClient.deleteMany({ where: { clientId: { in: clients } } })
     await prisma.user.deleteMany({ where: { id: { in: users } } })
+    await prisma.rateLimit.deleteMany({ where: { OR: [ip, registrationIp].map(value => ({ key: { startsWith: value } })) } })
     await prisma.$disconnect()
   }
 }

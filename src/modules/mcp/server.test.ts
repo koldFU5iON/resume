@@ -26,6 +26,7 @@ const FAKE_TOOLS: McpToolDefinition[] = [
   {
     name: "write_thing",
     scope: "mcp:write",
+    destructiveHint: true,
     description: "Writes a thing",
     inputSchema: z.object({}),
     handler: writeHandler,
@@ -93,6 +94,7 @@ describe("createMcpServer", () => {
     const client = await connect(["mcp:write"])
     const { tools } = await client.listTools()
     expect(tools.map(t => t.name)).toEqual(["write_thing"])
+    expect(tools[0].annotations?.destructiveHint).toBe(true)
   })
 
   it("refuses a write tool called by name with a read-only token", async () => {

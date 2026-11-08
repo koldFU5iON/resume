@@ -112,5 +112,15 @@ model OauthConsent {
 
   @@index([clientId])
   @@index([userId])
+  @@unique([clientId, userId])
   @@map("oauthConsent")
+}
+
+model RateLimit {
+  id          String @id
+  key         String @unique
+  count       Int
+  lastRequest BigInt
+
+  @@map("rateLimit")
 }

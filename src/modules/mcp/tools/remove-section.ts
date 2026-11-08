@@ -12,6 +12,7 @@ const inputSchema = z.object({
 export const removeSectionTool: McpToolDefinition = {
   name: 'remove_section',
   scope: 'mcp:write',
+  destructiveHint: true,
   description:
     'Removes one section from the draft CV. Pass the section id and its current hash from get_draft. After a ' +
     'hash_mismatch or section_not_found, re-read with get_draft and retry. Returns the remaining sections and ' +

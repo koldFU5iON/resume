@@ -37,7 +37,7 @@ export function createMcpServer(
         inputSchema: tool.inputSchema,
         annotations: {
           readOnlyHint: tool.scope === 'mcp:read',
-          destructiveHint: tool.name === 'replace_section' || tool.name === 'remove_section',
+          destructiveHint: tool.destructiveHint ?? false,
           openWorldHint: false,
         },
         _meta: { securitySchemes: [{ type: 'oauth2', scopes: [tool.scope] }] },

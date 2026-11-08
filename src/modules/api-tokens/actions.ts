@@ -22,17 +22,17 @@ export async function createApiTokenAction(
   scopes?: ApiTokenScope[],
   expiresInDays?: number | null,
 ): Promise<CreatedToken> {
-  z.object({
+  const input = z.object({
     name: z.string().trim().min(1).max(80),
     scopes: z.array(z.enum(API_TOKEN_SCOPES)).min(1).max(3).optional(),
-    expiresInDays: z.union([z.literal(30), z.literal(90), z.literal(365)]).nullish(),
+    expiresInDays: z.number().int().min(1).max(36500).nullish(),
   }).parse({ name, scopes, expiresInDays })
   const { profile } = await requireProfile()
   const expiresAt =
-    expiresInDays && expiresInDays > 0
-      ? new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000)
+    input.expiresInDays
+      ? new Date(Date.now() + input.expiresInDays * 24 * 60 * 60 * 1000)
       : null
-  const result = await createApiTokenInternal(profile.id, name, { scopes, expiresAt })
+  const result = await createApiTokenInternal(profile.id, input.name, { scopes: input.scopes, expiresAt })
   revalidatePath('/dashboard/settings/api-tokens')
   return result
 }

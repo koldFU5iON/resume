@@ -6,6 +6,7 @@ import { oauthProvider } from "@better-auth/oauth-provider"
 import { Resend } from "resend"
 import { prisma } from "@/lib/db"
 import { getMcpUrls, MCP_OAUTH_SCOPES } from "@/modules/mcp/oauth-config"
+import { getMcpGrantClaims } from "@/modules/mcp/oauth-grants"
 
 type SocialProviderConfig = { clientId: string; clientSecret: string }
 
@@ -61,6 +62,14 @@ export const auth = betterAuth({
   baseURL: authBaseUrl,
   trustedOrigins,
   disabledPaths: ["/token"],
+  rateLimit: {
+    enabled: true,
+    storage: "database",
+    customRules: {
+      "/oauth2/register": { window: 60, max: 5 },
+      "/oauth2/public-client-prelogin": { window: 60, max: 30 },
+    },
+  },
   database: prismaAdapter(prisma, { provider: "postgresql" }),
   emailAndPassword: {
     enabled: true,
@@ -130,7 +139,7 @@ export const auth = betterAuth({
       clientRegistrationDefaultScopes: [...MCP_OAUTH_SCOPES],
       accessTokenExpiresIn: 60 * 60,
       refreshTokenExpiresIn: 60 * 60 * 24 * 30,
-      customAccessTokenClaims: () => ({ mcp_issued_at_ms: Date.now() }),
+      customAccessTokenClaims: getMcpGrantClaims,
       // These clients are only for MCP authorization, not application management.
       clientPrivileges: () => false,
       silenceWarnings: { oauthAuthServerConfig: true },

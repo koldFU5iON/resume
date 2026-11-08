@@ -1,15 +1,13 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { exportJWK, generateKeyPair, SignJWT } from 'jose'
+import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from 'jose'
 
-vi.mock('@/lib/auth', () => ({ auth: { api: { getJwks: vi.fn() } } }))
+vi.mock('./keys', () => ({ getMcpKeySet: vi.fn() }))
 vi.mock('@/lib/db', () => ({ prisma: {
-  oauthClient: { findUnique: vi.fn() },
-  oauthConsent: { findFirst: vi.fn() },
-  profile: { findUnique: vi.fn() },
+  oauthConsent: { findUnique: vi.fn() },
 } }))
 vi.mock('@/modules/api-tokens/service', () => ({ verifyBearerHeader: vi.fn() }))
 
-import { auth } from '@/lib/auth'
+import { getMcpKeySet } from './keys'
 import { prisma } from '@/lib/db'
 import { verifyBearerHeader } from '@/modules/api-tokens/service'
 import { authenticateMcp } from './auth'
@@ -18,6 +16,11 @@ let key: CryptoKey
 let jwk: Awaited<ReturnType<typeof exportJWK>>
 const origin = 'https://resume.example'
 const now = Math.floor(Date.now() / 1000)
+
+function consent(overrides: Record<string, unknown> = {}) {
+  return { id: 'consent-1', scopes: ['mcp:read', 'mcp:write', 'offline_access'],
+    client: { disabled: false }, user: { profile: { id: 'profile-owner' } }, ...overrides }
+}
 
 beforeAll(async () => {
   const pair = await generateKeyPair('EdDSA')
@@ -28,15 +31,13 @@ beforeAll(async () => {
 beforeEach(() => {
   vi.clearAllMocks()
   vi.stubEnv('BETTER_AUTH_URL', origin)
-  vi.mocked(auth.api.getJwks).mockResolvedValue({ keys: [jwk] } as never)
-  vi.mocked(prisma.oauthClient.findUnique).mockResolvedValue({ disabled: false } as never)
-  vi.mocked(prisma.oauthConsent.findFirst).mockResolvedValue({ scopes: ['mcp:read', 'mcp:write'], createdAt: new Date((now - 10) * 1000) } as never)
-  vi.mocked(prisma.profile.findUnique).mockResolvedValue({ id: 'profile-owner' } as never)
+  vi.mocked(getMcpKeySet).mockResolvedValue(createLocalJWKSet({ keys: [jwk] }))
+  vi.mocked(prisma.oauthConsent.findUnique).mockResolvedValue(consent() as never)
 })
 
 async function token(overrides: Record<string, unknown> = {}) {
   return new SignJWT({ sub: 'user-owner', azp: 'client-1', scope: 'mcp:read mcp:write',
-    iss: `${origin}/api/auth`, aud: `${origin}/api/mcp`, iat: now, exp: now + 3600, mcp_issued_at_ms: now * 1000, ...overrides })
+    iss: `${origin}/api/auth`, aud: `${origin}/api/mcp`, iat: now, exp: now + 3600, mcp_consent_id: 'consent-1', ...overrides })
     .setProtectedHeader({ alg: 'EdDSA', kid: 'test-key' }).sign(key)
 }
 
@@ -45,15 +46,19 @@ describe('authenticateMcp', () => {
     const verified = { profileId: 'p', tokenId: 't', scopes: ['mcp:read'] as const }
     vi.mocked(verifyBearerHeader).mockResolvedValue(verified as never)
     expect(await authenticateMcp('Bearer rsm_token')).toBe(verified)
-    expect(auth.api.getJwks).not.toHaveBeenCalled()
+    expect(getMcpKeySet).not.toHaveBeenCalled()
   })
 
   it('resolves ownership from the signed subject and records the OAuth client as actor', async () => {
     expect(await authenticateMcp(`Bearer ${await token()}`)).toEqual({
       profileId: 'profile-owner', tokenId: 'oauth:client-1', scopes: ['mcp:read', 'mcp:write'],
     })
-    expect(prisma.profile.findUnique).toHaveBeenCalledWith({ where: { userId: 'user-owner' }, select: { id: true } })
-    expect(prisma.oauthConsent.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { clientId: 'client-1', userId: 'user-owner' } }))
+    expect(prisma.oauthConsent.findUnique).toHaveBeenCalledTimes(1)
+    expect(prisma.oauthConsent.findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { clientId_userId: { clientId: 'client-1', userId: 'user-owner' } } }))
+  })
+
+  it('authenticates an offline-only grant without granting any MCP scope', async () => {
+    expect((await authenticateMcp(`Bearer ${await token({ scope: 'offline_access' })}`))?.scopes).toEqual([])
   })
 
   it('preserves read-only scopes', async () => {
@@ -70,7 +75,7 @@ describe('authenticateMcp', () => {
     ['missing client', { azp: undefined }],
   ])('rejects %s before loading user data', async (_, claims) => {
     expect(await authenticateMcp(`Bearer ${await token(claims)}`)).toBeNull()
-    expect(prisma.profile.findUnique).not.toHaveBeenCalled()
+    expect(prisma.oauthConsent.findUnique).not.toHaveBeenCalled()
   })
 
   it.each([null, '', 'Basic abc', 'Bearer opaque', 'Bearer a.b.c'])('rejects malformed input %s', async header => {
@@ -83,23 +88,35 @@ describe('authenticateMcp', () => {
     expect(await authenticateMcp(`Bearer ${forged}`)).toBeNull()
   })
 
+  it('reloads signing keys once when a rotated key is not cached', async () => {
+    const pair = await generateKeyPair('EdDSA')
+    const rotated = { ...await exportJWK(pair.publicKey), kid: 'rotated', alg: 'EdDSA' }
+    vi.mocked(getMcpKeySet).mockResolvedValueOnce(createLocalJWKSet({ keys: [jwk] }))
+      .mockResolvedValueOnce(createLocalJWKSet({ keys: [rotated] }))
+    const signed = await new SignJWT({ sub: 'user-owner', azp: 'client-1', scope: 'mcp:read',
+      iss: `${origin}/api/auth`, aud: `${origin}/api/mcp`, iat: now, exp: now + 3600, mcp_consent_id: 'consent-1' })
+      .setProtectedHeader({ alg: 'EdDSA', kid: 'rotated' }).sign(pair.privateKey)
+    expect((await authenticateMcp(`Bearer ${signed}`))?.profileId).toBe('profile-owner')
+    expect(getMcpKeySet).toHaveBeenNthCalledWith(2, true)
+  })
+
   it('rejects disabled clients', async () => {
-    vi.mocked(prisma.oauthClient.findUnique).mockResolvedValue({ disabled: true } as never)
+    vi.mocked(prisma.oauthConsent.findUnique).mockResolvedValue(consent({ client: { disabled: true } }) as never)
     expect(await authenticateMcp(`Bearer ${await token()}`)).toBeNull()
   })
 
   it('rejects disconnected apps, including JWTs that have not expired', async () => {
-    vi.mocked(prisma.oauthConsent.findFirst).mockResolvedValue(null)
+    vi.mocked(prisma.oauthConsent.findUnique).mockResolvedValue(null)
     expect(await authenticateMcp(`Bearer ${await token()}`)).toBeNull()
   })
 
   it('rejects scopes that were removed from consent', async () => {
-    vi.mocked(prisma.oauthConsent.findFirst).mockResolvedValue({ scopes: ['mcp:read'], createdAt: new Date(0) } as never)
+    vi.mocked(prisma.oauthConsent.findUnique).mockResolvedValue(consent({ scopes: ['mcp:read'] }) as never)
     expect(await authenticateMcp(`Bearer ${await token()}`)).toBeNull()
   })
 
   it('does not resurrect an old token when the client is connected again', async () => {
-    vi.mocked(prisma.oauthConsent.findFirst).mockResolvedValue({ scopes: ['mcp:read', 'mcp:write'], createdAt: new Date((now + 10) * 1000) } as never)
+    vi.mocked(prisma.oauthConsent.findUnique).mockResolvedValue(consent({ id: 'reconnected-consent' }) as never)
     expect(await authenticateMcp(`Bearer ${await token()}`)).toBeNull()
   })
 })
