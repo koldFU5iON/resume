@@ -15,6 +15,10 @@ model User {
   sessions Session[]
   accounts Account[]
   profile  Profile?
+  oauthClients       OauthClient[]
+  oauthRefreshTokens OauthRefreshToken[]
+  oauthAccessTokens  OauthAccessToken[]
+  oauthConsents      OauthConsent[]
 
   @@map("user")
 }
@@ -30,6 +34,9 @@ model Session {
   updatedAt DateTime
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  oauthRefreshTokens OauthRefreshToken[]
+  oauthAccessTokens  OauthAccessToken[]
 
   @@map("session")
 }

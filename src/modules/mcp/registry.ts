@@ -10,6 +10,7 @@ export type McpToolContext = { profileId: string; tokenId: string }
 export type McpToolDefinition = {
   name: string
   scope: McpToolScope
+  destructiveHint?: boolean
   description: string
   inputSchema: z.ZodObject
   // Args arrive already parsed by `inputSchema`; each tool narrows the type.

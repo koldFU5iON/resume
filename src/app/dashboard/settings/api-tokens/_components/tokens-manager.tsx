@@ -5,6 +5,7 @@ import { Check, Copy, KeyRound, Loader2, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import {
   Dialog,
@@ -19,11 +20,17 @@ import {
   createApiTokenAction,
   revokeApiTokenAction,
 } from '@/modules/api-tokens/actions'
-import type { ApiTokenSummary, CreatedToken } from '@/modules/api-tokens/service'
+import type { ApiTokenScope, ApiTokenSummary, CreatedToken } from '@/modules/api-tokens/service'
 import { cn } from '@/lib/utils'
 
 type Props = {
   tokens: ApiTokenSummary[]
+}
+
+const ACCESS_OPTIONS: Record<string, { label: string; scopes: ApiTokenScope[] }> = {
+  capture: { label: 'Capture jobs only', scopes: ['capture'] },
+  read: { label: 'MCP read-only', scopes: ['mcp:read'] },
+  write: { label: 'MCP read and edit drafts', scopes: ['mcp:read', 'mcp:write'] },
 }
 
 export function TokensManager({ tokens }: Props) {
@@ -38,10 +45,8 @@ export function TokensManager({ tokens }: Props) {
         <div className="space-y-1">
           <h2 className="text-lg font-semibold">API tokens</h2>
           <p className="text-sm text-muted-foreground max-w-prose">
-            Bearer tokens that let external tools — Hermes, browser extensions,
-            CLI scripts — submit jobs to <code className="font-mono text-xs">/api/jobs/capture</code> without
-            using the dashboard. Each token is shown <em>once</em> at creation;
-            store it somewhere safe.
+            Give scripts and agents access to capture jobs or use MCP tools.
+            Each token is shown once at creation; store it somewhere safe.
           </p>
         </div>
         <Button onClick={() => setCreateOpen(true)} className="shrink-0 gap-1.5">
@@ -129,6 +134,8 @@ function TokenRow({ token }: { token: ApiTokenSummary }) {
               : 'Never used'}
           </span>
           {token.revokedAt && <span>Revoked {formatDate(token.revokedAt)}</span>}
+          <span>{token.scopes.join(', ')}</span>
+          <span>{token.expiresAt ? `Expires ${new Date(token.expiresAt).toLocaleDateString()}` : 'No expiry'}</span>
         </div>
       </div>
       {!isRevoked && (
@@ -159,6 +166,8 @@ function CreateTokenDialog({
   onCreated: (t: CreatedToken) => void
 }) {
   const [name, setName] = useState('')
+  const [access, setAccess] = useState('capture')
+  const [expiry, setExpiry] = useState('90')
   const [submitting, setSubmitting] = useState(false)
 
   async function handleCreate(e: React.FormEvent) {
@@ -166,7 +175,7 @@ function CreateTokenDialog({
     if (!name.trim()) return
     setSubmitting(true)
     try {
-      const result = await createApiTokenAction(name.trim())
+      const result = await createApiTokenAction(name.trim(), ACCESS_OPTIONS[access].scopes, expiry === 'never' ? null : Number(expiry))
       onCreated(result)
       setName('')
     } catch {
@@ -209,6 +218,22 @@ function CreateTokenDialog({
               <p className="text-xs text-muted-foreground">
                 For your reference only — appears in the tokens list and in usage logs.
               </p>
+              <Label htmlFor="token-access" className="mt-4">Access</Label>
+              <Select value={access} onValueChange={value => { if (value) setAccess(value) }}>
+                <SelectTrigger id="token-access" className="w-full"><SelectValue>{ACCESS_OPTIONS[access].label}</SelectValue></SelectTrigger>
+                <SelectContent>{Object.entries(ACCESS_OPTIONS).map(([value, option]) => <SelectItem key={value} value={value}>{option.label}</SelectItem>)}</SelectContent>
+              </Select>
+              {access === 'write' && <p className="text-xs text-muted-foreground">This agent can create and edit CV drafts for any of your jobs. You still accept drafts in the Writing Desk.</p>}
+              <Label htmlFor="token-expiry" className="mt-4">Expires after</Label>
+              <Select value={expiry} onValueChange={value => { if (value) setExpiry(value) }}>
+                <SelectTrigger id="token-expiry" className="w-full"><SelectValue>{expiry === 'never' ? 'Never' : `${expiry} days`}</SelectValue></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="30">30 days</SelectItem>
+                  <SelectItem value="90">90 days</SelectItem>
+                  <SelectItem value="365">365 days</SelectItem>
+                  <SelectItem value="never">Never</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             <DialogFooter>

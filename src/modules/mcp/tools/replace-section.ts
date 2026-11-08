@@ -14,6 +14,7 @@ const inputSchema = z.object({
 export const replaceSectionTool: McpToolDefinition = {
   name: 'replace_section',
   scope: 'mcp:write',
+  destructiveHint: true,
   description:
     'Replaces one section of the draft CV. Pass the section id and its current hash from get_draft. Call ' +
     'get_job_context first; use only profile-supported claims. After a hash_mismatch or section_not_found, re-read ' +

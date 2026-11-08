@@ -1,8 +1,14 @@
 import { betterAuth } from "better-auth"
+import { createAuthMiddleware } from "better-auth/api"
 import { prismaAdapter } from "better-auth/adapters/prisma"
 import { nextCookies } from "better-auth/next-js"
+import { jwt } from "better-auth/plugins"
+import { oauthProvider } from "@better-auth/oauth-provider"
 import { Resend } from "resend"
 import { prisma } from "@/lib/db"
+import { getMcpUrls, MCP_OAUTH_SCOPES } from "@/modules/mcp/oauth-config"
+import { getMcpGrantClaims } from "@/modules/mcp/oauth-grants"
+import { enforceMcpRegistrationLimit } from "@/modules/mcp/registration-limit"
 
 type SocialProviderConfig = { clientId: string; clientSecret: string }
 
@@ -16,7 +22,7 @@ function normalizeOrigin(value?: string) {
 
 const vercelUrl = normalizeOrigin(process.env.VERCEL_URL)
 const vercelProductionUrl = normalizeOrigin(process.env.VERCEL_PROJECT_PRODUCTION_URL)
-const authBaseUrl = normalizeOrigin(process.env.BETTER_AUTH_URL) ?? vercelUrl
+const authBaseUrl = normalizeOrigin(process.env.BETTER_AUTH_URL) ?? vercelUrl ?? getMcpUrls().origin
 const envTrustedOrigins = process.env.BETTER_AUTH_TRUSTED_ORIGINS
   ?.split(",")
   .map((origin) => normalizeOrigin(origin.trim()))
@@ -57,6 +63,21 @@ export function getEnabledSocialProviders(): EnabledSocialProvider[] {
 export const auth = betterAuth({
   baseURL: authBaseUrl,
   trustedOrigins,
+  disabledPaths: ["/token"],
+  rateLimit: {
+    enabled: true,
+    storage: "database",
+    customRules: {
+      // Registration uses an atomic before-hook instead of the response counter.
+      "/oauth2/register": false,
+      "/oauth2/public-client-prelogin": { window: 60, max: 30 },
+    },
+  },
+  hooks: {
+    before: createAuthMiddleware(async ctx => {
+      if (ctx.path === "/oauth2/register") await enforceMcpRegistrationLimit(ctx.headers)
+    }),
+  },
   database: prismaAdapter(prisma, { provider: "postgresql" }),
   emailAndPassword: {
     enabled: true,
@@ -112,5 +133,25 @@ export const auth = betterAuth({
       },
     },
   },
-  plugins: [nextCookies()],
+  plugins: [
+    jwt(),
+    oauthProvider({
+      loginPage: "/mcp/login",
+      consentPage: "/mcp/consent",
+      scopes: [...MCP_OAUTH_SCOPES],
+      validAudiences: [getMcpUrls().resource],
+      grantTypes: ["authorization_code", "refresh_token"],
+      allowDynamicClientRegistration: true,
+      allowUnauthenticatedClientRegistration: true,
+      allowPublicClientPrelogin: true,
+      clientRegistrationDefaultScopes: [...MCP_OAUTH_SCOPES],
+      accessTokenExpiresIn: 60 * 60,
+      refreshTokenExpiresIn: 60 * 60 * 24 * 30,
+      customAccessTokenClaims: getMcpGrantClaims,
+      // These clients are only for MCP authorization, not application management.
+      clientPrivileges: () => false,
+      silenceWarnings: { oauthAuthServerConfig: true },
+    }),
+    nextCookies(),
+  ],
 })
