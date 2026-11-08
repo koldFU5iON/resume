@@ -1,4 +1,5 @@
 import { betterAuth } from "better-auth"
+import { createAuthMiddleware } from "better-auth/api"
 import { prismaAdapter } from "better-auth/adapters/prisma"
 import { nextCookies } from "better-auth/next-js"
 import { jwt } from "better-auth/plugins"
@@ -7,6 +8,7 @@ import { Resend } from "resend"
 import { prisma } from "@/lib/db"
 import { getMcpUrls, MCP_OAUTH_SCOPES } from "@/modules/mcp/oauth-config"
 import { getMcpGrantClaims } from "@/modules/mcp/oauth-grants"
+import { enforceMcpRegistrationLimit } from "@/modules/mcp/registration-limit"
 
 type SocialProviderConfig = { clientId: string; clientSecret: string }
 
@@ -66,9 +68,15 @@ export const auth = betterAuth({
     enabled: true,
     storage: "database",
     customRules: {
-      "/oauth2/register": { window: 60, max: 5 },
+      // Registration uses an atomic before-hook instead of the response counter.
+      "/oauth2/register": false,
       "/oauth2/public-client-prelogin": { window: 60, max: 30 },
     },
+  },
+  hooks: {
+    before: createAuthMiddleware(async ctx => {
+      if (ctx.path === "/oauth2/register") await enforceMcpRegistrationLimit(ctx.headers)
+    }),
   },
   database: prismaAdapter(prisma, { provider: "postgresql" }),
   emailAndPassword: {

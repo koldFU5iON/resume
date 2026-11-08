@@ -117,8 +117,12 @@ they never add provenance text to a CV or PDF.
   Tokens without the MCP audience are refused. Clients must send `resource`
   at code exchange and refresh. Provider 1.6 omits it from the consent query;
   the issuer permits only this one resource at token exchange.
+- Signing keys are cached for a minute. Unknown key IDs can trigger a shared
+  refresh at most once every five seconds per server instance.
 - Public registration is limited to five requests per IP per minute, with
-  database-backed rate limits shared across server instances.
+  an atomic database check before client creation, shared across server instances.
+  The deployment proxy must supply a trusted `X-Forwarded-For` client IP;
+  registration fails closed if the IP or database is unavailable.
 - Discovery GET and OPTIONS responses permit cross-origin metadata requests.
 - No application LLM calls are made by MCP; generation runs in your AI client.
 
@@ -137,7 +141,8 @@ npm run build
 and clients and cleans them up afterward. It checks registration, login
 continuation, signed/denied consent, PKCE, code replay, real token exchange,
 scope filtering, ownership, draft editing and acceptance, refresh rotation,
-unique consent, registration rate limits, and per-user disconnect/reconnect.
+unique consent, sequential/concurrent registration limits and window reset,
+and per-user disconnect/reconnect.
 
 These local checks do not establish a successful hosted ChatGPT or Claude
 connection. After deployment, test each client through list jobs → draft →

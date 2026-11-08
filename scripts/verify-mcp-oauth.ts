@@ -183,11 +183,31 @@ async function main() {
       if (i < 5) clients.push((await json(response)).client_id)
       else {
         assert.equal(response.status, 429)
-        assert(Number(response.headers.get('x-retry-after')) > 0)
+        assert(Number(response.headers.get('retry-after')) > 0)
       }
     }
     assert(await prisma.rateLimit.count({ where: { key: { startsWith: registrationIp } } }))
     console.log('PASS persistent registration limit: five allowed, sixth returns 429')
+    await prisma.rateLimit.deleteMany({ where: { key: { startsWith: registrationIp } } })
+    const concurrent = await Promise.all(Array.from({ length: 12 }, () => request('/oauth2/register', {
+      client_name: `Concurrent limit ${runId}`, redirect_uris: ['https://client.example/callback'],
+      token_endpoint_auth_method: 'none', grant_types: ['authorization_code'], response_types: ['code'],
+    }, undefined, false, registrationIp)))
+    let registered = 0
+    for (const response of concurrent) {
+      if (response.ok) { clients.push((await json(response)).client_id); registered++ }
+      else assert.equal(response.status, 429)
+    }
+    assert.equal(registered, 5, 'Concurrent registrations must share the same limit')
+    const counter = await prisma.rateLimit.findUniqueOrThrow({ where: { key: `${registrationIp}|mcp-registration` } })
+    assert.equal(counter.count, 6)
+    await prisma.rateLimit.update({ where: { id: counter.id }, data: { lastRequest: BigInt(Date.now() - 61000) } })
+    const afterWindow = await json(await request('/oauth2/register', {
+      client_name: `Window reset ${runId}`, redirect_uris: ['https://client.example/callback'],
+      token_endpoint_auth_method: 'none', grant_types: ['authorization_code'], response_types: ['code'],
+    }, undefined, false, registrationIp))
+    clients.push(afterWindow.client_id)
+    console.log('PASS concurrent registration limit and window reset')
   } finally {
     await prisma.oauthClient.deleteMany({ where: { clientId: { in: clients } } })
     await prisma.user.deleteMany({ where: { id: { in: users } } })

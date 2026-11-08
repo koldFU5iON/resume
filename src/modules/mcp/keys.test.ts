@@ -24,6 +24,20 @@ describe('MCP signing key cache', () => {
     expect(auth.api.getJwks).toHaveBeenCalledTimes(2)
   })
 
+  it('deduplicates and throttles attacker-triggered unknown-key refreshes', async () => {
+    const { getMcpKeySet } = await import('./keys')
+    vi.useFakeTimers()
+    await getMcpKeySet()
+    await Promise.all(Array.from({ length: 20 }, () => getMcpKeySet(true)))
+    expect(auth.api.getJwks).toHaveBeenCalledTimes(2)
+    vi.advanceTimersByTime(4999)
+    await getMcpKeySet(true)
+    expect(auth.api.getJwks).toHaveBeenCalledTimes(2)
+    vi.advanceTimersByTime(1)
+    await getMcpKeySet(true)
+    expect(auth.api.getJwks).toHaveBeenCalledTimes(3)
+  })
+
   it('allows a refresh for key rotation and does not cache outages', async () => {
     const { getMcpKeySet } = await import('./keys')
     vi.mocked(auth.api.getJwks).mockRejectedValueOnce(new Error('Database unavailable'))
