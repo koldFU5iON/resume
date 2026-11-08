@@ -108,6 +108,9 @@ they never add provenance text to a CV or PDF.
 
 - Stateless Streamable HTTP with JSON responses; POST only. GET and DELETE
   return 405 because there is no standalone SSE stream or persistent session.
+- Initial 401 challenges omit a scope hint so clients discover all supported
+  scopes, including `offline_access` for refresh tokens. Insufficient-scope
+  responses still advertise the required MCP scopes.
 - Resource metadata: `/.well-known/oauth-protected-resource/api/mcp`.
 - Authorization-server discovery: `/.well-known/oauth-authorization-server/api/auth`.
 - Authorization, registration, token, and revocation endpoints are advertised
@@ -138,11 +141,11 @@ npm run build
 ```
 
 `test:mcp-oauth` refuses a remote database. It uses disposable local accounts
-and clients and cleans them up afterward. It checks registration, login
-continuation, signed/denied consent, PKCE, code replay, real token exchange,
-scope filtering, ownership, draft editing and acceptance, refresh rotation,
-unique consent, sequential/concurrent registration limits and window reset,
-and per-user disconnect/reconnect.
+and clients and cleans them up afterward. It uses the MCP SDK for discovery,
+registration, token exchange, and refresh rotation. It also checks login
+continuation, signed/denied consent, PKCE, code replay, scope filtering,
+ownership, draft editing and acceptance, unique consent, sequential/concurrent
+registration limits and window reset, and per-user disconnect/reconnect.
 
 These local checks do not establish a successful hosted ChatGPT or Claude
 connection. After deployment, test each client through list jobs → draft →

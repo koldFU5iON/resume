@@ -28,5 +28,7 @@ export function getMcpResourceMetadata() {
 }
 
 export function mcpAuthChallenge(error?: 'invalid_token' | 'insufficient_scope') {
-  return `Bearer resource_metadata="${getMcpUrls().metadata}", scope="${MCP_SCOPES.join(' ')}"${error ? `, error="${error}"` : ''}`
+  // Let discovery select all supported scopes, including offline_access for refresh.
+  const scope = error === 'insufficient_scope' ? `, scope="${MCP_SCOPES.join(' ')}"` : ''
+  return `Bearer resource_metadata="${getMcpUrls().metadata}"${scope}${error ? `, error="${error}"` : ''}`
 }

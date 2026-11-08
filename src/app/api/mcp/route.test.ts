@@ -35,6 +35,7 @@ describe("POST /api/mcp", () => {
     expect(res.status).toBe(401)
     expect(res.headers.get('www-authenticate')).toContain('/.well-known/oauth-protected-resource/api/mcp')
     expect(res.headers.get('www-authenticate')).not.toContain('error=')
+    expect(res.headers.get('www-authenticate')).not.toContain('scope=')
     expect(mockVerify).toHaveBeenCalledWith(null)
     expect(await res.json()).toEqual({
       error: "unauthorized",
@@ -47,6 +48,7 @@ describe("POST /api/mcp", () => {
     const res = await POST(rpc({ jsonrpc: '2.0', id: 1, method: 'tools/list' }))
     expect(res.status).toBe(401)
     expect(res.headers.get('www-authenticate')).toContain('error="invalid_token"')
+    expect(res.headers.get('www-authenticate')).not.toContain('scope=')
   })
 
   it('refuses an authenticated offline-only token with insufficient_scope', async () => {
@@ -54,6 +56,7 @@ describe("POST /api/mcp", () => {
     const res = await POST(rpc({ jsonrpc: '2.0', id: 1, method: 'tools/list' }))
     expect(res.status).toBe(403)
     expect(res.headers.get('www-authenticate')).toContain('error="insufficient_scope"')
+    expect(res.headers.get('www-authenticate')).toContain('scope="mcp:read mcp:write"')
   })
 
   it("returns 403 for a valid token with only the capture scope", async () => {

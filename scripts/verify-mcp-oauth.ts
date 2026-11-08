@@ -2,6 +2,8 @@
 import assert from 'node:assert/strict'
 import { createHash, randomBytes } from 'node:crypto'
 import { normalizeIP } from '@better-auth/core/utils/ip'
+import { auth as authorizeClient, extractWWWAuthenticateParams, type OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js'
+import type { OAuthClientInformationMixed, OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js'
 
 async function main() {
   process.loadEnvFile('.env.local')
@@ -10,6 +12,8 @@ async function main() {
   const { auth } = await import('../src/lib/auth')
   const { prisma } = await import('../src/lib/db')
   const { POST } = await import('../src/app/api/mcp/route')
+  const { GET: resourceMetadata } = await import('../src/app/.well-known/oauth-protected-resource/api/mcp/route')
+  const { GET: serverMetadata } = await import('../src/app/.well-known/oauth-authorization-server/api/auth/route')
   const { getMcpUrls } = await import('../src/modules/mcp/oauth-config')
   const { getConsentDetails, oauthResumePath } = await import('../src/modules/mcp/consent')
   const { revokeMcpConnection } = await import('../src/modules/mcp/connections')
@@ -43,14 +47,38 @@ async function main() {
     assert(cookie, 'Sign-up must establish a session')
     return { id: body.user.id as string, cookie }
   }
-  async function register() {
-    const client = await json(await request('/oauth2/register', {
-      client_name: `MCP check ${runId}`, redirect_uris: ['https://client.example/callback'],
-      token_endpoint_auth_method: 'none', grant_types: ['authorization_code', 'refresh_token'],
-      response_types: ['code'],
-    }))
-    clients.push(client.client_id)
-    return client.client_id as string
+  let clientInformation: OAuthClientInformationMixed | undefined
+  let sdkTokens: OAuthTokens | undefined
+  let codeVerifier = ''
+  let authorizationUrl: URL | undefined
+  const provider: OAuthClientProvider = {
+    redirectUrl: 'https://client.example/callback',
+    clientMetadata: { client_name: `MCP SDK check ${runId}`, redirect_uris: ['https://client.example/callback'],
+      token_endpoint_auth_method: 'none', grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'], scope: 'mcp:read' },
+    state: () => runId,
+    clientInformation: () => clientInformation,
+    saveClientInformation: value => {
+      clientInformation = value
+      if (!clients.includes(value.client_id)) clients.push(value.client_id)
+    },
+    tokens: () => sdkTokens,
+    saveTokens: value => { sdkTokens = value },
+    redirectToAuthorization: value => { authorizationUrl = value },
+    saveCodeVerifier: value => { codeVerifier = value },
+    codeVerifier: () => codeVerifier,
+  }
+  const fetchFn: typeof fetch = async (input, init) => {
+    const req = new Request(input, init)
+    const url = new URL(req.url)
+    assert.equal(url.origin, origin, 'SDK requests must stay on the local issuer')
+    if (url.pathname === '/.well-known/oauth-protected-resource/api/mcp') return resourceMetadata()
+    if (url.pathname === '/.well-known/oauth-authorization-server/api/auth') return serverMetadata(req)
+    if (url.pathname.startsWith('/api/auth/')) {
+      req.headers.set('origin', origin)
+      req.headers.set('x-forwarded-for', ip)
+      return auth.handler(req)
+    }
+    return new Response(null, { status: 404 })
   }
   async function authorize(clientId: string, cookie?: string, scope = 'mcp:read mcp:write offline_access') {
     const verifier = randomBytes(32).toString('base64url')
@@ -62,8 +90,8 @@ async function main() {
     assert(location, `Missing authorize redirect: ${response.status} ${await response.text()}`)
     return { verifier, location: new URL(location, origin) }
   }
-  async function consent(clientId: string, cookie: string, scope: string, accept = true) {
-    const authorization = await authorize(clientId, cookie)
+  async function consent(clientId: string, cookie: string, scope: string, accept = true, existingAuthorization?: { verifier: string; location: URL }) {
+    const authorization = existingAuthorization ?? await authorize(clientId, cookie)
     assert.equal(authorization.location.pathname, '/mcp/consent')
     const signed = authorization.location.searchParams
     const details = await getConsentDetails(signed, new Headers({ cookie }))
@@ -95,15 +123,25 @@ async function main() {
     assert(!unauthenticated.headers.get('www-authenticate')?.includes('error='))
     const owner = await signup('owner')
     const other = await signup('other')
-    const clientId = await register()
+    const sdkOptions = { serverUrl: resource, fetchFn, ...extractWWWAuthenticateParams(unauthenticated) }
+    assert.equal(await authorizeClient(provider, sdkOptions), 'REDIRECT')
+    assert(authorizationUrl && clientInformation)
+    const discoveredScopes = authorizationUrl.searchParams.get('scope')!
+    assert(discoveredScopes.split(' ').includes('offline_access'), 'SDK discovery must request offline_access')
+    const clientId = clientInformation.client_id
     const login = await authorize(clientId)
     assert.equal(login.location.pathname, '/mcp/login')
     assert(oauthResumePath(login.location.searchParams).startsWith('/api/auth/oauth2/authorize?'))
     console.log('PASS registration, login redirect, and signed consent')
 
-    const approved = await consent(clientId, owner.cookie, 'mcp:read mcp:write offline_access')
-    const tokens = await json(await exchange(clientId, approved.code, approved.verifier))
-    assert(tokens.access_token && tokens.refresh_token)
+    const authorization = await request(`${authorizationUrl.pathname.slice('/api/auth'.length)}${authorizationUrl.search}`, undefined, owner.cookie)
+    const approved = await consent(clientId, owner.cookie, discoveredScopes, true, {
+      verifier: codeVerifier, location: new URL(authorization.headers.get('location')!, origin),
+    })
+    assert.equal(await authorizeClient(provider, { ...sdkOptions, authorizationCode: approved.code }), 'AUTHORIZED')
+    const tokens = sdkTokens
+    assert(tokens?.access_token && tokens.refresh_token, 'SDK-discovered grant must issue a refresh token')
+    console.log('PASS SDK challenge discovery, registration, PKCE, and refresh-token issuance')
     await assert.rejects(() => prisma.oauthConsent.create({ data: {
       id: `duplicate-${runId}`, clientId, userId: owner.id, scopes: ['mcp:read'],
       createdAt: new Date(), updatedAt: new Date(),
@@ -159,7 +197,9 @@ async function main() {
       data: { expiresAt: new Date(Date.now() - 1000) },
     })
     assert(!(await exchange(clientId, expiredCode.code, expiredCode.verifier)).ok)
-    const refreshed = await json(await request('/oauth2/token', { grant_type: 'refresh_token', client_id: clientId, refresh_token: tokens.refresh_token, resource }, undefined, true))
+    assert.equal(await authorizeClient(provider, sdkOptions), 'AUTHORIZED')
+    const refreshed = sdkTokens!
+    assert(refreshed.refresh_token, 'SDK refresh must rotate the refresh token')
     assert.equal((await rpc(refreshed.access_token, 'tools/list')).status, 200)
     assert.notEqual(refreshed.refresh_token, tokens.refresh_token)
     assert(!(await request('/oauth2/token', { grant_type: 'refresh_token', client_id: clientId,
