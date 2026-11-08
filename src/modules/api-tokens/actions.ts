@@ -2,6 +2,8 @@
 
 import { revalidatePath } from 'next/cache'
 import { requireProfile } from '@/lib/session'
+import { z } from 'zod'
+import { API_TOKEN_SCOPES } from './service'
 import {
   createApiToken as createApiTokenInternal,
   listApiTokens as listApiTokensInternal,
@@ -20,6 +22,11 @@ export async function createApiTokenAction(
   scopes?: ApiTokenScope[],
   expiresInDays?: number | null,
 ): Promise<CreatedToken> {
+  z.object({
+    name: z.string().trim().min(1).max(80),
+    scopes: z.array(z.enum(API_TOKEN_SCOPES)).min(1).max(3).optional(),
+    expiresInDays: z.union([z.literal(30), z.literal(90), z.literal(365)]).nullish(),
+  }).parse({ name, scopes, expiresInDays })
   const { profile } = await requireProfile()
   const expiresAt =
     expiresInDays && expiresInDays > 0

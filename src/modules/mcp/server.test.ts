@@ -144,6 +144,10 @@ describe("createMcpServer resources", () => {
     const client = await connect(["mcp:read"])
     const { tools } = await client.listTools()
     expect(tools.length).toBeGreaterThan(0)
+    for (const tool of tools) {
+      expect(tool.annotations?.readOnlyHint).toBe(true)
+      expect(tool._meta?.securitySchemes).toEqual([{ type: 'oauth2', scopes: ['mcp:read'] }])
+    }
     const { resources } = await client.listResources()
     expect(resources.map(r => r.uri)).toContain("currnt://writing-contract/cv")
     const read = await client.readResource({ uri: "currnt://writing-contract/cv" })

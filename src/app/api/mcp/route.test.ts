@@ -1,17 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-vi.mock("@/modules/api-tokens/service", () => ({
-  verifyBearerHeader: vi.fn(),
+vi.mock("@/modules/mcp/auth", () => ({
+  authenticateMcp: vi.fn(),
 }))
 vi.mock("@/modules/jobs/queries", () => ({
   listJobsForAgent: vi.fn(),
 }))
 
-import { verifyBearerHeader } from "@/modules/api-tokens/service"
+import { authenticateMcp } from "@/modules/mcp/auth"
 import { listJobsForAgent } from "@/modules/jobs/queries"
 import { DELETE, GET, POST } from "./route"
 
-const mockVerify = vi.mocked(verifyBearerHeader)
+const mockVerify = vi.mocked(authenticateMcp)
 const mockList = vi.mocked(listJobsForAgent)
 
 function rpc(body: unknown, headers: Record<string, string> = { authorization: "Bearer rsm_x" }) {
@@ -33,6 +33,7 @@ describe("POST /api/mcp", () => {
     mockVerify.mockResolvedValue(null)
     const res = await POST(rpc({ jsonrpc: "2.0", id: 1, method: "tools/list" }, {}))
     expect(res.status).toBe(401)
+    expect(res.headers.get('www-authenticate')).toContain('/.well-known/oauth-protected-resource/api/mcp')
     expect(mockVerify).toHaveBeenCalledWith(null)
     expect(await res.json()).toEqual({
       error: "unauthorized",

@@ -32,7 +32,7 @@ export default async function SignUpPage({
 
       <p className="text-center text-sm text-muted-foreground">
         Already have an account?{" "}
-        <Link href="/sign-in" className="text-foreground font-medium hover:underline">
+        <Link href={`/sign-in?${new URLSearchParams({ callbackUrl: target })}`} className="text-foreground font-medium hover:underline">
           Sign in
         </Link>
       </p>

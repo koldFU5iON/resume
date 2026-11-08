@@ -70,6 +70,7 @@ Every schema change, no exceptions:
 src/
   modules/                  ← all domain/business logic lives here
     api-tokens/             ← bearer-token issuance + verification for /api/jobs/capture
+    mcp/                    ← MCP tools, OAuth verification/discovery, consent and connected apps
     jobs/                   ← job URL extraction, application records, AI job-fit scoring
     llm/                    ← provider-agnostic LLM layer (client.ts, actions.ts, errors.ts)
     onboarding/             ← lightweight job-search context captured in UserSettings
@@ -194,6 +195,8 @@ Update the Vercel `DATABASE_URL` env var (Production scope) via dashboard or `ve
 ---
 
 ## External APIs
+
+- `POST /api/mcp` — stateless Streamable HTTP MCP with scoped API tokens or Better Auth OAuth. OAuth uses `@better-auth/oauth-provider` (matching Better Auth 1.6.11), JWT keys, DCR, PKCE, and a local consent check on every call. Setup, tool list, and discovery paths: `docs/mcp-server.md`. Never expose draft acceptance as an MCP tool. Local protocol check: `npm run test:mcp-oauth`.
 
 - `POST /api/jobs/capture` — bearer-token-authed endpoint for agents/scripts/bookmarklets to submit a job URL. Tokens minted at `/dashboard/settings/api-tokens`. See `docs/api-jobs-capture.md` for the full spec, and `docs/api-integrations.md` for copy-pasteable recipes (curl shell function, Claude Code skill, Hermes skill, browser bookmarklet).
 - `GET /api/integrations/skills/<agent>` — public endpoint that returns a templated SKILL.md for the given agent (`claude-code` or `hermes`). `{{RESUME_URL}}` placeholder in `src/lib/integrations/skills/<agent>.md` is substituted with `BETTER_AUTH_URL` (or the request origin as fallback) at request time. Whitelist + dashboard download UI live in `src/app/api/integrations/skills/[agent]/route.ts` and `src/app/dashboard/settings/api-tokens/_components/integrations-list.tsx`. Sources are kept in the function bundle via `outputFileTracingIncludes` in `next.config.ts`.

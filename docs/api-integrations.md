@@ -140,11 +140,12 @@ Open any job posting → click the bookmarklet → a new tab opens to the dashbo
 
 ## Coming soon (follow-up issue)
 
+For ChatGPT, Claude, and other MCP clients, see [MCP setup](mcp-server.md).
+
 These surfaces are TODO — file an issue if you need one and we'll prioritize:
 
 - **Anthropic Claude API tool definition** — JSON tool schema + Python/TS example loop wiring it into `client.messages.create(...)`
 - **OpenAI function calling** — function definition + chat completions loop
-- **MCP server** — minimal MCP server exposing this endpoint as a tool any MCP-aware client can use
 
 The contract is stable, so building any of these against the existing spec is straightforward.
 

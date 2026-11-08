@@ -1,7 +1,7 @@
 // POST /api/mcp
 //
 // Remote MCP server (Streamable HTTP, stateless, JSON responses). Authenticated
-// by an `rsm_` bearer token carrying `mcp:read` and/or `mcp:write`. A fresh
+// by an OAuth access token or `rsm_` token carrying MCP scopes. A fresh
 // server and transport are built per request; no session id is issued.
 //
 //   claude mcp add --transport http currnt https://<host>/api/mcp \
@@ -12,23 +12,24 @@
 
 import { NextResponse } from 'next/server'
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
-import { verifyBearerHeader } from '@/modules/api-tokens/service'
+import { authenticateMcp } from '@/modules/mcp/auth'
+import { mcpAuthChallenge } from '@/modules/mcp/oauth-config'
 import { hasAnyMcpScope } from '@/modules/mcp/registry'
 import { createMcpServer } from '@/modules/mcp/server'
 
 export async function POST(request: Request) {
-  const auth = await verifyBearerHeader(request.headers.get('authorization'))
+  const auth = await authenticateMcp(request.headers.get('authorization'))
   if (!auth) {
     return NextResponse.json(
       { error: 'unauthorized', message: 'Missing or invalid Bearer token' },
-      { status: 401 },
+      { status: 401, headers: { 'WWW-Authenticate': mcpAuthChallenge('invalid_token') } },
     )
   }
 
   if (!hasAnyMcpScope(auth.scopes)) {
     return NextResponse.json(
       { error: 'forbidden', message: 'Token lacks an MCP scope (mcp:read or mcp:write)' },
-      { status: 403 },
+      { status: 403, headers: { 'WWW-Authenticate': mcpAuthChallenge('insufficient_scope') } },
     )
   }
 

@@ -32,7 +32,16 @@ export function createMcpServer(
   for (const tool of toolsForScopes(tools, auth.scopes)) {
     server.registerTool(
       tool.name,
-      { description: tool.description, inputSchema: tool.inputSchema },
+      {
+        description: tool.description,
+        inputSchema: tool.inputSchema,
+        annotations: {
+          readOnlyHint: tool.scope === 'mcp:read',
+          destructiveHint: tool.name === 'replace_section' || tool.name === 'remove_section',
+          openWorldHint: false,
+        },
+        _meta: { securitySchemes: [{ type: 'oauth2', scopes: [tool.scope] }] },
+      },
       async (args: unknown): Promise<CallToolResult> => {
         if (!auth.scopes.includes(tool.scope)) {
           return errorResult(`Token lacks the ${tool.scope} scope`)
