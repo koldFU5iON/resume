@@ -41,6 +41,46 @@ export function isAssessmentInProgress(view: Pick<AssessmentView, 'status'> | nu
   return view ? IN_PROGRESS.has(view.status) : false
 }
 
+/**
+ * The pending runs as one string ("id:status" per run, sorted), or '' when
+ * none. The poller restarts its window when this changes, so a run moving
+ * on (queued → assessing, or one of a batch finishing) keeps polling alive.
+ */
+export function pendingSignature(views: readonly (Pick<AssessmentView, 'id' | 'status'> | null | undefined)[]): string {
+  return views
+    .filter((v): v is Pick<AssessmentView, 'id' | 'status'> => isAssessmentInProgress(v))
+    .map((v) => `${v.id}:${v.status}`)
+    .sort()
+    .join(',')
+}
+
+/**
+ * Optimistic "Queued…" after a Re-run: `rerunFrom` is the run id that was
+ * current when Re-run succeeded (null: there was none; undefined: no Re-run).
+ * True until the server sends a different run.
+ */
+export function isAwaitingRerun(rerunFrom: string | null | undefined, currentId: string | null | undefined): boolean {
+  return rerunFrom !== undefined && (currentId ?? null) === rerunFrom
+}
+
+/** Poll every 3 s at first, then every 15 s. */
+export const POLL_INTERVAL_MS = 3_000
+export const SLOW_POLL_INTERVAL_MS = 15_000
+export const FAST_POLL_WINDOW_MS = 2 * 60_000
+/**
+ * Polling stops after this long without progress. Longer than QUEUED_STALE_MS
+ * (15 min, the longest a pending run can last before it reads as timed out),
+ * so a stuck run always ends up showing "Needs attention" and its Re-run.
+ */
+export const POLL_MAX_MS = 16 * 60_000
+
+/** Delay before the next poll, given the time since the window started; null to stop. */
+export function nextPollDelay(elapsedMs: number): number | null {
+  if (elapsedMs < FAST_POLL_WINDOW_MS) return POLL_INTERVAL_MS
+  if (elapsedMs < POLL_MAX_MS) return SLOW_POLL_INTERVAL_MS
+  return null
+}
+
 export const IN_PROGRESS_LABEL: Record<'queued' | 'checking' | 'fetching' | 'assessing', string> = {
   queued: 'Queued…',
   checking: 'Checking…',
@@ -110,8 +150,15 @@ export function earlyAriaLabel(
   action: 'Click' | 'Tap' = 'Click',
 ): string {
   if (view.status === 'failed') return `Early assessment: needs attention. ${action} for details.`
-  const level = view.blocked ? 'blocked' : (view.level ?? 'assessed')
-  return `Early assessment: ${level}, ${view.score ?? 'no score'} out of 10. ${action} for details.`
+  // Starts with the visible pill text (WCAG 2.5.3, label in name).
+  const level = view.blocked ? '' : `: ${earlyHeading(view).toLowerCase()}`
+  return `${earlyPillText(view)} early assessment${level}. ${action} for details.`
+}
+
+/** Tooltip for the pill: the level in words, since the pill shows it only as colour. */
+export function earlyPillTitle(view: Pick<AssessmentView, 'status' | 'level' | 'blocked'>): string {
+  if (view.status === 'failed') return 'Early assessment: needs attention'
+  return `Early assessment: ${earlyHeading(view)}`
 }
 
 /** Blockers section: hard first, then unconfirmed (stored order kept within each). */
@@ -154,7 +201,7 @@ export function footerLine(view: Pick<AssessmentView, 'status' | 'jevModel' | 'p
 }
 
 const FAILURE_SUMMARY: Record<FailureKind, string> = {
-  verification: "The job details are too thin to assess, even after checking the job page.",
+  verification: "The job details are too thin to assess, even after checking the job page. Edit the job to add what's missing, then re-run.",
   no_llm_key: 'The early assessment needs your LLM API key to read the job. Add one in Settings.',
   not_configured: "The assessment service isn't available right now.",
   daily_cap: "You've reached today's assessment limit. Try again tomorrow.",

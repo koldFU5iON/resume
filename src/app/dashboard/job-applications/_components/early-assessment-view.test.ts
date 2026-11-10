@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { IN_PROGRESS_STALE_MS, QUEUED_STALE_MS } from '@/modules/job-assessment/schema'
 import type { AssessmentView } from '@/modules/job-assessment/queries'
 import type { Blocker } from '@/modules/job-assessment/schema'
 import {
@@ -8,6 +9,7 @@ import {
   earlyFilterKey,
   earlyHeading,
   earlyPillText,
+  earlyPillTitle,
   earlySortValue,
   earlyTone,
   enrichmentNote,
@@ -15,7 +17,13 @@ import {
   footerLine,
   formatProcessTime,
   isAssessmentInProgress,
+  isAwaitingRerun,
+  nextPollDelay,
   parseEarlyFilter,
+  pendingSignature,
+  POLL_INTERVAL_MS,
+  POLL_MAX_MS,
+  SLOW_POLL_INTERVAL_MS,
   yearsGapItems,
 } from './early-assessment-view'
 
@@ -96,14 +104,16 @@ describe('pill text, tone, heading and aria-label', () => {
     expect(earlyPillText(v)).toBe('7/10')
     expect(earlyTone(v)).toBe('pursue')
     expect(earlyHeading(v)).toBe('Pursue')
-    expect(earlyAriaLabel(v)).toBe('Early assessment: pursue, 7 out of 10. Click for details.')
+    expect(earlyAriaLabel(v)).toBe('7/10 early assessment: pursue. Click for details.')
+    expect(earlyPillTitle(v)).toBe('Early assessment: Pursue')
   })
   it('blocked', () => {
     const v = view({ blocked: true })
     expect(earlyPillText(v)).toBe('Blocked · 7/10')
     expect(earlyTone(v)).toBe('blocked')
     expect(earlyHeading(v)).toBe('Blocked')
-    expect(earlyAriaLabel(v, 'Tap')).toBe('Early assessment: blocked, 7 out of 10. Tap for details.')
+    expect(earlyAriaLabel(v, 'Tap')).toBe('Blocked · 7/10 early assessment. Tap for details.')
+    expect(earlyPillTitle(v)).toBe('Early assessment: Blocked')
   })
   it('failed', () => {
     expect(earlyAriaLabel(view({ status: 'failed', score: null }))).toBe('Early assessment: needs attention. Click for details.')
@@ -173,5 +183,51 @@ describe('enrichmentNote', () => {
   })
   it('is null when nothing came from the page', () => {
     expect(enrichmentNote(view())).toBeNull()
+  })
+})
+
+describe('pendingSignature', () => {
+  it('is empty when nothing is pending', () => {
+    expect(pendingSignature([null, undefined, view(), view({ id: 'f', status: 'failed' })])).toBe('')
+  })
+  it('lists pending runs by id and status, order-independent', () => {
+    const a = view({ id: 'a', status: 'queued' })
+    const b = view({ id: 'b', status: 'assessing' })
+    expect(pendingSignature([b, view(), a])).toBe('a:queued,b:assessing')
+    expect(pendingSignature([a, b])).toBe(pendingSignature([b, a]))
+  })
+  it('changes when a run moves on', () => {
+    expect(pendingSignature([view({ id: 'a', status: 'queued' })]))
+      .not.toBe(pendingSignature([view({ id: 'a', status: 'checking' })]))
+  })
+})
+
+describe('isAwaitingRerun', () => {
+  it('is false without a Re-run', () => {
+    expect(isAwaitingRerun(undefined, 'r1')).toBe(false)
+    expect(isAwaitingRerun(undefined, null)).toBe(false)
+  })
+  it('holds until the server sends a different run', () => {
+    expect(isAwaitingRerun('r1', 'r1')).toBe(true)
+    expect(isAwaitingRerun('r1', 'r2')).toBe(false)
+  })
+  it('handles a first run (no previous run)', () => {
+    expect(isAwaitingRerun(null, null)).toBe(true)
+    expect(isAwaitingRerun(null, undefined)).toBe(true)
+    expect(isAwaitingRerun(null, 'r1')).toBe(false)
+  })
+})
+
+describe('nextPollDelay', () => {
+  it('polls fast for 2 minutes, then slowly, then stops', () => {
+    expect(nextPollDelay(0)).toBe(POLL_INTERVAL_MS)
+    expect(nextPollDelay(119_000)).toBe(POLL_INTERVAL_MS)
+    expect(nextPollDelay(120_000)).toBe(SLOW_POLL_INTERVAL_MS)
+    expect(nextPollDelay(POLL_MAX_MS - 1)).toBe(SLOW_POLL_INTERVAL_MS)
+    expect(nextPollDelay(POLL_MAX_MS)).toBeNull()
+  })
+  it('outlasts the server stale thresholds, so a stuck run reaches "Needs attention"', () => {
+    expect(POLL_MAX_MS).toBeGreaterThan(QUEUED_STALE_MS + SLOW_POLL_INTERVAL_MS)
+    expect(POLL_MAX_MS).toBeGreaterThan(IN_PROGRESS_STALE_MS)
   })
 })

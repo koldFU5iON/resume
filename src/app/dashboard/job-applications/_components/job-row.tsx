@@ -160,7 +160,7 @@ export function JobRow({ job, selected, busyLabel, onToggleSelect, onEdit, onArc
       {/* Job fit */}
       <div className="flex items-center gap-0.5 py-2">
         <JobFit jobId={id} jobFit={jobFit ?? null} canAssess={!!jobDescription?.trim()} hasLLMKey={hasLLMKey} company={company ?? undefined} jdSnippet={jobDescription ? jobDescription.slice(0, 800) : undefined} />
-        <EarlyAssessment jobId={id} assessment={job.earlyAssessment ?? null} enabled={earlyEnabled} hasLLMKey={hasLLMKey} hasDescription={!!jobDescription?.trim()} />
+        <EarlyAssessment jobId={id} assessment={job.earlyAssessment ?? null} enabled={earlyEnabled} hasLLMKey={hasLLMKey} hasDescription={!!jobDescription?.trim()} editHref={`/dashboard/job-applications/view/${id}`} />
       </div>
 
       {/* Applied date */}

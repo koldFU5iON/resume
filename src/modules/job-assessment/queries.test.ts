@@ -102,39 +102,48 @@ describe('toAssessmentView', () => {
 describe('getLatestAssessments', () => {
   it('returns {} without querying for no jobs', async () => {
     expect(await getLatestAssessments('p1', [])).toEqual({})
+    expect(prisma.$queryRaw).not.toHaveBeenCalled()
     expect(prisma.jobAssessment.findMany).not.toHaveBeenCalled()
   })
 
-  it('reads the newest row per job, scoped by profile', async () => {
+  it('picks the newest run per job in SQL, scoped by profile, then reads only those rows', async () => {
+    vi.mocked(prisma.$queryRaw).mockResolvedValueOnce([{ id: 'a1', notes: null }] as never)
     vi.mocked(prisma.jobAssessment.findMany).mockResolvedValueOnce([complete] as never)
     const out = await getLatestAssessments('p1', ['job-1', 'job-2'])
     expect(Object.keys(out)).toEqual(['job-1'])
+
+    const [strings, ...values] = vi.mocked(prisma.$queryRaw).mock.calls[0] as unknown as [TemplateStringsArray, ...unknown[]]
+    const sql = strings.join('?')
+    expect(sql).toContain('DISTINCT ON ("jobApplicationId")')
+    expect(sql).toContain('ORDER BY "jobApplicationId", "createdAt" DESC')
+    expect(values[0]).toBe('p1')
+    expect(JSON.stringify(values[1])).toContain('job-2')
+
     expect(prisma.jobAssessment.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { profileId: 'p1', jobApplicationId: { in: ['job-1', 'job-2'] } },
-      orderBy: { createdAt: 'desc' },
-      distinct: ['jobApplicationId'],
+      where: { profileId: 'p1', id: { in: ['a1'] } },
     }))
+    expect(vi.mocked(prisma.jobAssessment.findMany).mock.calls[0][0]).not.toHaveProperty('distinct')
   })
 
-  it('reads notes for complete runs only, in one profile-scoped query', async () => {
+  it('skips the row read when no job has a run', async () => {
+    vi.mocked(prisma.$queryRaw).mockResolvedValueOnce([] as never)
+    expect(await getLatestAssessments('p1', ['job-1'])).toEqual({})
+    expect(prisma.jobAssessment.findMany).not.toHaveBeenCalled()
+  })
+
+  it('attaches notes from the same query', async () => {
     const queued = { ...complete, id: 'a2', jobApplicationId: 'job-2', status: 'queued', createdAt: new Date() }
+    vi.mocked(prisma.$queryRaw).mockResolvedValueOnce([
+      { id: 'a1', notes: ['Location unknown'] },
+      { id: 'a2', notes: null },
+    ] as never)
     vi.mocked(prisma.jobAssessment.findMany).mockResolvedValueOnce([complete, queued] as never)
-    vi.mocked(prisma.$queryRaw).mockResolvedValueOnce([{ id: 'a1', notes: ['Location unknown'] }] as never)
     const out = await getLatestAssessments('p1', ['job-1', 'job-2'])
     expect(out['job-1'].notes).toEqual(['Location unknown'])
     expect(out['job-2'].notes).toEqual([])
     expect(prisma.$queryRaw).toHaveBeenCalledTimes(1)
-    const values = vi.mocked(prisma.$queryRaw).mock.calls[0].slice(1)
-    expect(values[0]).toBe('p1')
-    expect(JSON.stringify(values[1])).toContain('a1')
-    expect(JSON.stringify(values[1])).not.toContain('a2')
-  })
-
-  it('skips the notes query when no run is complete', async () => {
-    const queued = { ...complete, status: 'queued', createdAt: new Date() }
-    vi.mocked(prisma.jobAssessment.findMany).mockResolvedValueOnce([queued] as never)
-    await getLatestAssessments('p1', ['job-1'])
-    expect(prisma.$queryRaw).not.toHaveBeenCalled()
+    const sql = (vi.mocked(prisma.$queryRaw).mock.calls[0][0] as unknown as TemplateStringsArray).join('?')
+    expect(sql).toContain(`CASE WHEN "status" = 'complete'`)
   })
 })
 
@@ -153,11 +162,13 @@ describe('getEarlyAssessmentsForJobs', () => {
   it('returns {} without reading runs when the feature is off for the profile', async () => {
     vi.mocked(isAssessmentEnabledFor).mockResolvedValueOnce(false)
     expect(await getEarlyAssessmentsForJobs('p-off', ['job-1'])).toEqual({})
+    expect(prisma.$queryRaw).not.toHaveBeenCalled()
     expect(prisma.jobAssessment.findMany).not.toHaveBeenCalled()
   })
 
   it('reads the latest runs when enabled', async () => {
     vi.mocked(isAssessmentEnabledFor).mockResolvedValueOnce(true)
+    vi.mocked(prisma.$queryRaw).mockResolvedValueOnce([{ id: 'a1', notes: null }] as never)
     vi.mocked(prisma.jobAssessment.findMany).mockResolvedValueOnce([complete] as never)
     const out = await getEarlyAssessmentsForJobs('p-on', ['job-1'])
     expect(out['job-1']).toMatchObject({ id: 'a1', level: 'pursue' })
@@ -171,11 +182,11 @@ describe('getEarlyAssessmentForJob', () => {
     expect(prisma.jobAssessment.findFirst).not.toHaveBeenCalled()
   })
 
-  it('returns null when the feature is off for this profile', async () => {
+  it('returns null without reading runs when the feature is off for this profile', async () => {
     vi.mocked(assessmentMaybeEnabled).mockReturnValueOnce(true)
     vi.mocked(isAssessmentEnabledFor).mockResolvedValueOnce(false)
-    vi.mocked(prisma.jobAssessment.findFirst).mockResolvedValueOnce(complete as never)
     expect(await getEarlyAssessmentForJob('p-off2', 'job-1')).toBeNull()
+    expect(prisma.jobAssessment.findFirst).not.toHaveBeenCalled()
   })
 
   it('returns the latest run with its notes when enabled', async () => {

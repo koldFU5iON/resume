@@ -38,11 +38,13 @@ import {
   earlyAriaLabel,
   earlyHeading,
   earlyPillText,
+  earlyPillTitle,
   earlyTone,
   enrichmentNote,
   failureSummary,
   footerLine,
   isAssessmentInProgress,
+  isAwaitingRerun,
   yearsGapItems,
 } from "./early-assessment-view"
 
@@ -54,6 +56,8 @@ type EarlyAssessmentProps = {
   hasLLMKey?: boolean
   /** The job has a description, so the deep analysis (assessJobFit) can run. */
   hasDescription?: boolean
+  /** Where to edit the job, shown when the run failed because its details are too thin. Omit where an Edit button is already on screen. */
+  editHref?: string
 }
 
 /**
@@ -62,15 +66,14 @@ type EarlyAssessmentProps = {
  * EarlyAssessmentDetail inside. Runs in progress show a spinner; the
  * AssessmentPoller on the page refreshes them.
  */
-export function EarlyAssessment({ jobId, assessment, enabled, hasLLMKey = true, hasDescription = true }: EarlyAssessmentProps) {
+export function EarlyAssessment({ jobId, assessment, enabled, hasLLMKey = true, hasDescription = true, editHref }: EarlyAssessmentProps) {
   const [popoverOpen, setPopoverOpen] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [isRerunning, startRerun] = useTransition()
   const [isAnalysing, startAnalysis] = useTransition()
-  // Id of the run that was current when Re-run succeeded (null: there was
-  // none). Until the server sends a newer run, the pill shows "Queued…".
+  // Id of the run that was current when Re-run succeeded (see isAwaitingRerun).
   const [rerunFrom, setRerunFrom] = useState<string | null | undefined>(undefined)
-  const showQueued = isRerunning || (rerunFrom !== undefined && (assessment?.id ?? null) === rerunFrom)
+  const showQueued = isRerunning || isAwaitingRerun(rerunFrom, assessment?.id)
 
   function closeDetail() {
     setPopoverOpen(false)
@@ -137,6 +140,7 @@ export function EarlyAssessment({ jobId, assessment, enabled, hasLLMKey = true, 
       view={assessment}
       enabled={enabled}
       onRerun={handleRerun}
+      editHref={editHref}
       deepAnalysis={{
         pending: isAnalysing,
         disabledReason: !hasLLMKey
@@ -156,6 +160,7 @@ export function EarlyAssessment({ jobId, assessment, enabled, hasLLMKey = true, 
         <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
           <PopoverTrigger
             aria-label={earlyAriaLabel(assessment, 'Click')}
+            title={earlyPillTitle(assessment)}
             className="rounded-md hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <EarlyPill view={assessment} />
@@ -189,15 +194,14 @@ export function EarlyAssessment({ jobId, assessment, enabled, hasLLMKey = true, 
   )
 }
 
+// No role="status": during a batch every row would announce each poll.
 function InProgressPill({ status }: { status: keyof typeof IN_PROGRESS_LABEL }) {
   return (
-    <span role="status">
-      <ScorePill className="font-normal text-muted-foreground">
-        <Loader2 className="size-3 animate-spin" aria-hidden="true" />
-        <span className="sr-only">Early assessment: </span>
-        {IN_PROGRESS_LABEL[status]}
-      </ScorePill>
-    </span>
+    <ScorePill className="font-normal text-muted-foreground">
+      <Loader2 className="size-3 animate-spin" aria-hidden="true" />
+      <span className="sr-only">Early assessment: </span>
+      {IN_PROGRESS_LABEL[status]}
+    </ScorePill>
   )
 }
 
@@ -233,9 +237,10 @@ type EarlyAssessmentDetailProps = {
   enabled: boolean
   onRerun: () => void
   deepAnalysis?: DeepAnalysis
+  editHref?: string
 }
 
-export function EarlyAssessmentDetail({ view, enabled, onRerun, deepAnalysis }: EarlyAssessmentDetailProps) {
+export function EarlyAssessmentDetail({ view, enabled, onRerun, deepAnalysis, editHref }: EarlyAssessmentDetailProps) {
   const failed = view.status === 'failed'
   const blockers = blockerItems(view.blockers)
   const yearsGaps = yearsGapItems(view.blockers)
@@ -266,6 +271,14 @@ export function EarlyAssessmentDetail({ view, enabled, onRerun, deepAnalysis }: 
               className="inline-block text-xs underline underline-offset-2 hover:text-foreground"
             >
               Add an LLM API key
+            </Link>
+          )}
+          {view.failureKind === 'verification' && editHref && (
+            <Link
+              href={editHref}
+              className="inline-block text-xs underline underline-offset-2 hover:text-foreground"
+            >
+              Open the job to edit it
             </Link>
           )}
           {enabled && (

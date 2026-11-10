@@ -5,7 +5,7 @@ import { type Job } from "@/app/types/job-application"
 import { JobFit } from "@/app/dashboard/job-applications/_components/job-fit"
 import { EarlyAssessment } from "@/app/dashboard/job-applications/_components/early-assessment"
 import { AssessmentPoller } from "@/app/dashboard/job-applications/_components/assessment-poller"
-import { isAssessmentInProgress } from "@/app/dashboard/job-applications/_components/early-assessment-view"
+import { pendingSignature } from "@/app/dashboard/job-applications/_components/early-assessment-view"
 import { SalaryPopover } from "@/app/dashboard/job-applications/_components/salary-popover"
 import { StatusDropdown } from "@/app/dashboard/job-applications/_components/status-dropdown"
 import { formatDate, cn } from "@/lib/utils"
@@ -90,7 +90,7 @@ export function JobSidebar({ job, hasLLMKey, earlyEnabled = false }: Props) {
                 hasLLMKey={hasLLMKey}
                 hasDescription={!!job.jobDescription?.trim()}
               />
-              <AssessmentPoller active={isAssessmentInProgress(early)} />
+              <AssessmentPoller signature={pendingSignature([early])} />
             </div>
           )}
         </CardContent>

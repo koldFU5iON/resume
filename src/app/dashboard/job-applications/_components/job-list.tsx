@@ -31,7 +31,7 @@ import { CreateJobSheet } from "./create-job-sheet"
 import { BatchCaptureDialog } from "./batch-capture-dialog"
 import { archiveJobApplication, bulkArchiveJobApplications } from "@/modules/jobs/mutations"
 import { AssessmentPoller } from "./assessment-poller"
-import { earlyFilterKey, earlySortValue, isAssessmentInProgress, parseEarlyFilter } from "./early-assessment-view"
+import { earlyFilterKey, earlySortValue, parseEarlyFilter, pendingSignature } from "./early-assessment-view"
 
 type ViewMode = 'grouped' | 'all'
 const VIEW_MODE_KEY = 'jobs-view-mode'
@@ -121,10 +121,11 @@ export function JobList({ jobs, hasLLMKey, earlyEnabled = false, openCreate, ini
       const savedSort = window.localStorage.getItem(SORT_KEY)
       if (savedSort) {
         const p = JSON.parse(savedSort)
-        if (p.field && p.direction) setSort(p)
+        // A saved "Early score" sort is dropped while the feature is off for this user.
+        if (p.field && p.direction && (p.field !== 'earlyScore' || earlyEnabled)) setSort(p)
       }
     } catch { /* ignore malformed sort cache */ }
-  }, [])
+  }, [earlyEnabled])
 
   function changeViewMode(next: ViewMode) {
     setViewMode(next)
@@ -216,8 +217,8 @@ export function JobList({ jobs, hasLLMKey, earlyEnabled = false, openCreate, ini
     return result
   }, [jobs, query, filter, sort, earlyEnabled])
 
-  const assessmentRunning = useMemo(
-    () => jobs.some(j => isAssessmentInProgress(j.earlyAssessment)),
+  const pendingRuns = useMemo(
+    () => pendingSignature(jobs.map(j => j.earlyAssessment)),
     [jobs],
   )
 
@@ -322,7 +323,7 @@ export function JobList({ jobs, hasLLMKey, earlyEnabled = false, openCreate, ini
 
   return (
     <div className="container w-full border-t border-accent pt-3 mt-2">
-      <AssessmentPoller active={assessmentRunning} />
+      <AssessmentPoller signature={pendingRuns} />
       <ToolBar
         query={query}
         onQueryChange={setQuery}

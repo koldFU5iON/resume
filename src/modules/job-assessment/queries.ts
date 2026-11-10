@@ -168,19 +168,31 @@ async function loadNotes(profileId: string, ids: readonly string[]): Promise<Map
 const completeIds = (rows: readonly { id: string; status: string }[]) =>
   rows.filter((r) => r.status === 'complete').map((r) => r.id)
 
-/** The newest assessment per job, keyed by job id. Jobs with none are absent. */
+/**
+ * The newest assessment per job, keyed by job id. Jobs with none are absent.
+ *
+ * Two queries whatever the history size: DISTINCT ON picks the newest run
+ * id per job in Postgres (Prisma's `distinct` would fetch every past run and
+ * dedupe in JS) and reads its notes at the same time, then the view columns
+ * are fetched for those ids only.
+ */
 export async function getLatestAssessments(
   profileId: string,
   jobIds: readonly string[],
 ): Promise<Record<string, AssessmentView>> {
   if (jobIds.length === 0) return {}
+  const latest = await prisma.$queryRaw<{ id: string; notes: unknown }[]>`
+    SELECT DISTINCT ON ("jobApplicationId") "id",
+      CASE WHEN "status" = 'complete' THEN "signals"->'combine'->'notes' END AS "notes"
+    FROM "JobAssessment"
+    WHERE "profileId" = ${profileId} AND "jobApplicationId" IN (${Prisma.join([...jobIds])})
+    ORDER BY "jobApplicationId", "createdAt" DESC, "id" DESC`
+  if (latest.length === 0) return {}
   const rows = await prisma.jobAssessment.findMany({
-    where: { profileId, jobApplicationId: { in: [...jobIds] } },
-    orderBy: { createdAt: 'desc' },
-    distinct: ['jobApplicationId'],
+    where: { profileId, id: { in: latest.map((r) => r.id) } },
     select: VIEW_SELECT,
   })
-  const notes = await loadNotes(profileId, completeIds(rows))
+  const notes = new Map(latest.map((r) => [r.id, r.notes]))
   const now = new Date()
   const out: Record<string, AssessmentView> = {}
   for (const row of rows) out[row.jobApplicationId] = toAssessmentView(row, now, notes.get(row.id))
@@ -222,9 +234,6 @@ export async function getEarlyAssessmentsForJobs(
 /** The newest assessment of one job for its detail page, or null when there is none or the feature is off. */
 export async function getEarlyAssessmentForJob(profileId: string, jobId: string): Promise<AssessmentView | null> {
   if (!assessmentMaybeEnabled()) return null
-  const [enabled, view] = await Promise.all([
-    isEarlyAssessmentEnabled(profileId),
-    getLatestAssessment(profileId, jobId),
-  ])
-  return enabled ? view : null
+  if (!(await isEarlyAssessmentEnabled(profileId))) return null
+  return getLatestAssessment(profileId, jobId)
 }
