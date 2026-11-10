@@ -9,7 +9,6 @@ const STAGE_LABELS: Record<string, string> = {
   facts: 'Extract facts',
   judge: 'Judge',
   combine: 'Combine',
-  persist: 'Save',
 }
 
 function Tile({ label, value, hint }: { label: string; value: string; hint?: string }) {
@@ -44,7 +43,7 @@ export function JevAdmin({ stats }: { stats: JevAdminSummary }) {
       </p>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-        <Tile label="Calls" value={stats.calls.toLocaleString()} />
+        <Tile label="Calls (incl. failed)" value={stats.calls.toLocaleString()} />
         <Tile label="Failed calls" value={stats.failedCalls.toLocaleString()} />
         <Tile label="Input tokens" value={formatTokens(stats.inputTokens)} />
         <Tile label="Output tokens" value={formatTokens(stats.outputTokens)} />
@@ -58,7 +57,7 @@ export function JevAdmin({ stats }: { stats: JevAdminSummary }) {
               <tr className="border-b text-[11px] text-muted-foreground">
                 <th className="px-3 py-1 text-left font-normal">User</th>
                 <th className="px-3 py-1 text-right font-normal">Total</th>
-                <th className="px-3 py-1 text-right font-normal">Avg/day</th>
+                <th className="px-3 py-1 text-right font-normal">Avg/active day</th>
                 <th className="px-3 py-1 text-right font-normal">p95/day</th>
               </tr>
             </thead>
@@ -117,7 +116,7 @@ export function JevAdmin({ stats }: { stats: JevAdminSummary }) {
             <tbody>
               {stats.byStatus.map(r => (
                 <tr key={r.status} className="border-b last:border-0">
-                  <td className={`${td} capitalize`}>{r.status}</td>
+                  <td className={td}>{r.status === 'never_started' ? 'Never started (superseded or expired)' : <span className="capitalize">{r.status}</span>}</td>
                   <td className={tdNum}>{r.count.toLocaleString()}</td>
                 </tr>
               ))}

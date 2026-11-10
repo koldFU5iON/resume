@@ -19,6 +19,8 @@ describe('bucketForRating', () => {
     expect(bucketForRating(4.6)).toBe('pursue')
     expect(bucketForRating(7.4)).toBe('pursue')
     expect(bucketForRating(7.5)).toBe('priority')
+    // Half rounds up (Math.round), deliberately: 4.5 → 5 → pursue.
+    expect(bucketForRating(4.5)).toBe('pursue')
   })
 })
 

@@ -137,7 +137,7 @@ export function compareJob(job: CompareJob): CompareRow {
   }
 }
 
-/** Disagreements first (largest gap first), then the rest by title. */
+/** Disagreements first, then by bucket gap (largest first), then by title. */
 export function sortRows(rows: readonly CompareRow[]): CompareRow[] {
   return [...rows].sort(
     (x, y) =>

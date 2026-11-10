@@ -29,11 +29,10 @@ async function main() {
   try { process.loadEnvFile('.env.local') } catch { /* env may come from the shell */ }
   if (!process.env.DATABASE_URL) fail('DATABASE_URL is not set.')
 
-  const host = new URL(process.env.DATABASE_URL).hostname
-  const local = host === 'localhost' || host === '127.0.0.1'
-  if (!local) {
-    if (!values['allow-remote']) fail(`Refusing to run: DATABASE_URL host is not localhost/127.0.0.1. Pass --allow-remote to read from a remote database.`)
-    console.warn('WARNING: running against a REMOTE database. This script is read-only (select queries only).\n')
+  const { isLocalDatabaseUrl, READ_ONLY_PG_OPTIONS } = await import('../src/modules/job-assessment/local-db-guard')
+  if (!isLocalDatabaseUrl(process.env.DATABASE_URL)) {
+    if (!values['allow-remote']) fail('Refusing to run: the database host is not local (localhost, 127.0.0.1, ::1 or a socket path). Pass --allow-remote to read from a remote database.')
+    console.warn('WARNING: running against a REMOTE database. This script is read-only (select queries only; the session is also set read-only).\n')
   }
 
   let csvPath: string | undefined
@@ -43,7 +42,13 @@ async function main() {
     if (rel.startsWith('..') || isAbsolute(rel)) fail('--csv must be a path under tmp/ (gitignored).')
   }
 
-  const { prisma } = await import('../src/lib/db')
+  // Own client (not src/lib/db.ts): every connection is read-only at the Postgres session level.
+  const { PrismaClient } = await import('@prisma/client')
+  const { PrismaPg } = await import('@prisma/adapter-pg')
+  const { Pool } = await import('pg')
+  const prisma = new PrismaClient({
+    adapter: new PrismaPg(new Pool({ connectionString: process.env.DATABASE_URL, options: READ_ONLY_PG_OPTIONS })),
+  })
   const { compareAll, toCsv } = await import('../src/modules/job-assessment/compare')
   const { PIPELINE_VERSION } = await import('../src/modules/job-assessment/schema')
   const version = values.version ?? PIPELINE_VERSION

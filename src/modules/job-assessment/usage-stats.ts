@@ -4,6 +4,8 @@
  * (getJevAdminSummary in src/modules/llm/usage.ts).
  */
 
+import { JEV_FAILED_FEATURE_SUFFIX } from '@/modules/jev/constants'
+
 /**
  * TypeSafe list price for Jev: USD per million input tokens. Output tokens are
  * free. Used only for the admin cost estimate; update it when pricing changes.
@@ -22,29 +24,7 @@ export function formatUsd(usd: number): string {
 }
 
 /** Pipeline order of the stage keys in JobAssessment.stageTimings. */
-export const STAGE_ORDER = ['verify', 'enrich', 'verifyRetry', 'facts', 'judge', 'combine', 'persist'] as const
-
-/**
- * Average duration per stage from stageTimings objects. Skips `requeues` (a
- * count, not a duration), non-numeric and negative values, and non-object
- * rows. Reference implementation of the SQL in getJevAdminSummary; ordered by
- * pipeline order, unknown keys last.
- */
-export function averageStageTimings(rows: readonly unknown[]): { stage: string; avgMs: number; runs: number }[] {
-  const acc = new Map<string, { sum: number; n: number }>()
-  for (const row of rows) {
-    if (!row || typeof row !== 'object' || Array.isArray(row)) continue
-    for (const [key, value] of Object.entries(row)) {
-      if (key === 'requeues') continue
-      if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) continue
-      const a = acc.get(key) ?? { sum: 0, n: 0 }
-      a.sum += value
-      a.n += 1
-      acc.set(key, a)
-    }
-  }
-  return orderStages([...acc].map(([stage, a]) => ({ stage, avgMs: a.sum / a.n, runs: a.n })))
-}
+export const STAGE_ORDER = ['verify', 'enrich', 'verifyRetry', 'facts', 'judge', 'combine'] as const
 
 /** Sorts stage rows into pipeline order; unknown stages go last, alphabetically. */
 export function orderStages<T extends { stage: string }>(rows: readonly T[]): T[] {
@@ -65,7 +45,7 @@ export function formatMs(ms: number): string {
 }
 
 /** Splits a usage feature tag into its base and whether it is a failed-call row. */
-export function splitFailedFeature(feature: string, suffix = ':failed'): { base: string; failed: boolean } {
+export function splitFailedFeature(feature: string, suffix: string = JEV_FAILED_FEATURE_SUFFIX): { base: string; failed: boolean } {
   return feature.endsWith(suffix)
     ? { base: feature.slice(0, -suffix.length), failed: true }
     : { base: feature, failed: false }

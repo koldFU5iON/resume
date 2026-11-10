@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/db'
 import { JEV_FAILED_FEATURE_SUFFIX, JEV_PROVIDER } from '@/modules/jev/client'
+import { IN_PROGRESS_STALE_MS, QUEUED_STALE_MS } from '@/modules/job-assessment/schema'
 import { estimateJevCostUsd, orderStages } from '@/modules/job-assessment/usage-stats'
 
 /**
@@ -172,6 +173,10 @@ export type JevAdminSummary = {
   processTime: { status: 'complete' | 'failed'; runs: number; p50Ms: number; p95Ms: number }[]
   /** Average ms per stage (stageTimings, `requeues` excluded), pipeline order. */
   stageTimes: { stage: string; avgMs: number; runs: number }[]
+  /**
+   * Runs by outcome. `never_started` = superseded or expired while queued (no
+   * work done); stale in-progress rows count as `failed`, as in the UI.
+   */
   byStatus: { status: string; count: number }[]
   /** Complete runs by level. */
   byLevel: { level: string; count: number }[]
@@ -183,6 +188,9 @@ export type JevAdminSummary = {
  */
 export async function getJevAdminSummary(): Promise<JevAdminSummary> {
   const since = startOfMonth()
+  const now = Date.now()
+  const queuedCutoff = new Date(now - QUEUED_STALE_MS)
+  const inProgressCutoff = new Date(now - IN_PROGRESS_STALE_MS)
   const failedLike = `%${JEV_FAILED_FEATURE_SUFFIX}`
 
   const [calls, topUsers, processTime, stageTimes, byStatus, byLevel] = await Promise.all([
@@ -198,7 +206,7 @@ export async function getJevAdminSummary(): Promise<JevAdminSummary> {
       WITH daily AS (
         SELECT "profileId", DATE_TRUNC('day', "createdAt") AS day, COUNT(*)::int AS n
         FROM "JobAssessment"
-        WHERE "createdAt" >= ${since}
+        WHERE "createdAt" >= ${since} AND "startedAt" IS NOT NULL
         GROUP BY 1, 2
       )
       SELECT d."profileId" AS "profileId", p."name" AS name,
@@ -228,11 +236,22 @@ export async function getJevAdminSummary(): Promise<JevAdminSummary> {
       WHERE a."createdAt" >= ${since}
         AND kv.key <> 'requeues'
         AND JSONB_TYPEOF(kv.value) = 'number'
+        AND (kv.value)::float8 >= 0
       GROUP BY kv.key
     `,
     prisma.$queryRaw<{ status: string; count: number }[]>`
-      SELECT "status", COUNT(*)::int AS count FROM "JobAssessment"
-      WHERE "createdAt" >= ${since} GROUP BY "status" ORDER BY count DESC
+      SELECT outcome AS status, COUNT(*)::int AS count
+      FROM (
+        SELECT CASE
+          WHEN "startedAt" IS NULL AND "status" = 'failed' THEN 'never_started'
+          WHEN "startedAt" IS NULL AND "status" = 'queued' AND "createdAt" < ${queuedCutoff} THEN 'never_started'
+          WHEN "status" IN ('checking', 'fetching', 'assessing') AND "startedAt" < ${inProgressCutoff} THEN 'failed'
+          ELSE "status"
+        END AS outcome
+        FROM "JobAssessment"
+        WHERE "createdAt" >= ${since}
+      ) t
+      GROUP BY outcome ORDER BY count DESC
     `,
     prisma.$queryRaw<{ level: string; count: number }[]>`
       SELECT "level", COUNT(*)::int AS count FROM "JobAssessment"

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  averageStageTimings, estimateJevCostUsd, formatMs, formatUsd, orderStages, splitFailedFeature,
+  estimateJevCostUsd, formatMs, formatUsd, orderStages, splitFailedFeature,
 } from './usage-stats'
 
 describe('estimateJevCostUsd', () => {
@@ -12,24 +12,6 @@ describe('estimateJevCostUsd', () => {
     expect(estimateJevCostUsd(0)).toBe(0)
     expect(estimateJevCostUsd(-5)).toBe(0)
     expect(estimateJevCostUsd(Number.NaN)).toBe(0)
-  })
-})
-
-describe('averageStageTimings', () => {
-  it('averages per stage in pipeline order and skips requeues', () => {
-    const out = averageStageTimings([
-      { judge: 4000, verify: 1000, requeues: 2 },
-      { judge: 2000, verify: 3000 },
-    ])
-    expect(out).toEqual([
-      { stage: 'verify', avgMs: 2000, runs: 2 },
-      { stage: 'judge', avgMs: 3000, runs: 2 },
-    ])
-  })
-  it('ignores non-numeric values, non-objects and empty input', () => {
-    expect(averageStageTimings([])).toEqual([])
-    expect(averageStageTimings([null, 'x', 5, [1, 2], { facts: 'slow', judge: null, verify: Number.NaN }])).toEqual([])
-    expect(averageStageTimings([{ facts: 100 }, { facts: '9' }])).toEqual([{ stage: 'facts', avgMs: 100, runs: 1 }])
   })
 })
 

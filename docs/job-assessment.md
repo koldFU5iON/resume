@@ -114,8 +114,9 @@ assessment never breaks the original action.
   on different instances can't overshoot. A drain that finds the limit reached just returns.
 - **Deadlines.** Routes that queue export `maxDuration = ROUTE_MAX_DURATION_S` (300s). The drain's budget is that minus
   a 15s margin. A new run starts only while at least `MIN_RUN_START_MS` (60s) is left, and each stage starts only if the
-  time left covers its worst case (`STAGE_WORST_MS` in `run.ts`). Otherwise the row goes back to `queued` and the
-  stage's partial results are cleared; after `MAX_REQUEUES` (3) it fails with "kept running out of time".
+  time left covers its worst case (`STAGE_WORST_MS` in `run.ts`). Otherwise the whole run is reset to `queued`
+  (`signals`, `request`, `facts`, `factsHash`, `stageTimings` cleared apart from the `requeues` count) and starts again
+  from verify; after `MAX_REQUEUES` (3) it fails with "kept running out of time".
 - **Stale rules.** An in-progress row whose `startedAt` is older than `IN_PROGRESS_STALE_MS` (5 min) is treated as dead
   (its `after()` was killed): it stops counting towards concurrency and reads as failed / `error` in the UI. A queued
   row older than `QUEUED_STALE_MS` (15 min) is failed at the next drain start ("Timed out before it started") and the UI
@@ -147,7 +148,8 @@ Admins also see an **App-billed (Jev)** card on `/dashboard/settings/usage` (`ge
 - top users by assessment runs: total, average per active day, p95 per day
 - p50 and p95 of `processTimeMs`, for complete and failed runs
 - average time per stage (skipping `requeues`)
-- runs by status, and complete runs by level
+- runs by outcome, and complete runs by level. Top users and per-day figures count only runs that started; superseded or
+  expired-before-start rows get their own "never started" line, and stale in-progress rows count as failed (as in the UI)
 
 ## UI
 
