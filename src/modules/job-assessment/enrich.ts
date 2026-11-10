@@ -31,6 +31,9 @@ import { PLACEHOLDER_COMPANY, PLACEHOLDER_TITLE } from './verify'
 /** Enough output for a full job description (the capture flow's 400 is not). */
 const ENRICH_MAX_OUTPUT_TOKENS = 4000
 
+/** Bound on the cheap-model call; it runs inside after(). */
+export const ENRICH_TIMEOUT_MS = 30_000
+
 export interface EnrichJob {
   id: string
   url: string | null
@@ -81,10 +84,6 @@ export function missingFields(job: EnrichJob): EnrichField[] {
   return out
 }
 
-/**
- * Fetches `job.url` once and fills missing fields. Throws LLMError
- * (kind 'not_configured') when the user has no LLM key, before any fetch.
- */
 /** Whether `fetched` is clearly better than a non-empty `current` description. */
 export function isClearlyBetterDescription(current: string, fetched: string): boolean {
   const cur = current.trim().length
@@ -92,12 +91,27 @@ export function isClearlyBetterDescription(current: string, fetched: string): bo
   return next >= ASSESSMENT_CONFIG.verify.minDescriptionChars && next >= REPLACE_DESCRIPTION_MIN_RATIO * cur
 }
 
+/** Fields whose change can change the verify result; only these trigger a fetch or a re-verify. */
+export const VERIFY_FIELDS: ReadonlySet<EnrichedField> = new Set(['title', 'company', 'jobDescription', REPLACED_DESCRIPTION])
+
+/** Whether enrichment would fetch: a verify field is missing, or the description may be replaced. */
+export function needsEnrichment(job: EnrichJob, opts: EnrichOptions = {}): boolean {
+  return Boolean(opts.replaceDescription) || missingFields(job).some((f) => VERIFY_FIELDS.has(f))
+}
+
+/**
+ * Fetches `job.url` once and fills missing fields. Fetches only when the
+ * title, company or description is missing or a placeholder, or the
+ * description may be replaced; empty countries and salary band are then
+ * filled too, but never trigger a fetch on their own. Throws LLMError
+ * (kind 'not_configured') when the user has no LLM key, before any fetch.
+ */
 export async function enrichJob(profileId: string, job: EnrichJob, opts: EnrichOptions = {}): Promise<EnrichResult> {
   if (!job.url) return { filled: [], job, error: 'The job has no URL to fetch details from' }
+  if (!needsEnrichment(job, opts)) return { filled: [], job, error: 'Nothing the job page could fix' }
 
   const missing = missingFields(job)
   const mayReplaceDescription = Boolean(opts.replaceDescription) && !missing.includes('jobDescription')
-  if (missing.length === 0 && !mayReplaceDescription) return { filled: [], job }
 
   const model = await resolveFastModel(profileId)
 
@@ -108,8 +122,16 @@ export async function enrichJob(profileId: string, job: EnrichJob, opts: EnrichO
     feature: 'job-assessment-enrich',
     model,
     maxOutputTokens: ENRICH_MAX_OUTPUT_TOKENS,
+    timeoutMs: ENRICH_TIMEOUT_MS,
+    redactInvalidOutput: true,
   })
-  if (!extracted.ok) return { filled: [], job, error: 'Could not read job details from the page' }
+  if (!extracted.ok) {
+    return {
+      filled: [],
+      job,
+      error: extracted.timedOut ? 'Reading the job page timed out' : 'Could not read job details from the page',
+    }
+  }
   const data = extracted.data
 
   const updates: Partial<Pick<EnrichJob, EnrichField>> = {}

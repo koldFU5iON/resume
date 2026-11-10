@@ -53,6 +53,10 @@ export type ExtractWithLLMOptions = {
   model?: string
   /** Default 400 (the capture/extract flows). */
   maxOutputTokens?: number
+  /** Abort after this many ms; a timeout returns `{ ok: false, timedOut: true }`. */
+  timeoutMs?: number
+  /** Log only zod issue paths on invalid output (the raw output echoes page text). */
+  redactInvalidOutput?: boolean
 }
 
 /**
@@ -76,6 +80,8 @@ export async function extractWithLLM(
       temperature: 0,
       feature: opts.feature ?? 'job-extract',
       ...(opts.model ? { model: opts.model } : {}),
+      ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+      ...(opts.redactInvalidOutput ? { redactInvalidOutput: true } : {}),
     })
     const raw = result.object
     const parsedDate = raw.datePublished ? new Date(raw.datePublished) : undefined
@@ -95,6 +101,9 @@ export async function extractWithLLM(
   } catch (err) {
     if (err instanceof LLMError && err.kind === 'not_configured') {
       return { ok: false, error: NO_KEY_ERROR }
+    }
+    if (err instanceof LLMError && err.kind === 'timeout') {
+      return { ok: false, error: 'Reading the job page timed out — try pasting manually.', timedOut: true }
     }
     return { ok: false, error: 'Could not extract details — try pasting manually.' }
   }

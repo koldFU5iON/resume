@@ -13,7 +13,7 @@ import {
 import type { Job } from '@/app/types/job-application'
 import { requireProfile } from '@/lib/session'
 import { getArchivedJobs } from './queries'
-import { queueJobAssessmentSafely } from '@/modules/job-assessment/queue'
+import { assessmentMaybeEnabled, queueJobAssessmentSafely } from '@/modules/job-assessment/queue'
 
 // Progress stages in funnel order. Used to compute "everything before stage X"
 // for the auto-advance logic below.
@@ -160,12 +160,15 @@ export async function updateJobApplication(
   if (jobDescription !== undefined) payload.jobDescription = jobDescription
   if (recruiterName !== undefined) payload.recruiterName = recruiterName || null
 
-  const touchesAssessedFields = ['title', 'company', 'jobDescription', 'countries', 'salaryBand']
-    .some(k => payload[k] !== undefined)
+  // The trigger's change detection needs the current values; skip the read
+  // entirely when the assessment can't run (env/flag, no DB) and the stale
+  // fit check doesn't need it either.
+  const checkAssessedFields = assessmentMaybeEnabled() &&
+    ['title', 'company', 'jobDescription', 'countries', 'salaryBand'].some(k => payload[k] !== undefined)
 
   // Read the current values once: for the stale fit/analysis check and to see
   // whether a field the early assessment reads actually changed.
-  const current = jobDescription !== undefined || touchesAssessedFields
+  const current = jobDescription !== undefined || checkAssessedFields
     ? await prisma.jobApplication.findFirst({
         where: { id, profileId: profile.id },
         select: {
@@ -192,7 +195,7 @@ export async function updateJobApplication(
   })
   if (result.count === 0) throw new Error('Job not found')
 
-  if (current && assessedFieldsChanged(current, payload)) {
+  if (checkAssessedFields && current && assessedFieldsChanged(current, payload)) {
     await queueJobAssessmentSafely(profile.id, id, { reason: 'edited' })
   }
 
@@ -218,10 +221,13 @@ export async function archiveJobApplication(id: string) {
 export async function updateJobSalaryBand(id: string, salaryBand: string | null) {
   const { profile } = await requireProfile()
 
-  const current = await prisma.jobApplication.findFirst({
-    where: { id, profileId: profile.id },
-    select: { salaryBand: true },
-  })
+  // Only the trigger needs the previous value: skip the read when it can't run.
+  const current = assessmentMaybeEnabled()
+    ? await prisma.jobApplication.findFirst({
+        where: { id, profileId: profile.id },
+        select: { salaryBand: true },
+      })
+    : null
 
   const result = await prisma.jobApplication.updateMany({
     where: { id, profileId: profile.id },

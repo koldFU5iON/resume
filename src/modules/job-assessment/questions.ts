@@ -300,9 +300,34 @@ export function dealbreakerQuestion(dealbreaker: string): NoulQuestion {
   }
 }
 
+/**
+ * Upper bound on years share questions in one judge request. Each years
+ * requirement asks 2 questions per role (both option orders), so a long CV
+ * with many years requirements can multiply out (10 roles × 8 requirements =
+ * 160). Questions only add their own small tokens (the state is billed once
+ * per request), but the count is bounded anyway to keep requests predictable.
+ *
+ * Choice: when over the cap, the OLDEST roles are dropped from the share
+ * questions (never from the state). A dropped role then contributes 0 years,
+ * so the estimate is a lower bound — the safe direction is "warn" rather than
+ * a false "met". The capability question still covers the whole CV, so a
+ * long, older track record can still turn a block into a stretch.
+ */
+export const MAX_SHARE_QUESTIONS = 160
+
+/** How many of the newest roles get share questions, given the facts. */
+export function shareRoleLimit(facts: Pick<JobFacts, 'requirements'>, roleCount: number): number {
+  const yearsRequirements = facts.requirements.filter((r) => requirementMode(r) === 'years').length
+  if (yearsRequirements === 0) return roleCount
+  return Math.min(roleCount, Math.floor(MAX_SHARE_QUESTIONS / (2 * yearsRequirements)))
+}
+
 export interface JudgeQuestionInput {
   facts: Pick<JobFacts, 'requirements'>
-  /** Role keys from buildCandidateState's timeline (`role_1` …). */
+  /**
+   * Role keys from buildCandidateState's timeline (`role_1` …), newest first,
+   * already cut to `shareRoleLimit` (combine must get the same cut timeline).
+   */
   roleKeys: readonly string[]
   /** From buildJudgePreferences; decides direction_fit / remote_match. */
   preferences: JudgePreferences | null

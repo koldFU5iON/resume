@@ -296,11 +296,14 @@ export function combineAssessment(input: CombineInput): AssessmentResult {
 
   // ── Relocation ──
   if (checkRelocation(eligibility, location, searchProfile.countries) === 'unconfirmed') {
+    const places = location.mode === 'remote_region' && location.remoteRegions.length ? location.remoteRegions : location.countries
+    const jobPlaces = countryList(places)
     blockers.push({
       kind: 'relocation', severity: 'unconfirmed',
-      label: `Must be based in ${countryList(location.mode === 'remote_region' && location.remoteRegions.length ? location.remoteRegions : location.countries)}`,
-      // checkRelocation only returns 'unconfirmed' when currentCountry is set.
-      detail: `You live in ${countryName(eligibility.currentCountry ?? '')}, and it isn't one of your target countries.`,
+      label: `Must be based in ${jobPlaces}`,
+      // checkRelocation only returns 'unconfirmed' when currentCountry is set and
+      // none of the job's countries is the user's country or a target country.
+      detail: `${places.length === 1 ? `${jobPlaces} isn't` : `None of ${jobPlaces} is`} among your target countries, and you live in ${countryName(eligibility.currentCountry ?? '')}.`,
     })
   }
 

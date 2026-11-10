@@ -5,6 +5,7 @@ import {
   buildCandidateState,
   candidateStateSize,
   cutAtSentence,
+  isPhoneLike,
   type CandidateSource,
 } from './candidate-state'
 
@@ -81,6 +82,38 @@ describe('buildCandidateState', () => {
     expect(state.summary).toContain('runs cross-functional programs')
   })
 
+  it('removes phone-like numbers in any format, but keeps year ranges and big numbers', () => {
+    const { state } = buildCandidateState(snapshot({
+      summary: 'Call 06.12.34.56.78 or (020) 7946-0958 or +44 20 7946 0958. Grew revenue to 10.000.000 in 2019-2021.',
+      experiences: [exp('Program Manager', 'Fictional Freight', '2021-03', null, 'Hotline 0800 123 4567 for clients.')],
+    }))
+    const json = JSON.stringify(state)
+    for (const leak of ['06.12.34.56.78', '7946-0958', '7946 0958', '0800 123 4567']) expect(json).not.toContain(leak)
+    expect(state.summary).toContain('10.000.000')
+    expect(state.summary).toContain('2019-2021')
+  })
+
+  it('removes first and last names as standalone words in the summary', () => {
+    const { state } = buildCandidateState(snapshot({
+      headline: 'Robin leads delivery',
+      summary: 'Ask Placeholder about Robinson Logistics. Robin, PM.',
+    }))
+    expect(state.summary).not.toMatch(/\bRobin\b/)
+    expect(state.summary).not.toMatch(/\bPlaceholder\b/)
+    expect(state.summary).toContain('Robinson Logistics')
+  })
+
+  it("removes the user's own number even when written like an amount", () => {
+    const { state } = buildCandidateState(snapshot({ phone: '+33 612 345 678', summary: 'Reach me on 612 345 678. Budget 12 000 000.' }))
+    expect(state.summary).not.toContain('612 345 678')
+    expect(state.summary).toContain('12 000 000')
+  })
+
+  it('keeps short name parts (under 3 characters)', () => {
+    const { state } = buildCandidateState(snapshot({ name: 'Al Placeholder', summary: 'Al ran the AI program.' }))
+    expect(state.summary).toContain('Al ran')
+  })
+
   it('keeps every role and its dates when one role is very long', () => {
     const s = snapshot({
       experiences: [
@@ -129,5 +162,20 @@ describe('cutAtSentence', () => {
     const out = cutAtSentence('word '.repeat(50), 40)
     expect(out.length).toBeLessThanOrEqual(40)
     expect(out.endsWith('…')).toBe(true)
+  })
+})
+
+describe('isPhoneLike', () => {
+  it.each([
+    ['+33 6 12 34 56 78', true],
+    ['06-12-34-56-78', true],
+    ['(020) 7946 0958', true],
+    ['1234567', false],
+    ['2019-2021', false],
+    ['1.000.000', false],
+    ['10,000,000', false],
+    ['12 000 000', false],
+  ])('%s → %s', (text, expected) => {
+    expect(isPhoneLike(text)).toBe(expected)
   })
 })

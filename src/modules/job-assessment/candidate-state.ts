@@ -9,7 +9,11 @@
  *   every years estimate collapse to the latest role.
  * - Each role's description is capped (1,200 chars, cut at a sentence end).
  * - No name, email, phone, links or address. Emails and URLs inside free text
- *   are removed too, and any exact copy of the contact fields.
+ *   are removed too, and any exact copy of the contact fields. Phone-like
+ *   sequences (8+ digits once spaces, dots, dashes, brackets and a leading +
+ *   are ignored) are removed everywhere, except year ranges ("2019-2021") and
+ *   thousands-grouped numbers ("10.000.000"). In the summary, the user's first
+ *   and last names (3+ characters) are removed as standalone words too.
  * - `dates` is text for people to read; Jev is never asked to do date maths.
  *
  * Size budget: CANDIDATE_STATE_CHAR_BUDGET (32k chars of JSON ≈ 8k tokens at
@@ -100,11 +104,39 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-/** Removes emails, URLs and exact copies of the contact fields from free text. */
+/** A run of digits with phone-style separators; checked by `isPhoneLike`. */
+const PHONE_CANDIDATE_RE = /(?<![\p{L}\p{N}])\+?\(?\d[\d \t.\-()]{6,}\d(?![\p{L}\p{N}])/gu
+
+/**
+ * 8+ digits once separators are ignored, and not a year range or an amount
+ * written with thousands separators ("10.000.000", "12 000 000"). The user's
+ * own number is removed whatever its format (see `removePhones`).
+ */
+export function isPhoneLike(match: string): boolean {
+  const digits = match.replace(/\D/g, '')
+  if (digits.length < 8) return false
+  const t = match.trim()
+  if (/^(?:19|20)\d{2}\s*[-–]\s*(?:19|20)\d{2}$/.test(t)) return false
+  if (/^\d{1,3}(?:[., ]\d{3})+$/.test(t)) return false
+  return true
+}
+
+/** Removes phone-like runs, and any run whose digits end with the user's own number (last 8 digits). */
+function removePhones(text: string, ownPhoneTail: string | null): string {
+  return text.replace(PHONE_CANDIDATE_RE, (m) => {
+    const digits = m.replace(/\D/g, '')
+    if (ownPhoneTail && digits.endsWith(ownPhoneTail)) return ''
+    return isPhoneLike(m) ? '' : m
+  })
+}
+
+/** Removes emails, URLs, phone-like numbers and exact copies of the contact fields from free text. */
 function makeScrubber(snapshot: CandidateSource): (text: string) => string {
   const exact = [snapshot.email, snapshot.phone, snapshot.website, snapshot.linkedin]
     .map((v) => v?.trim())
     .filter((v): v is string => Boolean(v && v.length >= 4))
+  const phoneDigits = snapshot.phone?.replace(/\D/g, '') ?? ''
+  const ownPhoneTail = phoneDigits.length >= 8 ? phoneDigits.slice(-8) : null
   const exactRe = exact.length > 0 ? new RegExp(exact.map(escapeRegExp).join('|'), 'gi') : null
   const name = snapshot.name?.trim()
   const nameRe = name && name.length >= 3 ? new RegExp(`\\b${escapeRegExp(name)}\\b`, 'gi') : null
@@ -112,9 +144,26 @@ function makeScrubber(snapshot: CandidateSource): (text: string) => string {
   return (text: string) => {
     let out = text
     if (exactRe) out = out.replace(exactRe, '')
-    out = out.replace(EMAIL_RE, '').replace(URL_RE, '')
+    out = removePhones(out.replace(EMAIL_RE, '').replace(URL_RE, ''), ownPhoneTail)
     if (nameRe) out = out.replace(nameRe, 'The candidate')
     return out.replace(/[ \t]{2,}/g, ' ').replace(/\s+([.,;:])/g, '$1').trim()
+  }
+}
+
+/**
+ * Scrubber for the summary: also removes the user's first and last names
+ * (each 3+ characters) as standalone words, after the full name has become
+ * "The candidate".
+ */
+function makeSummaryScrubber(snapshot: CandidateSource, scrub: (text: string) => string): (text: string) => string {
+  const parts = [...new Set((snapshot.name ?? '').split(/\s+/).map((p) => p.trim()).filter((p) => p.length >= 3))]
+  const partsRe = parts.length > 0
+    ? new RegExp(`(?<![\\p{L}\\p{N}])(?:${parts.map(escapeRegExp).join('|')})(?![\\p{L}\\p{N}])`, 'giu')
+    : null
+  return (text: string) => {
+    let out = scrub(text)
+    if (partsRe) out = out.replace(partsRe, '').replace(/[ \t]{2,}/g, ' ').replace(/\s+([.,;:])/g, '$1').trim()
+    return out
   }
 }
 
@@ -165,9 +214,10 @@ interface Built {
 
 function build(snapshot: CandidateSource, roleCap: number, skillsPerCategory: number | null): Built {
   const scrub = makeScrubber(snapshot)
+  const scrubSummary = makeSummaryScrubber(snapshot, scrub)
 
   const summary = cutAtSentence(
-    [snapshot.headline, snapshot.summary].map((s) => (s ? scrub(s) : '')).filter(Boolean).map(sentence).join(' '),
+    [snapshot.headline, snapshot.summary].map((s) => (s ? scrubSummary(s) : '')).filter(Boolean).map(sentence).join(' '),
     SUMMARY_MAX_CHARS,
   )
 

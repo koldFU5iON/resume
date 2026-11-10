@@ -196,6 +196,54 @@ describe('LLM client logging', () => {
       completeStructured('profile-1', 'hello', schema, { feature: 'cv-import' }),
     ).rejects.toThrow('LLM output did not match the expected schema.')
   })
+
+  const invalidOutput = () => new NoObjectGeneratedError({
+    message: 'No object generated: response did not match schema.',
+    cause: Object.assign(new Error('Type validation failed'), {
+      issues: [{ path: ['requirements', 3, 'text'], message: 'Too long', input: 'SECRET JOB TEXT' }],
+    }),
+    text: 'SECRET JOB TEXT and more',
+    response,
+    usage,
+    finishReason: 'stop',
+  })
+
+  it('logs raw output on invalid output by default (other features unchanged)', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockGenerateText.mockRejectedValueOnce(invalidOutput())
+    await expect(completeStructured('profile-1', 'hello', z.object({ n: z.number() }), { feature: 'cv-import' }))
+      .rejects.toMatchObject({ kind: 'invalid_output' })
+    expect(JSON.stringify(err.mock.calls)).toContain('SECRET JOB TEXT')
+    err.mockRestore()
+  })
+
+  it('logs only issue paths when redactInvalidOutput is set', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockGenerateText.mockRejectedValueOnce(invalidOutput())
+    await expect(completeStructured('profile-1', 'hello', z.object({ n: z.number() }), {
+      feature: 'job-assessment-facts', redactInvalidOutput: true,
+    })).rejects.toMatchObject({ kind: 'invalid_output' })
+    const logged = JSON.stringify(err.mock.calls)
+    expect(logged).not.toContain('SECRET')
+    expect(logged).toContain('requirements.3.text')
+    err.mockRestore()
+  })
+
+  it('passes an abort signal when timeoutMs is set, and none otherwise', async () => {
+    await completeStructured('profile-1', 'hello', z.object({ name: z.string() }), { feature: 'x', timeoutMs: 30_000 })
+    expect(mockGenerateText.mock.calls[0][0].abortSignal).toBeInstanceOf(AbortSignal)
+    await completeStructured('profile-1', 'hello', z.object({ name: z.string() }), { feature: 'x' })
+    expect(mockGenerateText.mock.calls[1][0]).not.toHaveProperty('abortSignal')
+  })
+
+  it('maps an elapsed timeout to LLMError kind timeout', async () => {
+    mockGenerateText.mockImplementationOnce((async (args: { abortSignal?: AbortSignal }) => {
+      await new Promise((r) => setTimeout(r, 20))
+      throw args.abortSignal?.reason ?? new Error('aborted')
+    }) as never)
+    await expect(completeStructured('profile-1', 'hello', z.object({ name: z.string() }), { feature: 'x', timeoutMs: 1 }))
+      .rejects.toMatchObject({ name: 'LLMError', kind: 'timeout' })
+  })
 })
 
 describe('resolveFastModel', () => {

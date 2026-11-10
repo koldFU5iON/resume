@@ -14,8 +14,8 @@ vi.mock('@/modules/jev/client', async () => {
   return { ...actual, askJev: vi.fn() }
 })
 vi.mock('@/modules/profile/snapshot', () => ({ buildProfileSnapshot: vi.fn() }))
-vi.mock('./facts', () => ({ extractJobFacts: vi.fn() }))
-vi.mock('./enrich', () => ({ enrichJob: vi.fn() }))
+vi.mock('./facts', async (orig) => ({ ...(await orig<typeof import('./facts')>()), extractJobFacts: vi.fn() }))
+vi.mock('./enrich', async (orig) => ({ ...(await orig<typeof import('./enrich')>()), enrichJob: vi.fn() }))
 
 import { prisma } from '@/lib/db'
 import { askJev, JevError } from '@/modules/jev/client'
@@ -24,7 +24,11 @@ import { buildProfileSnapshot, type ProfileSnapshot } from '@/modules/profile/sn
 import { MissingAnswerError } from './combine'
 import { enrichJob } from './enrich'
 import { extractJobFacts } from './facts'
-import { classifyFailure, descriptionIncomplete, JEV_CALL_BOUNDS, runJobAssessment, timed, withCountryFallback } from './run'
+import { Prisma } from '@prisma/client'
+import {
+  classifyFailure, descriptionIncomplete, JEV_CALL_BOUNDS, MAX_REQUEUES, REQUEUE_LIMIT_REASON, runJobAssessment, STAGE_WORST_MS,
+  timed, withCountryFallback,
+} from './run'
 import type { JobFacts } from './schema'
 
 const mockClaim = vi.mocked(prisma.jobAssessment.updateMany)
@@ -108,6 +112,8 @@ function statusUpdates(): string[] {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // Drop queued *Once values a test left unconsumed (clearAllMocks keeps them).
+  for (const m of [mockFacts, mockEnrich, mockAskJev, mockUpdate, mockRow, mockJob]) m.mockReset()
   mockClaim.mockResolvedValue({ count: 1 })
   mockUpdate.mockResolvedValue({} as never)
   mockRow.mockResolvedValue({ profileId: 'p1', jobApplicationId: 'job-1', createdAt } as never)
@@ -226,14 +232,65 @@ describe('runJobAssessment', () => {
 
   it('fails verification after the retry still fails', async () => {
     mockAskJev.mockResolvedValue(verifyFail as never)
-    mockEnrich.mockResolvedValueOnce({ filled: ['salaryBand'], job: { ...baseJob, salaryBand: '€90k' } })
+    mockEnrich.mockResolvedValueOnce({
+      filled: ['jobDescription (replaced truncated)', 'salaryBand'],
+      job: { ...baseJob, jobDescription: `${LONG_JD}${LONG_JD}`, salaryBand: '€90k' },
+    })
     await expect(runJobAssessment('a1')).resolves.toBe('failed')
     expect(mockAskJev).toHaveBeenCalledTimes(2)
     expect(lastUpdateData()).toMatchObject({
       status: 'failed', failureKind: 'verification', failureReasons: ['Description looks incomplete or truncated'],
-      enrichedFields: ['salaryBand'],
+      enrichedFields: ['jobDescription (replaced truncated)', 'salaryBand'],
     })
     expect(mockFacts).not.toHaveBeenCalled()
+  })
+
+  it('does not re-verify when enrichment filled only countries or salary', async () => {
+    mockAskJev.mockResolvedValue(verifyFail as never)
+    mockEnrich.mockResolvedValueOnce({ filled: ['countries', 'salaryBand'], job: { ...baseJob, salaryBand: '€90k' } })
+    await expect(runJobAssessment('a1')).resolves.toBe('failed')
+    expect(mockAskJev).toHaveBeenCalledTimes(1)
+    const data = lastUpdateData()
+    expect(data).toMatchObject({ failureKind: 'verification', enrichedFields: ['countries', 'salaryBand'] })
+    expect(Object.keys(data.stageTimings as object).sort()).toEqual(['enrich', 'verify'])
+  })
+
+  it('caps the description in the verify state', async () => {
+    const huge = 'A sentence about the role. '.repeat(3000)
+    mockJob.mockResolvedValueOnce({ ...baseJob, jobDescription: huge } as never)
+    await runJobAssessment('a1')
+    const state = mockAskJev.mock.calls[0][1].state as { description: string }
+    expect(state.description.length).toBeLessThanOrEqual(40_000)
+    const judge = mockAskJev.mock.calls[1][1].state as { job: { description: string } }
+    expect(judge.job.description.length).toBeLessThanOrEqual(40_000)
+  })
+
+  it('asks share questions for the newest roles only when over the cap, and combines on the same roles', async () => {
+    const roles = Array.from({ length: 15 }, (_, i) => ({
+      role: `Role ${i}`, company: `Co ${i}`, startDate: new Date(Date.UTC(2010 + i, 0, 1)),
+      endDate: i === 14 ? null : new Date(Date.UTC(2011 + i, 0, 1)), location: null, remote: false, summary: 'Work.', activities: [],
+    }))
+    vi.mocked(buildProfileSnapshot).mockResolvedValueOnce({ ...snapshot, experiences: roles })
+    const yearsReqs = Array.from({ length: 8 }, (_, i) => ({
+      text: `Req ${i}`, kind: 'experience' as const, importance: 'must' as const, years: { min: 2, area: `area ${i}` }, parts: null,
+    }))
+    mockFacts.mockResolvedValueOnce({ facts: { ...facts, requirements: yearsReqs }, factsHash: 'h', cached: true })
+    // Answer every question asked so combine succeeds only if it uses the same (cut) timeline.
+    mockAskJev.mockImplementation(async (_p, req, opts) => {
+      if (opts.feature === 'job-assessment-verify') return verifyPass as never
+      const answers: Record<string, unknown> = { ...judgeOk.answers }
+      for (const [id, q] of Object.entries(req.questions as Record<string, { type: string }>)) {
+        if (q.type === 'choice' && /_role_/.test(id)) answers[id] = { type: 'choice', choice: 'none', probabilities: { none: 1 } }
+        if (q.type === 'noul' && id.endsWith('_capability')) answers[id] = { type: 'noul', noul: 0.2 }
+      }
+      return { ...judgeOk, answers } as never
+    })
+    await expect(runJobAssessment('a1')).resolves.toBe('complete')
+    const ids = Object.keys(mockAskJev.mock.calls[1][1].questions as object)
+    const shares = ids.filter((id) => /_role_\d+_[ab]$/.test(id))
+    expect(shares.length).toBeLessThanOrEqual(160)
+    expect(ids.some((id) => id.includes('_role_11_'))).toBe(false)
+    expect(ids.some((id) => id.includes('_role_10_'))).toBe(true)
   })
 
   it('skips the retry when enrichment filled nothing', async () => {
@@ -314,6 +371,8 @@ describe('classifyFailure', () => {
     [new JevError('overloaded', 'x'), 'overloaded'],
     [new JevError('auth', 'x'), 'error'],
     [new JevError('unavailable', 'x'), 'error'],
+    [new JevError('context_exceeded', 'x'), 'error'],
+    [new LLMError('x', 'timeout'), 'error'],
     [new LLMError('x', 'not_configured'), 'no_llm_key'],
     [new LLMError('x', 'rate_limit'), 'error'],
     [new MissingAnswerError('req_0'), 'error'],
@@ -323,6 +382,11 @@ describe('classifyFailure', () => {
     expect(out.kind).toBe(kind)
     expect(out.reasons).toHaveLength(1)
     expect(out.reasons[0]).not.toContain('x x')
+  })
+
+  it('explains a too-long request and a cheap-model timeout', () => {
+    expect(classifyFailure(new JevError('context_exceeded', 'x')).reasons[0]).toMatch(/too long to assess/)
+    expect(classifyFailure(new LLMError('x', 'timeout')).reasons[0]).toMatch(/took too long/)
   })
 
   it('never echoes the raw error message', () => {
@@ -356,5 +420,71 @@ describe('descriptionIncomplete', () => {
     expect(descriptionIncomplete(['Description is too short (34 characters; at least 600 needed)'])).toBe(true)
     expect(descriptionIncomplete(['No candidate requirements found'])).toBe(false)
     expect(descriptionIncomplete(['Company is missing', 'Job description is missing'])).toBe(false)
+  })
+})
+
+describe('runJobAssessment — deadline', () => {
+  /** Fake clock; the facts stage advances it by `factsMs`. */
+  function clock(factsMs = 0) {
+    let now = 5_000_000
+    const spy = vi.spyOn(Date, 'now').mockImplementation(() => now)
+    mockFacts.mockImplementation(async () => { now += factsMs; return { facts, factsHash: 'hash-1', cached: false } })
+    return { now: () => now, restore: () => spy.mockRestore() }
+  }
+
+  it('re-queues a slow stage near the deadline instead of failing', async () => {
+    const c = clock(10_000)
+    // verify (50s) and facts (35s) fit; after facts 45s are left, judge needs 50s.
+    const outcome = await runJobAssessment('a1', { deadline: c.now() + 55_000 })
+    c.restore()
+    expect(outcome).toBe('requeued')
+    expect(mockAskJev).toHaveBeenCalledTimes(1) // verify only
+    expect(lastUpdateData()).toEqual({
+      status: 'queued',
+      startedAt: null,
+      stageTimings: { requeues: 1 },
+      failureKind: null,
+      failureReasons: [],
+      enrichedFields: [],
+      jevModel: null,
+      signals: Prisma.DbNull,
+      request: Prisma.DbNull,
+      facts: Prisma.DbNull,
+      factsHash: null,
+    })
+  })
+
+  it('re-queues before verify when not even the first stage fits', async () => {
+    const c = clock()
+    const outcome = await runJobAssessment('a1', { deadline: c.now() + STAGE_WORST_MS.verify - 1 })
+    c.restore()
+    expect(outcome).toBe('requeued')
+    expect(mockAskJev).not.toHaveBeenCalled()
+  })
+
+  it('runs every stage when the deadline is far enough', async () => {
+    const c = clock(10_000)
+    const outcome = await runJobAssessment('a1', { deadline: c.now() + 300_000 })
+    c.restore()
+    expect(outcome).toBe('complete')
+  })
+
+  it(`fails with a clear reason after ${MAX_REQUEUES} re-queues`, async () => {
+    mockRow.mockResolvedValueOnce({ profileId: 'p1', jobApplicationId: 'job-1', createdAt, stageTimings: { requeues: MAX_REQUEUES } } as never)
+    const c = clock()
+    const outcome = await runJobAssessment('a1', { deadline: c.now() + 1_000 })
+    c.restore()
+    expect(outcome).toBe('failed')
+    expect(lastUpdateData()).toMatchObject({
+      status: 'failed', failureKind: 'error', failureReasons: [REQUEUE_LIMIT_REASON],
+      stageTimings: { requeues: MAX_REQUEUES },
+    })
+  })
+
+  it('a re-queued row runs from scratch on the next drain and keeps its re-queue count', async () => {
+    mockRow.mockResolvedValueOnce({ profileId: 'p1', jobApplicationId: 'job-1', createdAt, stageTimings: { requeues: 1 } } as never)
+    await expect(runJobAssessment('a1', { deadline: Date.now() + 300_000 })).resolves.toBe('complete')
+    expect(mockAskJev).toHaveBeenCalledTimes(2)
+    expect(lastUpdateData().stageTimings).toMatchObject({ requeues: 1, verify: expect.any(Number), judge: expect.any(Number) })
   })
 })

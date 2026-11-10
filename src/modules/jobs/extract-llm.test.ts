@@ -111,6 +111,16 @@ describe('extractWithLLM', () => {
     expect(opts).toEqual({ maxOutputTokens: 400, temperature: 0, feature: 'job-extract' })
   })
 
+  it('forwards the timeout and redaction, and reports a timeout', async () => {
+    const { completeStructured } = await import('@/modules/llm/client')
+    const { LLMError } = await import('@/modules/llm/errors')
+    vi.mocked(completeStructured).mockRejectedValueOnce(new LLMError('timed out', 'timeout'))
+    const res = await extractWithLLM('<p>job</p>', 'p1', { timeoutMs: 30_000, redactInvalidOutput: true })
+    expect(res).toMatchObject({ ok: false, timedOut: true })
+    const opts = vi.mocked(completeStructured).mock.calls.at(-1)![3]
+    expect(opts).toMatchObject({ timeoutMs: 30_000, redactInvalidOutput: true })
+  })
+
   it('forwards feature, model and output cap overrides', async () => {
     const { completeStructured } = await import('@/modules/llm/client')
     vi.mocked(completeStructured).mockResolvedValueOnce({ object: { title: 'PM' } } as never)

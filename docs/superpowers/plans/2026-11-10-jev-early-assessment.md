@@ -392,6 +392,8 @@ eligibility: z.object({
 - [ ] Admin usage: app-billed Jev card (cost, top users, runs per day, p50/p95 process time, average per stage). `FEATURE_LABELS`.
 - [ ] User usage page: separate app-billed Jev rows (`provider = 'typesafe'`) from own-key usage. The page says "each call uses your own API key", which isn't true for Jev. Must ship with Phase 3 (PR #330 review).
 - [ ] `scripts/assessment-compare.ts` + `npm run assess:compare`.
+- [ ] Queue continuation: rows still queued when a drain hits its deadline only run on the next trigger for that profile. Add a self-continuation endpoint (secret-authenticated POST that drains) or a cron that drains profiles with queued rows, so a large batch finishes without user action (PR #332 review).
+- [ ] Admin card: skip `stageTimings.requeues` when averaging stage times.
 - [ ] Run it over your active jobs. Hand-check the disagreements, adjust `ASSESSMENT_CONFIG`, and bump `PIPELINE_VERSION` on each change.
 - [ ] `docs/job-assessment.md`.
 

@@ -11,6 +11,7 @@ export type QuickCaptureResult =
   | { ok: false; error: string }
 
 export async function quickCaptureJob(rawUrl: string): Promise<QuickCaptureResult> {
+  const requestStartedAt = Date.now()
   const url = rawUrl.trim()
   if (!url) return { ok: false, error: 'URL is required' }
 
@@ -53,7 +54,7 @@ export async function quickCaptureJob(rawUrl: string): Promise<QuickCaptureResul
     select: { id: true, title: true, company: true },
   })
 
-  await queueJobAssessmentSafely(profile.id, job.id, { reason: 'quick-capture' })
+  await queueJobAssessmentSafely(profile.id, job.id, { reason: 'quick-capture', requestStartedAt })
 
   revalidatePath('/dashboard/job-applications')
   return { ok: true, jobId: job.id, title: job.title, company: job.company ?? null, duplicate: false }

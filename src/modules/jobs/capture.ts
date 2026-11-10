@@ -69,6 +69,10 @@ const PLACEHOLDER_COMPANY = '(unknown)'
 export async function captureJobFromUrl(
   profileId: string,
   input: CaptureInput,
+  opts: {
+    /** Date.now() at the start of the request; the assessment drain deadline counts from it. */
+    requestStartedAt?: number
+  } = {},
 ): Promise<CaptureResult> {
   const prepared = await prepareJobCapture(profileId, input.url)
   if (!prepared.ok) return prepared
@@ -104,7 +108,10 @@ export async function captureJobFromUrl(
 
   // Runs after the response via after(); works from the bearer-token capture
   // route and inside the batch-capture stream (both are request scopes).
-  await queueJobAssessmentSafely(profileId, created.id, { reason: 'capture' })
+  await queueJobAssessmentSafely(profileId, created.id, {
+    reason: 'capture',
+    requestStartedAt: opts.requestStartedAt,
+  })
 
   return {
     ok: true,

@@ -41,6 +41,9 @@ const FEATURE_LABELS: Record<string, string> = {
   'job-hunt-ats-discovery':              'Job hunt — ATS discovery',
   'job-hunt-fit':                        'Job hunt — fit score',
   'scout-triage':                        'Scout Inbox — triage',
+  // Jev rows (verify/judge) are app-billed and excluded from this user page
+  // (see getUserUsageSummary); these two labels stay for the admin app-billed
+  // card (Phase 5), which will reuse them.
   'job-assessment-verify':               'Early assessment — verify (Jev)',
   'job-assessment-judge':                'Early assessment — judge (Jev)',
   'job-assessment-enrich':               'Early assessment — fetch details',

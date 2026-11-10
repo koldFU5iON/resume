@@ -303,13 +303,19 @@ describe('blockers table', () => {
       const res = run({ facts })
       expect(res.blockers).toContainEqual({
         kind: 'relocation', severity: 'unconfirmed', label: 'Must be based in Ireland',
-        detail: "You live in France, and it isn't one of your target countries.",
+        detail: "Ireland isn't among your target countries, and you live in France.",
       })
       expect(res.blocked).toBe(false)
     })
 
     it('is clear when the country is a target', () => {
       expect(severities(run({ facts, targets: ['Ireland'] }), 'relocation')).toEqual([])
+    })
+
+    it('names every job country when there are several', () => {
+      const res = run({ facts: { location: { ...facts.location, countries: ['IE', 'GB'] } } })
+      expect(res.blockers.find((b) => b.kind === 'relocation')?.detail)
+        .toBe('None of Ireland, United Kingdom is among your target countries, and you live in France.')
     })
   })
 

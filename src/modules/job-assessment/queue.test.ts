@@ -9,7 +9,7 @@ vi.mock('@/lib/db', () => ({
 }))
 vi.mock('@/lib/session', () => ({ isAdminUser: vi.fn() }))
 vi.mock('next/server', () => ({ after: vi.fn() }))
-vi.mock('./run', () => ({ runJobAssessment: vi.fn() }))
+vi.mock('./run', async (orig) => ({ ...(await orig<typeof import('./run')>()), runJobAssessment: vi.fn() }))
 
 import { after } from 'next/server'
 import { prisma } from '@/lib/db'
@@ -17,13 +17,18 @@ import { isAdminUser } from '@/lib/session'
 import {
   activeDrainCount,
   assessmentFlag,
+  assessmentMaybeEnabled,
+  DRAIN_TIME_BUDGET_MS,
   drainProfileQueue,
   isAssessmentEnabledFor,
+  MAX_RESCHEDULES,
   MAX_RUNS_PER_DRAIN,
+  MIN_RUN_START_MS,
   queueJobAssessment,
   queueJobAssessmentSafely,
+  STALE_QUEUED_REASON,
 } from './queue'
-import { runJobAssessment } from './run'
+import { runJobAssessment, STAGE_WORST_MS } from './run'
 import { PIPELINE_VERSION } from './schema'
 
 const mockAfter = vi.mocked(after)
@@ -39,7 +44,7 @@ beforeEach(() => {
   vi.mocked(prisma.jobApplication.findFirst).mockResolvedValue({ id: 'job-1' } as never)
   a.updateMany.mockResolvedValue({ count: 0 })
   a.create.mockResolvedValue({ id: 'as-1' } as never)
-  a.count.mockResolvedValue(0)
+  a.count.mockResolvedValue(0) // no runs in progress, and nothing queued on the post-drain re-check
   a.findFirst.mockResolvedValue(null)
   mockAdmin.mockResolvedValue(false)
 })
@@ -77,6 +82,17 @@ describe('isAssessmentEnabledFor', () => {
   it('all: everyone', async () => {
     expect(await isAssessmentEnabledFor('p1')).toBe(true)
     expect(mockAdmin).not.toHaveBeenCalled()
+  })
+})
+
+describe('assessmentMaybeEnabled', () => {
+  it('is a sync env/flag check', () => {
+    expect(assessmentMaybeEnabled()).toBe(true)
+    vi.stubEnv('JOB_ASSESSMENT_V2', 'off')
+    expect(assessmentMaybeEnabled()).toBe(false)
+    vi.stubEnv('JOB_ASSESSMENT_V2', 'admin')
+    vi.stubEnv('TYPESAFE_API_KEY', '')
+    expect(assessmentMaybeEnabled()).toBe(false)
   })
 })
 
@@ -169,6 +185,7 @@ describe('drainProfileQueue', () => {
     expect(a.count).toHaveBeenCalledWith({
       where: { profileId: 'p1', status: { in: ['checking', 'fetching', 'assessing'] }, startedAt: { gte: expect.any(Date) } },
     })
+    expect(mockRun).not.toHaveBeenCalled()
     expect(a.findFirst).not.toHaveBeenCalled()
     expect(activeDrainCount('p1')).toBe(0)
   })
@@ -209,5 +226,122 @@ describe('drainProfileQueue', () => {
     await expect(drainProfileQueue('p1')).resolves.toBe(0)
     expect(activeDrainCount('p1')).toBe(0)
     err.mockRestore()
+  })
+})
+
+describe('drainProfileQueue — deadline, stale rows, re-checks', () => {
+  const inProgressWhere = (args: unknown) =>
+    Boolean((args as { where: { status: unknown } }).where.status && typeof (args as { where: { status: unknown } }).where.status === 'object')
+
+  it('fails queued rows older than the stale window before running anything', async () => {
+    await drainProfileQueue('p1')
+    expect(a.updateMany).toHaveBeenCalledWith({
+      where: { profileId: 'p1', status: 'queued', createdAt: { lt: expect.any(Date) } },
+      data: { status: 'failed', failureKind: 'superseded', failureReasons: [STALE_QUEUED_REASON], completedAt: expect.any(Date) },
+    })
+    const cutoff = (a.updateMany.mock.calls[0][0] as { where: { createdAt: { lt: Date } } }).where.createdAt.lt
+    expect(Date.now() - cutoff.getTime()).toBeGreaterThanOrEqual(15 * 60_000 - 1000)
+  })
+
+  it('MIN_RUN_START_MS covers the first stage', () => {
+    expect(MIN_RUN_START_MS).toBeGreaterThanOrEqual(STAGE_WORST_MS.verify)
+  })
+
+  it('does not start a run when less than MIN_RUN_START_MS is left', async () => {
+    a.findFirst.mockResolvedValue({ id: 'r1' } as never)
+    expect(await drainProfileQueue('p1', { deadline: Date.now() + MIN_RUN_START_MS - 1_000 })).toBe(0)
+    expect(mockRun).not.toHaveBeenCalled()
+  })
+
+  /** Fake clock: each run advances it by `runMs`. */
+  function fakeClock(runMs: number) {
+    let now = 1_000_000
+    const spy = vi.spyOn(Date, 'now').mockImplementation(() => now)
+    mockRun.mockImplementation(async () => { now += runMs; return 'complete' })
+    return { start: now, restore: () => spy.mockRestore() }
+  }
+
+  it('completes a batch of many fast runs within one drain', async () => {
+    const clock = fakeClock(8_000)
+    let n = 0
+    a.findFirst.mockImplementation((async () => (n < 20 ? { id: `r${n++}` } : null)) as never)
+    const ran = await drainProfileQueue('p1', { deadline: clock.start + DRAIN_TIME_BUDGET_MS })
+    clock.restore()
+    expect(ran).toBe(20)
+  })
+
+  it('passes the deadline to each run', async () => {
+    a.findFirst.mockResolvedValueOnce({ id: 'r1' } as never).mockResolvedValue(null)
+    mockRun.mockResolvedValue('complete')
+    const deadline = Date.now() + 200_000
+    await drainProfileQueue('p1', { deadline })
+    expect(mockRun).toHaveBeenCalledWith('r1', { deadline })
+  })
+
+  it('stops starting runs once less than MIN_RUN_START_MS is left', async () => {
+    const clock = fakeClock(60_000)
+    a.findFirst.mockResolvedValue({ id: 'r1' } as never)
+    const ran = await drainProfileQueue('p1', { deadline: clock.start + 285_000 })
+    clock.restore()
+    expect(ran).toBe(4) // starts at 0, 60, 120, 180s; at 240s only 45s are left
+  })
+
+  it('stops after a run re-queues itself, and the next drain runs that row', async () => {
+    a.findFirst.mockResolvedValue({ id: 'slow' } as never)
+    mockRun.mockResolvedValueOnce('requeued')
+    expect(await drainProfileQueue('p1')).toBe(0)
+    expect(mockRun).toHaveBeenCalledTimes(1)
+    expect(a.count.mock.calls.filter((c) => !(c[0] as { where: { status: unknown } }).where.status
+      || typeof (c[0] as { where: { status: unknown } }).where.status === 'string')).toHaveLength(0) // no post-drain re-check
+
+    a.findFirst.mockReset()
+    a.findFirst.mockResolvedValueOnce({ id: 'slow' } as never).mockResolvedValue(null)
+    mockRun.mockResolvedValueOnce('complete')
+    expect(await drainProfileQueue('p1')).toBe(1)
+    expect(mockRun).toHaveBeenLastCalledWith('slow', expect.any(Object))
+  })
+
+  it('takes the deadline from the request start when the caller passes it', async () => {
+    await queueJobAssessment('p1', 'job-1', { reason: 'capture', requestStartedAt: Date.now() - DRAIN_TIME_BUDGET_MS })
+    a.findFirst.mockResolvedValue({ id: 'r1' } as never)
+    await (mockAfter.mock.calls[0][0] as () => Promise<unknown>)()
+    expect(mockRun).not.toHaveBeenCalled()
+  })
+
+  it('re-checks the in-progress count before every run', async () => {
+    let inProgress = 0
+    a.count.mockImplementation((async (args: unknown) => (inProgressWhere(args) ? inProgress : 0)) as never)
+    a.findFirst.mockResolvedValue({ id: 'r1' } as never)
+    mockRun.mockImplementation(async () => { inProgress = 2; return 'complete' }) // another instance started two runs
+    expect(await drainProfileQueue('p1')).toBe(1)
+    expect(mockRun).toHaveBeenCalledTimes(1)
+  })
+
+  it('picks up a row queued while the last drain was finishing (stranding race)', async () => {
+    // Drain A finds the queue empty; meanwhile row r9 is queued and its own
+    // drain returned because A still held a slot. A's re-check finds it.
+    let queued = 0
+    a.count.mockImplementation((async (args: unknown) => (inProgressWhere(args) ? 0 : queued)) as never)
+    a.findFirst
+      .mockImplementationOnce((async () => { queued = 1; return null }) as never)
+      .mockImplementationOnce((async () => ({ id: 'r9' })) as never)
+      .mockResolvedValue(null)
+    mockRun.mockImplementation(async () => { queued = 0; return 'complete' })
+    expect(await drainProfileQueue('p1')).toBe(1)
+    expect(mockRun).toHaveBeenCalledWith('r9', { deadline: expect.any(Number) })
+    expect(activeDrainCount('p1')).toBe(0)
+  })
+
+  it('stops re-checking after MAX_RESCHEDULES', async () => {
+    a.count.mockImplementation((async (args: unknown) => (inProgressWhere(args) ? 0 : 1)) as never)
+    a.findFirst.mockResolvedValue(null)
+    await drainProfileQueue('p1')
+    expect(a.findFirst).toHaveBeenCalledTimes(MAX_RESCHEDULES + 1)
+  })
+
+  it('does not re-check after stopping at the deadline', async () => {
+    await drainProfileQueue('p1', { deadline: Date.now() })
+    const queuedChecks = a.count.mock.calls.filter((c) => !inProgressWhere(c[0]))
+    expect(queuedChecks).toHaveLength(0)
   })
 })

@@ -6,6 +6,11 @@ import { ContentContainer } from "@/app/components/ContentContainer"
 import { requireProfile } from "@/lib/session"
 import { getLLMConfigStatus } from "@/modules/llm/client"
 
+// Server Actions on this page queue the early job assessment, which runs in
+// after() within this limit; keep in sync with ROUTE_MAX_DURATION_S in
+// src/modules/job-assessment/queue.ts.
+export const maxDuration = 300
+
 export default async function Page({
   searchParams,
 }: {

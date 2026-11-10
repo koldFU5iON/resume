@@ -13,6 +13,11 @@ import { Settings2 } from 'lucide-react'
 import { buttonVariants } from '@/components/ui/button'
 import { listScoutInvites } from '@/modules/scout-inbox/service'
 
+// Server Actions on this page queue the early job assessment, which runs in
+// after() within this limit; keep in sync with ROUTE_MAX_DURATION_S in
+// src/modules/job-assessment/queue.ts.
+export const maxDuration = 300
+
 export default async function JobHuntPage() {
   const { profile } = await requireProfile()
 

@@ -30,7 +30,12 @@ describe('captureJobFromUrl → early assessment', () => {
   it('queues an assessment for a newly created job', async () => {
     const r = await captureJobFromUrl('p1', { url })
     expect(r).toMatchObject({ ok: true, created: true, job: { id: 'job-new' } })
-    expect(mockQueue).toHaveBeenCalledWith('p1', 'job-new', { reason: 'capture' })
+    expect(mockQueue).toHaveBeenCalledWith('p1', 'job-new', { reason: 'capture', requestStartedAt: undefined })
+  })
+
+  it('passes the request start time on for the drain deadline', async () => {
+    await captureJobFromUrl('p1', { url }, { requestStartedAt: 1234 })
+    expect(mockQueue).toHaveBeenCalledWith('p1', 'job-new', { reason: 'capture', requestStartedAt: 1234 })
   })
 
   it('does not queue when an existing job is returned', async () => {
@@ -43,7 +48,7 @@ describe('captureJobFromUrl → early assessment', () => {
   it('queues when a duplicate is created anyway', async () => {
     mockDupes.mockResolvedValueOnce([dupe])
     await captureJobFromUrl('p1', { url, dedupeStrategy: 'create_anyway' })
-    expect(mockQueue).toHaveBeenCalledWith('p1', 'job-new', { reason: 'capture' })
+    expect(mockQueue).toHaveBeenCalledWith('p1', 'job-new', { reason: 'capture', requestStartedAt: undefined })
   })
 
   it('does not queue when extraction fails', async () => {

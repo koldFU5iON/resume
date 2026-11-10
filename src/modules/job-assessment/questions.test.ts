@@ -9,7 +9,9 @@ import {
   buildJudgeState,
   buildVerifyQuestions,
   buildVerifyState,
+  MAX_SHARE_QUESTIONS,
   seniorityFitQuestion,
+  shareRoleLimit,
   type JudgePreferences,
 } from './questions'
 import type { JobRequirement } from './schema'
@@ -254,5 +256,33 @@ describe('preferences and judge state', () => {
     expect(buildJudgeState({ candidate, job })).toEqual({ candidate, job: { title: 'T', company: 'C', description: 'D' } })
     expect(buildJudgeState({ candidate, job, preferences: {} })).not.toHaveProperty('preferences')
     expect(buildJudgeState({ candidate, job, preferences: { careerGoals: 'x' } }).preferences).toEqual({ careerGoals: 'x' })
+  })
+})
+
+describe('shareRoleLimit', () => {
+  const years = (n: number) => ({
+    requirements: Array.from({ length: n }, () => ({
+      text: 'x', kind: 'experience' as const, importance: 'must' as const, years: { min: 3, area: 'x' }, parts: null,
+    })),
+  })
+
+  it('keeps every role when the total stays under the cap', () => {
+    expect(shareRoleLimit(years(4), 8)).toBe(8) // 64 questions
+    expect(shareRoleLimit({ requirements: [] }, 30)).toBe(30)
+  })
+
+  it('keeps only the newest roles that fit under MAX_SHARE_QUESTIONS', () => {
+    const limit = shareRoleLimit(years(8), 15) // 15 roles × 16 = 240 > 160
+    expect(limit).toBe(10)
+    expect(limit * 2 * 8).toBeLessThanOrEqual(MAX_SHARE_QUESTIONS)
+  })
+
+  it('bounds the built question set', () => {
+    const facts = years(8)
+    const roleKeys = Array.from({ length: 15 }, (_, i) => `role_${i + 1}`).slice(0, shareRoleLimit(facts, 15))
+    const q = buildJudgeQuestions({ facts, roleKeys, preferences: null, dealbreakers: [] })
+    const shares = Object.keys(q).filter((id) => /_role_\d+_[ab]$/.test(id))
+    expect(shares.length).toBeLessThanOrEqual(MAX_SHARE_QUESTIONS)
+    expect(shares.some((id) => id.includes('role_11_'))).toBe(false)
   })
 })

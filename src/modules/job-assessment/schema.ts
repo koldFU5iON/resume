@@ -11,9 +11,17 @@
  */
 
 import * as z from 'zod'
+import { toCountryCode } from './countries'
 
 /** Stored on every run. Bump on any change to wording, thresholds or weights. */
 export const PIPELINE_VERSION = 'early-v1'
+
+/**
+ * Job description cap, in characters, for every request built from it: the
+ * verify state, the facts prompt and the judge state. Descriptions are rarely
+ * near this; it bounds pathological pages.
+ */
+export const DESCRIPTION_MAX_CHARS = 40_000
 
 // ── Facts (cheap model, spec §3) ────────────────────────────────────────────
 
@@ -29,32 +37,67 @@ export const CREDENTIAL_KINDS: ReadonlySet<RequirementKind> = new Set([
   'education', 'certification', 'licence', 'clearance', 'language',
 ])
 
+// Model output is tolerated rather than rejected: over-long strings are
+// trimmed and cut, over-long lists are cut, and unreadable country codes and
+// currencies are dropped. One stray field must not fail the whole facts step.
+// `.transform` (not `.preprocess`) keeps each field's JSON Schema for the
+// model: the AI SDK converts with `io: 'input'`, where a transform keeps its
+// input type and a preprocess would become "any". The limits are in
+// `.describe` so the model still sees them.
+
+/** Trimmed string cut to `max` chars instead of failing. */
+function cutText(max: number, description: string) {
+  return z.string().describe(`${description} (at most ${max} characters)`).transform((v) => v.trim().slice(0, max).trim())
+}
+
+/** ISO 3166-1 alpha-2 codes; aliases are normalised ("UK" → "GB"), unknown values dropped, duplicates removed. */
+const CountryCodesSchema = z.array(z.string()).describe('ISO 3166-1 alpha-2 country codes').transform((values) =>
+  [...new Set(values.map((v) => toCountryCode(v)).filter((c): c is string => c !== null))],
+)
+
 export const JobRequirementSchema = z.object({
-  text: z.string().max(220),
+  text: cutText(220, 'The requirement, in the description\'s own words'),
   kind: z.enum(REQUIREMENT_KINDS),
   importance: z.enum(['must', 'nice']),
-  /** Set when the requirement names a number of years; `area` is the kind of work, without the number. */
-  years: z.object({ min: z.number().positive(), area: z.string().max(160) }).nullable(),
-  /** Only for "all of these" lists; "or" alternatives are never split. */
-  parts: z.array(z.string().max(80)).max(6).nullable(),
+  /** Set when the requirement names a number of years; `area` is the kind of work, without the number. A non-positive `min` reads as null. */
+  years: z.object({ min: z.number(), area: cutText(160, 'The kind of work, without the number') })
+    .nullable()
+    .transform((y) => (y && y.min > 0 && y.area ? y : null)),
+  /** Only for "all of these" lists; "or" alternatives are never split. Empty lists read as null. */
+  parts: z.array(cutText(80, 'One distinct thing'))
+    .describe('At most 6 parts')
+    .nullable()
+    .transform((p) => {
+      const parts = p?.filter(Boolean).slice(0, 6) ?? []
+      return parts.length > 0 ? parts : null
+    }),
 })
 
 export type JobRequirement = z.infer<typeof JobRequirementSchema>
 
+const SalarySchema = z.object({
+  min: z.number().nullable(),
+  max: z.number().nullable(),
+  currency: z.string().describe('ISO 4217 code, e.g. EUR'),
+  period: z.enum(['year', 'month', 'day', 'hour']),
+})
+  .nullable()
+  // A salary with no usable currency can't be compared with a floor: drop it.
+  .transform((s) => {
+    if (!s) return null
+    const currency = s.currency.trim().toUpperCase()
+    return /^[A-Z]{3}$/.test(currency) ? { ...s, currency } : null
+  })
+
 export const JobFactsSchema = z.object({
-  requirements: z.array(JobRequirementSchema).max(14),
+  requirements: z.array(JobRequirementSchema).describe('At most 14 requirements').transform((r) => r.slice(0, 14)),
   location: z.object({
-    countries: z.array(z.string().length(2)),
+    countries: CountryCodesSchema,
     mode: z.enum(['onsite', 'hybrid', 'remote_in_country', 'remote_region', 'remote_anywhere', 'unknown']),
     basedInRequired: z.boolean(),
     remoteRegions: z.array(z.string()).default([]),
   }),
-  salary: z.object({
-    min: z.number().nullable(),
-    max: z.number().nullable(),
-    currency: z.string().length(3),
-    period: z.enum(['year', 'month', 'day', 'hour']),
-  }).nullable(),
+  salary: SalarySchema,
   seniority: z.enum([
     'intern', 'junior', 'mid', 'senior', 'staff', 'principal', 'lead', 'manager', 'director', 'vp', 'exec', 'unknown',
   ]),

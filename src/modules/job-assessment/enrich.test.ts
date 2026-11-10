@@ -10,7 +10,7 @@ import { resolveFastModel } from '@/modules/llm/client'
 import { LLMError } from '@/modules/llm/errors'
 import { fetchPageContent } from '@/modules/jobs/extract-fetch'
 import { extractWithLLM } from '@/modules/jobs/extract-llm'
-import { enrichJob, isClearlyBetterDescription, missingFields, REPLACED_DESCRIPTION, type EnrichJob } from './enrich'
+import { enrichJob, isClearlyBetterDescription, missingFields, needsEnrichment, REPLACED_DESCRIPTION, type EnrichJob } from './enrich'
 
 const mockUpdate = vi.mocked(prisma.jobApplication.updateMany)
 const mockFast = vi.mocked(resolveFastModel)
@@ -77,8 +77,34 @@ describe('enrichJob', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1)
     expect(mockFetch).toHaveBeenCalledWith('https://jobs.example.com/1')
     expect(mockExtract).toHaveBeenCalledWith('<html></html>', 'p1', expect.objectContaining({
-      feature: 'job-assessment-enrich', model: 'claude-haiku-5-5',
+      feature: 'job-assessment-enrich', model: 'claude-haiku-5-5', timeoutMs: 30_000, redactInvalidOutput: true,
     }))
+  })
+
+  it('reports a timed-out extraction clearly', async () => {
+    mockExtract.mockResolvedValueOnce({ ok: false, error: 'x', timedOut: true })
+    const res = await enrichJob('p1', thin)
+    expect(res).toMatchObject({ filled: [], error: 'Reading the job page timed out' })
+  })
+
+  it('never fetches just for missing countries or salary', async () => {
+    const job = { ...thin, title: 'Programme Manager', jobDescription: 'Some description.' }
+    expect(needsEnrichment(job)).toBe(false)
+    const res = await enrichJob('p1', job)
+    expect(res.filled).toEqual([])
+    expect(mockFast).not.toHaveBeenCalled()
+    expect(mockFetch).not.toHaveBeenCalled()
+  })
+
+  it('fills countries and salary opportunistically when a fetch happens anyway', async () => {
+    const res = await enrichJob('p1', { ...thin, title: 'Programme Manager' }) // description missing → fetch
+    expect(res.filled).toEqual(['jobDescription', 'countries', 'salaryBand'])
+  })
+
+  it('fetches when only the description may be replaced', () => {
+    const job = { ...thin, title: 'PM', jobDescription: 'Teaser.', countries: ['FR'], salaryBand: '€1' }
+    expect(needsEnrichment(job)).toBe(false)
+    expect(needsEnrichment(job, { replaceDescription: true })).toBe(true)
   })
 
   it('does nothing without a URL', async () => {

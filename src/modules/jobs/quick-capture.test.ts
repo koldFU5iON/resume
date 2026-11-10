@@ -58,7 +58,7 @@ describe('quickCaptureJob', () => {
     const r = await quickCaptureJob(url)
     expect(r).toMatchObject({ ok: true, duplicate: false, jobId: 'j-new', title: 'Staff Eng' })
     expect(mockCreate).toHaveBeenCalledOnce()
-    expect(queueJobAssessmentSafely).toHaveBeenCalledWith('profile-1', 'j-new', { reason: 'quick-capture' })
+    expect(queueJobAssessmentSafely).toHaveBeenCalledWith('profile-1', 'j-new', { reason: 'quick-capture', requestStartedAt: expect.any(Number) })
   })
 
   it('passes all optional extracted fields to prisma.create', async () => {

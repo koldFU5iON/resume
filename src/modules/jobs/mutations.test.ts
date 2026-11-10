@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 vi.mock('@/lib/session', () => ({
   requireProfile: vi.fn().mockResolvedValue({ profile: { id: 'p1' } }),
@@ -8,10 +8,13 @@ vi.mock('@/lib/db', () => ({
 }))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 vi.mock('./queries', () => ({ getArchivedJobs: vi.fn() }))
-vi.mock('@/modules/job-assessment/queue', () => ({ queueJobAssessmentSafely: vi.fn() }))
+vi.mock('@/modules/job-assessment/queue', () => ({
+  queueJobAssessmentSafely: vi.fn(),
+  assessmentMaybeEnabled: vi.fn(() => true),
+}))
 
 import { prisma } from '@/lib/db'
-import { queueJobAssessmentSafely } from '@/modules/job-assessment/queue'
+import { assessmentMaybeEnabled, queueJobAssessmentSafely } from '@/modules/job-assessment/queue'
 import { createJobApplication, updateJobApplication, updateJobSalaryBand } from './mutations'
 
 const mockCreate = vi.mocked(prisma.jobApplication.create)
@@ -88,6 +91,29 @@ describe('updateJobApplication', () => {
   it('keeps the stale fit-data flag', async () => {
     mockFind.mockResolvedValueOnce({ ...current, jobFit: { rating: 5 } } as never)
     expect(await updateJobApplication('job-1', { jobDescription: 'New JD' })).toEqual({ staleFitData: true })
+  })
+})
+
+describe('request-path cost when the assessment is off', () => {
+  beforeEach(() => vi.mocked(assessmentMaybeEnabled).mockReturnValue(false))
+  afterEach(() => vi.mocked(assessmentMaybeEnabled).mockReturnValue(true))
+
+  it('updateJobApplication skips the extra read when only trigger fields changed', async () => {
+    await updateJobApplication('job-1', { title: 'Senior PM', location: 'Paris' })
+    expect(mockFind).not.toHaveBeenCalled()
+    expect(mockQueue).not.toHaveBeenCalled()
+  })
+
+  it('updateJobApplication still reads for the stale fit-data check', async () => {
+    mockFind.mockResolvedValueOnce({ ...current, jobFit: { rating: 5 } } as never)
+    expect(await updateJobApplication('job-1', { jobDescription: 'New JD' })).toEqual({ staleFitData: true })
+    expect(mockQueue).not.toHaveBeenCalled()
+  })
+
+  it('updateJobSalaryBand skips the read', async () => {
+    await updateJobSalaryBand('job-1', '£95k')
+    expect(mockFind).not.toHaveBeenCalled()
+    expect(mockQueue).not.toHaveBeenCalled()
   })
 })
 

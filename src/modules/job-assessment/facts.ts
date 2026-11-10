@@ -6,17 +6,27 @@
  *   temperature 0, feature 'job-assessment-facts'.
  * - The job description is untrusted page text: it goes into the user
  *   message inside <job_description> tags, never into the system prompt.
- * - Cached by `factsHash = sha256(title|company|jobDescription)`: when the
- *   newest run of this profile with the same hash has facts, they're reused
- *   with no LLM call, so re-assessing after a profile or eligibility change
- *   costs Jev calls only.
+ * - Cached by `factsHash`: a sha256 over everything that goes into the facts
+ *   request — PIPELINE_VERSION, title, company, description, the normalised
+ *   countries hint and the salary-band hint. When the newest run of this
+ *   profile with the same hash has facts, they're reused with no LLM call, so
+ *   re-assessing after a profile or eligibility change costs Jev calls only,
+ *   while an edit to any input (or a prompt/version bump) re-extracts.
  */
 
 import { createHash } from 'node:crypto'
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
 import { completeStructured, resolveFastModel } from '@/modules/llm/client'
-import { JobFactsSchema, type JobFacts } from './schema'
+import { cutAtSentence } from './candidate-state'
+import { toCountryCode } from './countries'
+import { DESCRIPTION_MAX_CHARS, JobFactsSchema, PIPELINE_VERSION, type JobFacts } from './schema'
+
+/** Bound on the cheap-model call; it runs inside after(). */
+export const FACTS_TIMEOUT_MS = 30_000
+
+/** Headroom over the spec's 1,600 for 14 requirements with years and parts. */
+export const FACTS_MAX_OUTPUT_TOKENS = 2_400
 
 /** Spec §3 system prompt, verbatim. Edit only with a PIPELINE_VERSION bump. */
 export const FACTS_SYSTEM_PROMPT = `You extract structured facts from a job description for an automated screening step. Output only what the
@@ -73,9 +83,26 @@ export interface FactsResult {
   cached: boolean
 }
 
-export function computeFactsHash(job: Pick<FactsJob, 'title' | 'company' | 'jobDescription'>): string {
+/** Country hints as a stable set: codes where recognised, else lowercased text; sorted, unique. */
+export function normalizeCountryHints(countries: readonly string[]): string[] {
+  const out = new Set<string>()
+  for (const c of countries) {
+    const v = c.trim()
+    if (v) out.add(toCountryCode(v) ?? v.toLowerCase())
+  }
+  return [...out].sort()
+}
+
+export function computeFactsHash(job: FactsJob): string {
   return createHash('sha256')
-    .update(`${job.title}|${job.company ?? ''}|${job.jobDescription ?? ''}`)
+    .update(JSON.stringify([
+      PIPELINE_VERSION,
+      job.title,
+      job.company ?? '',
+      job.jobDescription ?? '',
+      normalizeCountryHints(job.countries),
+      job.salaryBand?.trim() ?? '',
+    ]))
     .digest('hex')
 }
 
@@ -91,7 +118,7 @@ export function buildFactsPrompt(job: FactsJob): string {
     `- Salary band: ${job.salaryBand?.trim() || '(empty)'}`,
     '',
     '<job_description>',
-    (job.jobDescription ?? '').trim(),
+    cutAtSentence(job.jobDescription ?? '', DESCRIPTION_MAX_CHARS),
     '</job_description>',
   ].join('\n')
 }
@@ -121,7 +148,10 @@ export async function extractJobFacts(profileId: string, job: FactsJob): Promise
     model: await resolveFastModel(profileId),
     feature: 'job-assessment-facts',
     temperature: 0,
-    maxOutputTokens: 1600,
+    maxOutputTokens: FACTS_MAX_OUTPUT_TOKENS,
+    timeoutMs: FACTS_TIMEOUT_MS,
+    // The raw output can echo the job description; log only zod issue paths.
+    redactInvalidOutput: true,
   })
   return { facts: result.object, factsHash, cached: false }
 }
