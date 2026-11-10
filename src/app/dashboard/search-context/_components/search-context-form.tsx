@@ -11,6 +11,14 @@ import { cn } from '@/lib/utils'
 import { LocationTagsInput } from '@/app/dashboard/job-hunt/_components/location-tags-input'
 import { saveSearchProfile } from '@/modules/search-profile/actions'
 import { SuggestionsPanel } from './suggestions-panel'
+import { EligibilityCard } from './eligibility-card'
+import {
+  fromEligibilityDraft,
+  hasDraftErrors,
+  toEligibilityDraft,
+  validateEligibilityDraft,
+  type EligibilityDraft,
+} from './eligibility-draft'
 import type { SearchProfile, SearchSuggestion, SalaryBand } from '@/modules/search-profile/schema'
 
 const REMOTE_OPTIONS = [
@@ -25,11 +33,18 @@ const CURRENCIES = ['GBP', 'USD', 'EUR', 'CAD', 'AUD']
 type Props = {
   initialProfile: SearchProfile
   initialSuggestions: SearchSuggestion[]
+  /** Country parsed from the profile location; prefills `eligibility.currentCountry` when it's unset. */
+  suggestedCountry: string | null
 }
 
-export function SearchContextForm({ initialProfile, initialSuggestions }: Props) {
+export function SearchContextForm({ initialProfile, initialSuggestions, suggestedCountry }: Props) {
   const [profile, setProfile] = useState<SearchProfile>(initialProfile)
   const [suggestions, setSuggestions] = useState<SearchSuggestion[]>(initialSuggestions)
+  // Eligibility is edited as a draft (rows can be half-filled) and folded back into the profile on save.
+  const [eligibility, setEligibility] = useState<EligibilityDraft>(() =>
+    toEligibilityDraft(initialProfile.eligibility, suggestedCountry),
+  )
+  const eligibilityErrors = validateEligibilityDraft(eligibility)
   const [isPending, startTransition] = useTransition()
 
   function update<K extends keyof SearchProfile>(key: K, value: SearchProfile[K]) {
@@ -37,8 +52,12 @@ export function SearchContextForm({ initialProfile, initialSuggestions }: Props)
   }
 
   function handleSave() {
+    if (hasDraftErrors(eligibilityErrors)) {
+      toast.error('Fix the highlighted eligibility fields before saving')
+      return
+    }
     startTransition(async () => {
-      await saveSearchProfile(profile)
+      await saveSearchProfile({ ...profile, eligibility: fromEligibilityDraft(eligibility) })
       toast.success('Search context saved')
     })
   }
@@ -213,6 +232,14 @@ export function SearchContextForm({ initialProfile, initialSuggestions }: Props)
           </div>
         </CardContent>
       </Card>
+
+      <EligibilityCard
+        value={eligibility}
+        onChange={setEligibility}
+        errors={eligibilityErrors}
+        suggestedCountry={initialProfile.eligibility.currentCountry === null ? suggestedCountry : null}
+        preferredCurrency={profile.salaryBand?.currency}
+      />
 
       <div className="flex justify-end">
         <Button onClick={handleSave} disabled={isPending}>

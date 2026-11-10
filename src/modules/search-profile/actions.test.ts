@@ -7,7 +7,8 @@ vi.mock('nanoid', () => ({ nanoid: () => 'test-id-123' }))
 
 import { prisma } from '@/lib/db'
 import { requireProfile } from '@/lib/session'
-import { emitSuggestion, acceptSuggestion, dismissSuggestion } from './actions'
+import { emitSuggestion, acceptSuggestion, dismissSuggestion, saveSearchProfile } from './actions'
+import { emptySearchProfile } from './schema'
 
 const mockProfile = { id: 'profile-1', name: 'Devon' }
 
@@ -94,5 +95,43 @@ describe('dismissSuggestion', () => {
     expect(prisma.userSettings.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: { searchSuggestions: [] } }),
     )
+  })
+})
+
+describe('saveSearchProfile', () => {
+  it('round-trips eligibility, normalising codes and dropping invalid entries', async () => {
+    vi.mocked(prisma.userSettings.upsert).mockResolvedValue({} as never)
+
+    await saveSearchProfile({
+      ...emptySearchProfile,
+      preferredName: 'Devon',
+      eligibility: {
+        currentCountry: 'fr',
+        citizenships: ['es', 'ES'],
+        visas: [{ country: 'gb', type: 'Skilled Worker', expiresOn: '2027-03-31' }],
+        salaryFloors: [
+          { currency: 'eur', floor: 90000, target: 100000 },
+          { currency: 'EUR', floor: 1, target: null },
+        ],
+        dealbreakers: ['  Fixed-term contract  '],
+      },
+    })
+
+    const expected = {
+      ...emptySearchProfile,
+      preferredName: 'Devon',
+      eligibility: {
+        currentCountry: 'FR',
+        citizenships: ['ES'],
+        visas: [{ country: 'GB', type: 'Skilled Worker', expiresOn: '2027-03-31' }],
+        salaryFloors: [{ currency: 'EUR', floor: 90000, target: 100000 }],
+        dealbreakers: ['Fixed-term contract'],
+      },
+    }
+    expect(prisma.userSettings.upsert).toHaveBeenCalledWith({
+      where: { profileId: 'profile-1' },
+      create: { profileId: 'profile-1', searchProfile: expected },
+      update: { searchProfile: expected },
+    })
   })
 })

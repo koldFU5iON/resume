@@ -6,18 +6,25 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
 import { requireProfile } from '@/lib/session'
 import {
+  normalizeEligibility,
   normalizeSearchProfile,
   normalizeSuggestions,
   type SearchProfile,
   type SearchSuggestion,
 } from './schema'
 
+/**
+ * Save the whole search profile, `eligibility` included. Eligibility is
+ * re-normalised server-side (codes uppercased, invalid entries dropped — see
+ * `EligibilitySchema`), so the stored value is always in canonical form.
+ */
 export async function saveSearchProfile(data: SearchProfile) {
   const { profile } = await requireProfile()
+  const searchProfile: SearchProfile = { ...data, eligibility: normalizeEligibility(data.eligibility) }
   await prisma.userSettings.upsert({
     where: { profileId: profile.id },
-    create: { profileId: profile.id, searchProfile: data },
-    update: { searchProfile: data },
+    create: { profileId: profile.id, searchProfile },
+    update: { searchProfile },
   })
   revalidatePath('/dashboard')
   revalidatePath('/dashboard/search-context')
