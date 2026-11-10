@@ -4,16 +4,18 @@ vi.mock('next/server', async (orig) => ({ ...(await orig<typeof import('next/ser
 vi.mock('@/modules/job-assessment/queue', () => ({
   assessmentMaybeEnabled: vi.fn(() => true),
   drainProfileQueue: vi.fn(),
+  isAssessmentEnabledFor: vi.fn(),
   DRAIN_TIME_BUDGET_MS: 285_000,
 }))
 
 import { after } from 'next/server'
 import { signContinuationToken } from '@/modules/job-assessment/continuation'
-import { assessmentMaybeEnabled, drainProfileQueue } from '@/modules/job-assessment/queue'
+import { assessmentMaybeEnabled, drainProfileQueue, isAssessmentEnabledFor } from '@/modules/job-assessment/queue'
 import { POST } from './route'
 
 const mockAfter = vi.mocked(after)
 const mockDrain = vi.mocked(drainProfileQueue)
+const mockEnabledFor = vi.mocked(isAssessmentEnabledFor)
 
 function req(authorization?: string) {
   return new Request('http://localhost/api/internal/job-assessment/drain', {
@@ -25,6 +27,8 @@ function req(authorization?: string) {
 beforeEach(() => {
   vi.clearAllMocks()
   vi.stubEnv('BETTER_AUTH_SECRET', 'test-secret-not-real')
+  vi.stubEnv('VERCEL_DEPLOYMENT_ID', '')
+  mockEnabledFor.mockResolvedValue(true)
 })
 afterEach(() => vi.unstubAllEnvs())
 
@@ -61,5 +65,30 @@ describe('POST /api/internal/job-assessment/drain', () => {
     const res = await POST(req(`Bearer ${signContinuationToken('p1', 1)}`))
     expect(res.status).toBe(202)
     expect(mockAfter).not.toHaveBeenCalled()
+  })
+
+  it('returns 401 for a token signed by another deployment', async () => {
+    vi.stubEnv('VERCEL_DEPLOYMENT_ID', 'dpl_other')
+    const t = signContinuationToken('p1', 1)
+    vi.stubEnv('VERCEL_DEPLOYMENT_ID', 'dpl_this')
+    const res = await POST(req(`Bearer ${t}`))
+    expect(res.status).toBe(401)
+    expect(mockAfter).not.toHaveBeenCalled()
+  })
+
+  it('stops the chain when the rollout flag no longer covers the profile', async () => {
+    mockEnabledFor.mockResolvedValueOnce(false)
+    const res = await POST(req(`Bearer ${signContinuationToken('p1', 2)}`))
+    expect(res.status).toBe(202)
+    await (mockAfter.mock.calls[0][0] as () => Promise<unknown>)()
+    expect(mockEnabledFor).toHaveBeenCalledWith('p1')
+    expect(mockDrain).not.toHaveBeenCalled()
+  })
+
+  it('stops the chain without throwing when the flag lookup fails', async () => {
+    mockEnabledFor.mockRejectedValueOnce(new Error('db down'))
+    await POST(req(`Bearer ${signContinuationToken('p1', 2)}`))
+    await expect((mockAfter.mock.calls[0][0] as () => Promise<unknown>)()).resolves.toBeUndefined()
+    expect(mockDrain).not.toHaveBeenCalled()
   })
 })

@@ -173,30 +173,32 @@ export type BatchQueueResult =
   | { queued: number; assessmentIds: string[] }
   | { queued: 0; reason: 'disabled' }
 
+/** Prisma client or an interactive transaction (Prisma.TransactionClient). */
+type Db = Pick<typeof prisma, 'jobApplication' | 'jobAssessment'>
+
 /**
- * Queues one assessment per job (the profile's own jobs only; others are
- * skipped) and starts ASSESSMENT_CONCURRENCY_PER_PROFILE drains. Rows run in
- * the order of `jobIds`. Older queued rows of the same jobs are superseded,
- * as in queueJobAssessment. Throws on DB errors.
+ * Inserts one queued row per job (the profile's own jobs only; others are
+ * skipped), superseding older queued rows of the same jobs as
+ * queueJobAssessment does. Rows run in the order of `jobIds`. Does not check
+ * the flag or schedule a drain: call `scheduleBatchDrains` once committed.
+ * Returns the new row ids. Throws on DB errors.
  */
-export async function queueJobAssessments(
+export async function insertQueuedAssessments(
+  db: Db,
   profileId: string,
   jobIds: readonly string[],
-  opts: QueueOptions,
-): Promise<BatchQueueResult> {
-  if (!(await isAssessmentEnabledFor(profileId))) return { queued: 0, reason: 'disabled' }
-  if (jobIds.length === 0) return { queued: 0, assessmentIds: [] }
-
-  const owned = await prisma.jobApplication.findMany({
+): Promise<string[]> {
+  if (jobIds.length === 0) return []
+  const owned = await db.jobApplication.findMany({
     where: { id: { in: [...jobIds] }, profileId },
     select: { id: true },
   })
   const ownedIds = new Set(owned.map((j) => j.id))
   const ids = [...new Set(jobIds)].filter((id) => ownedIds.has(id))
-  if (ids.length === 0) return { queued: 0, assessmentIds: [] }
+  if (ids.length === 0) return []
 
   const now = Date.now()
-  await prisma.jobAssessment.updateMany({
+  await db.jobAssessment.updateMany({
     where: { profileId, jobApplicationId: { in: ids }, status: 'queued' },
     data: {
       status: 'failed',
@@ -207,7 +209,7 @@ export async function queueJobAssessments(
   })
 
   // Admission takes the oldest row first: 1 ms apart keeps the caller's order.
-  const rows = await prisma.jobAssessment.createManyAndReturn({
+  const rows = await db.jobAssessment.createManyAndReturn({
     data: ids.map((jobApplicationId, i) => ({
       profileId,
       jobApplicationId,
@@ -217,14 +219,34 @@ export async function queueJobAssessments(
     })),
     select: { id: true },
   })
+  return rows.map((r) => r.id)
+}
 
+/** Starts min(ASSESSMENT_CONCURRENCY_PER_PROFILE, `rows`) drains for a batch of `rows` queued rows. */
+export function scheduleBatchDrains(profileId: string, rows: number, opts: QueueOptions): void {
+  if (rows <= 0) return
   scheduleDrain(
     profileId,
     opts.reason,
-    (opts.requestStartedAt ?? now) + DRAIN_TIME_BUDGET_MS,
-    Math.min(ASSESSMENT_CONCURRENCY_PER_PROFILE, rows.length),
+    (opts.requestStartedAt ?? Date.now()) + DRAIN_TIME_BUDGET_MS,
+    Math.min(ASSESSMENT_CONCURRENCY_PER_PROFILE, rows),
   )
-  return { queued: rows.length, assessmentIds: rows.map((r) => r.id) }
+}
+
+/**
+ * Queues one assessment per job (see insertQueuedAssessments) and starts
+ * ASSESSMENT_CONCURRENCY_PER_PROFILE drains rather than one per job. A no-op
+ * when the feature is off for this profile. Throws on DB errors.
+ */
+export async function queueJobAssessments(
+  profileId: string,
+  jobIds: readonly string[],
+  opts: QueueOptions,
+): Promise<BatchQueueResult> {
+  if (!(await isAssessmentEnabledFor(profileId))) return { queued: 0, reason: 'disabled' }
+  const assessmentIds = await insertQueuedAssessments(prisma, profileId, jobIds)
+  scheduleBatchDrains(profileId, assessmentIds.length, opts)
+  return { queued: assessmentIds.length, assessmentIds }
 }
 
 /**

@@ -7,7 +7,12 @@
 
 import { after, NextResponse } from 'next/server'
 import { verifyContinuationHeader } from '@/modules/job-assessment/continuation'
-import { assessmentMaybeEnabled, DRAIN_TIME_BUDGET_MS, drainProfileQueue } from '@/modules/job-assessment/queue'
+import {
+  assessmentMaybeEnabled,
+  DRAIN_TIME_BUDGET_MS,
+  drainProfileQueue,
+  isAssessmentEnabledFor,
+} from '@/modules/job-assessment/queue'
 
 // The drain runs in after() within this limit; keep in sync with
 // ROUTE_MAX_DURATION_S in src/modules/job-assessment/queue.ts.
@@ -20,12 +25,15 @@ export async function POST(request: Request) {
 
   // Kill switch: a chain stops as soon as the feature is switched off.
   if (assessmentMaybeEnabled()) {
-    after(() =>
-      drainProfileQueue(claims.profileId, {
+    after(async () => {
+      // Rollout flag: e.g. all → admin stops the chains of non-admin profiles.
+      // A failed lookup stops the chain rather than throwing in after().
+      if (!(await isAssessmentEnabledFor(claims.profileId).catch(() => false))) return
+      await drainProfileQueue(claims.profileId, {
         deadline: requestStartedAt + DRAIN_TIME_BUDGET_MS,
         continuation: claims.hop,
-      }),
-    )
+      })
+    })
   }
   return new NextResponse(null, { status: 202 })
 }

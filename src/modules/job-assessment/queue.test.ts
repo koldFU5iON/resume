@@ -38,6 +38,7 @@ import {
   MIN_RUN_START_MS,
   ASSESSMENT_CONCURRENCY_PER_PROFILE,
   queueJobAssessment,
+  insertQueuedAssessments,
   queueJobAssessments,
   queueJobAssessmentSafely,
   STALE_QUEUED_REASON,
@@ -550,6 +551,24 @@ describe('drainProfileQueue — continuation', () => {
     expect(mockContinue).not.toHaveBeenCalled()
   })
 
+  it("passes the hop through the 'empty' re-check, so a re-drain that hits the deadline continues the same chain", async () => {
+    // First pass finds the queue empty while a row appears and time runs out;
+    // the re-drain then stops on the deadline and must continue hop 7 → 8.
+    let queued = 0
+    const start = 1_000_000
+    const deadline = start + MIN_RUN_START_MS + 1_000
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(start)
+    a.count.mockImplementation((async (args: unknown) => (isInProgressCount(args) ? 0 : queued)) as never)
+    a.findFirst.mockImplementationOnce((async () => {
+      queued = 1
+      clock.mockReturnValue(deadline)
+      return null
+    }) as never)
+    await drainProfileQueue('p1', { deadline, continuation: 7 })
+    clock.mockRestore()
+    expect(mockContinue).toHaveBeenCalledWith('p1', 8)
+  })
+
   it('never throws when the continuation check fails', async () => {
     a.findFirst.mockResolvedValue({ id: 'r1' } as never)
     a.count.mockImplementation((async (args: unknown) => {
@@ -560,5 +579,19 @@ describe('drainProfileQueue — continuation', () => {
     await expect(drainProfileQueue('p1', { deadline: Date.now() + MIN_RUN_START_MS - 1_000 })).resolves.toBe(0)
     expect(mockContinue).not.toHaveBeenCalled()
     err.mockRestore()
+  })
+})
+
+describe('insertQueuedAssessments', () => {
+  it('uses the client it is given (e.g. a transaction) and schedules nothing', async () => {
+    const tx = {
+      jobApplication: { findMany: vi.fn(async () => [{ id: 'j1' }]) },
+      jobAssessment: { updateMany: vi.fn(async () => ({ count: 0 })), createManyAndReturn: vi.fn(async () => [{ id: 'as-1' }]) },
+    }
+    expect(await insertQueuedAssessments(tx as never, 'p1', ['j1', 'jx'])).toEqual(['as-1'])
+    expect(tx.jobApplication.findMany).toHaveBeenCalledWith({ where: { id: { in: ['j1', 'jx'] }, profileId: 'p1' }, select: { id: true } })
+    expect(tx.jobAssessment.updateMany).toHaveBeenCalled()
+    expect(a.createManyAndReturn).not.toHaveBeenCalled()
+    expect(mockAfter).not.toHaveBeenCalled()
   })
 })

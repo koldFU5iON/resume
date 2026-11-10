@@ -16,7 +16,7 @@ function jobs(n: number): string {
 /** Settings card: assess "not started" jobs that have no early assessment, one batch at a time. */
 export function EarlyAssessmentBackfill({ status }: { status: BackfillStatus }) {
   const [starting, startTransition] = useTransition()
-  const { eligible, pending, remainingCalls, nextBatch, limitedBy, callsPerJob } = status
+  const { eligible, skipped, pending, remainingCalls, nextBatch, limitedBy, callsPerJob } = status
   const running = pending > 0
 
   function handleStart() {
@@ -45,10 +45,10 @@ export function EarlyAssessmentBackfill({ status }: { status: BackfillStatus }) 
             {running ? (
               <p className="flex items-center gap-1.5">
                 <Loader2 size={12} className="animate-spin" aria-hidden="true" />
-                Assessing… {pending} left in this batch.
+                Assessing… {pending} {pending === 1 ? 'assessment' : 'assessments'} running.
               </p>
             ) : eligible === 0 ? (
-              <p>Every not-started job has an early assessment.</p>
+              <p>{skipped > 0 ? 'No other not-started jobs to assess.' : 'Every not-started job has an early assessment.'}</p>
             ) : (
               <>
                 <p>{jobs(eligible)} no early assessment.</p>
@@ -63,6 +63,11 @@ export function EarlyAssessmentBackfill({ status }: { status: BackfillStatus }) 
                   </p>
                 )}
               </>
+            )}
+            {!running && skipped > 0 && (
+              <p className="mt-0.5">
+                {skipped === 1 ? '1 job needs' : `${skipped} jobs need`} attention and {skipped === 1 ? 'is' : 'are'} skipped; re-run from the job list.
+              </p>
             )}
           </div>
         </div>

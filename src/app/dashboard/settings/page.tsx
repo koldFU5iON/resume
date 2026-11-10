@@ -67,7 +67,15 @@ const SECTIONS = [
 
 export default async function Page() {
   const { profile } = await requireProfile()
-  const backfill = (await isEarlyAssessmentEnabled(profile.id)) ? await getBackfillStatus(profile.id) : null
+  // A DB error hides the card instead of breaking the whole Settings page.
+  const backfill = await (async () => {
+    try {
+      return (await isEarlyAssessmentEnabled(profile.id)) ? await getBackfillStatus(profile.id) : null
+    } catch {
+      console.error('[settings] early assessment status unavailable')
+      return null
+    }
+  })()
 
   return (
     <ContentContainer

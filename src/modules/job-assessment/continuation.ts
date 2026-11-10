@@ -3,17 +3,21 @@
  * are still queued asks a fresh function invocation to keep draining, so a
  * large batch (or a backfill) finishes without another user trigger.
  *
- * The drain POSTs to CONTINUATION_PATH on BETTER_AUTH_URL with a short-lived
- * signed token naming the profile and the hop number. The route verifies it,
- * answers 202 at once and drains in after() with a fresh time budget. A chain
- * stops after MAX_CONTINUATIONS hops.
+ * The drain POSTs to CONTINUATION_PATH on its own deployment (see
+ * continuationBaseUrl) with a short-lived signed token naming the profile, the
+ * hop number and the Vercel deployment. The route verifies it, answers 202 at
+ * once and drains in after() with a fresh time budget. A chain stops after
+ * MAX_CONTINUATIONS hops.
  *
- * Token: `<profileId>.<exp>.<hop>.<sig>`, where sig is base64url
- * HMAC-SHA256(key, "<profileId>.<exp>.<hop>") and key is
+ * Token: `<profileId>.<exp>.<hop>.<deploymentId>.<sig>`, where deploymentId
+ * is VERCEL_DEPLOYMENT_ID (empty when unset), sig is base64url
+ * HMAC-SHA256(key, everything before it) and key is
  * HMAC-SHA256(BETTER_AUTH_SECRET, CONTINUATION_KEY_LABEL), so the auth secret
  * never signs anything here directly. Valid for at most
- * CONTINUATION_TOKEN_TTL_MS. Without BETTER_AUTH_SECRET (or BETTER_AUTH_URL)
- * continuation is off and rows wait for the next trigger, as before.
+ * CONTINUATION_TOKEN_TTL_MS (plus CLOCK_SKEW_MS for a signer whose clock is
+ * ahead), and only on the deployment that signed it. Without
+ * BETTER_AUTH_SECRET or a base URL continuation is off and rows wait for the
+ * next trigger, as before.
  *
  * A token can be replayed until it expires; that only starts another drain
  * for the same profile, which the per-profile admission limit already bounds.
@@ -28,6 +32,9 @@ export const MAX_CONTINUATIONS = 20
 
 /** Token lifetime: long enough for one request, short enough to limit replay. */
 export const CONTINUATION_TOKEN_TTL_MS = 2 * 60_000
+
+/** Tolerated clock difference between the signing and the verifying instance. */
+export const CLOCK_SKEW_MS = 30_000
 
 /** Timeout for the continuation POST (the route answers 202 straight away). */
 export const CONTINUATION_FETCH_TIMEOUT_MS = 5_000
@@ -49,37 +56,47 @@ function continuationKey(): Buffer | null {
   return createHmac('sha256', secret).update(CONTINUATION_KEY_LABEL).digest()
 }
 
+/** This deployment's id, or '' outside Vercel. */
+function deploymentId(): string {
+  return process.env.VERCEL_DEPLOYMENT_ID?.trim() ?? ''
+}
+
 function sign(key: Buffer, payload: string): string {
   return createHmac('sha256', key).update(payload).digest('base64url')
 }
 
-const PROFILE_ID_RE = /^[A-Za-z0-9_-]{1,128}$/
+const ID_RE = /^[A-Za-z0-9_-]{1,128}$/
+const DEPLOYMENT_RE = /^[A-Za-z0-9_-]{0,128}$/
 const INT_RE = /^\d{1,16}$/
 
 /** A signed token for hop `hop` of `profileId`, or null when BETTER_AUTH_SECRET is unset. */
 export function signContinuationToken(profileId: string, hop: number, now: number = Date.now()): string | null {
   const key = continuationKey()
-  if (!key || !PROFILE_ID_RE.test(profileId) || !Number.isInteger(hop) || hop < 1) return null
-  const payload = `${profileId}.${now + CONTINUATION_TOKEN_TTL_MS}.${hop}`
+  const deployment = deploymentId()
+  if (!key || !ID_RE.test(profileId) || !DEPLOYMENT_RE.test(deployment) || !Number.isInteger(hop) || hop < 1) return null
+  const payload = `${profileId}.${now + CONTINUATION_TOKEN_TTL_MS}.${hop}.${deployment}`
   return `${payload}.${sign(key, payload)}`
 }
 
-/** The claims of a valid, unexpired token; null for anything else. */
+/** The claims of a valid, unexpired token for this deployment; null for anything else. */
 export function verifyContinuationToken(token: string | null | undefined, now: number = Date.now()): ContinuationClaims | null {
   const key = continuationKey()
   if (!key || !token) return null
   const parts = token.split('.')
-  if (parts.length !== 4) return null
-  const [profileId, expRaw, hopRaw, sig] = parts
-  if (!PROFILE_ID_RE.test(profileId) || !INT_RE.test(expRaw) || !INT_RE.test(hopRaw)) return null
+  if (parts.length !== 5) return null
+  const [profileId, expRaw, hopRaw, deployment, sig] = parts
+  if (!ID_RE.test(profileId) || !INT_RE.test(expRaw) || !INT_RE.test(hopRaw) || !DEPLOYMENT_RE.test(deployment)) return null
 
-  const expected = Buffer.from(sign(key, `${profileId}.${expRaw}.${hopRaw}`))
+  const expected = Buffer.from(sign(key, `${profileId}.${expRaw}.${hopRaw}.${deployment}`))
   const given = Buffer.from(sig)
   if (given.length !== expected.length || !timingSafeEqual(given, expected)) return null
 
+  // Signed by another deployment (e.g. a preview sharing the secret): not ours to drain.
+  if (deployment !== deploymentId()) return null
+
   const exp = Number(expRaw)
   const hop = Number(hopRaw)
-  if (exp < now || exp > now + CONTINUATION_TOKEN_TTL_MS) return null
+  if (exp < now || exp > now + CONTINUATION_TOKEN_TTL_MS + CLOCK_SKEW_MS) return null
   if (hop < 1 || hop > MAX_CONTINUATIONS) return null
   return { profileId, hop }
 }
@@ -100,7 +117,17 @@ export function shouldContinue(exit: DrainExit, hop: number): boolean {
   return (exit === 'deadline' || exit === 'cap') && hop < MAX_CONTINUATIONS
 }
 
-function baseUrl(): string | null {
+/**
+ * Where to send the continuation: this deployment's own URL on a Vercel
+ * preview (VERCEL_ENV set and not 'production'), so the rows are drained by
+ * the code and database that queued them; otherwise BETTER_AUTH_URL.
+ */
+export function continuationBaseUrl(): string | null {
+  const vercelEnv = process.env.VERCEL_ENV?.trim()
+  const vercelUrl = process.env.VERCEL_URL?.trim()
+  if (vercelEnv && vercelEnv !== 'production') {
+    return vercelUrl ? `https://${vercelUrl.replace(/\/+$/, '')}` : null
+  }
   const url = process.env.BETTER_AUTH_URL?.trim().replace(/\/+$/, '')
   return url ? url : null
 }
@@ -111,7 +138,8 @@ export interface ContinuationDeps {
 
 /**
  * POSTs hop `hop` of `profileId` to the continuation route. Returns whether
- * the route accepted it (202). Never throws; logs without detail.
+ * the route accepted it (202). Never throws; logs without detail (never the
+ * token or the bypass secret).
  */
 export async function requestContinuation(
   profileId: string,
@@ -119,13 +147,17 @@ export async function requestContinuation(
   deps: ContinuationDeps = {},
 ): Promise<boolean> {
   try {
-    const base = baseUrl()
+    const base = continuationBaseUrl()
     if (!base || hop > MAX_CONTINUATIONS) return false
     const token = signContinuationToken(profileId, hop)
     if (!token) return false
+    const headers: Record<string, string> = { authorization: `Bearer ${token}` }
+    // Lets the request through Vercel Deployment Protection on previews.
+    const bypass = process.env.VERCEL_AUTOMATION_BYPASS_SECRET?.trim()
+    if (bypass) headers['x-vercel-protection-bypass'] = bypass
     const res = await (deps.fetch ?? fetch)(`${base}${CONTINUATION_PATH}`, {
       method: 'POST',
-      headers: { authorization: `Bearer ${token}` },
+      headers,
       signal: AbortSignal.timeout(CONTINUATION_FETCH_TIMEOUT_MS),
       cache: 'no-store',
     })
