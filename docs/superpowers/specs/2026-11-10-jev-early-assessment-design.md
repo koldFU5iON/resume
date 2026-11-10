@@ -20,6 +20,7 @@
 | **"Any must-have below 0.3 is a hard blocker" blocks far too much** | The first run marked 7 of 12 Blocked, mostly from "N+ years in X" or tool-skill lines | Only **credential** must-haves block outright. Years requirements use the **years rule** (§5). Other experience or skill must-haves below 0.3 are **major gaps**: −0.5 each, at most −2, shown red, no block. |
 | **Years: Jev judges each role, code does the arithmetic** | Jev is documented as weak at date maths and counting. A single "how many years" bucket happened to land well (5–8 for PM), but it relies on exactly that weakness. | One **share question per role**: how much of the role was this work. Code adds up the dated months (§5). |
 | **Use the probability spread, ask both option orders, count only roles where the work was at least about half** | Using only the top answer was unstable: PM came out 9.6 in one run and 5.9 in the next, and one area flipped warn → block when the options were reversed. The probability-weighted share, averaged over both orders, moved ≤ 0.5 yrs between orders. Giving every role partial credit gave ~9.8 yrs of PM, about 2× the account owner's own estimate (~5). Counting only roles where the work was at least about half gave **5.9**. | Share = probability-weighted, averaged over both orders. A role counts only when its share ≥ 0.5. |
+| **A years block shouldn't ignore transferable experience** | The Brand Ops role came out at ~2.0 yrs vs 5 required, but the CV as a whole shows the core work done under other titles. A capability question scored brand/creative ops 0.82, biz ops 0.92, PM 0.98. Negative controls: auditing 0.02, paid UA 0.05, software engineering 0.50. | Every years requirement also gets a **capability** question over the whole CV. A years **block** with capability ≥ 0.7 becomes a **stretch** (amber), not Blocked (§5). |
 | **Split bundled requirements** | "Hands-on across performance marketing, influencers, community, partnerships and brand/PR" scored 0.22 as one question. Split: brand/PR 0.96, partnerships 0.50, influencers 0.44, community 0.38, performance 0.16. | Facts lists `parts` for "all of these" lines. One question per part; code takes the mean. "Or" alternatives are **not** split. |
 | **Split the sponsorship option that covered two statements** | `not_offered` and `right_to_work_required` are now separate options. All 4 synthetic cases were classified correctly in both option orders, and real "with the right to work there" lines → `right_to_work_required`. | Both options are hard blockers when the user isn't covered |
 | Jev's confidence figure isn't a correctness gate | Per the TypeSafe skill: confidence measures how concentrated the answer is, not whether it's correct | The "low confidence" badge is dropped. Instead, **unsettled** = must-haves with `0.3 ≤ p < 0.7`, listed as "check these". |
@@ -219,6 +220,18 @@ Requirements of kind `availability` are not asked.
     "none": "The role did not involve this work." } }
 ```
 
+**Years: capability.** Tested.
+- One per years requirement, id `req_<i>_capability`.
+- It's always asked, in the same request; code reads it only when the years rule says block.
+
+```json
+{ "type": "noul",
+  "instructions": "The person in `candidate` has done the core work of <area>, in any of their roles and under any job title.",
+  "criteria": {
+    "true": "The CV shows them regularly doing the main tasks of <area> themselves, even if it was part of a role with a different title.",
+    "false": "The CV shows only related or adjacent work, or mentions <area> only in passing." } }
+```
+
 **Rubrics.** Tested:
 
 ```json
@@ -296,7 +309,10 @@ yearsInArea    = Σ over months of max over roles covering that month of counts(
 |---|---|
 | **met** | est ≥ required |
 | **warn** | est ≥ 0.5 × required, or required − est ≤ 2 |
-| **block** | anything else |
+| **stretch** | would be block, but `capability ≥ 0.7` |
+| **block** | anything else (`capability < 0.7`: an unclear 0.3–0.7 also stays block) |
+
+A **stretch** is amber, counts toward the penalty like a warn, and reads: "Short on years (~2.0 of 5) — strong transferable experience across your CV".
 
 | Required | est | Result |
 |---|---|---|
@@ -318,7 +334,7 @@ yearsInArea    = Σ over months of max over roles covering that month of counts(
 | Kind | Hard (→ Blocked) | Unconfirmed / warn (amber) | Major gap (red, −0.5 each, at most −2) |
 |---|---|---|---|
 | Credential must-have (education, certification, licence, clearance, language) | `p < 0.3` | — | — |
-| Years must-have | years rule = **block** | years rule = **warn** (also counts toward the penalty) | — |
+| Years must-have | years rule = **block** | years rule = **warn** or **stretch** (both count toward the penalty) | — |
 | Other experience or skill must-have | — | — | `p < 0.3` |
 | Work rights | Not covered and `sponsorship ∈ {not_offered, right_to_work_required}` | Not covered and `not_mentioned` | — |
 | Relocation | — | `basedInRequired` / onsite, `currentCountry` not among the job's countries, and those countries not among the user's target countries | — |
@@ -337,7 +353,7 @@ seniority = Σ p(option) · {match 1, below/above 0.6, well_below/well_above 0.2
 composite = 0.40·coverage + 0.30·skills + 0.18·seniority + 0.12·domain
           − 0.05 if the stated max pay < target
 raw       = 1 + 9·composite
-penalty   = min(2, 0.5 · (major gaps + years warnings))
+penalty   = min(2, 0.5 · (major gaps + years warnings + years stretches))
 score     = clamp(round(raw − penalty), 1, 10)
 level     = 1–2 weak · 3–4 consider · 5–7 pursue · 8–10 priority
 display   = "Blocked · {score}/10" if any hard blocker, else the level
@@ -358,7 +374,7 @@ display   = "Blocked · {score}/10" if any hard blocker, else the level
 
 The test eligibility was an EU (non-Irish) citizen based in FR, with a EUR floor of 90k (target 100k) and a GBP floor of 85k. The candidate was the master CV without its contact header.
 
-**Spread:** 1 Blocked · 1 consider · 8 pursue · 2 priority.
+**Spread:** 2 consider · 8 pursue · 2 priority, none Blocked.
 
 | # | Role (sector) | Location / terms | Result | Flags |
 |---|---|---|---|---|
@@ -373,7 +389,7 @@ The test eligibility was an EU (non-Irish) citizen based in FR, with a EUR floor
 | 9 | Program manager, marketing lead generation (building tech) | hybrid, not stated | pursue 6 | 1 major gap |
 | 10 | Principal program manager, 12-month contract (games) | onsite Dublin | pursue 5 | years warn: 6+ strategy/biz ops, ~4.2 · 1 major gap · relocation · contract |
 | 11 | Head of growth (browser games start-up) | UK/IE only, remote | consider 3 | 3 major gaps · 3 unsettled · relocation |
-| 12 | Brand operations manager (salon SaaS) | IE, remote in country | **Blocked · 4** | years: 5+ brand/creative ops/DAM, ~2.0 · 2 major gaps · relocation |
+| 12 | Brand operations manager (salon SaaS) | IE, remote in country | consider 4 | years stretch: 5+ brand/creative ops/DAM, ~2.0, capability 0.82 · 2 major gaps · relocation |
 
 **Example 5 → pursue 7, years warning.** For "5–8 years in business operations, chief of staff, strategy consulting or similar", only the two most recent roles count:
 
@@ -387,7 +403,7 @@ The test eligibility was an EU (non-Irish) citizen based in FR, with a EUR floor
 
 3.7 ≥ 2.5, so **warn**. The other must-haves are met at 0.81–0.95.
 
-**Example 12 → Blocked · 4.** "5+ years in brand operations, creative operations or DAM" → ~2.0 years: the latest two roles at about two-thirds each; the rest below half. 2.0 < 2.5 and the gap is 3 years, so **block**. The detail also shows two major gaps: DAM system expertise 0.20, and Notion 0.08 / Looker 0.05. Without the years block, it would have been "consider 4".
+**Example 12 → consider 4, years stretch.** "5+ years in brand operations, creative operations or DAM" → ~2.0 years: the latest two roles at about two-thirds each; the rest below half. 2.0 < 2.5 and the gap is 3 years, so the years rule says **block**. Capability across the whole CV is 0.82, so it becomes a **stretch**: amber, −0.5, "Short on years (~2.0 of 5) — strong transferable experience across your CV". The account owner agreed: short on brand-titled years, but has done the work. The detail also shows two major gaps: DAM system expertise 0.20, and Notion 0.08 / Looker 0.05. With capability below 0.7, the same job would show **Blocked · 4**.
 
 **Example 11 → consider 3.** Both years requirements are met: games/consumer marketing ~17.9, leading a marketing function ~8.4. Three major gaps:
 
@@ -406,7 +422,8 @@ The bundled "hands-on across…" line is now split. Brand/PR at 0.96 lifts its m
 | Case | Result |
 |---|---|
 | A job needs 5 years, the candidate has ~2.5 | warn |
-| A job needs 10+ years, the candidate has ~2.5 | **Blocked** |
+| A job needs 10+ years, the candidate has ~2.5, capability < 0.7 | **Blocked** |
+| The same, capability ≥ 0.7 | stretch |
 | "BSc in Computer Science" vs a diploma | 0.06 → **Blocked** |
 | "…or equivalent practical experience" vs the same diploma | 0.73 → met |
 | LinkedIn preview | `is_full_description` 0.06 → **Needs attention** |
@@ -417,6 +434,7 @@ The bundled "hands-on across…" line is now split. Brand/PR at 0.96 lifts its m
 ## 7. Calibration notes and open items
 
 - **The "at least about half" counting rule is calibrated on one data point:** the account owner's ~5 yrs of PM vs 5.9 estimated. It's a defensible definition (roles where the work was a major part), but check it during the side-by-side. The alternative (every role gets its share) gave 4.8 / 6.5 / 7.1 instead of 2.0 / 3.7 / 4.2 on the three affected requirements, and no block.
+- **Capability is a judgment, not a measurement.** It decides only whether a years block becomes a stretch; it never raises the score. Watch for adjacent areas reading as capable. Strategy/financial planning scored 0.78 while the CV's financial-modelling parts scored 0.10–0.23; the parts still show as a major gap. Software engineering at 0.50 correctly stays Blocked.
 - **Broad "or" areas count almost everything,** e.g. "consulting, strategy, operations, or program management" → ~16 yrs. That's the description's own breadth, read literally. It's correct to count it as met.
 - **There's no manual override of years yet.** The fix for a wrong estimate is a clearer experience entry. Add per-area overrides to `eligibility` later if needed.
 - **Nice-to-have degrees never block.** They only lower coverage.
@@ -430,7 +448,7 @@ The bundled "hands-on across…" line is now split. Brand/PR at 0.96 lifts its m
 
 - **`combine.test.ts`** uses the round-3 signal values (anonymised). It also covers:
   - one fixture per row of the blocker table
-  - every row of the years table
+  - every row of the years table, including block → stretch at capability 0.69 / 0.70
   - the ladder boundaries (2/3, 4/5, 7/8)
   - the penalty cap (6 → −2)
   - direction absent vs present
