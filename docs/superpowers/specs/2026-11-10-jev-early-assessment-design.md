@@ -7,18 +7,23 @@
 
 ## 1. What the prototype showed, and what changed
 
-A test run of verify + judge on the 12 most recent applications from one real account. A person did the facts step by hand, following §3's rules, because no cheap-model key was available locally. Everything else is real Jev output.
+**Setup.**
+- Verify + judge ran on the 12 most recent applications from one real account.
+- A person did the facts step by hand, following §3's rules, because no cheap-model key was available locally. Everything else is real Jev output.
+- The candidate was the account's master CV: its full dated history, 8 roles from 2007 to now.
 
 | Finding | Evidence | Change |
 |---|---|---|
+| **The candidate state must include the full dated history** | A first run used a profile cut to 12k of 56k chars, so Jev saw only the latest role. Years estimates fell to about 1.5y everywhere, and one role scored weak 2 instead of pursue 6. | §4.2: the candidate state is built in code from *every* experience, with dates always kept and each role's text capped. Never truncate the whole text from the end. |
 | Verify separates real postings from teasers cleanly | Full descriptions scored 0.86–0.97 on `is_full_description`; a LinkedIn-style teaser scored 0.06 | None. Pass at ≥ 0.7. |
-| **"Every must-have below 0.3 is a hard blocker" blocks far too much** | 7 of 12 applications came out Blocked, almost all from "N+ years in X" or tool-skill must-haves | Only **credential** must-haves block (education, certification, licence, clearance, language). An experience or skill must-have below 0.3 is a **major gap**: −0.5 score each, at most −2. It shows red in the detail but doesn't block. |
+| **"Any must-have below 0.3 is a hard blocker" blocks far too much** | The first run marked 7 of 12 Blocked, mostly from "N+ years in X" or tool-skill lines | Only **credential** must-haves block outright. Years requirements use the **years rule** below. Other experience or skill must-haves below 0.3 are **major gaps**: −0.5 each, at most −2, shown red, no block. |
+| **Years need their own rule, with a range estimate** | Jev placed program-management work at 5–8 years (the account owner's own estimate: about 5 in practice, 2.5 by title). Adding up per-role answers instead over-counted to 13 years: every comms role got partial PM credit. | Facts pulls `years: { min, area }` out of each years requirement. Jev answers a **years-bucket choice** for the area, and code compares the estimate with the requirement: met, **warn**, or **block** (§5). |
 | Credential checks work as intended | "BSc in Computer Science" vs a diploma: 0.06 → blocked. "…or equivalent practical experience": 0.73 → met | None |
-| Relocation is a separate case from work rights | 3 of 12 roles must be *based in* IE or UK, or on-site in Dublin, but the candidate lives in FR with full EU work rights | New check, `relocation`: **unconfirmed** unless the job's country is one of the user's target countries. Needs `eligibility.currentCountry`. |
-| Availability lines can't be judged from a profile | "Availability to travel" scored 0.33; the profile can't say either way | New requirement kind, `availability`. It's never asked as a requirement question; it's only matched against dealbreakers. |
+| Relocation is a separate case from work rights | 3 of 12 roles must be *based in* IE or UK, or on-site in Dublin; the candidate lives in FR with full EU work rights | New check, `relocation`: **unconfirmed** unless the job's country is one of the user's target countries. Needs `eligibility.currentCountry`. |
+| Availability lines can't be judged from a profile | "Availability to travel" can't be shown or disproved by a CV | New requirement kind, `availability`. Never asked as a requirement question; only matched against dealbreakers. |
 | The description often has no location | 6 of 12 gave no location | Facts falls back to the job row's `countries`. If still unknown, skip the work-rights and relocation checks and show "Location unknown". |
 | Sponsorship wording is read correctly | "Must have the right to work in the UK" → `explicitly_not_offered` 1.00; "we offer visa sponsorship" → `offered` 0.99; nothing said → `not_mentioned` 1.00 | None |
-| Cost and latency are negligible | 5.7k–8.9k input tokens per job (verify + judge). Each call took 150–300 ms, and the two run in parallel | Budget about $0.0003 per assessment |
+| Cost and latency are negligible | 5.8k–9.1k input tokens per job (verify + judge). Each call took 150–250 ms, and the two run in parallel | Budget about $0.0003 per assessment |
 | Contract roles need a flag | 1 of 12 was a 12-month contract | Facts adds `employmentType`; dealbreakers can match it, e.g. "no fixed-term contracts" |
 
 ---
@@ -54,7 +59,7 @@ eligibility: {
 
 ## 3. Facts extraction (cheap model, `feature: 'job-assessment-facts'`)
 
-**Model:** `FAST_MODELS[provider]` (Anthropic: `claude-haiku-5-5`), `temperature: 0`, `maxOutputTokens: 1200`.
+**Model:** `FAST_MODELS[provider]` (Anthropic: `claude-haiku-5-5`), `temperature: 0`, `maxOutputTokens: 1400`.
 
 **Schema** (it replaces the plan's version):
 
@@ -64,6 +69,10 @@ JobFactsSchema = z.object({
     text: z.string().max(220),
     kind: z.enum(['education','certification','licence','clearance','language','experience','skill','availability']),
     importance: z.enum(['must','nice']),
+    years: z.object({
+      min: z.number().positive(),        // "5+ years", "5 to 8 years" → 5, "minimum of 8" → 8
+      area: z.string().max(160),         // the kind of work, without the number
+    }).nullable(),
   })).max(14),
   location: z.object({
     countries: z.array(z.string().length(2)),
@@ -99,6 +108,13 @@ Requirements
   experience     years or type of past work, track records, domain background
   skill          tools, methods, abilities
   availability   travel, on-call, shifts, start date, hours: things a CV can't show
+- years: when a requirement names a number of years, set min to the lowest number accepted and area to the
+  kind of work, without the number. Example: "5 to 8 years in business operations or chief of staff roles"
+  → { min: 5, area: "business operations or chief of staff roles" }. Otherwise null.
+- If one line has two year clauses ("8+ years in X, including 3+ years leading Y"), write two requirements,
+  one per clause.
+- If a line gives a total plus a specific ("8+ years of relevant experience, including 6+ in strategy…"),
+  keep only the specific clause; "relevant experience" has no area to check.
 - At most 8 must and 6 nice. If there are more, keep the ones most specific to this role.
 
 Location
@@ -141,9 +157,15 @@ Salary: only a range or figure printed in the description. Otherwise null.
 
 ### 4.2 Judge — state `{ candidate, job: { title, company, description }, preferences }`
 
-`candidate` is `serializeProfileForLLM(snapshot)` (about 3k tokens in the test). Requirements of kind `availability` are not asked.
+**`candidate` is built by `buildCandidateState(snapshot)`, not taken from `serializeProfileForLLM` unchanged.**
+- **Every experience is included,** newest first. Each one gets a header line of title, company, start–end and location, which is never cut. Its body text (summary + achievements) is capped at about 1,200 chars, cutting at the end of a sentence.
+- **Then** education, certifications, languages, and skills grouped by category.
+- **Target:** at most about 8k tokens. The test candidate (8 roles) was about 4.7k.
+- **Unit test:** a profile with one very long role still includes every other role's header line.
 
-**Requirement template.** Tested. One per requirement, id `req_<i>`:
+Requirements of kind `availability` are not asked.
+
+**Requirement template** (requirements without `years`). Tested. Id `req_<i>`:
 
 ```json
 { "type": "noul",
@@ -151,6 +173,17 @@ Salary: only a range or figure printed in the description. Otherwise null.
   "criteria": {
     "true": "The profile shows the requirement is met, directly or through an alternative the requirement itself allows (e.g. \"or equivalent experience\", \"or related field\", \"or similar\").",
     "false": "The profile does not show it, shows only a lower level (e.g. a diploma where a degree is required, fewer years than stated), or shows it only partially." } }
+```
+
+**Years template** (requirements with `years`). Tested. Id `req_<i>`, same id space:
+
+```json
+{ "type": "choice",
+  "instructions": "How many years has the person in `candidate` spent doing this kind of work: \"<area>\"? Count every role where this work was a substantial part of the job, whatever the job title was. Count overlapping roles once. Use the dates in `candidate`.",
+  "criteria": {
+    "none": "No experience doing this kind of work.", "under_1": "Less than 1 year.",
+    "y1_2": "1 to 2 years.", "y2_3": "2 to 3 years.", "y3_5": "3 to 5 years.",
+    "y5_8": "5 to 8 years.", "y8_12": "8 to 12 years.", "y12_plus": "12 or more years." } }
 ```
 
 **Rubrics.** Tested:
@@ -213,12 +246,35 @@ Salary: only a range or figure printed in the description. Otherwise null.
 
 ## 5. Combine rules (`combine.ts`)
 
+### Years rule
+
+- Bucket ranges: `none 0–0 · under_1 0–1 · y1_2 1–2 · y2_3 2–3 · y3_5 3–5 · y5_8 5–8 · y8_12 8–12 · y12_plus 12–20`.
+- **est** is the midpoint of the **median bucket**: the first bucket where the cumulative probability reaches 0.5.
+- Shown to the user as the bucket's range, e.g. "~3–5 yrs", never as a precise number.
+
+| Status | Condition |
+|---|---|
+| **met** | est ≥ required |
+| **warn** | est ≥ 0.5 × required, or required − est ≤ 2 |
+| **block** | anything else |
+
+| Required | Candidate est | Result |
+|---|---|---|
+| 5 | 2.5 | warn (2.5 ≥ 0.5 × 5) |
+| 10 | 2.5 | **block** (2.5 < 5 and a 7.5-year gap) |
+| 8 | 6.5 | warn |
+| 3 | 1.5 | warn (gap ≤ 2) |
+| 12 | 4 | **block** |
+
+For coverage, a years requirement counts `p = min(1, est / required)`.
+
 ### Blockers
 
-| Kind | Hard (→ Blocked) | Unconfirmed (amber) | Major gap (red, −0.5 each, at most −2) |
+| Kind | Hard (→ Blocked) | Unconfirmed / warn (amber) | Major gap (red, −0.5 each, at most −2) |
 |---|---|---|---|
 | Credential must-have (education, certification, licence, clearance, language) | `req < 0.3` | — | — |
-| Experience or skill must-have | — | — | `req < 0.3` |
+| Years must-have | years rule = **block** | years rule = **warn** (also counts as a major gap for the score) | — |
+| Other experience or skill must-have | — | — | `req < 0.3` |
 | Work rights | Not covered and `sponsorship = explicitly_not_offered` | Not covered and `not_mentioned` | — |
 | Relocation | — | `basedInRequired` / onsite, `currentCountry` not among the job's countries, and those countries not among the user's target countries | — |
 | Pay | Stated `max` < floor (same currency) | `min` < floor ≤ `max` | — |
@@ -229,14 +285,15 @@ Salary: only a range or figure printed in the description. Otherwise null.
 The `direction` weight applies only when `direction_fit` was asked. When it isn't, the four weights below are used as they are; these are the ones tested. When it is: coverage 0.34, skills 0.26, seniority 0.15, domain 0.10, direction 0.15.
 
 ```
-coverage  = Σ w·req / Σ w          // w: must 2, nice 1 (availability excluded)
+coverage  = Σ w·p / Σ w            // w: must 2, nice 1; p = req noul, or min(1, est/required) for years
 skills    = skills_match.score / 4
 domain    = domain_fit.score / 3
 seniority = Σ p(option) · {match 1, below/above 0.6, well_below/well_above 0.2}
 composite = 0.40·coverage + 0.30·skills + 0.18·seniority + 0.12·domain
           − 0.05 if the stated max pay < target
 raw       = 1 + 9·composite
-score     = clamp(round(raw − min(2, 0.5 · majorGaps)), 1, 10)
+penalty   = min(2, 0.5 · (major gaps + years warnings))
+score     = clamp(round(raw − penalty), 1, 10)
 level     = 1–2 weak · 3–4 consider · 5–7 pursue · 8–10 priority
 display   = "Blocked · {score}/10" if any hard blocker, else the level
 ```
@@ -245,54 +302,60 @@ display   = "Blocked · {score}/10" if any hard blocker, else the level
 
 | Section | What goes in it |
 |---|---|
-| Strengths | Up to 3 must-haves with `req ≥ 0.7`, highest first |
-| Gaps | Requirements with `0.3 ≤ req < 0.7`, plus major gaps (marked) |
-| Low confidence | Shown when the mean confidence of the rubric and choice answers is < 0.5 (1 of 12 in the test) |
+| Strengths | Up to 3 must-haves with `p ≥ 0.7`, highest first. Met years requirements show as "8+ yrs program management ✓ (~8–12)". |
+| Gaps | Years warnings ("Needs 5+ yrs business ops — you have ~3–5"), major gaps (marked), then requirements with `0.3 ≤ p < 0.7` |
+| Low confidence | Shown when the mean confidence of the rubric and choice answers is < 0.5 |
 
 ---
 
 ## 6. Worked examples (real runs, anonymised)
 
-The test eligibility was an EU (non-Irish) citizen based in FR, with a EUR floor of 90k (target 100k) and a GBP floor of 85k. Requirement scores are Jev's raw `req` values. "Major gap" uses §5's rules. Scores are recomputed with §5's exact formula from the stored Jev answers.
+The test eligibility was an EU (non-Irish) citizen based in FR, with a EUR floor of 90k (target 100k) and a GBP floor of 85k. The candidate was the master CV (8 dated roles). Scores come from §5's formula applied to the stored Jev answers.
 
-Spread: 2 weak · 2 consider · 7 pursue · 1 priority, and none Blocked: no job had a credential, pay-floor or sponsorship blocker.
+**Spread:** 2 consider · 8 pursue · 2 priority, and none Blocked: no job had a credential, pay-floor, sponsorship or years-block issue for this candidate.
 
 | # | Role (sector) | Location / terms | Score | Level | Flags |
 |---|---|---|---|---|---|
 | 1 | Agency business-excellence manager (social platform) | not stated | 8 | **priority** | — |
-| 2 | Senior program manager (risk data) | Paris or London, €78k–129.8k | 7 | pursue | pay: range straddles floor |
-| 3 | EMEA business manager (cloud infrastructure) | not stated | 7 | pursue | — |
-| 4 | Program manager, IP operations (social platform) | not stated | 6 | pursue | — |
-| 5 | Business manager, GTM (HR-tech, remote anywhere) | remote anywhere | 6 | pursue | 1 major gap |
-| 6 | Senior manager, marketing operations Europe (streaming) | hybrid, not stated | 6 | pursue | 1 major gap |
-| 7 | Strategy & ops lead, applied AI (US healthcare marketplace) | remote, US | 6 | pursue | work rights: US, not mentioned |
-| 8 | Brand operations manager (salon SaaS) | IE, remote in country | 5 | pursue | 2 major gaps · relocation |
-| 9 | Program manager, marketing lead generation (building tech) | hybrid, not stated | 4 | consider | 3 major gaps |
-| 10 | Principal program manager, 12-month contract (games) | onsite Dublin | 4 | consider | 2 major gaps · relocation · contract |
-| 11 | Director of corporate communications (streaming) | hybrid, not stated | 2 | weak | 3 major gaps |
-| 12 | Head of growth (browser games start-up) | UK/IE only, remote | 1 | weak | 6 major gaps · relocation |
+| 2 | EMEA business manager (cloud infrastructure) | not stated | 8 | **priority** | — |
+| 3 | Senior program manager (risk data) | Paris or London, €78k–129.8k | 7 | pursue | pay: range straddles floor |
+| 4 | Senior manager, marketing operations Europe (streaming) | hybrid, not stated | 7 | pursue | — |
+| 5 | Business manager, GTM (HR-tech) | remote anywhere | 7 | pursue | years warn: 5+ biz ops, ~3–5 |
+| 6 | Strategy & ops lead, applied AI (US healthcare marketplace) | remote, US | 7 | pursue | work rights: US, not mentioned |
+| 7 | Program manager, IP operations (social platform) | not stated | 6 | pursue | — |
+| 8 | Director of corporate communications (streaming) | hybrid, not stated | 6 | pursue | — |
+| 9 | Principal program manager, 12-month contract (games) | onsite Dublin | 6 | pursue | 1 major gap · relocation · contract |
+| 10 | Program manager, marketing lead generation (building tech) | hybrid, not stated | 5 | pursue | 2 major gaps |
+| 11 | Brand operations manager (salon SaaS) | IE, remote in country | 4 | consider | years warn: 5+ brand/creative ops, ~3–5 · 2 major gaps · relocation |
+| 12 | Head of growth (browser games start-up) | UK/IE only, remote | 3 | consider | 4 major gaps · relocation |
 
-**Example 1 → priority 8/10.** Four broad must-haves, all met: business/programme management 0.98, planning and risk 0.92, English communication 0.86, data reporting 0.83. Skills 2.40/4, seniority mostly `match`. A clean, high-coverage fit.
+**Example 5 → pursue 7/10, years warning.** "5 to 8 years in business operations, chief of staff, strategy consulting or similar" → Jev's estimate is `y3_5` (~3–5 yrs, midpoint 4). 4 ≥ 0.5 × 5 → **warn**: −0.5, shown as "Needs 5+ yrs — you have ~3–5". The other must-haves are met at 0.79–0.94, so it stays pursue.
 
-**Example 2 → pursue 7/10, amber pay flag.** Must-haves met at 0.64–0.87. Seniority `match` 0.99. The nice-to-have "8+ years of progressive PM experience" is 0.18, so it lowers coverage but isn't a gap, because the description says fewer years can be considered. The salary range €78k–129.8k straddles the 90k floor, so it's unconfirmed: worth applying, but confirm the band early.
+**Example 8 → pursue 6/10.** "12+ years of hands-on leadership in corporate communications" → `y12_plus` → **met**. The candidate's history has 15+ years of PR and comms roles. With the cut-off profile (latest role only), this job scored weak 2. That's the clearest case for §4.2's rule on the candidate state.
 
-**Example 7 → pursue 6/10, amber work-rights flag.** A good functional match: technical fluency 0.72, execution 0.90, systems thinking 0.93. The company is a US marketplace whose remote roles are in effect US-based, and the description says nothing about sponsorship. **This application was rejected.** The flag is exactly the early warning the pipeline should give. (Location was inferred by the person standing in for the facts step; the cheap model needs the row's `countries` hint to get this reliably.)
+**Example 12 → consider 3/10.** Both years requirements are met: games/consumer marketing ~12–20, leading a marketing function ~8–12. But 4 hands-on growth must-haves are major gaps: scaling track record 0.17, performance/creator/community mix 0.22, budget ownership 0.15, attribution/LTV analytics 0.23. Seniority is `well_above` 0.65. Relocation is flagged too. Meeting the years doesn't make it a fit; the detail lists the four gaps.
 
-**Example 11 → weak 2/10.** "12+ years of hands-on leadership in corporate communications" 0.12, "existing book of media contacts" 0.14, "experience working closely with C-suite" 0.23. Those three major gaps take the raw 3.8 down to 2. Seniority is `above`/`well_above`. "Availability to travel" is kind `availability`, so it isn't asked. Under the plan's original rule it would have shown Blocked; now it's a clear "weak" with the reasons listed, not a blocker.
+**Example 6 → pursue 7/10, amber work-rights flag.** A good functional match (0.73–0.93), but the company's remote roles are in effect US-based and the description says nothing about sponsorship. **This application was rejected.** The flag is exactly the early warning the pipeline should give. (Location was inferred by the person standing in for the facts step; the cheap model needs the row's `countries` hint to get this reliably.)
 
-**Example 12 → weak 1/10.** 6 of 7 must-haves between 0.11 and 0.19 (growth/UA track record, budget ownership, attribution and LTV analytics), and seniority is `well_above` 0.79. Raw 3, minus the −2 cap. Relocation is also flagged: the role is UK/IE only and the candidate is in FR.
+**Example 3 → pursue 7/10, amber pay flag.** Seniority `match` 1.00, must-haves 0.56–0.93. The salary range €78k–129.8k straddles the 90k floor: unconfirmed, so confirm the band early.
 
-**Synthetic credential blocker:** "BSc in Computer Science" vs "Diploma in Multimedia Design": `req` 0.06 → **Blocked**. The same candidate against "BSc in CS *or equivalent practical experience*": 0.73 → met.
+**Synthetic years cases** (the account owner's examples), from the rule table in §5:
+- A job needs 5 years and the candidate has ~2.5 → **warn**.
+- A job needs 10+ years and the candidate has ~2.5 → **Blocked**.
 
-**Synthetic verify failure:** a LinkedIn preview ("…See more. Sign in to view more jobs"): `is_full_description` 0.06, `has_requirements` 0.24 → **Needs attention: Description looks incomplete or truncated**.
+**Synthetic credential blocker.** "BSc in Computer Science" vs "Diploma in Multimedia Design": `req` 0.06 → **Blocked**. Against "…or equivalent practical experience": 0.73 → met.
+
+**Synthetic verify failure.** A LinkedIn preview ("…See more. Sign in to view more jobs"): `is_full_description` 0.06 → **Needs attention: Description looks incomplete or truncated**.
 
 ---
 
 ## 7. Calibration notes and open items
 
-- **Years in a named function are read strictly.** "5+ years in consulting, strategy, operations or PM" scored 0.30 for a profile with about 2 years under a PM title and longer prior experience in adjacent work. That's how a recruiter screens, so it counts as a major gap, not a blocker. Watch this in the side-by-side; the lever is the −0.5 per gap.
-- **Bundled requirements score low.** A line like "hands-on across performance marketing, influencers, community, partnerships and brand/PR" scores low when only some parts are met. The facts prompt keeps the description's wording; splitting compound lines is a possible v2 change. Check whether this causes false major gaps in practice.
-- **Nice-to-have degrees never block.** They scored 0.10–0.32 in the test and only lowered coverage, as intended.
+- **Years estimates move with the wording of the area.** On the same CV, "program or project management" came out ~5–8 and "managing programs or projects" ~8–12. The rule's warn band absorbs most of this. If the side-by-side shows flip-flopping, normalise the `area` wording in the facts prompt.
+- **Adding up per-role answers was tested and rejected.** It over-counted badly (13 years of PM), because adjacent roles each got partial credit. The single bucket question across the whole history matched the account owner's own estimate.
+- **There's no manual override of years yet.** Jev reads the CV, so the fix for a wrong estimate is a clearer experience entry. If that proves too indirect, add per-area overrides to `eligibility` later.
+- **Bundled requirements still score low when only partly met,** e.g. "hands-on across performance marketing, influencers, community, partnerships and brand/PR". Watch for false major gaps; splitting such lines is a possible v2 change.
+- **Nice-to-have degrees never block.** They only lower coverage, as intended.
 - **`direction_fit` and `remote_match` haven't been tested,** because the search profile wasn't available through the test path. Test both against real preferences in Phase 3.
 - **The old `jobFit` scores aren't in this comparison.** The MCP read path doesn't return them. The in-app side-by-side (Phase 4) and `assess:compare` (Phase 5) cover that.
 - **Thresholds and weights are first guesses.** All of them live in `ASSESSMENT_CONFIG`; bump `PIPELINE_VERSION` on any change.
@@ -301,10 +364,18 @@ Spread: 2 weak · 2 consider · 7 pursue · 1 priority, and none Blocked: no job
 
 ## 8. Test fixtures
 
-- `combine.test.ts` uses fixtures built from the §6 runs: the signal values only, with roles anonymised.
-- One fixture per row of the blocker table.
-- The ladder boundaries (2/3, 4/5, 7/8).
-- The gap cap (6 gaps → −2).
-- Direction absent vs present.
-- `verify.test.ts` covers the full and teaser examples.
-- `eligibility.test.ts` covers an IT citizen (GB not covered), an IE citizen (GB covered), an expired visa, remote-anywhere, a straddling pay range, and a currency with no floor.
+- **`combine.test.ts`** uses fixtures built from the §6 runs: signal values only, roles anonymised. It also covers:
+  - one fixture per row of the blocker table
+  - every row of the years-rule table
+  - the ladder boundaries (2/3, 4/5, 7/8)
+  - the penalty cap (6 gaps → −2)
+  - direction absent vs present
+- **`candidate-state.test.ts`:** every role's header line survives when one role is very long; dates are always present.
+- **`verify.test.ts`:** the full-description and teaser examples.
+- **`eligibility.test.ts`:**
+  - an EU (non-IE) citizen: GB not covered
+  - an IE citizen: GB covered
+  - an expired visa
+  - remote-anywhere
+  - a pay range that straddles the floor
+  - a currency with no floor
