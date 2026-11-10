@@ -33,6 +33,7 @@ import {
   type SystemOneResult,
 } from '@typesafe-ai/sdk'
 import { prisma } from '@/lib/db'
+import { JEV_FAILED_FEATURE_SUFFIX } from './constants'
 
 /** Pinned model. Upgrading changes answers, so it needs a new PIPELINE_VERSION. */
 export const JEV_MODEL = 'jev-1.14.0'
@@ -40,7 +41,6 @@ export const JEV_MODEL = 'jev-1.14.0'
 export const JEV_PROVIDER = 'typesafe'
 
 /** Appended to `feature` on the usage row of a failed call (see file header). */
-import { JEV_FAILED_FEATURE_SUFFIX } from './constants'
 export { JEV_FAILED_FEATURE_SUFFIX }
 
 const DEFAULT_DAILY_CALL_LIMIT = 300
