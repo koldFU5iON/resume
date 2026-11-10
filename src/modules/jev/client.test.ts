@@ -33,7 +33,7 @@ import {
   noul,
 } from '@typesafe-ai/sdk'
 import { prisma } from '@/lib/db'
-import { askJev, isJevConfigured, JevError, JEV_MODEL, normalizeJevError } from './client'
+import { askJev, isJevConfigured, jevCallsRemainingToday, JevError, JEV_MODEL, normalizeJevError } from './client'
 
 const mockCount = vi.mocked(prisma.llmUsageLog.count)
 const mockCreate = vi.mocked(prisma.llmUsageLog.create)
@@ -264,5 +264,27 @@ describe('askJev', () => {
   it('keeps status and request id on API errors', () => {
     const err = APIError.fromResponse(429, { detail: 'slow down' }, new Headers({ 'x-typesafe-request-id': 'req-1' }))
     expect(normalizeJevError(err)).toMatchObject({ kind: 'rate_limited', status: 429, requestId: 'req-1' })
+  })
+})
+
+describe('jevCallsRemainingToday', () => {
+  afterEach(() => vi.unstubAllEnvs())
+
+  it("is the daily limit minus today's typesafe rows for the profile, never negative", async () => {
+    vi.stubEnv('JEV_DAILY_CALL_LIMIT', '300')
+    mockCount.mockResolvedValueOnce(60)
+    expect(await jevCallsRemainingToday('p1')).toBe(240)
+    const where = (mockCount.mock.calls.at(-1)![0] as { where: { profileId: string; provider: string; createdAt: { gte: Date } } }).where
+    expect(where.profileId).toBe('p1')
+    expect(where.provider).toBe('typesafe')
+    expect(where.createdAt.gte.getHours()).toBe(0)
+    mockCount.mockResolvedValueOnce(400)
+    expect(await jevCallsRemainingToday('p1')).toBe(0)
+  })
+
+  it('uses the default limit when the env var is blank', async () => {
+    vi.stubEnv('JEV_DAILY_CALL_LIMIT', '')
+    mockCount.mockResolvedValueOnce(0)
+    expect(await jevCallsRemainingToday('p1')).toBe(300)
   })
 })

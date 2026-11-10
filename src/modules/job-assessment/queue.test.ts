@@ -1,13 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 vi.mock('@/lib/db', () => {
-  const jobAssessment = { updateMany: vi.fn(), create: vi.fn(), count: vi.fn(), findFirst: vi.fn() }
+  const jobAssessment = { updateMany: vi.fn(), create: vi.fn(), createManyAndReturn: vi.fn(), count: vi.fn(), findFirst: vi.fn() }
   // Fake interactive transaction: the callback gets a tx sharing the same delegates.
   const tx = { $executeRaw: vi.fn(), jobAssessment }
   return {
     prisma: {
       profile: { findUnique: vi.fn() },
-      jobApplication: { findFirst: vi.fn() },
+      jobApplication: { findFirst: vi.fn(), findMany: vi.fn() },
       jobAssessment,
       $executeRaw: tx.$executeRaw,
       $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
@@ -17,6 +17,10 @@ vi.mock('@/lib/db', () => {
 vi.mock('@/lib/session', () => ({ isAdminUser: vi.fn() }))
 vi.mock('next/server', () => ({ after: vi.fn() }))
 vi.mock('./run', async (orig) => ({ ...(await orig<typeof import('./run')>()), runJobAssessment: vi.fn() }))
+vi.mock('./continuation', async (orig) => ({
+  ...(await orig<typeof import('./continuation')>()),
+  requestContinuation: vi.fn(),
+}))
 
 import { after } from 'next/server'
 import { prisma } from '@/lib/db'
@@ -32,11 +36,15 @@ import {
   MAX_RESCHEDULES,
   MAX_RUNS_PER_DRAIN,
   MIN_RUN_START_MS,
+  ASSESSMENT_CONCURRENCY_PER_PROFILE,
   queueJobAssessment,
+  insertQueuedAssessments,
+  queueJobAssessments,
   queueJobAssessmentSafely,
   STALE_QUEUED_REASON,
 } from './queue'
 import { runJobAssessment, STAGE_WORST_MS } from './run'
+import { MAX_CONTINUATIONS, requestContinuation } from './continuation'
 import { PIPELINE_VERSION } from './schema'
 
 const mockAfter = vi.mocked(after)
@@ -45,6 +53,7 @@ const mockRun = vi.mocked(runJobAssessment)
 const a = vi.mocked(prisma.jobAssessment)
 const mockLock = vi.mocked(prisma.$executeRaw)
 const mockTransaction = vi.mocked(prisma.$transaction)
+const mockContinue = vi.mocked(requestContinuation)
 
 /** Ids of the claims passed to runJobAssessment, in order. */
 const ranIds = () => mockRun.mock.calls.map((c) => c[0].id)
@@ -55,7 +64,7 @@ const isInProgressCount = (args: unknown) => typeof (args as { where: { status: 
 beforeEach(() => {
   vi.clearAllMocks()
   // Drop implementations and unconsumed *Once values from earlier tests.
-  for (const m of [a.updateMany, a.create, a.count, a.findFirst, mockLock, mockTransaction]) m.mockReset()
+  for (const m of [a.updateMany, a.create, a.createManyAndReturn, a.count, a.findFirst, mockLock, mockTransaction]) m.mockReset()
   mockTransaction.mockImplementation((async (fn: (tx: unknown) => unknown) => fn({ $executeRaw: mockLock, jobAssessment: a })) as never)
   vi.stubEnv('TYPESAFE_API_KEY', 'ts-test')
   vi.stubEnv('JOB_ASSESSMENT_V2', 'all')
@@ -69,6 +78,7 @@ beforeEach(() => {
   mockLock.mockResolvedValue(1 as never)
   mockRun.mockReset()
   mockRun.mockResolvedValue('complete')
+  mockContinue.mockResolvedValue(true)
 })
 afterEach(() => vi.unstubAllEnvs())
 
@@ -379,7 +389,7 @@ describe('drainProfileQueue — deadline, stale rows, re-checks', () => {
     mockRun.mockResolvedValueOnce('requeued')
     expect(await drainProfileQueue('p1')).toBe(0)
     expect(mockRun).toHaveBeenCalledTimes(1)
-    expect(a.count.mock.calls.filter((c) => !isInProgressCount(c[0]))).toHaveLength(0) // no post-drain re-check
+    expect(mockTransaction).toHaveBeenCalledTimes(1) // no in-process re-drain (continuation takes over)
 
     a.findFirst.mockReset()
     a.findFirst.mockResolvedValueOnce({ id: 'slow' } as never).mockResolvedValue(null)
@@ -417,8 +427,171 @@ describe('drainProfileQueue — deadline, stale rows, re-checks', () => {
     expect(mockTransaction).toHaveBeenCalledTimes(MAX_RESCHEDULES + 1)
   })
 
-  it('does not re-check after stopping at the deadline', async () => {
+  it('does not re-drain in-process after stopping at the deadline', async () => {
+    a.count.mockImplementation((async (args: unknown) => (isInProgressCount(args) ? 0 : 1)) as never)
     await drainProfileQueue('p1', { deadline: Date.now() })
-    expect(a.count.mock.calls.filter((c) => !isInProgressCount(c[0]))).toHaveLength(0)
+    expect(mockTransaction).not.toHaveBeenCalled()
+    expect(mockContinue).toHaveBeenCalledOnce() // a fresh invocation takes over instead
+  })
+})
+
+describe('queueJobAssessments (batch)', () => {
+  beforeEach(() => {
+    vi.mocked(prisma.jobApplication.findMany).mockResolvedValue([{ id: 'j1' }, { id: 'j2' }, { id: 'j3' }] as never)
+    a.createManyAndReturn.mockImplementation((async (args: { data: unknown[] }) =>
+      args.data.map((_, i) => ({ id: `as-${i}` }))) as never)
+  })
+
+  it('is a no-op when disabled', async () => {
+    vi.stubEnv('JOB_ASSESSMENT_V2', 'off')
+    expect(await queueJobAssessments('p1', ['j1'], { reason: 'backfill' })).toEqual({ queued: 0, reason: 'disabled' })
+    expect(a.createManyAndReturn).not.toHaveBeenCalled()
+    expect(mockAfter).not.toHaveBeenCalled()
+  })
+
+  it("skips jobs of other profiles and keeps the caller's order", async () => {
+    vi.mocked(prisma.jobApplication.findMany).mockResolvedValueOnce([{ id: 'j3' }, { id: 'j1' }] as never)
+    const res = await queueJobAssessments('p1', ['j3', 'jx', 'j1'], { reason: 'backfill' })
+    expect(res).toEqual({ queued: 2, assessmentIds: ['as-0', 'as-1'] })
+    expect(prisma.jobApplication.findMany).toHaveBeenCalledWith({
+      where: { id: { in: ['j3', 'jx', 'j1'] }, profileId: 'p1' }, select: { id: true },
+    })
+    const data = (a.createManyAndReturn.mock.calls[0][0] as { data: { jobApplicationId: string; createdAt: Date; profileId: string; status: string; pipelineVersion: string }[] }).data
+    expect(data.map((d) => d.jobApplicationId)).toEqual(['j3', 'j1'])
+    expect(data.every((d) => d.profileId === 'p1' && d.status === 'queued' && d.pipelineVersion === PIPELINE_VERSION)).toBe(true)
+    // Oldest first at admission → j3 runs before j1.
+    expect(data[0].createdAt.getTime()).toBeLessThan(data[1].createdAt.getTime())
+  })
+
+  it('supersedes queued rows of the same jobs before inserting', async () => {
+    await queueJobAssessments('p1', ['j1', 'j2'], { reason: 'backfill' })
+    expect(a.updateMany).toHaveBeenCalledWith({
+      where: { profileId: 'p1', jobApplicationId: { in: ['j1', 'j2'] }, status: 'queued' },
+      data: expect.objectContaining({ status: 'failed', failureKind: 'superseded' }),
+    })
+    expect(a.updateMany.mock.invocationCallOrder[0]).toBeLessThan(a.createManyAndReturn.mock.invocationCallOrder[0])
+  })
+
+  it('schedules ASSESSMENT_CONCURRENCY_PER_PROFILE drains in one after(), not one per job', async () => {
+    await queueJobAssessments('p1', ['j1', 'j2', 'j3'], { reason: 'backfill' })
+    expect(mockAfter).toHaveBeenCalledOnce()
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    let n = 0
+    a.findFirst.mockImplementation((async () => (n < 3 ? { id: `r${n++}` } : null)) as never)
+    mockRun.mockImplementation(async () => { await gate; return 'complete' })
+    const done = (mockAfter.mock.calls[0][0] as () => Promise<unknown>)()
+    await vi.waitFor(() => expect(mockRun).toHaveBeenCalledTimes(ASSESSMENT_CONCURRENCY_PER_PROFILE))
+    release()
+    await done
+    expect(mockRun).toHaveBeenCalledTimes(3)
+  })
+
+  it('queues nothing for an empty list', async () => {
+    expect(await queueJobAssessments('p1', [], { reason: 'backfill' })).toEqual({ queued: 0, assessmentIds: [] })
+    expect(mockAfter).not.toHaveBeenCalled()
+  })
+})
+
+describe('drainProfileQueue — continuation', () => {
+  /** Queued rows left after the drain (the non-admission count). */
+  function queuedLeft(n: number) {
+    a.count.mockImplementation((async (args: unknown) => (isInProgressCount(args) ? 0 : n)) as never)
+  }
+
+  it('continues after the deadline when rows are still queued', async () => {
+    queuedLeft(3)
+    a.findFirst.mockResolvedValue({ id: 'r1' } as never)
+    await drainProfileQueue('p1', { deadline: Date.now() + MIN_RUN_START_MS - 1_000 })
+    expect(mockContinue).toHaveBeenCalledWith('p1', 1)
+  })
+
+  it('continues after a run re-queued itself', async () => {
+    queuedLeft(1)
+    a.findFirst.mockResolvedValue({ id: 'r1' } as never)
+    mockRun.mockResolvedValueOnce('requeued')
+    await drainProfileQueue('p1', { continuation: 4 })
+    expect(mockContinue).toHaveBeenCalledWith('p1', 5)
+  })
+
+  it('continues after MAX_RUNS_PER_DRAIN runs', async () => {
+    queuedLeft(5)
+    let n = 0
+    a.findFirst.mockImplementation((async () => ({ id: `r${n++}` })) as never)
+    await drainProfileQueue('p1')
+    expect(mockContinue).toHaveBeenCalledWith('p1', 1)
+  })
+
+  it('does not continue when nothing is left queued', async () => {
+    queuedLeft(0)
+    a.findFirst.mockResolvedValue({ id: 'r1' } as never)
+    await drainProfileQueue('p1', { deadline: Date.now() + MIN_RUN_START_MS - 1_000 })
+    expect(mockContinue).not.toHaveBeenCalled()
+  })
+
+  it('does not continue at the hop limit', async () => {
+    queuedLeft(3)
+    await drainProfileQueue('p1', { deadline: Date.now() + MIN_RUN_START_MS - 1_000, continuation: MAX_CONTINUATIONS })
+    expect(mockContinue).not.toHaveBeenCalled()
+  })
+
+  it('does not continue on limit, empty or stuck', async () => {
+    queuedLeft(3)
+    a.count.mockResolvedValueOnce(2) // admission: at the limit
+    await drainProfileQueue('p1')
+    expect(mockContinue).not.toHaveBeenCalled()
+
+    a.findFirst.mockResolvedValue(null) // empty (its own re-check runs instead)
+    await drainProfileQueue('p1', { depth: MAX_RESCHEDULES })
+    expect(mockContinue).not.toHaveBeenCalled()
+
+    a.findFirst.mockResolvedValue({ id: 'r1' } as never)
+    mockRun.mockResolvedValueOnce('not_claimed') // stuck
+    await drainProfileQueue('p1')
+    expect(mockContinue).not.toHaveBeenCalled()
+  })
+
+  it("passes the hop through the 'empty' re-check, so a re-drain that hits the deadline continues the same chain", async () => {
+    // First pass finds the queue empty while a row appears and time runs out;
+    // the re-drain then stops on the deadline and must continue hop 7 → 8.
+    let queued = 0
+    const start = 1_000_000
+    const deadline = start + MIN_RUN_START_MS + 1_000
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(start)
+    a.count.mockImplementation((async (args: unknown) => (isInProgressCount(args) ? 0 : queued)) as never)
+    a.findFirst.mockImplementationOnce((async () => {
+      queued = 1
+      clock.mockReturnValue(deadline)
+      return null
+    }) as never)
+    await drainProfileQueue('p1', { deadline, continuation: 7 })
+    clock.mockRestore()
+    expect(mockContinue).toHaveBeenCalledWith('p1', 8)
+  })
+
+  it('never throws when the continuation check fails', async () => {
+    a.findFirst.mockResolvedValue({ id: 'r1' } as never)
+    a.count.mockImplementation((async (args: unknown) => {
+      if (isInProgressCount(args)) return 0
+      throw new Error('db down')
+    }) as never)
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    await expect(drainProfileQueue('p1', { deadline: Date.now() + MIN_RUN_START_MS - 1_000 })).resolves.toBe(0)
+    expect(mockContinue).not.toHaveBeenCalled()
+    err.mockRestore()
+  })
+})
+
+describe('insertQueuedAssessments', () => {
+  it('uses the client it is given (e.g. a transaction) and schedules nothing', async () => {
+    const tx = {
+      jobApplication: { findMany: vi.fn(async () => [{ id: 'j1' }]) },
+      jobAssessment: { updateMany: vi.fn(async () => ({ count: 0 })), createManyAndReturn: vi.fn(async () => [{ id: 'as-1' }]) },
+    }
+    expect(await insertQueuedAssessments(tx as never, 'p1', ['j1', 'jx'])).toEqual(['as-1'])
+    expect(tx.jobApplication.findMany).toHaveBeenCalledWith({ where: { id: { in: ['j1', 'jx'] }, profileId: 'p1' }, select: { id: true } })
+    expect(tx.jobAssessment.updateMany).toHaveBeenCalled()
+    expect(a.createManyAndReturn).not.toHaveBeenCalled()
+    expect(mockAfter).not.toHaveBeenCalled()
   })
 })

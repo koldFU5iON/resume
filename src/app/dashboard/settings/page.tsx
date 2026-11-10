@@ -2,6 +2,15 @@ import Link from 'next/link'
 import { BarChart2, ChevronRight, FileText, KeyRound, LayoutGrid, PenLine, ScrollText, Sparkles, UserCircle } from 'lucide-react'
 import { ContentContainer } from '@/app/components/ContentContainer'
 import { Card } from '@/components/ui/card'
+import { requireProfile } from '@/lib/session'
+import { getBackfillStatus } from '@/modules/job-assessment/backfill'
+import { isEarlyAssessmentEnabled } from '@/modules/job-assessment/queries'
+import { EarlyAssessmentBackfill } from './_components/early-assessment-backfill'
+
+// The backfill Server Action queues early job assessments, which run in
+// after() within this limit; keep in sync with ROUTE_MAX_DURATION_S in
+// src/modules/job-assessment/queue.ts.
+export const maxDuration = 300
 
 // Settings index. Future sections (account, notifications) can slot in
 // alongside API tokens and LLM.
@@ -56,7 +65,18 @@ const SECTIONS = [
   },
 ]
 
-export default function Page() {
+export default async function Page() {
+  const { profile } = await requireProfile()
+  // A DB error hides the card instead of breaking the whole Settings page.
+  const backfill = await (async () => {
+    try {
+      return (await isEarlyAssessmentEnabled(profile.id)) ? await getBackfillStatus(profile.id) : null
+    } catch {
+      console.error('[settings] early assessment status unavailable')
+      return null
+    }
+  })()
+
   return (
     <ContentContainer
       title="Settings"
@@ -81,6 +101,11 @@ export default function Page() {
           </li>
         ))}
       </ul>
+      {backfill && (
+        <div className="mt-3">
+          <EarlyAssessmentBackfill status={backfill} />
+        </div>
+      )}
     </ContentContainer>
   )
 }
