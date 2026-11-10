@@ -32,7 +32,7 @@
 
 - **A hard blocker shows the level as "Blocked"** while keeping the score visible, e.g. `Blocked · 7/10 — needs UK sponsorship, JD says none offered`. The underlying level is still stored, for tuning.
 - **"Unconfirmed" is a separate severity.** It covers requirements the JD doesn't settle, like "needs sponsorship, JD doesn't say". It shows amber, doesn't block, and is marked as something the deep dive should check.
-- **A must-have scored below 0.3 is a hard blocker** for every kind of requirement (education, years of experience, certification, language, clearance, core skill). A score between 0.3 and 0.7 is a **gap**, not a blocker.
+- ~~A must-have scored below 0.3 is a hard blocker for every kind of requirement.~~ **Superseded by the spec** (`docs/superpowers/specs/2026-11-10-jev-early-assessment-design.md` §1, §5). Only credential must-haves (education, certification, licence, clearance, language) block. An experience or skill must-have below 0.3 is a *major gap*: −0.5 each, at most −2. The spec also adds relocation, `availability` requirements, `employmentType` and `eligibility.currentCountry`. Where the two differ, the spec wins.
 - **The cheap step needs the user's LLM key.** Without one, the run fails with `no_llm_key` and a link to settings. Jev runs on the app key, but it can't build the requirement questions alone.
 - **Rollout flag:** `JOB_ASSESSMENT_V2=off|admin|all`, defaulting to `admin`. Admin uses the existing `isAdminUser`, so only you run it until it's flipped to `all`.
 
