@@ -175,6 +175,11 @@ ENCRYPTION_KEY="dev-encryption-key-32-bytes-long!!"  # AES-256-GCM key for at-re
 # Email (Resend) — required for password reset
 RESEND_API_KEY=""
 SENDER_EMAIL="no-reply@yourdomain.com"
+
+# Jev (TypeSafe) — app-billed; blank key disables the early job assessment
+TYPESAFE_API_KEY=""
+JOB_ASSESSMENT_V2="admin"          # off | admin | all
+JEV_DAILY_CALL_LIMIT="300"         # max Jev calls per profile per day
 ```
 
 The LLM layer is bring-your-own-key — each user enters their own provider API key at `/dashboard/settings/llm`. No app-level LLM env vars; costs land on the user, not the app owner.
@@ -201,6 +206,10 @@ Update the Vercel `DATABASE_URL` env var (Production scope) via dashboard or `ve
 - `POST /api/jobs/capture` — bearer-token-authed endpoint for agents/scripts/bookmarklets to submit a job URL. Tokens minted at `/dashboard/settings/api-tokens`. See `docs/api-jobs-capture.md` for the full spec, and `docs/api-integrations.md` for copy-pasteable recipes (curl shell function, Claude Code skill, Hermes skill, browser bookmarklet).
 - `GET /api/integrations/skills/<agent>` — public endpoint that returns a templated SKILL.md for the given agent (`claude-code` or `hermes`). `{{RESUME_URL}}` placeholder in `src/lib/integrations/skills/<agent>.md` is substituted with `BETTER_AUTH_URL` (or the request origin as fallback) at request time. Whitelist + dashboard download UI live in `src/app/api/integrations/skills/[agent]/route.ts` and `src/app/dashboard/settings/api-tokens/_components/integrations-list.tsx`. Sources are kept in the function bundle via `outputFileTracingIncludes` in `next.config.ts`.
 - `GET /api/llm/ping` — session-authed sanity check that runs a tiny `pong` round-trip using the signed-in user's saved LLM key. Useful right after wiring up their key in `/dashboard/settings/llm`.
+
+## Jev (TypeSafe) — app-billed
+
+Jev is the one exception to bring-your-own-key: the app pays for every call with `TYPESAFE_API_KEY` (server-side only). Calls go through `askJev()` in `src/modules/jev/client.ts`, which pins the model (`jev-1.14.0`), requires a `feature` tag like the LLM layer, and writes every successful call to `LlmUsageLog` with `provider: 'typesafe'` so usage is tracked per user. A failed call throws `JevError` (with a `kind`) — never treat it as an answer. `JEV_DAILY_CALL_LIMIT` (default 300) caps calls per profile per day. Question wording lives in `src/modules/job-assessment/questions.ts` (Phase 3), not in the client.
 
 ## LLM layer
 

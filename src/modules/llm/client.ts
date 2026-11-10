@@ -31,6 +31,26 @@ const PROVIDERS: Record<string, ProviderFactory> = {
 
 export const SUPPORTED_PROVIDERS = Object.keys(PROVIDERS) as ReadonlyArray<keyof typeof PROVIDERS>
 
+export type UsageLogEntry = {
+  profileId: string
+  provider: string
+  model: string
+  feature: string | null
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+  latencyMs: number
+}
+
+/**
+ * Shared LlmUsageLog writer. Never throws — usage logging must never crash the
+ * caller. Also used by the app-billed Jev client (src/modules/jev/client.ts),
+ * which awaits it directly so its daily-cap count stays exact.
+ */
+export async function writeUsageLog(entry: UsageLogEntry): Promise<void> {
+  await prisma.llmUsageLog.create({ data: entry }).catch(() => {})
+}
+
 function logUsage(
   profileId: string,
   provider: string,
@@ -39,20 +59,57 @@ function logUsage(
   usage: LanguageModelUsage,
   latencyMs: number,
 ): void {
-  after(async () => {
-    await prisma.llmUsageLog.create({
-      data: {
-        profileId,
-        provider,
-        model,
-        feature: feature ?? null,
-        promptTokens: usage.inputTokens ?? 0,
-        completionTokens: usage.outputTokens ?? 0,
-        totalTokens: usage.totalTokens ?? 0,
-        latencyMs,
-      },
-    }).catch(() => {}) // swallow errors — usage logging must never crash the caller
+  after(() =>
+    writeUsageLog({
+      profileId,
+      provider,
+      model,
+      feature: feature ?? null,
+      promptTokens: usage.inputTokens ?? 0,
+      completionTokens: usage.outputTokens ?? 0,
+      totalTokens: usage.totalTokens ?? 0,
+      latencyMs,
+    }),
+  )
+}
+
+// Cheap, fast model per provider for high-volume structured steps (e.g. job
+// assessment facts). null = no verified id yet; resolveFastModel falls back to
+// the user's default model.
+export const FAST_MODELS: Record<'anthropic' | 'openai' | 'google', string | null> = {
+  anthropic: 'claude-haiku-5-5',
+  openai: null,
+  google: null,
+}
+
+/**
+ * Model id to pass as `opts.model` for cheap structured calls. Uses the
+ * provider's FAST_MODELS entry when the user's cached model list (if any)
+ * contains that exact id (current Claude ids carry no date suffix), otherwise
+ * the user's default model.
+ */
+export async function resolveFastModel(profileId: string): Promise<string> {
+  const settings = await prisma.userSettings.findUnique({
+    where: { profileId },
+    select: { llmProvider: true, llmModel: true, llmApiKey: true, availableModels: true },
   })
+  if (!settings?.llmApiKey) {
+    throw new LLMError(
+      'No LLM API key configured. Add one at /dashboard/settings/llm.',
+      'not_configured',
+    )
+  }
+
+  const fast = (FAST_MODELS as Record<string, string | null | undefined>)[settings.llmProvider]
+  if (!fast) return settings.llmModel
+
+  const available = Array.isArray(settings.availableModels)
+    ? (settings.availableModels as { id?: unknown }[])
+        .map(m => m?.id)
+        .filter((id): id is string => typeof id === 'string')
+    : null
+  if (!available || available.includes(fast)) return fast
+  return settings.llmModel
 }
 
 type ResolvedConfig = {
@@ -62,9 +119,9 @@ type ResolvedConfig = {
 }
 
 function samplingOptions(provider: string, model: string, temperature: number | undefined) {
-  // Anthropic's v5 Sonnet and Opus models reject non-default sampling values.
-  // Keep existing tuning for earlier Claude models and other providers.
-  if (provider === 'anthropic' && /^claude-(?:sonnet|opus)-[5-9](?:\D|$)/.test(model)) {
+  // Anthropic's v5 Sonnet, Opus and Haiku models reject non-default sampling
+  // values with a 400. Keep existing tuning for earlier Claude models and other providers.
+  if (provider === 'anthropic' && /^claude-(?:sonnet|opus|haiku)-[5-9](?:\D|$)/.test(model)) {
     return {}
   }
   return temperature === undefined ? {} : { temperature }
