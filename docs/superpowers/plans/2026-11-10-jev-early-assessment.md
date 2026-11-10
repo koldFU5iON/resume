@@ -65,7 +65,7 @@ queueJobAssessment(profileId, jobId) ─ creates a JobAssessment row (status: qu
 4. JUDGE — one Jev call, state = { candidate profile, job (facts + full JD), preferences }
         │
         ▼
-5. COMBINE (pure code) → score 1–10, level, blocked, blockers[], strengths[], gaps[], confidence
+5. COMBINE (pure code) → score 1–10, level, blocked, blockers[], strengths[], gaps[], unsettled[]
         │
         ▼
 JobAssessment row: status complete, everything stored (including raw Jev answers)
@@ -157,7 +157,7 @@ level     = LADDER: 1–2 weak · 3–4 consider · 5–7 pursue · 8–10 prior
 blocked   = any hard blocker  → shown as "Blocked"
 strengths = must-haves with noul ≥ 0.7 (top 3, by the JD's own wording)
 gaps      = requirements with noul between 0.3 and 0.7
-confidence = mean of Jev confidence on the rubric and choice answers → "low confidence" badge when < 0.5
+unsettled  = must-haves with 0.3 ≤ p < 0.7 → shown as "check these" (Jev confidence is not used as a gate; see spec §1)
 ```
 
 All weights and thresholds live in `ASSESSMENT_CONFIG`, together with `PIPELINE_VERSION = 'early-v1'`. Every run stores the version, so results from different tunings never get mixed up.
@@ -181,6 +181,7 @@ model JobAssessment {
   factsHash        String?
   facts            Json?     // JobFacts (from the cheap model)
   signals          Json?     // raw Jev answers, keyed by question id
+  request          Json?     // exact Jev request bodies, so any run can be replayed (spec §1)
   jevModel         String?   // e.g. jev-1.14.0, as returned by the API
   score            Int?
   level            String?   // weak | consider | pursue | priority
@@ -188,7 +189,7 @@ model JobAssessment {
   blockers         Json?     // [{ kind, severity: 'hard'|'unconfirmed', label, detail }]
   strengths        String[]
   gaps             String[]
-  confidence       Float?
+  unsettled        String[]
   startedAt        DateTime?
   completedAt      DateTime?
   queueTimeMs      Int?      // createdAt → startedAt (time waiting for after() to pick it up)
@@ -298,7 +299,7 @@ eligibility: z.object({
      - the level, score and gauge, using the same layout as `FitDetail`
      - blockers: hard first, then unconfirmed
      - strengths and gaps
-     - a low-confidence note when needed
+     - "check these": unsettled must-haves
      - for failed runs: the failure reasons and a **Re-run** button
      - a footer with the Jev model, pipeline version and `processTimeMs`
    - **Deep analysis button:** shown when the level is pursue or better and the job isn't blocked. It runs the existing `assessJobFit`.
