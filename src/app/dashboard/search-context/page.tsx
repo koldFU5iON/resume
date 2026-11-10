@@ -1,8 +1,11 @@
 import { getSearchProfile } from '@/modules/search-profile/queries'
 import { SearchContextForm } from './_components/search-context-form'
+import { countryFromLocation } from '@/modules/job-assessment/eligibility'
 
 export default async function Page() {
-  const { searchProfile, suggestions } = await getSearchProfile()
+  const { profile, searchProfile, suggestions } = await getSearchProfile()
+  // Only a suggestion: the form shows it, and stores it once the user confirms or picks a country.
+  const suggestedCountry = searchProfile.eligibility.currentCountry === null ? countryFromLocation(profile.location) : null
 
   return (
     <div className="max-w-3xl p-4 md:p-8">
@@ -13,7 +16,11 @@ export default async function Page() {
           Used by job-fit scoring, the career coach, and job board scanning. Fill in what you know — the rest can come later.
         </p>
       </div>
-      <SearchContextForm initialProfile={searchProfile} initialSuggestions={suggestions} />
+      <SearchContextForm
+        initialProfile={searchProfile}
+        initialSuggestions={suggestions}
+        suggestedCountry={suggestedCountry}
+      />
     </div>
   )
 }

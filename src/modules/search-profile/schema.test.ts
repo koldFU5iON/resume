@@ -4,6 +4,8 @@ import {
   searchProfileHasContent,
   normalizeSuggestions,
   emptySearchProfile,
+  emptyEligibility,
+  normalizeEligibility,
   formatSalaryBand,
 } from './schema'
 
@@ -48,6 +50,44 @@ describe('normalizeSearchProfile', () => {
     expect(result.remotePreference).toBe('')
     expect(result.preferredName).toBe('Devon')
     expect(result.roles).toEqual(['CTO'])
+  })
+})
+
+describe('normalizeSearchProfile per-field tolerance', () => {
+  const full = {
+    preferredName: 'Devon',
+    currentRole: 'Comms Ops',
+    roles: ['Director of Operations'],
+    countries: ['UK'],
+    remotePreference: 'remote',
+    salaryBand: { min: 80000, max: 120000, currency: 'GBP' },
+    careerGoals: 'Lead ops',
+    pivotContext: 'Pivot',
+    extraContext: 'Extra',
+    eligibility: { currentCountry: 'FR', citizenships: ['ES'], visas: [], salaryFloors: [], dealbreakers: ['On-call'] },
+  }
+
+  it('truncates a 121-char preferredName and keeps every other field', () => {
+    const result = normalizeSearchProfile({ ...full, preferredName: 'x'.repeat(121) })
+    expect(result.preferredName).toBe('x'.repeat(120))
+    expect(result).toEqual({ ...full, preferredName: 'x'.repeat(120) })
+  })
+
+  it('truncates a 4000-char careerGoals and keeps every other field, including eligibility', () => {
+    const result = normalizeSearchProfile({ ...full, careerGoals: 'y'.repeat(4000) })
+    expect(result.careerGoals).toHaveLength(3000)
+    expect(result).toEqual({ ...full, careerGoals: 'y'.repeat(3000) })
+  })
+
+  it('resets a wrongly typed field to its empty value and keeps the rest', () => {
+    const result = normalizeSearchProfile({ ...full, currentRole: 42, pivotContext: { a: 1 } })
+    expect(result).toEqual({ ...full, currentRole: '', pivotContext: '' })
+  })
+
+  it('truncates over-long list items and drops non-string ones instead of emptying the list', () => {
+    const result = normalizeSearchProfile({ ...full, roles: ['CTO', 'r'.repeat(150), 7] })
+    expect(result.roles).toEqual(['CTO', 'r'.repeat(100)])
+    expect(result.eligibility).toEqual(full.eligibility)
   })
 })
 
@@ -105,5 +145,142 @@ describe('formatSalaryBand', () => {
 
   it('returns currency code when both are null', () => {
     expect(formatSalaryBand({ min: null, max: null, currency: 'EUR' })).toBe('EUR')
+  })
+})
+
+describe('eligibility', () => {
+  const legacyRow = {
+    preferredName: 'Devon', currentRole: '', roles: ['CTO'], countries: ['UK'],
+    remotePreference: 'remote', salaryBand: null, careerGoals: '', pivotContext: '', extraContext: '',
+  }
+
+  it('parses an old row without eligibility to an empty eligibility, keeping the other fields', () => {
+    const result = normalizeSearchProfile(legacyRow)
+    expect(result.eligibility).toEqual(emptyEligibility)
+    expect(result.preferredName).toBe('Devon')
+    expect(result.roles).toEqual(['CTO'])
+  })
+
+  it.each([['a string', 'junk'], ['an array', [1, 2]], ['null', null], ['a number', 42]])(
+    'parses %s eligibility to empty without discarding the profile',
+    (_label, eligibility) => {
+      const result = normalizeSearchProfile({ ...legacyRow, eligibility })
+      expect(result.eligibility).toEqual(emptyEligibility)
+      expect(result.preferredName).toBe('Devon')
+    },
+  )
+
+  it('replaces malformed fields with their empty value', () => {
+    expect(
+      normalizeEligibility({ currentCountry: 7, citizenships: 'ES', visas: {}, salaryFloors: null, dealbreakers: 'x' }),
+    ).toEqual(emptyEligibility)
+  })
+
+  it('round-trips a valid eligibility unchanged', () => {
+    const eligibility = {
+      currentCountry: 'FR',
+      citizenships: ['ES'],
+      visas: [{ country: 'GB', type: 'Skilled Worker', expiresOn: '2027-03-31' }],
+      salaryFloors: [
+        { currency: 'EUR', floor: 90000, target: 100000 },
+        { currency: 'GBP', floor: 85000, target: null },
+      ],
+      dealbreakers: ['Fixed-term contract'],
+    }
+    expect(normalizeSearchProfile({ ...legacyRow, eligibility }).eligibility).toEqual(eligibility)
+  })
+
+  it('trims and uppercases country and currency codes', () => {
+    const result = normalizeEligibility({
+      currentCountry: ' fr ',
+      citizenships: ['es', 'ie'],
+      visas: [{ country: 'gb', type: 'Skilled Worker', expiresOn: null }],
+      salaryFloors: [{ currency: 'eur', floor: 90000, target: null }],
+    })
+    expect(result.currentCountry).toBe('FR')
+    expect(result.citizenships).toEqual(['ES', 'IE'])
+    expect(result.visas[0].country).toBe('GB')
+    expect(result.salaryFloors[0].currency).toBe('EUR')
+  })
+
+  it('drops invalid codes and de-duplicates citizenships', () => {
+    const result = normalizeEligibility({ currentCountry: 'Narnia', citizenships: ['es', 'ES', 'ESP', '', 3, 'EU', 'ZZ'] })
+    expect(result.currentCountry).toBeNull()
+    expect(result.citizenships).toEqual(['ES'])
+  })
+
+  it('maps names and aliases to real country codes', () => {
+    const result = normalizeEligibility({
+      currentCountry: 'France',
+      citizenships: ['uk', 'GB', 'Ireland'],
+      visas: [{ country: 'USA', type: 'H-1B', expiresOn: null }, { country: 'EU', type: 'Blue Card', expiresOn: null }],
+    })
+    expect(result.currentCountry).toBe('FR')
+    expect(result.citizenships).toEqual(['GB', 'IE'])
+    expect(result.visas).toEqual([{ country: 'US', type: 'H-1B', expiresOn: null }])
+  })
+
+  it('parses an object with no eligibility keys to an empty eligibility', () => {
+    expect(normalizeEligibility({})).toEqual(emptyEligibility)
+  })
+
+  it('defaults a visa expiry to null and drops visas with a bad country or malformed date', () => {
+    const result = normalizeEligibility({
+      visas: [
+        { country: 'US', type: 'H-1B' },
+        { country: 'GB', type: 'Skilled Worker', expiresOn: '2027-02-30' },
+        { country: 'GB', type: 'Skilled Worker', expiresOn: '31/03/2027' },
+        { country: '', type: 'Blue Card', expiresOn: null },
+      ],
+    })
+    expect(result.visas).toEqual([{ country: 'US', type: 'H-1B', expiresOn: null }])
+  })
+
+  it('collapses duplicate currencies, keeping the first floor', () => {
+    const result = normalizeEligibility({
+      salaryFloors: [
+        { currency: 'EUR', floor: 90000, target: 100000 },
+        { currency: 'eur', floor: 50000, target: null },
+        { currency: 'GBP', floor: 85000 },
+      ],
+    })
+    expect(result.salaryFloors).toEqual([
+      { currency: 'EUR', floor: 90000, target: 100000 },
+      { currency: 'GBP', floor: 85000, target: null },
+    ])
+  })
+
+  it('drops a target below its floor but keeps the floor', () => {
+    const result = normalizeEligibility({ salaryFloors: [{ currency: 'EUR', floor: 90000, target: 80000 }] })
+    expect(result.salaryFloors).toEqual([{ currency: 'EUR', floor: 90000, target: null }])
+  })
+
+  it('drops floors that are negative or not numbers', () => {
+    const result = normalizeEligibility({
+      salaryFloors: [{ currency: 'EUR', floor: -1 }, { currency: 'GBP', floor: '85000' }],
+    })
+    expect(result.salaryFloors).toEqual([])
+  })
+
+  it('trims dealbreakers, drops empty, duplicate and over-long lines, and keeps at most 10', () => {
+    const many = Array.from({ length: 12 }, (_, i) => `Line ${i}`)
+    expect(normalizeEligibility({ dealbreakers: ['  On-call  ', '', '   ', 'On-call', 'x'.repeat(201)] }).dealbreakers)
+      .toEqual(['On-call'])
+    expect(normalizeEligibility({ dealbreakers: many }).dealbreakers).toEqual(many.slice(0, 10))
+  })
+
+  it('returns a fresh empty eligibility each time, never the shared constant', () => {
+    const a = normalizeSearchProfile(null)
+    a.eligibility.citizenships.push('FR')
+    expect(emptyEligibility.citizenships).toEqual([])
+    expect(normalizeSearchProfile({}).eligibility.citizenships).toEqual([])
+  })
+
+  it('counts towards searchProfileHasContent', () => {
+    expect(searchProfileHasContent({ ...emptySearchProfile, eligibility: { ...emptyEligibility, currentCountry: 'FR' } }))
+      .toBe(true)
+    expect(searchProfileHasContent({ ...emptySearchProfile, eligibility: { ...emptyEligibility, dealbreakers: ['On-call'] } }))
+      .toBe(true)
+    expect(searchProfileHasContent({ ...emptySearchProfile, eligibility: { ...emptyEligibility } })).toBe(false)
   })
 })

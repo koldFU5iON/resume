@@ -11,6 +11,14 @@ import { cn } from '@/lib/utils'
 import { LocationTagsInput } from '@/app/dashboard/job-hunt/_components/location-tags-input'
 import { saveSearchProfile } from '@/modules/search-profile/actions'
 import { SuggestionsPanel } from './suggestions-panel'
+import { EligibilityCard } from './eligibility-card'
+import {
+  fromEligibilityDraft,
+  hasDraftErrors,
+  toEligibilityDraft,
+  validateEligibilityDraft,
+  type EligibilityDraft,
+} from './eligibility-draft'
 import type { SearchProfile, SearchSuggestion, SalaryBand } from '@/modules/search-profile/schema'
 
 const REMOTE_OPTIONS = [
@@ -25,11 +33,22 @@ const CURRENCIES = ['GBP', 'USD', 'EUR', 'CAD', 'AUD']
 type Props = {
   initialProfile: SearchProfile
   initialSuggestions: SearchSuggestion[]
+  /** Country parsed from the profile location; shown as an unconfirmed suggestion while `eligibility.currentCountry` is unset. */
+  suggestedCountry: string | null
 }
 
-export function SearchContextForm({ initialProfile, initialSuggestions }: Props) {
+export function SearchContextForm({ initialProfile, initialSuggestions, suggestedCountry }: Props) {
   const [profile, setProfile] = useState<SearchProfile>(initialProfile)
   const [suggestions, setSuggestions] = useState<SearchSuggestion[]>(initialSuggestions)
+  // Eligibility is edited as a draft (rows can be half-filled) and folded back into the profile on save.
+  const [eligibility, setEligibility] = useState<EligibilityDraft>(() =>
+    toEligibilityDraft(initialProfile.eligibility, suggestedCountry),
+  )
+  const eligibilityErrors = validateEligibilityDraft(eligibility)
+  // Set by a blocked save so every eligibility error shows, not only rows already left.
+  const [revealErrors, setRevealErrors] = useState(false)
+  // Bumped after each successful save to remount the card with fresh touched/focus state.
+  const [savedVersion, setSavedVersion] = useState(0)
   const [isPending, startTransition] = useTransition()
 
   function update<K extends keyof SearchProfile>(key: K, value: SearchProfile[K]) {
@@ -37,8 +56,28 @@ export function SearchContextForm({ initialProfile, initialSuggestions }: Props)
   }
 
   function handleSave() {
+    if (hasDraftErrors(eligibilityErrors)) {
+      setRevealErrors(true)
+      toast.error('Fix the highlighted eligibility fields before saving')
+      return
+    }
     startTransition(async () => {
-      await saveSearchProfile(profile)
+      let result: Awaited<ReturnType<typeof saveSearchProfile>>
+      try {
+        result = await saveSearchProfile({ ...profile, eligibility: fromEligibilityDraft(eligibility) })
+      } catch {
+        toast.error('Could not save your search context. Try again.')
+        return
+      }
+      if (!result.ok) {
+        toast.error(result.error)
+        return
+      }
+      // Show exactly what was stored (the server normalises the whole profile).
+      setProfile(result.profile)
+      setEligibility(toEligibilityDraft(result.profile.eligibility, suggestedCountry))
+      setRevealErrors(false)
+      setSavedVersion((v) => v + 1)
       toast.success('Search context saved')
     })
   }
@@ -213,6 +252,15 @@ export function SearchContextForm({ initialProfile, initialSuggestions }: Props)
           </div>
         </CardContent>
       </Card>
+
+      <EligibilityCard
+        key={savedVersion}
+        value={eligibility}
+        onChange={setEligibility}
+        errors={eligibilityErrors}
+        revealErrors={revealErrors}
+        preferredCurrency={profile.salaryBand?.currency}
+      />
 
       <div className="flex justify-end">
         <Button onClick={handleSave} disabled={isPending}>
