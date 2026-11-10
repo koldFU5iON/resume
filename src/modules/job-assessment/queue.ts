@@ -11,12 +11,15 @@
  *   that are still `queued` are marked failed / superseded first.
  * - `drainProfileQueue` runs the profile's queued rows oldest first, one at a
  *   time, until none are left. At most ASSESSMENT_CONCURRENCY_PER_PROFILE
- *   drains run per profile: a drain that finds the limit reached returns, and
- *   a running drain picks its row up. That keeps a batch capture of 20 jobs
- *   from hitting the user's LLM key and Jev's soft daily cap 20 times at once.
- * - The limit is checked in-process (drains in this instance) and in the DB
- *   (rows in progress that started in the last 5 minutes, any instance),
- *   at drain start and again before every run.
+ *   runs are in progress per profile at once: a drain whose admission finds
+ *   the limit reached returns, and a running drain picks its row up. That
+ *   keeps a batch capture of 20 jobs from hitting the user's LLM key and Jev
+ *   20 times at once.
+ * - The limit is hard: before every run, `admitNextRun` counts the profile's
+ *   runs in progress (lease: startedAt within the last 5 minutes) and claims
+ *   the next row in ONE transaction under a per-profile Postgres advisory
+ *   lock, so drains on different instances can't both pass the count. The
+ *   in-process counter is only a cheap pre-check that avoids a transaction.
  * - Time: after() runs within the route's maxDuration (set to 300s on every
  *   route segment that queues; see ROUTE_MAX_DURATION_S). The deadline is
  *   fixed when the job is queued (or from the request start, when the caller
@@ -39,10 +42,10 @@ import { after } from 'next/server'
 import { prisma } from '@/lib/db'
 import { isAdminUser } from '@/lib/session'
 import { isJevConfigured } from '@/modules/jev/client'
-import { runJobAssessment } from './run'
+import { runJobAssessment, type RunClaim } from './run'
 import { IN_PROGRESS_STALE_MS, IN_PROGRESS_STATUSES, PIPELINE_VERSION, QUEUED_STALE_MS } from './schema'
 
-/** Concurrent runs per profile (PR #330 review: askJev's daily cap is soft). */
+/** Hard limit on concurrent runs per profile, enforced by admitNextRun. */
 export const ASSESSMENT_CONCURRENCY_PER_PROFILE = 2
 
 /** Upper bound on runs per drain. */
@@ -195,13 +198,50 @@ export function activeDrainCount(profileId: string): number {
   return activeDrains.get(profileId) ?? 0
 }
 
-function inProgressCount(profileId: string): Promise<number> {
-  return prisma.jobAssessment.count({
-    where: {
-      profileId,
-      status: { in: [...IN_PROGRESS_STATUSES] },
-      startedAt: { gte: new Date(Date.now() - IN_PROGRESS_STALE_MS) },
-    },
+/** Advisory-lock key serialising admission per profile (see admitNextRun). */
+export function admissionLockKey(profileId: string): string {
+  return `job-assessment:${profileId}`
+}
+
+export type Admission =
+  | { kind: 'claimed'; claim: RunClaim }
+  | { kind: 'limit' }
+  | { kind: 'empty' }
+
+/**
+ * Atomic per-profile admission: in one transaction holding a per-profile
+ * advisory lock, count the runs in progress inside the lease window
+ * (startedAt within IN_PROGRESS_STALE_MS: a crashed run stops counting after
+ * that) and, below ASSESSMENT_CONCURRENCY_PER_PROFILE, claim the oldest
+ * queued row (status 'checking', startedAt = now). Admissions for one profile
+ * serialise on the lock across all instances, so the limit is hard.
+ */
+export async function admitNextRun(profileId: string): Promise<Admission> {
+  return prisma.$transaction(async (tx) => {
+    // Held until the transaction commits or rolls back.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${admissionLockKey(profileId)}))`
+    const now = new Date()
+    const running = await tx.jobAssessment.count({
+      where: {
+        profileId,
+        status: { in: [...IN_PROGRESS_STATUSES] },
+        startedAt: { gte: new Date(now.getTime() - IN_PROGRESS_STALE_MS) },
+      },
+    })
+    if (running >= ASSESSMENT_CONCURRENCY_PER_PROFILE) return { kind: 'limit' }
+    const next = await tx.jobAssessment.findFirst({
+      where: { profileId, status: 'queued' },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true },
+    })
+    if (!next) return { kind: 'empty' }
+    const claimed = await tx.jobAssessment.updateMany({
+      where: { id: next.id, status: 'queued' },
+      data: { status: 'checking', startedAt: now },
+    })
+    // A queued row only changes under this lock or via supersede/expiry; if it
+    // just did, report empty and let the post-drain re-check look again.
+    return claimed.count === 1 ? { kind: 'claimed', claim: { id: next.id, startedAt: now } } : { kind: 'empty' }
   })
 }
 
@@ -225,7 +265,7 @@ function expireStaleQueued(profileId: string): Promise<unknown> {
  * - limit     the profile already had the concurrency limit of runs going
  * - deadline  not enough time left to start a run, or a run re-queued itself
  * - cap       MAX_RUNS_PER_DRAIN reached
- * - stuck     the same row failed to claim twice, or a DB error
+ * - stuck     an admitted claim was no longer ours, or a DB error
  */
 type DrainExit = 'empty' | 'limit' | 'deadline' | 'cap' | 'stuck'
 
@@ -251,26 +291,16 @@ export async function drainProfileQueue(profileId: string, opts: DrainOptions = 
   try {
     await expireStaleQueued(profileId)
 
-    let lastUnclaimed: string | null = null
     for (let i = 0; i < MAX_RUNS_PER_DRAIN; i++) {
       if (deadline - Date.now() < MIN_RUN_START_MS) { exit = 'deadline'; break }
-      // Re-checked before every run: other drains (any instance) may have started meanwhile.
-      if ((await inProgressCount(profileId)) >= ASSESSMENT_CONCURRENCY_PER_PROFILE) { exit = 'limit'; break }
-      const next = await prisma.jobAssessment.findFirst({
-        where: { profileId, status: 'queued' },
-        orderBy: { createdAt: 'asc' },
-        select: { id: true },
-      })
-      if (!next) { exit = 'empty'; break }
-      const outcome = await runJobAssessment(next.id, { deadline })
+      // Admission (count + claim) is atomic and re-done before every run, so
+      // drains on other instances can't push the profile over the limit.
+      const admission = await admitNextRun(profileId)
+      if (admission.kind === 'limit') { exit = 'limit'; break }
+      if (admission.kind === 'empty') { exit = 'empty'; break }
+      const outcome = await runJobAssessment(admission.claim, { deadline })
       if (outcome === 'requeued') { exit = 'deadline'; break }
-      if (outcome === 'not_claimed') {
-        // Another drain took it; move on. The same row twice means the claim
-        // itself is failing, so stop rather than spin.
-        if (lastUnclaimed === next.id) { exit = 'stuck'; break }
-        lastUnclaimed = next.id
-        continue
-      }
+      if (outcome === 'not_claimed') { exit = 'stuck'; break }
       ran++
     }
   } catch (err) {

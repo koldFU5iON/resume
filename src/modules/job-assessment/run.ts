@@ -1,7 +1,7 @@
 /**
  * The early-assessment stage machine (plan "Pipeline"):
  *
- *   claim (queued → checking)
+ *   claim (queued → checking; done atomically by the drain's admission, queue.ts)
  *   verify ── fail + URL ──► enrich (fetching) ──► verifyRetry ── fail ──► failed / verification
  *     │ pass                                         │ pass
  *     ▼◄─────────────────────────────────────────────┘
@@ -96,10 +96,20 @@ export type Stage = 'verify' | 'enrich' | 'verifyRetry' | 'facts' | 'judge' | 'c
 export type StageTimings = Partial<Record<Stage, number>> & { requeues?: number }
 
 /**
- * What happened to the row: `not_claimed` = someone else had it, or it wasn't
- * queued; `requeued` = put back to `queued` because the deadline was too near.
+ * What happened to the row: `not_claimed` = the claim isn't ours any more (the
+ * row isn't 'checking' with this lease token), or it couldn't be checked;
+ * `requeued` = put back to `queued` because the deadline was too near.
  */
 export type RunOutcome = 'not_claimed' | 'complete' | 'failed' | 'requeued'
+
+/**
+ * A row claimed by the drain's atomic admission (queue.ts `admitNextRun`):
+ * status already 'checking', and `startedAt` is the claim's lease token.
+ */
+export interface RunClaim {
+  id: string
+  startedAt: Date
+}
 
 export interface RunOptions {
   /** Epoch ms by which the run must be done (from the drain). Default: none. */
@@ -244,11 +254,14 @@ function hasKeys(o: Record<string, unknown>): boolean {
 }
 
 /**
- * Runs one queued assessment to completion. Claims the row first (exits when
- * it isn't `queued`), so a row is never run twice. Never throws.
+ * Runs one assessment that the drain's admission already claimed. It only
+ * proceeds while the row is still 'checking' with this claim's `startedAt`
+ * (its lease token); it never claims a row itself, so a row admitted once is
+ * never run twice. Never throws.
  */
-export async function runJobAssessment(assessmentId: string, opts: RunOptions = {}): Promise<RunOutcome> {
-  const startedAt = new Date()
+export async function runJobAssessment(claim: RunClaim, opts: RunOptions = {}): Promise<RunOutcome> {
+  const assessmentId = claim.id
+  const startedAt = claim.startedAt
   const deadline = opts.deadline ?? Infinity
   let claimed = false
   let createdAt: Date | null = null
@@ -282,17 +295,12 @@ export async function runJobAssessment(assessmentId: string, opts: RunOptions = 
   })
 
   try {
-    const claim = await prisma.jobAssessment.updateMany({
-      where: { id: assessmentId, status: 'queued' },
-      data: { status: 'checking', startedAt },
-    })
-    if (claim.count === 0) return 'not_claimed'
-    claimed = true
-
-    const row = await prisma.jobAssessment.findUniqueOrThrow({
-      where: { id: assessmentId },
+    const row = await prisma.jobAssessment.findFirst({
+      where: { id: assessmentId, status: 'checking', startedAt },
       select: { profileId: true, jobApplicationId: true, createdAt: true, stageTimings: true },
     })
+    if (!row) return 'not_claimed'
+    claimed = true
     createdAt = row.createdAt
     requeues = priorRequeues(row.stageTimings)
     const { profileId } = row
@@ -411,7 +419,7 @@ export async function runJobAssessment(assessmentId: string, opts: RunOptions = 
     return 'complete'
   } catch (err) {
     if (!claimed) {
-      console.error('[job-assessment] claim failed', { assessmentId, error: errorName(err) })
+      console.error('[job-assessment] claim check failed', { assessmentId, error: errorName(err) })
       return 'not_claimed'
     }
     if (err instanceof OutOfTime && requeues < MAX_REQUEUES) {

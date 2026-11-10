@@ -43,9 +43,9 @@ export type UsageLogEntry = {
 }
 
 /**
- * Shared LlmUsageLog writer. Never throws — usage logging must never crash the
- * caller. Also used by the app-billed Jev client (src/modules/jev/client.ts),
- * which awaits it directly so its daily-cap count stays exact.
+ * LlmUsageLog writer for the LLM layer. Never throws — usage logging must
+ * never crash the caller. (The app-billed Jev client writes its own rows: it
+ * reserves one before each call to enforce its daily cap.)
  */
 export async function writeUsageLog(entry: UsageLogEntry): Promise<void> {
   await prisma.llmUsageLog.create({ data: entry }).catch(() => {})

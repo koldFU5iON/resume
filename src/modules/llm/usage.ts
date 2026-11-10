@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db'
-import { JEV_PROVIDER } from '@/modules/jev/client'
+import { JEV_FAILED_FEATURE_SUFFIX, JEV_PROVIDER } from '@/modules/jev/client'
 
 /**
  * The user's own-key usage (BYOK) plus a count of app-billed calls. Jev
@@ -24,7 +24,7 @@ export type UserUsageSummary = {
     latencyMs: number
     createdAt: Date
   }[]
-  /** App-billed calls (early job assessment via Jev); not charged to the user's key. */
+  /** Successful app-billed calls (early job assessment via Jev); not charged to the user's key. */
   appBilled: {
     thisMonthCalls: number
     allTimeCalls: number
@@ -51,7 +51,10 @@ function startOfMonth(): Date {
 export async function getUserUsageSummary(profileId: string): Promise<UserUsageSummary> {
   // Own-key rows only: app-billed providers are counted separately below.
   const ownKey = { profileId, provider: { not: JEV_PROVIDER } }
-  const appBilled = { profileId, provider: JEV_PROVIDER }
+  // Successful app-billed calls only: failed Jev calls keep a zero-token row
+  // (feature '<feature>:failed') that counts towards the daily cap but isn't
+  // an assessment the user received.
+  const appBilled = { profileId, provider: JEV_PROVIDER, NOT: { feature: { endsWith: JEV_FAILED_FEATURE_SUFFIX } } }
 
   const [today, thisMonth, allTime, byMonthRaw, byFeatureRaw, recentLogs, appBilledMonth, appBilledAll] = await Promise.all([
     prisma.llmUsageLog.aggregate({

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('@/lib/db', () => ({
   prisma: {
-    jobAssessment: { updateMany: vi.fn(), update: vi.fn(), findUniqueOrThrow: vi.fn() },
+    jobAssessment: { updateMany: vi.fn(), update: vi.fn(), findFirst: vi.fn() },
     jobApplication: { findFirst: vi.fn() },
     profile: { findUnique: vi.fn() },
     userSettings: { findUnique: vi.fn() },
@@ -31,9 +31,9 @@ import {
 } from './run'
 import type { JobFacts } from './schema'
 
-const mockClaim = vi.mocked(prisma.jobAssessment.updateMany)
+const mockUpdateMany = vi.mocked(prisma.jobAssessment.updateMany)
 const mockUpdate = vi.mocked(prisma.jobAssessment.update)
-const mockRow = vi.mocked(prisma.jobAssessment.findUniqueOrThrow)
+const mockRow = vi.mocked(prisma.jobAssessment.findFirst)
 const mockJob = vi.mocked(prisma.jobApplication.findFirst)
 const mockAskJev = vi.mocked(askJev)
 const mockFacts = vi.mocked(extractJobFacts)
@@ -100,6 +100,7 @@ const judgeOk = {
 }
 
 const createdAt = new Date(Date.now() - 2_000)
+const claim = { id: 'a1', startedAt: new Date(createdAt.getTime() + 1_500) }
 
 function lastUpdateData(): Record<string, unknown> {
   const calls = mockUpdate.mock.calls
@@ -114,7 +115,6 @@ beforeEach(() => {
   vi.clearAllMocks()
   // Drop queued *Once values a test left unconsumed (clearAllMocks keeps them).
   for (const m of [mockFacts, mockEnrich, mockAskJev, mockUpdate, mockRow, mockJob]) m.mockReset()
-  mockClaim.mockResolvedValue({ count: 1 })
   mockUpdate.mockResolvedValue({} as never)
   mockRow.mockResolvedValue({ profileId: 'p1', jobApplicationId: 'job-1', createdAt } as never)
   mockJob.mockResolvedValue(baseJob as never)
@@ -127,24 +127,36 @@ beforeEach(() => {
 })
 
 describe('runJobAssessment', () => {
-  it('exits without work when the row is not queued', async () => {
-    mockClaim.mockResolvedValueOnce({ count: 0 })
-    await expect(runJobAssessment('a1')).resolves.toBe('not_claimed')
-    expect(mockClaim).toHaveBeenCalledWith({
-      where: { id: 'a1', status: 'queued' },
-      data: { status: 'checking', startedAt: expect.any(Date) },
-    })
+  it('only proceeds on a row still checking with this claim as its lease token', async () => {
+    await runJobAssessment(claim)
+    expect(mockRow).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'a1', status: 'checking', startedAt: claim.startedAt },
+    }))
+  })
+
+  it('never claims a row itself, so a row is never claimed twice', async () => {
+    await runJobAssessment(claim)
+    // No queued → checking transition from the run: only admission (queue.ts) claims.
+    expect(mockUpdateMany).not.toHaveBeenCalled()
+    for (const [args] of mockUpdate.mock.calls) {
+      expect((args as { data: { status?: string } }).data.status).not.toBe('checking')
+    }
+  })
+
+  it('exits without work when the claim is no longer ours (second run of the same claim)', async () => {
+    mockRow.mockResolvedValueOnce(null) // e.g. already finished, re-queued or re-claimed with a new token
+    await expect(runJobAssessment(claim)).resolves.toBe('not_claimed')
     expect(mockAskJev).not.toHaveBeenCalled()
     expect(mockUpdate).not.toHaveBeenCalled()
   })
 
   it('scopes the job read by the row profile', async () => {
-    await runJobAssessment('a1')
+    await runJobAssessment(claim)
     expect(mockJob).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'job-1', profileId: 'p1' } }))
   })
 
   it('runs verify → facts → judge → combine and persists a complete result', async () => {
-    await expect(runJobAssessment('a1')).resolves.toBe('complete')
+    await expect(runJobAssessment(claim)).resolves.toBe('complete')
 
     expect(mockAskJev).toHaveBeenCalledTimes(2)
     expect(mockAskJev.mock.calls[0][2]).toEqual({ feature: 'job-assessment-verify', ...JEV_CALL_BOUNDS })
@@ -165,14 +177,14 @@ describe('runJobAssessment', () => {
       completedAt: expect.any(Date),
       processTimeMs: expect.any(Number),
     })
-    expect(data.queueTimeMs).toBeGreaterThanOrEqual(1_000)
+    expect(data.queueTimeMs).toBe(1_500) // createdAt → the admission's claim time
     expect(Object.keys(data.stageTimings as object).sort()).toEqual(['combine', 'facts', 'judge', 'verify'])
     expect(data.signals).toMatchObject({ verify: verifyPass.answers, judge: judgeOk.answers, combine: expect.any(Object) })
     expect(data.request).toEqual({ verify: verifyPass.request, judge: judgeOk.request })
   })
 
   it('sends only the description to verify and passes the summary into the candidate state', async () => {
-    await runJobAssessment('a1')
+    await runJobAssessment(claim)
     const verifyState = mockAskJev.mock.calls[0][1].state
     expect(verifyState).toEqual({ description: LONG_JD.trim() })
     const judgeState = mockAskJev.mock.calls[1][1].state as { candidate: { summary: string; roles: object } }
@@ -182,7 +194,7 @@ describe('runJobAssessment', () => {
 
   it('fails verification on code checks without calling Jev when there is no URL', async () => {
     mockJob.mockResolvedValueOnce({ ...baseJob, url: null, jobDescription: 'Too short' } as never)
-    await expect(runJobAssessment('a1')).resolves.toBe('failed')
+    await expect(runJobAssessment(claim)).resolves.toBe('failed')
     expect(mockAskJev).not.toHaveBeenCalled()
     const data = lastUpdateData()
     expect(data).toMatchObject({ status: 'failed', failureKind: 'verification', processTimeMs: expect.any(Number) })
@@ -197,7 +209,7 @@ describe('runJobAssessment', () => {
       .mockResolvedValueOnce(judgeOk as never)
     mockEnrich.mockResolvedValueOnce({ filled: ['jobDescription'], job: { ...baseJob, jobDescription: `${LONG_JD} More.` } })
 
-    await expect(runJobAssessment('a1')).resolves.toBe('complete')
+    await expect(runJobAssessment(claim)).resolves.toBe('complete')
     expect(mockEnrich).toHaveBeenCalledTimes(1)
     expect(statusUpdates()).toEqual(['fetching', 'assessing', 'complete'])
     const data = lastUpdateData()
@@ -215,7 +227,7 @@ describe('runJobAssessment', () => {
       filled: ['jobDescription (replaced truncated)'],
       job: { ...baseJob, jobDescription: `${LONG_JD}${LONG_JD}` },
     })
-    await expect(runJobAssessment('a1')).resolves.toBe('complete')
+    await expect(runJobAssessment(claim)).resolves.toBe('complete')
     expect(mockEnrich).toHaveBeenCalledWith('p1', expect.objectContaining({ id: 'job-1' }), { replaceDescription: true })
     expect(mockAskJev).toHaveBeenCalledTimes(3)
     expect(lastUpdateData().enrichedFields).toEqual(['jobDescription (replaced truncated)'])
@@ -226,7 +238,7 @@ describe('runJobAssessment', () => {
       ...verifyPass, answers: { ...verifyPass.answers, has_requirements: { type: 'noul', noul: 0.1 } },
     } as never)
     mockEnrich.mockResolvedValueOnce({ filled: [], job: baseJob })
-    await runJobAssessment('a1')
+    await runJobAssessment(claim)
     expect(mockEnrich).toHaveBeenCalledWith('p1', expect.anything(), { replaceDescription: false })
   })
 
@@ -236,7 +248,7 @@ describe('runJobAssessment', () => {
       filled: ['jobDescription (replaced truncated)', 'salaryBand'],
       job: { ...baseJob, jobDescription: `${LONG_JD}${LONG_JD}`, salaryBand: '€90k' },
     })
-    await expect(runJobAssessment('a1')).resolves.toBe('failed')
+    await expect(runJobAssessment(claim)).resolves.toBe('failed')
     expect(mockAskJev).toHaveBeenCalledTimes(2)
     expect(lastUpdateData()).toMatchObject({
       status: 'failed', failureKind: 'verification', failureReasons: ['Description looks incomplete or truncated'],
@@ -248,7 +260,7 @@ describe('runJobAssessment', () => {
   it('does not re-verify when enrichment filled only countries or salary', async () => {
     mockAskJev.mockResolvedValue(verifyFail as never)
     mockEnrich.mockResolvedValueOnce({ filled: ['countries', 'salaryBand'], job: { ...baseJob, salaryBand: '€90k' } })
-    await expect(runJobAssessment('a1')).resolves.toBe('failed')
+    await expect(runJobAssessment(claim)).resolves.toBe('failed')
     expect(mockAskJev).toHaveBeenCalledTimes(1)
     const data = lastUpdateData()
     expect(data).toMatchObject({ failureKind: 'verification', enrichedFields: ['countries', 'salaryBand'] })
@@ -258,7 +270,7 @@ describe('runJobAssessment', () => {
   it('caps the description in the verify state', async () => {
     const huge = 'A sentence about the role. '.repeat(3000)
     mockJob.mockResolvedValueOnce({ ...baseJob, jobDescription: huge } as never)
-    await runJobAssessment('a1')
+    await runJobAssessment(claim)
     const state = mockAskJev.mock.calls[0][1].state as { description: string }
     expect(state.description.length).toBeLessThanOrEqual(40_000)
     const judge = mockAskJev.mock.calls[1][1].state as { job: { description: string } }
@@ -285,7 +297,7 @@ describe('runJobAssessment', () => {
       }
       return { ...judgeOk, answers } as never
     })
-    await expect(runJobAssessment('a1')).resolves.toBe('complete')
+    await expect(runJobAssessment(claim)).resolves.toBe('complete')
     const ids = Object.keys(mockAskJev.mock.calls[1][1].questions as object)
     const shares = ids.filter((id) => /_role_\d+_[ab]$/.test(id))
     expect(shares.length).toBeLessThanOrEqual(160)
@@ -296,7 +308,7 @@ describe('runJobAssessment', () => {
   it('skips the retry when enrichment filled nothing', async () => {
     mockAskJev.mockResolvedValue(verifyFail as never)
     mockEnrich.mockResolvedValueOnce({ filled: [], job: baseJob, error: 'Could not fetch the job page' })
-    await expect(runJobAssessment('a1')).resolves.toBe('failed')
+    await expect(runJobAssessment(claim)).resolves.toBe('failed')
     expect(mockAskJev).toHaveBeenCalledTimes(1)
     const data = lastUpdateData()
     expect(data.failureReasons).toEqual(['Description looks incomplete or truncated', 'Could not fetch the job page'])
@@ -306,7 +318,7 @@ describe('runJobAssessment', () => {
   it('keeps the verification reasons when enrichment has no LLM key', async () => {
     mockJob.mockResolvedValueOnce({ ...baseJob, jobDescription: '' } as never)
     mockEnrich.mockRejectedValueOnce(new LLMError('No key', 'not_configured'))
-    await expect(runJobAssessment('a1')).resolves.toBe('failed')
+    await expect(runJobAssessment(claim)).resolves.toBe('failed')
     expect(lastUpdateData()).toMatchObject({
       failureKind: 'no_llm_key',
       failureReasons: ['Job description is missing', 'Add an LLM key in Settings to fetch the missing details'],
@@ -316,7 +328,7 @@ describe('runJobAssessment', () => {
 
   it('maps a missing LLM key to no_llm_key', async () => {
     mockFacts.mockRejectedValueOnce(new LLMError('No key', 'not_configured'))
-    await expect(runJobAssessment('a1')).resolves.toBe('failed')
+    await expect(runJobAssessment(claim)).resolves.toBe('failed')
     expect(lastUpdateData()).toMatchObject({ failureKind: 'no_llm_key', stageTimings: expect.objectContaining({ facts: expect.any(Number) }) })
   })
 
@@ -324,7 +336,7 @@ describe('runJobAssessment', () => {
     mockAskJev
       .mockResolvedValueOnce(verifyPass as never)
       .mockRejectedValueOnce(new JevError('daily_cap', 'cap'))
-    await expect(runJobAssessment('a1')).resolves.toBe('failed')
+    await expect(runJobAssessment(claim)).resolves.toBe('failed')
     const data = lastUpdateData()
     expect(data).toMatchObject({ status: 'failed', failureKind: 'daily_cap', factsHash: 'hash-1', jevModel: 'jev-1.14.0' })
     expect(data.signals).toEqual({ verify: verifyPass.answers })
@@ -334,7 +346,7 @@ describe('runJobAssessment', () => {
     mockAskJev
       .mockResolvedValueOnce(verifyPass as never)
       .mockResolvedValueOnce({ ...judgeOk, answers: { req_0: judgeOk.answers.req_0 } } as never)
-    await expect(runJobAssessment('a1')).resolves.toBe('failed')
+    await expect(runJobAssessment(claim)).resolves.toBe('failed')
     expect(lastUpdateData()).toMatchObject({
       failureKind: 'error', failureReasons: ['The assessment service returned an incomplete answer'],
     })
@@ -342,7 +354,7 @@ describe('runJobAssessment', () => {
 
   it('fails with error when the job is gone', async () => {
     mockJob.mockResolvedValueOnce(null)
-    await expect(runJobAssessment('a1')).resolves.toBe('failed')
+    await expect(runJobAssessment(claim)).resolves.toBe('failed')
     expect(lastUpdateData()).toMatchObject({ failureKind: 'error', failureReasons: ['The job no longer exists'] })
   })
 
@@ -350,15 +362,15 @@ describe('runJobAssessment', () => {
     mockFacts.mockRejectedValueOnce(new Error('boom: secret job text'))
     mockUpdate.mockRejectedValue(new Error('db down'))
     const err = vi.spyOn(console, 'error').mockImplementation(() => {})
-    await expect(runJobAssessment('a1')).resolves.toBe('failed')
+    await expect(runJobAssessment(claim)).resolves.toBe('failed')
     expect(JSON.stringify(err.mock.calls)).not.toContain('secret job text')
     err.mockRestore()
   })
 
-  it('never throws when the claim itself fails', async () => {
-    mockClaim.mockRejectedValueOnce(new Error('db down'))
+  it('never throws when the claim check itself fails', async () => {
+    mockRow.mockRejectedValueOnce(new Error('db down'))
     const err = vi.spyOn(console, 'error').mockImplementation(() => {})
-    await expect(runJobAssessment('a1')).resolves.toBe('not_claimed')
+    await expect(runJobAssessment(claim)).resolves.toBe('not_claimed')
     err.mockRestore()
   })
 })
@@ -435,7 +447,7 @@ describe('runJobAssessment — deadline', () => {
   it('re-queues a slow stage near the deadline instead of failing', async () => {
     const c = clock(10_000)
     // verify (50s) and facts (35s) fit; after facts 45s are left, judge needs 50s.
-    const outcome = await runJobAssessment('a1', { deadline: c.now() + 55_000 })
+    const outcome = await runJobAssessment(claim, { deadline: c.now() + 55_000 })
     c.restore()
     expect(outcome).toBe('requeued')
     expect(mockAskJev).toHaveBeenCalledTimes(1) // verify only
@@ -456,7 +468,7 @@ describe('runJobAssessment — deadline', () => {
 
   it('re-queues before verify when not even the first stage fits', async () => {
     const c = clock()
-    const outcome = await runJobAssessment('a1', { deadline: c.now() + STAGE_WORST_MS.verify - 1 })
+    const outcome = await runJobAssessment(claim, { deadline: c.now() + STAGE_WORST_MS.verify - 1 })
     c.restore()
     expect(outcome).toBe('requeued')
     expect(mockAskJev).not.toHaveBeenCalled()
@@ -464,7 +476,7 @@ describe('runJobAssessment — deadline', () => {
 
   it('runs every stage when the deadline is far enough', async () => {
     const c = clock(10_000)
-    const outcome = await runJobAssessment('a1', { deadline: c.now() + 300_000 })
+    const outcome = await runJobAssessment(claim, { deadline: c.now() + 300_000 })
     c.restore()
     expect(outcome).toBe('complete')
   })
@@ -472,7 +484,7 @@ describe('runJobAssessment — deadline', () => {
   it(`fails with a clear reason after ${MAX_REQUEUES} re-queues`, async () => {
     mockRow.mockResolvedValueOnce({ profileId: 'p1', jobApplicationId: 'job-1', createdAt, stageTimings: { requeues: MAX_REQUEUES } } as never)
     const c = clock()
-    const outcome = await runJobAssessment('a1', { deadline: c.now() + 1_000 })
+    const outcome = await runJobAssessment(claim, { deadline: c.now() + 1_000 })
     c.restore()
     expect(outcome).toBe('failed')
     expect(lastUpdateData()).toMatchObject({
@@ -483,7 +495,7 @@ describe('runJobAssessment — deadline', () => {
 
   it('a re-queued row runs from scratch on the next drain and keeps its re-queue count', async () => {
     mockRow.mockResolvedValueOnce({ profileId: 'p1', jobApplicationId: 'job-1', createdAt, stageTimings: { requeues: 1 } } as never)
-    await expect(runJobAssessment('a1', { deadline: Date.now() + 300_000 })).resolves.toBe('complete')
+    await expect(runJobAssessment(claim, { deadline: Date.now() + 300_000 })).resolves.toBe('complete')
     expect(mockAskJev).toHaveBeenCalledTimes(2)
     expect(lastUpdateData().stageTimings).toMatchObject({ requeues: 1, verify: expect.any(Number), judge: expect.any(Number) })
   })

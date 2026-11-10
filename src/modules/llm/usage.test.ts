@@ -38,7 +38,8 @@ describe('getUserUsageSummary', () => {
   it('counts app-billed calls separately', async () => {
     const res = await getUserUsageSummary('p1')
     expect(res.appBilled).toEqual({ thisMonthCalls: 7, allTimeCalls: 20 })
-    expect(log.count.mock.calls[0][0]).toMatchObject({ where: { profileId: 'p1', provider: 'typesafe', createdAt: { gte: expect.any(Date) } } })
-    expect(log.count.mock.calls[1][0]).toEqual({ where: { profileId: 'p1', provider: 'typesafe' } })
+    const notFailed = { NOT: { feature: { endsWith: ':failed' } } }
+    expect(log.count.mock.calls[0][0]).toMatchObject({ where: { profileId: 'p1', provider: 'typesafe', ...notFailed, createdAt: { gte: expect.any(Date) } } })
+    expect(log.count.mock.calls[1][0]).toEqual({ where: { profileId: 'p1', provider: 'typesafe', ...notFailed } })
   })
 })
