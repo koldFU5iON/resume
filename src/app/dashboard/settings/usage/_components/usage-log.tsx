@@ -3,6 +3,7 @@
 import type { UserUsageSummary } from '@/modules/llm/usage'
 import { formatDate } from '@/lib/utils'
 import { formatTokens } from '@/modules/llm/format'
+import { featureLabel } from './feature-labels'
 import { Bar, BarChart, XAxis, YAxis, CartesianGrid, Cell } from 'recharts'
 import {
   ChartContainer,
@@ -10,47 +11,6 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from '@/components/ui/chart'
-
-const FEATURE_LABELS: Record<string, string> = {
-  'job-fit': 'Job fit',
-  'salary-estimate': 'Salary estimate',
-  'job-extract': 'Job extract',
-  'cv-import': 'CV import',
-  'profile-summary': 'Profile summary',
-  'profile-extract': 'Profile extract',
-  'cv-job-analysis': 'Job analysis',
-  'cv-evidence-score': 'Evidence scoring',
-  'cv-recruiter-scan': 'Recruiter scan',
-  'cv-generate': 'CV generation',
-  'cover-letter-analyse':      'Cover letter — analyse role',
-  'cover-letter-architect':    'Cover letter — build message',
-  'cover-letter-draft':        'Cover letter — write draft',
-  'cover-letter-review-pass':  'Cover letter — review draft',
-  'cover-letter-finalise':     'Cover letter — finalise',
-  'cover-letter-build': 'Cover letter — build with me',
-  'cover-letter-review': 'Cover letter — review',
-  'interview-prep-doc-analysis':         'Interview prep — analyse document',
-  'interview-prep-interviewer-analysis': 'Interview prep — analyse interviewer',
-  'interview-prep-bulk-analysis':        'Interview prep — analyse all documents',
-  'interview-prep-qa-generation':        'Interview prep — generate Q&A',
-  'ats-keyword-expand':                   'ATS — keyword expansion',
-  'ats-interpret':                        'ATS — interpretation',
-  'ats-context':                          'ATS — keyword context',
-  'career-vertical-analyse':              'Career vertical analysis',
-  'master-cv-generate':                   'Master CV generation',
-  'job-hunt-ats-discovery':              'Job hunt — ATS discovery',
-  'job-hunt-fit':                        'Job hunt — fit score',
-  'scout-triage':                        'Scout Inbox — triage',
-  // Jev rows (verify/judge) are app-billed and excluded from this user page
-  // (see getUserUsageSummary); these two labels stay for the admin app-billed
-  // card (Phase 5), which will reuse them.
-  'job-assessment-verify':               'Early assessment — verify (Jev)',
-  'job-assessment-judge':                'Early assessment — judge (Jev)',
-  'job-assessment-enrich':               'Early assessment — fetch details',
-  'job-assessment-facts':                'Early assessment — extract facts',
-  'chat-turn':      'Chat — career coach',
-  'chat-summarize': 'Chat — session summary',
-}
 
 function shortMonth(yyyyMm: string): string {
   const [year, month] = yyyyMm.split('-')
@@ -75,7 +35,7 @@ export function UsageLog({ stats }: { stats: UserUsageSummary }) {
   }))
 
   const featureData = stats.byFeature.map(r => ({
-    feature: FEATURE_LABELS[r.feature] ?? r.feature,
+    feature: featureLabel(r.feature),
     tokens: r.tokens,
     calls: r.calls,
   }))
@@ -204,7 +164,7 @@ export function UsageLog({ stats }: { stats: UserUsageSummary }) {
                       {formatDate(log.createdAt)}
                     </td>
                     <td className="px-3 py-2 text-xs">
-                      {log.feature ? (FEATURE_LABELS[log.feature] ?? log.feature) : '—'}
+                      {log.feature ? featureLabel(log.feature) : '—'}
                     </td>
                     <td className="px-3 py-2 font-mono text-xs text-muted-foreground">
                       {log.provider}/{log.model}

@@ -48,7 +48,7 @@ Use a short kebab-case string. Established values:
 | `project-extract` | Extracting insights from a project entry |
 | `ping` | Sanity-check round-trip from `/api/llm/ping` |
 
-When you add a new LLM-powered feature, choose a value from the pattern above and add it to `FEATURE_LABELS` in `src/app/dashboard/settings/usage/_components/usage-log.tsx` so it displays a human-readable label in the usage UI rather than the raw key.
+When you add a new LLM-powered feature, choose a value from the pattern above and add it to `FEATURE_LABELS` in `src/app/dashboard/settings/usage/_components/feature-labels.ts` so it displays a human-readable label in the usage UI rather than the raw key.
 
 ---
 
@@ -63,7 +63,7 @@ const result = await completeStructured(profileId, prompt, MySchema, {
 })
 ```
 
-2. Add the label to `FEATURE_LABELS` in `usage-log.tsx`:
+2. Add the label to `FEATURE_LABELS` in `feature-labels.ts`:
 
 ```ts
 const FEATURE_LABELS: Record<string, string> = {

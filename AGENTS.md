@@ -239,7 +239,7 @@ await complete(profileId, prompt, {})
 
 **Why:** every call is logged to `LlmUsageLog` with the feature tag. Users see this on their usage page; it also drives cost analysis by operation. A call without a feature tag is invisible in reporting.
 
-When adding a new LLM-powered feature, also add its label to `FEATURE_LABELS` in `src/app/dashboard/settings/usage/_components/usage-log.tsx` so it displays cleanly in the UI. See `docs/llm-usage-tracking.md` for the full picture.
+When adding a new LLM-powered feature, also add its label to `FEATURE_LABELS` in `src/app/dashboard/settings/usage/_components/feature-labels.ts` so it displays cleanly in the UI. See `docs/llm-usage-tracking.md` for the full picture.
 
 ## Reference docs
 
@@ -247,5 +247,6 @@ When adding a new LLM-powered feature, also add its label to `FEATURE_LABELS` in
 - `docs/api-integrations.md` — integration recipes for the capture endpoint (curl, Claude Code skill, bookmarklet)
 - `docs/llm-layer.md` — LLM layer usage examples
 - `docs/llm-usage-tracking.md` — usage logging system, feature registry, cost estimates
+- `docs/job-assessment.md` — early job assessment (Jev): pipeline, scoring, queue, usage tracking, tuning, troubleshooting
 - `src/lib/integrations/skills/claude-code.md` — canonical Claude Code skill source. Served by `GET /api/integrations/skills/claude-code`; downloaded SKILL.md goes in `~/.claude/skills/capture-job/`.
 - `src/lib/integrations/skills/hermes.md` — canonical Hermes skill source. Served by `GET /api/integrations/skills/hermes`; downloaded SKILL.md goes in `~/.hermes/skills/job-search/capture-job/`.
