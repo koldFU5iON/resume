@@ -393,6 +393,9 @@ eligibility: z.object({
 - [ ] User usage page: separate app-billed Jev rows (`provider = 'typesafe'`) from own-key usage. The page says "each call uses your own API key", which isn't true for Jev. Must ship with Phase 3 (PR #330 review).
 - [ ] `scripts/assessment-compare.ts` + `npm run assess:compare`.
 - [ ] Queue continuation: rows still queued when a drain hits its deadline only run on the next trigger for that profile. Add a self-continuation endpoint (secret-authenticated POST that drains) or a cron that drains profiles with queued rows, so a large batch finishes without user action (PR #332 review).
+- [ ] Backfill existing jobs (owner request, 2026-11-10): an **Assess not-started jobs** action in Settings (a one-off script is the fallback). It queues non-archived jobs with status `not started` that have no `complete` assessment for the current `PIPELINE_VERSION`, newest first.
+  - **Daily cap:** respect the Jev cap. Each job takes about 2–3 calls, so 300 calls is about 100–150 jobs a day. Queue in capped batches and show how many jobs are left.
+  - **Depends on queue continuation** (the item above), so a large backfill finishes without further triggers.
 - [ ] Admin card: skip `stageTimings.requeues` when averaging stage times.
 - [ ] Run it over your active jobs. Hand-check the disagreements, adjust `ASSESSMENT_CONFIG`, and bump `PIPELINE_VERSION` on each change.
 - [ ] `docs/job-assessment.md`.

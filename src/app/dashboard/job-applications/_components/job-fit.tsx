@@ -15,6 +15,7 @@ import { notifyUsageUpdated } from "@/lib/usage-events"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { usePageContext } from "@/lib/context/page-context"
+import { ScoreHeader, ScorePill } from "./score-display"
 
 type JobFitProps = {
   jobId?: string
@@ -203,19 +204,7 @@ function FitDetail({ jobFit, hasLLMKey, canAssess, onReassess, jobId, company, j
   return (
     <div className="space-y-3">
       <div>
-        <div className="flex items-center justify-between gap-2 mb-2">
-          <p className="text-sm font-semibold capitalize">{jobFit.label}</p>
-          <span className="font-mono text-xs text-muted-foreground">{jobFit.rating}/10</span>
-        </div>
-        {/* Rating gauge */}
-        <div className="mb-3 flex items-center gap-1.5">
-          <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-muted">
-            <div
-              className={`absolute inset-y-0 left-0 rounded-full transition-all ${GAUGE_COLORS[jobFit.label]}`}
-              style={{ width: `${jobFit.rating * 10}%` }}
-            />
-          </div>
-        </div>
+        <ScoreHeader title={jobFit.label} rating={jobFit.rating} colorClass={GAUGE_COLORS[jobFit.label]} />
         <MarkdownProse content={jobFit.justification} />
       </div>
 
@@ -309,12 +298,9 @@ function FitDetail({ jobFit, hasLLMKey, canAssess, onReassess, jobId, company, j
 
 function FitPill({ fit }: { fit: JobFitType }) {
   return (
-    <span className={cn(
-      "inline-flex h-6 items-center gap-1.5 rounded-md px-2 text-xs font-medium",
-      PILL_TEXT_STYLES[fit.label],
-    )}>
+    <ScorePill className={PILL_TEXT_STYLES[fit.label]}>
       <Flame size={12} className={FLAME_STYLES[fit.label]} />
       {fit.label}
-    </span>
+    </ScorePill>
   )
 }

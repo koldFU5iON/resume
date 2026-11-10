@@ -5,7 +5,11 @@
  * written here.
  */
 
+import { cache } from 'react'
+import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
+import { REPLACED_DESCRIPTION } from './enrich'
+import { assessmentMaybeEnabled, isAssessmentEnabledFor } from './queue'
 import {
   IN_PROGRESS_STALE_MS,
   IN_PROGRESS_STATUSES,
@@ -30,6 +34,12 @@ export interface AssessmentView {
   strengths: string[]
   gaps: string[]
   unsettled: string[]
+  /** Informational lines from combine (signals.combine.notes), e.g. "Contract role". Complete runs only. */
+  notes: string[]
+  /** Fields the run filled in from the job page (JobAssessment.enrichedFields). */
+  enrichedFields: string[]
+  /** The truncated job description was replaced with the full text from the job page. */
+  descriptionReplaced: boolean
   failureKind: FailureKind | null
   failureReasons: string[]
   jevModel: string | null
@@ -50,6 +60,7 @@ const VIEW_SELECT = {
   strengths: true,
   gaps: true,
   unsettled: true,
+  enrichedFields: true,
   failureKind: true,
   failureReasons: true,
   jevModel: true,
@@ -71,6 +82,7 @@ export interface AssessmentRow {
   strengths: string[]
   gaps: string[]
   unsettled: string[]
+  enrichedFields: string[]
   failureKind: string | null
   failureReasons: string[]
   jevModel: string | null
@@ -105,7 +117,12 @@ export function isStale(row: Pick<AssessmentRow, 'status' | 'startedAt' | 'creat
   return false
 }
 
-export function toAssessmentView(row: AssessmentRow, now: Date = new Date()): AssessmentView {
+/** `signals->'combine'->'notes'` as stored by run.ts; anything else reads as no notes. */
+function parseNotes(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((n): n is string => typeof n === 'string') : []
+}
+
+export function toAssessmentView(row: AssessmentRow, now: Date = new Date(), notes: unknown = null): AssessmentView {
   const view: AssessmentView = {
     id: row.id,
     jobId: row.jobApplicationId,
@@ -117,6 +134,9 @@ export function toAssessmentView(row: AssessmentRow, now: Date = new Date()): As
     strengths: row.strengths,
     gaps: row.gaps,
     unsettled: row.unsettled,
+    notes: parseNotes(notes),
+    enrichedFields: row.enrichedFields,
+    descriptionReplaced: row.enrichedFields.includes(REPLACED_DESCRIPTION),
     failureKind: (row.failureKind as FailureKind | null) ?? null,
     failureReasons: row.failureReasons,
     jevModel: row.jevModel,
@@ -131,21 +151,51 @@ export function toAssessmentView(row: AssessmentRow, now: Date = new Date()): As
   return view
 }
 
-/** The newest assessment per job, keyed by job id. Jobs with none are absent. */
+/**
+ * Notes live inside the `signals` JSON (signals.combine.notes), next to the
+ * raw Jev answers. Reading only that path keeps the large `signals` blob out
+ * of list loads (they re-run every 3 s while a run is in progress).
+ */
+async function loadNotes(profileId: string, ids: readonly string[]): Promise<Map<string, unknown>> {
+  if (ids.length === 0) return new Map()
+  const rows = await prisma.$queryRaw<{ id: string; notes: unknown }[]>`
+    SELECT "id", "signals"->'combine'->'notes' AS "notes"
+    FROM "JobAssessment"
+    WHERE "profileId" = ${profileId} AND "status" = 'complete' AND "id" IN (${Prisma.join([...ids])})`
+  return new Map(rows.map((r) => [r.id, r.notes]))
+}
+
+const completeIds = (rows: readonly { id: string; status: string }[]) =>
+  rows.filter((r) => r.status === 'complete').map((r) => r.id)
+
+/**
+ * The newest assessment per job, keyed by job id. Jobs with none are absent.
+ *
+ * Two queries whatever the history size: DISTINCT ON picks the newest run
+ * id per job in Postgres (Prisma's `distinct` would fetch every past run and
+ * dedupe in JS) and reads its notes at the same time, then the view columns
+ * are fetched for those ids only.
+ */
 export async function getLatestAssessments(
   profileId: string,
   jobIds: readonly string[],
 ): Promise<Record<string, AssessmentView>> {
   if (jobIds.length === 0) return {}
+  const latest = await prisma.$queryRaw<{ id: string; notes: unknown }[]>`
+    SELECT DISTINCT ON ("jobApplicationId") "id",
+      CASE WHEN "status" = 'complete' THEN "signals"->'combine'->'notes' END AS "notes"
+    FROM "JobAssessment"
+    WHERE "profileId" = ${profileId} AND "jobApplicationId" IN (${Prisma.join([...jobIds])})
+    ORDER BY "jobApplicationId", "createdAt" DESC, "id" DESC`
+  if (latest.length === 0) return {}
   const rows = await prisma.jobAssessment.findMany({
-    where: { profileId, jobApplicationId: { in: [...jobIds] } },
-    orderBy: { createdAt: 'desc' },
-    distinct: ['jobApplicationId'],
+    where: { profileId, id: { in: latest.map((r) => r.id) } },
     select: VIEW_SELECT,
   })
+  const notes = new Map(latest.map((r) => [r.id, r.notes]))
   const now = new Date()
   const out: Record<string, AssessmentView> = {}
-  for (const row of rows) out[row.jobApplicationId] = toAssessmentView(row, now)
+  for (const row of rows) out[row.jobApplicationId] = toAssessmentView(row, now, notes.get(row.id))
   return out
 }
 
@@ -156,5 +206,34 @@ export async function getLatestAssessment(profileId: string, jobId: string): Pro
     orderBy: { createdAt: 'desc' },
     select: VIEW_SELECT,
   })
-  return row ? toAssessmentView(row) : null
+  if (!row) return null
+  const notes = await loadNotes(profileId, completeIds([row]))
+  return toAssessmentView(row, new Date(), notes.get(row.id))
+}
+
+/**
+ * Whether the early assessment is on for this profile (TYPESAFE_API_KEY set
+ * and the JOB_ASSESSMENT_V2 rollout flag). Deduped per request, so a page and
+ * its loaders can both ask. Pages pass only the resulting boolean to the
+ * client; no env detail leaves the server.
+ */
+export const isEarlyAssessmentEnabled = cache(isAssessmentEnabledFor)
+
+/**
+ * The newest assessment per job for the job list, or {} when the feature is
+ * off for this profile (the UI then shows nothing new: spec kill switch).
+ */
+export async function getEarlyAssessmentsForJobs(
+  profileId: string,
+  jobIds: readonly string[],
+): Promise<Record<string, AssessmentView>> {
+  if (!(await isEarlyAssessmentEnabled(profileId))) return {}
+  return getLatestAssessments(profileId, jobIds)
+}
+
+/** The newest assessment of one job for its detail page, or null when there is none or the feature is off. */
+export async function getEarlyAssessmentForJob(profileId: string, jobId: string): Promise<AssessmentView | null> {
+  if (!assessmentMaybeEnabled()) return null
+  if (!(await isEarlyAssessmentEnabled(profileId))) return null
+  return getLatestAssessment(profileId, jobId)
 }

@@ -2,6 +2,7 @@ import { notFound } from "next/navigation"
 import { getJobApplicationById } from "@/modules/jobs/queries"
 import { requireProfile } from "@/lib/session"
 import { getLLMConfigStatus } from "@/modules/llm/client"
+import { isEarlyAssessmentEnabled } from "@/modules/job-assessment/queries"
 import { JobDetailHeader } from "./_components/job-detail-header"
 import { JobSidebar } from "./_components/job-sidebar"
 import { JobDescriptionPane } from "./_components/job-description-pane"
@@ -28,7 +29,10 @@ export default async function ViewJobPage({
     notFound()
   }
 
-  const { configured: hasLLMKey } = await getLLMConfigStatus(profile.id)
+  const [{ configured: hasLLMKey }, earlyEnabled] = await Promise.all([
+    getLLMConfigStatus(profile.id),
+    isEarlyAssessmentEnabled(profile.id),
+  ])
 
   return (
     <div className="flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden">
@@ -39,7 +43,7 @@ export default async function ViewJobPage({
 
       {/* Three-column workspace */}
       <div className="grid flex-1 grid-cols-[200px_1fr_1fr] overflow-hidden">
-        <JobSidebar job={job} hasLLMKey={hasLLMKey} />
+        <JobSidebar job={job} hasLLMKey={hasLLMKey} earlyEnabled={earlyEnabled} />
         <JobDescriptionPane jobDescription={job.jobDescription} />
         <JobNotesPane jobId={job.id} notes={job.notes} notesIncludeInFit={job.notesIncludeInFit} />
       </div>

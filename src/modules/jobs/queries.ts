@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db"
 import { ApplicationStatus, type ApplicationStatusType, type Job } from "@/app/types/job-application"
 import { requireProfile } from "@/lib/session"
+import { getEarlyAssessmentForJob, getEarlyAssessmentsForJobs } from "@/modules/job-assessment/queries"
 
 export type DashboardJobSlim = {
   id: string
@@ -95,11 +96,14 @@ export async function getActiveJobs(): Promise<Job[]> {
       },
     },
   })
+  // One more query for all jobs (not one per job); {} when the feature is off.
+  const early = await getEarlyAssessmentsForJobs(profile.id, jobs.map(j => j.id))
   return jobs.map(j => ({
     ...j,
     cvDocumentId: j.cvDocuments[0]?.id ?? null,
     coverLetterDocumentId: j.coverLetters[0]?.id ?? null,
     interviewPrepSessionId: j.interviewPrepSessions[0]?.id ?? null,
+    earlyAssessment: early[j.id] ?? null,
   })) as Job[]
 }
 
@@ -122,7 +126,7 @@ export async function listActiveJobsForPicker(profileId: string): Promise<JobPic
 
 export async function getJobApplicationById(id: string): Promise<Job | null> {
   const { profile } = await requireProfile()
-  const job = await prisma.jobApplication.findFirst({
+  const [job, earlyAssessment] = await Promise.all([prisma.jobApplication.findFirst({
     where: { id, profileId: profile.id },
     include: {
       cvDocuments: {
@@ -141,13 +145,14 @@ export async function getJobApplicationById(id: string): Promise<Job | null> {
         orderBy: { createdAt: 'desc' },
       },
     },
-  })
+  }), getEarlyAssessmentForJob(profile.id, id)])
   if (!job) return null
   return {
     ...job,
     cvDocumentId: job.cvDocuments[0]?.id ?? null,
     coverLetterDocumentId: job.coverLetters[0]?.id ?? null,
     interviewPrepSessionId: job.interviewPrepSessions[0]?.id ?? null,
+    earlyAssessment,
   } as Job
 }
 
