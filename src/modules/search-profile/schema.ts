@@ -1,4 +1,7 @@
 import * as z from 'zod'
+// Dependency-free data module (no imports), so this doesn't create a
+// search-profile ↔ job-assessment import cycle.
+import { toCountryCode } from '@/modules/job-assessment/countries'
 
 export const SalaryBandSchema = z.object({
   min: z.number().nullable().default(null),
@@ -24,8 +27,27 @@ function lenientArray<T extends z.ZodType>(item: T) {
     )
 }
 
-/** ISO 3166-1 alpha-2 shape ("fr" → "FR"). Format only; not checked against the country list. */
-const CountryCodeSchema = z.string().trim().toUpperCase().regex(/^[A-Z]{2}$/)
+/**
+ * A real ISO 3166-1 alpha-2 country, normalised with `toCountryCode`: "fr" →
+ * "FR", "UK" → "GB", "France" → "FR". Codes that aren't countries ("EU",
+ * "ZZ") fail.
+ */
+const CountryCodeSchema = z.string().transform((value, ctx) => {
+  const code = toCountryCode(value)
+  if (code) return code
+  ctx.addIssue({ code: 'custom', message: 'Not a country' })
+  return z.NEVER
+})
+
+/** Trimmed string, truncated to `max` instead of failing. Non-strings still fail. */
+function truncatedText(max: number) {
+  return z.string().transform((s) => s.trim().slice(0, max).trimEnd())
+}
+
+/** Tolerant text field: like `truncatedText`, but anything that isn't a string becomes ''. */
+function lenientText(max: number) {
+  return truncatedText(max).catch('')
+}
 
 /** ISO 4217 shape ("eur" → "EUR"). */
 const CurrencyCodeSchema = z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/)
@@ -130,16 +152,22 @@ export const SEARCH_PROFILE_FIELDS = [
 
 export type SearchProfileField = typeof SEARCH_PROFILE_FIELDS[number]
 
+/**
+ * Tolerant per field: a missing or malformed field falls back to its empty
+ * value, over-long text is truncated, and non-string list items are dropped,
+ * so one bad field never empties the whole profile. Only a non-object input
+ * fails to parse.
+ */
 export const SearchProfileSchema = z.object({
-  preferredName:    z.string().trim().max(120).default(''),
-  currentRole:      z.string().trim().max(200).default(''),
-  roles:            z.array(z.string().trim().max(100)).catch([]).default([]),
-  countries:        z.array(z.string().trim().max(100)).catch([]).default([]),
+  preferredName:    lenientText(120),
+  currentRole:      lenientText(200),
+  roles:            lenientArray(truncatedText(100)),
+  countries:        lenientArray(truncatedText(100)),
   remotePreference: z.enum(['remote', 'hybrid', 'onsite', 'flexible', '']).catch('').default(''),
   salaryBand:       SalaryBandSchema.nullable().catch(null).default(null),
-  careerGoals:      z.string().trim().max(3000).default(''),
-  pivotContext:     z.string().trim().max(3000).default(''),
-  extraContext:     z.string().trim().max(3000).default(''),
+  careerGoals:      lenientText(3000),
+  pivotContext:     lenientText(3000),
+  extraContext:     lenientText(3000),
   eligibility:      EligibilitySchema.catch(makeEmptyEligibility).default(makeEmptyEligibility),
 })
 

@@ -7,6 +7,7 @@ import {
   checkPay,
   checkRelocation,
   checkWorkRights,
+  countryFromLocation,
   coveredCountries,
   toCountryCode,
   type JobLocation,
@@ -32,7 +33,10 @@ describe('reference data', () => {
   })
 
   it('has every EU/EEA/CH code in the country list', () => {
-    expect(EU_EEA_CH.size).toBe(31)
+    expect([...EU_EEA_CH].sort()).toEqual([
+      'AT', 'BE', 'BG', 'CH', 'CY', 'CZ', 'DE', 'DK', 'EE', 'ES', 'FI', 'FR', 'GR', 'HR', 'HU', 'IE',
+      'IS', 'IT', 'LI', 'LT', 'LU', 'LV', 'MT', 'NL', 'NO', 'PL', 'PT', 'RO', 'SE', 'SI', 'SK',
+    ])
     const codes = new Set(COUNTRIES.map((c) => c.code))
     for (const c of EU_EEA_CH) expect(codes.has(c)).toBe(true)
   })
@@ -44,7 +48,10 @@ describe('reference data', () => {
     }
   })
 
-  it.each([['fr', 'FR'], ['France', 'FR'], ['UK', 'GB'], ['england', 'GB'], ['USA', 'US'], ['Narnia', null], ['', null]])(
+  it.each([
+    ['fr', 'FR'], ['France', 'FR'], ['UK', 'GB'], ['england', 'GB'], ['USA', 'US'],
+    ['Narnia', null], ['', null], ['EU', null], ['ZZ', null],
+  ])(
     'toCountryCode(%s) → %s',
     (input, expected) => {
       expect(toCountryCode(input)).toBe(expected)
@@ -128,11 +135,34 @@ describe('checkWorkRights', () => {
     expect(checkWorkRights(elig({ citizenships: ['US'] }), job, 'not_offered', TODAY).status).toBe('blocked')
   })
 
-  it('remote_region understands "EU" and falls back to countries when regions name nothing usable', () => {
-    expect(checkWorkRights(spanish, { countries: [], mode: 'remote_region', remoteRegions: ['EU'] }, 'not_offered', TODAY).status)
+  it.each(['EU', 'EEA', 'Europe'])('remote_region understands "%s"', (region) => {
+    expect(checkWorkRights(spanish, { countries: [], mode: 'remote_region', remoteRegions: [region] }, 'not_offered', TODAY).status)
       .toBe('covered')
+  })
+
+  it('a non-European citizen is not covered by "Europe"', () => {
+    const job: JobLocation = { countries: [], mode: 'remote_region', remoteRegions: ['Europe'] }
+    expect(checkWorkRights(elig({ citizenships: ['US'] }), job, 'not_offered', TODAY))
+      .toEqual(expect.objectContaining({ status: 'blocked' }))
+  })
+
+  it('an unrecognised remote region is unknown, never blocked', () => {
     expect(checkWorkRights(spanish, { countries: ['GB'], mode: 'remote_region', remoteRegions: ['EMEA'] }, 'not_offered', TODAY))
-      .toEqual({ status: 'blocked', countries: ['GB'] })
+      .toEqual({ status: 'unknown', countries: [] })
+    expect(checkWorkRights(spanish, { countries: [], mode: 'remote_region', remoteRegions: ['GB', 'LATAM'] }, 'not_offered', TODAY))
+      .toEqual({ status: 'unknown', countries: [] })
+  })
+
+  it('a partly recognised remote region is still covered when a recognised part covers the user', () => {
+    expect(checkWorkRights(spanish, { countries: [], mode: 'remote_region', remoteRegions: ['APAC', 'DE'] }, 'not_offered', TODAY))
+      .toEqual({ status: 'covered', countries: ['DE'] })
+  })
+
+  it('no citizenships and no visas is unknown, whatever the sponsorship', () => {
+    for (const sponsorship of ['not_offered', 'right_to_work_required', 'not_mentioned', 'offered'] as const) {
+      expect(checkWorkRights(elig({ currentCountry: 'FR' }), onsite('GB'), sponsorship, TODAY))
+        .toEqual({ status: 'unknown', countries: [] })
+    }
   })
 
   it('an expired visa does not cover', () => {
@@ -163,6 +193,21 @@ describe('checkRelocation', () => {
     expect(checkRelocation(inFrance, { countries: ['IE'], mode: 'remote_in_country' }, [])).toBe('unconfirmed')
     expect(checkRelocation(inFrance, { countries: ['IE'], mode: 'remote_region' }, [])).toBe('none')
     expect(checkRelocation(inFrance, { countries: [], mode: 'remote_anywhere' }, [])).toBe('none')
+  })
+
+  it('counts remote regions: "remote, must be based in the EU", HQ in DE, user in FR → none', () => {
+    const job: JobLocation = { countries: ['DE'], mode: 'remote_region', remoteRegions: ['EU'], basedInRequired: true }
+    expect(checkRelocation(inFrance, job, [])).toBe('none')
+    expect(checkRelocation(elig({ currentCountry: 'US' }), job, [])).toBe('unconfirmed')
+  })
+
+  it('unknown when a required remote region is unrecognised', () => {
+    const job: JobLocation = { countries: ['GB'], mode: 'remote_region', remoteRegions: ['EMEA'], basedInRequired: true }
+    expect(checkRelocation(inFrance, job, [])).toBe('unknown')
+  })
+
+  it.each(['EU', 'Europe'])('expands the target group "%s"', (target) => {
+    expect(checkRelocation(elig({ currentCountry: 'US' }), onsite('IE'), [target])).toBe('none')
   })
 
   it('unknown when the job countries or the current country are missing', () => {
@@ -224,8 +269,35 @@ describe('checkPay', () => {
     expect(checkPay(floors, eur(5000, 6000, period))).toEqual({ status: 'unknown', belowTarget: false })
   })
 
+  it('swaps a reversed range before comparing', () => {
+    expect(checkPay(floors, eur(129800, 78000))).toEqual({ status: 'straddles_floor', belowTarget: false, floor: 90000, target: 100000 })
+    expect(checkPay(floors, eur(85000, 70000)).status).toBe('below_floor')
+  })
+
   it('no salary, or no figures, is unknown', () => {
     expect(checkPay(floors, null)).toEqual({ status: 'unknown', belowTarget: false })
     expect(checkPay(floors, eur(null, null)).status).toBe('unknown')
+  })
+})
+
+describe('countryFromLocation', () => {
+  it.each([
+    ['DE', 'DE'],
+    ['fr', 'FR'],
+    ['France', 'FR'],
+    ['Paris, France', 'FR'],
+    ['Le Chesnay, France', 'FR'],
+    ['London, UK', 'GB'],
+    ['San Francisco, CA, USA', 'US'],
+    ['Austin, TX / United States', 'US'],
+    ['Boston, MA', null],
+    ['San Francisco, CA', null],
+    ['London', null],
+    ['Remote', null],
+    ['', null],
+    [null, null],
+    [undefined, null],
+  ])('%s → %s', (location, expected) => {
+    expect(countryFromLocation(location)).toBe(expected)
   })
 })

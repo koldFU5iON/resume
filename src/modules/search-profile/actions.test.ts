@@ -99,15 +99,16 @@ describe('dismissSuggestion', () => {
 })
 
 describe('saveSearchProfile', () => {
-  it('round-trips eligibility, normalising codes and dropping invalid entries', async () => {
+  it('normalises the whole profile, stores it scoped to the profile, and returns what it stored', async () => {
     vi.mocked(prisma.userSettings.upsert).mockResolvedValue({} as never)
 
-    await saveSearchProfile({
+    const result = await saveSearchProfile({
       ...emptySearchProfile,
-      preferredName: 'Devon',
+      preferredName: `  ${'D'.repeat(130)}  `,
+      careerGoals: 'g'.repeat(4000),
       eligibility: {
         currentCountry: 'fr',
-        citizenships: ['es', 'ES'],
+        citizenships: ['es', 'ES', 'uk'],
         visas: [{ country: 'gb', type: 'Skilled Worker', expiresOn: '2027-03-31' }],
         salaryFloors: [
           { currency: 'eur', floor: 90000, target: 100000 },
@@ -119,10 +120,11 @@ describe('saveSearchProfile', () => {
 
     const expected = {
       ...emptySearchProfile,
-      preferredName: 'Devon',
+      preferredName: 'D'.repeat(120),
+      careerGoals: 'g'.repeat(3000),
       eligibility: {
         currentCountry: 'FR',
-        citizenships: ['ES'],
+        citizenships: ['ES', 'GB'],
         visas: [{ country: 'GB', type: 'Skilled Worker', expiresOn: '2027-03-31' }],
         salaryFloors: [{ currency: 'EUR', floor: 90000, target: 100000 }],
         dealbreakers: ['Fixed-term contract'],
@@ -133,5 +135,18 @@ describe('saveSearchProfile', () => {
       create: { profileId: 'profile-1', searchProfile: expected },
       update: { searchProfile: expected },
     })
+    expect(result).toEqual({ ok: true, profile: expected })
+  })
+
+  it('rejects a non-object without writing', async () => {
+    const result = await saveSearchProfile(null as never)
+    expect(result).toEqual({ ok: false, error: 'Invalid search profile' })
+    expect(prisma.userSettings.upsert).not.toHaveBeenCalled()
+  })
+
+  it('requires a signed-in user', async () => {
+    vi.mocked(requireProfile).mockRejectedValue(new Error('Unauthorized'))
+    await expect(saveSearchProfile(emptySearchProfile)).rejects.toThrow('Unauthorized')
+    expect(prisma.userSettings.upsert).not.toHaveBeenCalled()
   })
 })

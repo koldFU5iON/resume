@@ -1,7 +1,9 @@
 /**
  * Static reference data for the eligibility profile UI and the eligibility
  * checks: ISO 3166-1 alpha-2 countries (English names) and the currencies a
- * salary floor can be set in. Data only — no logic beyond lookups.
+ * salary floor can be set in. Data and lookups only, with no imports, so both
+ * `search-profile/schema.ts` and `job-assessment/eligibility.ts` can depend on
+ * it without an import cycle.
  *
  * The country list is every officially assigned ISO 3166-1 alpha-2 code, plus
  * XK (Kosovo, user-assigned but universally used for Kosovar passports).
@@ -305,7 +307,10 @@ export function countryName(code: string): string {
   return COUNTRY_NAME_BY_CODE.get(code.toUpperCase()) ?? code
 }
 
-/** Common non-ISO spellings that users and job boards write instead of the ISO name or code. */
+/**
+ * Common non-ISO spellings that users and job boards write instead of the ISO name or code.
+ * TODO: consolidate with `locationToCountryCode` in src/modules/job-hunt/board-adapters/adzuna.ts (overlapping aliases).
+ */
 const COUNTRY_ALIASES: Readonly<Record<string, string>> = {
   'uk': 'GB',
   'u.k.': 'GB',
@@ -335,19 +340,46 @@ const COUNTRY_CODE_BY_NAME: ReadonlyMap<string, string> = new Map(
   COUNTRIES.map((c) => [c.name.toLowerCase(), c.code]),
 )
 
+/** English name or alias ("France", "UK", "USA") → code. Never reads a bare ISO code. */
+function countryFromNameOrAlias(value: string): string | null {
+  const lower = value.trim().toLowerCase()
+  if (!lower) return null
+  return COUNTRY_ALIASES[lower] ?? COUNTRY_CODE_BY_NAME.get(lower) ?? null
+}
+
 /**
  * Best-effort mapping of free text to an ISO alpha-2 code: accepts a code in
  * any case ("fr"), an English name ("France") or a common alias ("UK",
- * "USA"). Returns null when nothing matches. Used to read the free-text
- * search-profile `countries` field and to prefill `currentCountry` from
- * `Profile.location`.
+ * "USA"). Returns null when nothing matches, including for codes that aren't
+ * real countries ("EU", "ZZ"). Used to normalise stored country codes and to
+ * read the free-text search-profile `countries` field.
  */
 export function toCountryCode(value: string): string | null {
-  const trimmed = value.trim()
-  if (!trimmed) return null
-  const lower = trimmed.toLowerCase()
-  if (COUNTRY_ALIASES[lower]) return COUNTRY_ALIASES[lower]
-  const upper = trimmed.toUpperCase()
-  if (upper.length === 2 && COUNTRY_NAME_BY_CODE.has(upper)) return upper
-  return COUNTRY_CODE_BY_NAME.get(lower) ?? null
+  const byName = countryFromNameOrAlias(value)
+  if (byName) return byName
+  const upper = value.trim().toUpperCase()
+  return upper.length === 2 && COUNTRY_NAME_BY_CODE.has(upper) ? upper : null
+}
+
+/**
+ * Best-effort country from a free-text profile location, used to suggest
+ * `eligibility.currentCountry`.
+ *
+ * - The whole trimmed string may be a code, name or alias ("DE", "France", "UK").
+ * - Otherwise the string is split on `,` `/` `|` `·` and each part is matched
+ *   by name or alias only, last part first ("Paris, France", "San Francisco,
+ *   CA, USA"). Two-letter parts are never read as codes, so US state codes
+ *   don't become countries ("Boston, MA" → null, not Morocco).
+ * - Cities are not recognised ("London" → null).
+ */
+export function countryFromLocation(location: string | null | undefined): string | null {
+  if (!location) return null
+  const whole = toCountryCode(location)
+  if (whole) return whole
+  const parts = location.split(/[,/|·]/).map((p) => p.trim()).filter(Boolean)
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const code = countryFromNameOrAlias(parts[i])
+    if (code) return code
+  }
+  return null
 }

@@ -1,9 +1,17 @@
 'use client'
 
 import { useRef, useState, type ReactNode } from 'react'
-import { CheckIcon, ChevronsUpDownIcon } from 'lucide-react'
+import { CheckIcon, ChevronsUpDownIcon, XIcon } from 'lucide-react'
 import { buttonVariants } from '@/components/ui/button'
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  CommandSeparator,
+} from '@/components/ui/command'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 import { COUNTRIES, countryName } from '@/modules/job-assessment/eligibility'
@@ -15,6 +23,8 @@ type Props = {
   /** Selected ISO alpha-2 code, or null. */
   value: string | null
   onChange: (code: string) => void
+  /** When set and a country is selected, the list offers a "Clear" option that calls this. */
+  onClear?: () => void
   /** Shown when `value` is null. */
   placeholder?: ReactNode
   /** Codes to leave out of the list (e.g. citizenships already chosen). */
@@ -32,6 +42,7 @@ export function CountryCombobox({
   labelId,
   value,
   onChange,
+  onClear,
   placeholder = 'Select a country',
   exclude,
   className,
@@ -71,6 +82,25 @@ export function CountryCombobox({
           <CommandInput ref={searchRef} placeholder="Search countries…" aria-label="Search countries" />
           <CommandList className="max-h-64">
             <CommandEmpty>No country found.</CommandEmpty>
+            {onClear && value && (
+              <>
+                <CommandGroup>
+                  <CommandItem
+                    value="__clear__"
+                    keywords={['clear', 'none', 'remove']}
+                    onSelect={() => {
+                      onClear()
+                      setOpen(false)
+                    }}
+                    className="text-muted-foreground"
+                  >
+                    <XIcon aria-hidden />
+                    Clear selection
+                  </CommandItem>
+                </CommandGroup>
+                <CommandSeparator />
+              </>
+            )}
             <CommandGroup>
               {options.map((c) => (
                 <CommandItem

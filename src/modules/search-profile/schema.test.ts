@@ -53,6 +53,44 @@ describe('normalizeSearchProfile', () => {
   })
 })
 
+describe('normalizeSearchProfile per-field tolerance', () => {
+  const full = {
+    preferredName: 'Devon',
+    currentRole: 'Comms Ops',
+    roles: ['Director of Operations'],
+    countries: ['UK'],
+    remotePreference: 'remote',
+    salaryBand: { min: 80000, max: 120000, currency: 'GBP' },
+    careerGoals: 'Lead ops',
+    pivotContext: 'Pivot',
+    extraContext: 'Extra',
+    eligibility: { currentCountry: 'FR', citizenships: ['ES'], visas: [], salaryFloors: [], dealbreakers: ['On-call'] },
+  }
+
+  it('truncates a 121-char preferredName and keeps every other field', () => {
+    const result = normalizeSearchProfile({ ...full, preferredName: 'x'.repeat(121) })
+    expect(result.preferredName).toBe('x'.repeat(120))
+    expect(result).toEqual({ ...full, preferredName: 'x'.repeat(120) })
+  })
+
+  it('truncates a 4000-char careerGoals and keeps every other field, including eligibility', () => {
+    const result = normalizeSearchProfile({ ...full, careerGoals: 'y'.repeat(4000) })
+    expect(result.careerGoals).toHaveLength(3000)
+    expect(result).toEqual({ ...full, careerGoals: 'y'.repeat(3000) })
+  })
+
+  it('resets a wrongly typed field to its empty value and keeps the rest', () => {
+    const result = normalizeSearchProfile({ ...full, currentRole: 42, pivotContext: { a: 1 } })
+    expect(result).toEqual({ ...full, currentRole: '', pivotContext: '' })
+  })
+
+  it('truncates over-long list items and drops non-string ones instead of emptying the list', () => {
+    const result = normalizeSearchProfile({ ...full, roles: ['CTO', 'r'.repeat(150), 7] })
+    expect(result.roles).toEqual(['CTO', 'r'.repeat(100)])
+    expect(result.eligibility).toEqual(full.eligibility)
+  })
+})
+
 describe('searchProfileHasContent', () => {
   it('returns false for empty profile', () => {
     expect(searchProfileHasContent(emptySearchProfile)).toBe(false)
@@ -166,9 +204,24 @@ describe('eligibility', () => {
   })
 
   it('drops invalid codes and de-duplicates citizenships', () => {
-    const result = normalizeEligibility({ currentCountry: 'France', citizenships: ['es', 'ES', 'ESP', '', 3] })
+    const result = normalizeEligibility({ currentCountry: 'Narnia', citizenships: ['es', 'ES', 'ESP', '', 3, 'EU', 'ZZ'] })
     expect(result.currentCountry).toBeNull()
     expect(result.citizenships).toEqual(['ES'])
+  })
+
+  it('maps names and aliases to real country codes', () => {
+    const result = normalizeEligibility({
+      currentCountry: 'France',
+      citizenships: ['uk', 'GB', 'Ireland'],
+      visas: [{ country: 'USA', type: 'H-1B', expiresOn: null }, { country: 'EU', type: 'Blue Card', expiresOn: null }],
+    })
+    expect(result.currentCountry).toBe('FR')
+    expect(result.citizenships).toEqual(['GB', 'IE'])
+    expect(result.visas).toEqual([{ country: 'US', type: 'H-1B', expiresOn: null }])
+  })
+
+  it('parses an object with no eligibility keys to an empty eligibility', () => {
+    expect(normalizeEligibility({})).toEqual(emptyEligibility)
   })
 
   it('defaults a visa expiry to null and drops visas with a bad country or malformed date', () => {

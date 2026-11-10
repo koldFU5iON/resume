@@ -1,10 +1,10 @@
 import { getSearchProfile } from '@/modules/search-profile/queries'
 import { SearchContextForm } from './_components/search-context-form'
-import { countryFromLocation } from './_components/eligibility-draft'
+import { countryFromLocation } from '@/modules/job-assessment/eligibility'
 
 export default async function Page() {
   const { profile, searchProfile, suggestions } = await getSearchProfile()
-  // Only a suggestion: it prefills the form and is stored when the user saves.
+  // Only a suggestion: the form shows it, and stores it once the user confirms or picks a country.
   const suggestedCountry = searchProfile.eligibility.currentCountry === null ? countryFromLocation(profile.location) : null
 
   return (
