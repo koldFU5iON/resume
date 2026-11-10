@@ -378,6 +378,8 @@ eligibility: z.object({
 - [ ] `run.ts`: claim the row → verify → (enrich → verify) → facts → judge → combine → persist. Status written at each step; every failure path ends in `failed` with a kind.
 - [ ] Timing in `run.ts`: a `timed(stage, fn)` helper fills `stageTimings`. `queueTimeMs` and `processTimeMs` are written on every final update, failed runs included. Test it: a failed run still has `processTimeMs`, and skipped stages are left out.
 - [ ] `queue.ts` + flag, and wire it into every trigger call site. Batch capture runs one job at a time.
+- [ ] Limit each profile to a few concurrent runs at a time (e.g. 3). `askJev`'s daily cap is soft: calls still in flight aren't counted (PR #330 review).
+- [ ] Bound Jev calls inside `after()`: pass a per-call SDK `timeout`/`retry` so a long `Retry-After` can't hold a run for minutes (PR #330 review).
 
 ### Phase 4 — UI
 - [ ] `getActiveJobs` / `getJobApplicationById` include the latest run. Treat stale in-progress runs as failed.
@@ -388,6 +390,7 @@ eligibility: z.object({
 
 ### Phase 5 — Usage, compare, tune
 - [ ] Admin usage: app-billed Jev card (cost, top users, runs per day, p50/p95 process time, average per stage). `FEATURE_LABELS`.
+- [ ] User usage page: separate app-billed Jev rows (`provider = 'typesafe'`) from own-key usage. The page says "each call uses your own API key", which isn't true for Jev. Must ship with Phase 3 (PR #330 review).
 - [ ] `scripts/assessment-compare.ts` + `npm run assess:compare`.
 - [ ] Run it over your active jobs. Hand-check the disagreements, adjust `ASSESSMENT_CONFIG`, and bump `PIPELINE_VERSION` on each change.
 - [ ] `docs/job-assessment.md`.

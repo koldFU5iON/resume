@@ -85,8 +85,8 @@ export const FAST_MODELS: Record<'anthropic' | 'openai' | 'google', string | nul
 /**
  * Model id to pass as `opts.model` for cheap structured calls. Uses the
  * provider's FAST_MODELS entry when the user's cached model list (if any)
- * contains it — exactly or as a dated snapshot such as `<id>-20261001` —
- * otherwise the user's default model.
+ * contains that exact id (current Claude ids carry no date suffix), otherwise
+ * the user's default model.
  */
 export async function resolveFastModel(profileId: string): Promise<string> {
   const settings = await prisma.userSettings.findUnique({
@@ -108,9 +108,8 @@ export async function resolveFastModel(profileId: string): Promise<string> {
         .map(m => m?.id)
         .filter((id): id is string => typeof id === 'string')
     : null
-  if (!available) return fast
-  if (available.includes(fast)) return fast
-  return available.find(id => id.startsWith(`${fast}-`)) ?? settings.llmModel
+  if (!available || available.includes(fast)) return fast
+  return settings.llmModel
 }
 
 type ResolvedConfig = {
@@ -120,9 +119,9 @@ type ResolvedConfig = {
 }
 
 function samplingOptions(provider: string, model: string, temperature: number | undefined) {
-  // Anthropic's v5 Sonnet and Opus models reject non-default sampling values.
-  // Keep existing tuning for earlier Claude models and other providers.
-  if (provider === 'anthropic' && /^claude-(?:sonnet|opus)-[5-9](?:\D|$)/.test(model)) {
+  // Anthropic's v5 Sonnet, Opus and Haiku models reject non-default sampling
+  // values with a 400. Keep existing tuning for earlier Claude models and other providers.
+  if (provider === 'anthropic' && /^claude-(?:sonnet|opus|haiku)-[5-9](?:\D|$)/.test(model)) {
     return {}
   }
   return temperature === undefined ? {} : { temperature }

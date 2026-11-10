@@ -15,10 +15,10 @@ model JobAssessment {
   pipelineVersion  String
   /// queued | checking | fetching | assessing | complete | failed
   status           String
-  /// verification | no_llm_key | rate_limited | error
+  /// verification | no_llm_key | not_configured | daily_cap | rate_limited | overloaded | error
   failureKind      String?
-  failureReasons   String[]
-  enrichedFields   String[]
+  failureReasons   String[] @default([])
+  enrichedFields   String[] @default([])
   factsHash        String?
   /// JobFacts from the cheap model (spec §3)
   facts            Json?
@@ -34,10 +34,10 @@ model JobAssessment {
   blocked          Boolean   @default(false)
   /// [{ kind, severity: 'hard' | 'unconfirmed', label, detail }]
   blockers         Json?
-  strengths        String[]
-  gaps             String[]
+  strengths        String[] @default([])
+  gaps             String[] @default([])
   /// Must-haves Jev couldn't settle (0.3 <= p < 0.7), shown as "check these"
-  unsettled        String[]
+  unsettled        String[] @default([])
   startedAt        DateTime?
   completedAt      DateTime?
   /// createdAt -> startedAt (time waiting for after() to pick it up)

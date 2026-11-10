@@ -94,6 +94,30 @@ describe('askJev', () => {
     })
   })
 
+  it('counts calls from local midnight today', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 10, 10, 15, 42, 7))
+    try {
+      await askJev('p1', { state, questions }, { feature: 'test' })
+      const since = mockCount.mock.calls[0][0]!.where!.createdAt as { gte: Date }
+      expect(since.gte).toEqual(new Date(2026, 10, 10, 0, 0, 0, 0))
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it.each(['', '   ', 'abc', '0', '-5', '2.5'])(
+    'falls back to the default cap of 300 when JEV_DAILY_CALL_LIMIT is %j',
+    async (value) => {
+      vi.stubEnv('JEV_DAILY_CALL_LIMIT', value)
+      mockCount.mockResolvedValueOnce(299 as never)
+      await expect(askJev('p1', { state, questions }, { feature: 'test' })).resolves.toBeDefined()
+      mockCount.mockResolvedValueOnce(300 as never)
+      await expect(askJev('p1', { state, questions }, { feature: 'test' }))
+        .rejects.toMatchObject({ kind: 'daily_cap' })
+    },
+  )
+
   it('defaults the daily cap to 300', async () => {
     mockCount.mockResolvedValueOnce(299 as never)
     await expect(askJev('p1', { state, questions }, { feature: 'test' })).resolves.toBeDefined()
@@ -161,6 +185,7 @@ describe('askJev', () => {
     ['413', () => apiError(413), 'context_exceeded'],
     ['400 other', () => apiError(400, { detail: 'invalid UTF-8' }), 'invalid_request'],
     ['422', () => apiError(422, { detail: [{ type: 'missing', loc: ['body', 'state'] }] }), 'invalid_request'],
+    ['408', () => apiError(408), 'unavailable'],
     ['500', () => apiError(500), 'unavailable'],
     ['503', () => apiError(503), 'unavailable'],
     ['connection', () => new APIConnectionError(), 'unavailable'],

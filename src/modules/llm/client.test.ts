@@ -133,6 +133,21 @@ describe('LLM client logging', () => {
     expect(mockGenerateText.mock.calls[0][0]).not.toHaveProperty('temperature')
   })
 
+  it.each(['claude-haiku-5-5', 'claude-opus-5-5', 'claude-sonnet-5-5'])(
+    'omits sampling parameters for %s',
+    async (model) => {
+      mockFindUnique.mockResolvedValueOnce({ ...fakeSettings, llmModel: model } as never)
+      await complete('profile-1', 'hello', { feature: 'test', temperature: 0 })
+      expect(mockGenerateText.mock.calls.at(-1)![0]).not.toHaveProperty('temperature')
+    },
+  )
+
+  it('keeps sampling parameters for older Claude models', async () => {
+    mockFindUnique.mockResolvedValueOnce({ ...fakeSettings, llmModel: 'claude-haiku-4-5' } as never)
+    await complete('profile-1', 'hello', { feature: 'test', temperature: 0.2 })
+    expect(mockGenerateText.mock.calls.at(-1)![0]).toHaveProperty('temperature', 0.2)
+  })
+
   it('keeps sampling parameters for supported models', async () => {
     await complete('profile-1', 'hello', { feature: 'test', temperature: 0.2 })
 
@@ -201,11 +216,6 @@ describe('resolveFastModel', () => {
     await expect(resolveFastModel('profile-1')).resolves.toBe('claude-haiku-5-5')
   })
 
-  it('prefers a dated snapshot of the fast model from the cached list', async () => {
-    settings({ availableModels: [{ id: 'claude-haiku-5-5-20261001', name: 'H' }] })
-    await expect(resolveFastModel('profile-1')).resolves.toBe('claude-haiku-5-5-20261001')
-  })
-
   it('falls back to the default model when the cached list lacks the fast model', async () => {
     settings({ availableModels: [{ id: 'claude-sonnet-4-6', name: 'S' }] })
     await expect(resolveFastModel('profile-1')).resolves.toBe('claude-sonnet-4-6')
@@ -213,7 +223,9 @@ describe('resolveFastModel', () => {
 
   it('falls back to the default model when the provider has no fast model', async () => {
     settings({ llmProvider: 'openai', llmModel: 'gpt-5' })
-    await expect(resolveFastModel('profile-1')).resolves.toBe(FAST_MODELS.openai ?? 'gpt-5')
+    // openai has no verified fast model yet (FAST_MODELS.openai === null)
+    expect(FAST_MODELS.openai).toBeNull()
+    await expect(resolveFastModel('profile-1')).resolves.toBe('gpt-5')
   })
 
   it('throws not_configured when the user has no key', async () => {

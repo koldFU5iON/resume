@@ -81,7 +81,9 @@ let client: TypeSafeClient | null = null
 function getClient(): TypeSafeClient {
   if (!client) {
     client = new TypeSafeClient({
-      apiKey: process.env.TYPESAFE_API_KEY,
+      // Trimmed: a pasted key with a trailing newline would otherwise make an
+      // invalid header and surface as a connection error instead of `auth`.
+      apiKey: process.env.TYPESAFE_API_KEY?.trim(),
       defaultModel: JEV_MODEL,
       // Pinned so TYPESAFE_LOG_LEVEL=debug can't print request bodies (state) to logs.
       logLevel: 'warn',
@@ -90,9 +92,12 @@ function getClient(): TypeSafeClient {
   return client
 }
 
+// A blank, non-integer or < 1 value falls back to the default: an empty env var
+// must not silently become a cap of 0. To switch Jev off, unset TYPESAFE_API_KEY.
 function dailyCallLimit(): number {
-  const n = Number(process.env.JEV_DAILY_CALL_LIMIT ?? DEFAULT_DAILY_CALL_LIMIT)
-  return Number.isFinite(n) ? n : DEFAULT_DAILY_CALL_LIMIT
+  const raw = process.env.JEV_DAILY_CALL_LIMIT?.trim()
+  const n = raw ? Number(raw) : NaN
+  return Number.isInteger(n) && n >= 1 ? n : DEFAULT_DAILY_CALL_LIMIT
 }
 
 function startOfToday(): Date {
@@ -125,7 +130,8 @@ export function normalizeJevError(err: unknown): JevError {
     if (status === 413 || (err instanceof BadRequestError && mentionsMaxTokensExceeded(err.body))) {
       return new JevError('context_exceeded', `Jev request exceeds the model's context length (${status}).`, status, requestId, cause)
     }
-    if (status >= 500) {
+    if (status >= 500 || status === 408) {
+      // 408 is a server-side timeout the SDK already retried; treat as transient.
       return new JevError('unavailable', `TypeSafe server error (${status}).`, status, requestId, cause)
     }
     return new JevError('invalid_request', `TypeSafe rejected the request (${status}).`, status, requestId, cause)
@@ -158,6 +164,9 @@ export async function askJev<const Q extends Questions>(
     throw new JevError('not_configured', 'TYPESAFE_API_KEY is not set.')
   }
 
+  // Soft cap: calls still in flight and failed calls aren't counted, so
+  // concurrent runs for one profile can overshoot by their concurrency. The
+  // pipeline (Phase 3) limits concurrent runs per profile to keep this tight.
   const usedToday = await prisma.llmUsageLog.count({
     where: { profileId, provider: JEV_PROVIDER, createdAt: { gte: startOfToday() } },
   })
@@ -167,10 +176,18 @@ export async function askJev<const Q extends Questions>(
 
   const body = { model: JEV_MODEL, state: request.state, questions: request.questions }
 
+  let jev: TypeSafeClient
+  try {
+    jev = getClient()
+  } catch (err) {
+    // Constructor rejected the config (e.g. a malformed TYPESAFE_BASE_URL).
+    throw new JevError('not_configured', 'TypeSafe client could not be created; check TYPESAFE_* env vars.', undefined, undefined, { cause: err })
+  }
+
   const startedAt = Date.now()
   let result: SystemOneResult<Q>
   try {
-    result = await getClient().systemOne(body)
+    result = await jev.systemOne(body)
   } catch (err) {
     throw normalizeJevError(err)
   }
