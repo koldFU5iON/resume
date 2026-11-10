@@ -211,6 +211,10 @@ Update the Vercel `DATABASE_URL` env var (Production scope) via dashboard or `ve
 
 Jev is the one exception to bring-your-own-key: the app pays for every call with `TYPESAFE_API_KEY` (server-side only). Calls go through `askJev()` in `src/modules/jev/client.ts`, which pins the model (`jev-1.14.0`), requires a `feature` tag like the LLM layer, and writes every call to `LlmUsageLog` with `provider: 'typesafe'` so usage is tracked per user (a failed call keeps a zero-token row with the feature suffixed `:failed`). A failed call throws `JevError` (with a `kind`) — never treat it as an answer. `JEV_DAILY_CALL_LIMIT` (default 300) is a hard cap on calls per profile per day: each call first reserves its usage row in a transaction holding a per-profile Postgres advisory lock, so concurrent calls can't overshoot it, and failed calls count too. The early-assessment queue also enforces a hard limit of 2 concurrent runs per profile (atomic admission under an advisory lock, `src/modules/job-assessment/queue.ts`). Question wording lives in `src/modules/job-assessment/questions.ts` (Phase 3), not in the client.
 
+**Queue continuation:** a drain that stops on its deadline or run cap with rows still queued POSTs to `POST /api/internal/job-assessment/drain` on `BETTER_AUTH_URL` with a 2-minute HMAC token (key derived from `BETTER_AUTH_SECRET`); the route answers 202 and drains in `after()`. At most 20 hops per chain; with either env var unset it's off and rows wait for the next trigger (`src/modules/job-assessment/continuation.ts`). `src/proxy.ts` must keep `/api/internal/*` ungated.
+
+**Backfill:** Settings → "Early assessment" queues the newest non-archived "not started" jobs with no complete run for the current `PIPELINE_VERSION`, in batches of at most 20 and never past today's remaining Jev calls (about 3 per job). One batch at a time: refused while any run is pending (`src/modules/job-assessment/backfill.ts`).
+
 ## LLM layer
 
 Bring-your-own-key — each user supplies their own provider API key. Server-side

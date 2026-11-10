@@ -117,6 +117,18 @@ function startOfToday(): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate())
 }
 
+/**
+ * Jev calls this profile can still make today under JEV_DAILY_CALL_LIMIT
+ * (failed calls and reservations count, as in reserveCall). A read-only
+ * estimate for planning batches; the cap itself is enforced by reserveCall.
+ */
+export async function jevCallsRemainingToday(profileId: string): Promise<number> {
+  const usedToday = await prisma.llmUsageLog.count({
+    where: { profileId, provider: JEV_PROVIDER, createdAt: { gte: startOfToday() } },
+  })
+  return Math.max(0, dailyCallLimit() - usedToday)
+}
+
 function mentionsMaxTokensExceeded(body: unknown): boolean {
   if (body == null) return false
   const text = typeof body === 'string' ? body : JSON.stringify(body)
