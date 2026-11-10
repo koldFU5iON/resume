@@ -12,7 +12,7 @@ export type ExtractedJob = {
 
 export type ExtractionResult =
   | { ok: true; data: ExtractedJob }
-  | { ok: false; error: string }
+  | { ok: false; error: string; timedOut?: true }
 
 export const td = new TurndownService({ headingStyle: 'atx', bulletListMarker: '-' })
 td.remove(['script', 'style', 'noscript'])

@@ -8,6 +8,11 @@ import { JobDescriptionPane } from "./_components/job-description-pane"
 import { JobNotesPane } from "./_components/job-notes-pane"
 import { JobPageContext } from "./_components/job-page-context"
 
+// Server Actions on this page queue the early job assessment, which runs in
+// after() within this limit; keep in sync with ROUTE_MAX_DURATION_S in
+// src/modules/job-assessment/queue.ts.
+export const maxDuration = 300
+
 export default async function ViewJobPage({
   params,
 }: {

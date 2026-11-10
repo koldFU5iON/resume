@@ -8,10 +8,12 @@ vi.mock('@/lib/db', () => ({
   prisma: { jobApplication: { findFirst: vi.fn(), create: vi.fn() } },
 }))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
+vi.mock('@/modules/job-assessment/queue', () => ({ queueJobAssessmentSafely: vi.fn() }))
 
 import { quickCaptureJob } from './quick-capture'
 import { extractJobFromUrl } from '@/modules/jobs/extract'
 import { prisma } from '@/lib/db'
+import { queueJobAssessmentSafely } from '@/modules/job-assessment/queue'
 
 const mockExtract = vi.mocked(extractJobFromUrl)
 const mockFind   = vi.mocked(prisma.jobApplication.findFirst)
@@ -47,6 +49,7 @@ describe('quickCaptureJob', () => {
     const r = await quickCaptureJob(url)
     expect(r).toMatchObject({ ok: true, duplicate: true, jobId: 'j-existing' })
     expect(mockCreate).not.toHaveBeenCalled()
+    expect(queueJobAssessmentSafely).not.toHaveBeenCalled()
   })
 
   it('creates a job and returns ok:true on success', async () => {
@@ -55,6 +58,7 @@ describe('quickCaptureJob', () => {
     const r = await quickCaptureJob(url)
     expect(r).toMatchObject({ ok: true, duplicate: false, jobId: 'j-new', title: 'Staff Eng' })
     expect(mockCreate).toHaveBeenCalledOnce()
+    expect(queueJobAssessmentSafely).toHaveBeenCalledWith('profile-1', 'j-new', { reason: 'quick-capture', requestStartedAt: expect.any(Number) })
   })
 
   it('passes all optional extracted fields to prisma.create', async () => {

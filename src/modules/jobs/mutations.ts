@@ -13,6 +13,7 @@ import {
 import type { Job } from '@/app/types/job-application'
 import { requireProfile } from '@/lib/session'
 import { getArchivedJobs } from './queries'
+import { assessmentMaybeEnabled, queueJobAssessmentSafely } from '@/modules/job-assessment/queue'
 
 // Progress stages in funnel order. Used to compute "everything before stage X"
 // for the auto-advance logic below.
@@ -47,7 +48,7 @@ export async function createJobApplication(data: z.infer<typeof createJobSchema>
   const countries = location
     ? location.split(',').map(s => s.trim()).filter(Boolean)
     : []
-  return prisma.jobApplication.create({
+  const job = await prisma.jobApplication.create({
     data: {
       ...rest,
       company: rest.company || null,
@@ -56,6 +57,28 @@ export async function createJobApplication(data: z.infer<typeof createJobSchema>
       profileId: profile.id,
     },
   })
+  await queueJobAssessmentSafely(profile.id, job.id, { reason: 'created' })
+  return job
+}
+
+// Fields the early assessment reads: a change to any of them re-runs it.
+type AssessedFields = {
+  title: string
+  company: string | null
+  jobDescription: string | null
+  countries: string[]
+  salaryBand: string | null
+}
+
+function assessedFieldsChanged(current: AssessedFields, payload: Record<string, unknown>): boolean {
+  const text = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
+  const sent = (k: keyof AssessedFields) => payload[k] !== undefined
+  if (sent('title') && text(payload.title) !== text(current.title)) return true
+  if (sent('company') && text(payload.company) !== text(current.company)) return true
+  if (sent('jobDescription') && text(payload.jobDescription) !== text(current.jobDescription)) return true
+  if (sent('salaryBand') && text(payload.salaryBand) !== text(current.salaryBand)) return true
+  if (sent('countries') && (payload.countries as string[]).join('|') !== current.countries.join('|')) return true
+  return false
 }
 
 export async function updateJobDate(id: string, date: Date) {
@@ -137,20 +160,33 @@ export async function updateJobApplication(
   if (jobDescription !== undefined) payload.jobDescription = jobDescription
   if (recruiterName !== undefined) payload.recruiterName = recruiterName || null
 
+  // The trigger's change detection needs the current values; skip the read
+  // entirely when the assessment can't run (env/flag, no DB) and the stale
+  // fit check doesn't need it either.
+  const checkAssessedFields = assessmentMaybeEnabled() &&
+    ['title', 'company', 'jobDescription', 'countries', 'salaryBand'].some(k => payload[k] !== undefined)
+
+  // Read the current values once: for the stale fit/analysis check and to see
+  // whether a field the early assessment reads actually changed.
+  const current = jobDescription !== undefined || checkAssessedFields
+    ? await prisma.jobApplication.findFirst({
+        where: { id, profileId: profile.id },
+        select: {
+          title: true, company: true, jobDescription: true, countries: true, salaryBand: true,
+          jobFit: true, jobAnalysis: true,
+        },
+      })
+    : null
+
   // Check for stale fit/analysis data before updating
   let staleFitData = false
-  if (jobDescription !== undefined) {
-    const current = await prisma.jobApplication.findFirst({
-      where: { id, profileId: profile.id },
-      select: { jobDescription: true, jobFit: true, jobAnalysis: true },
-    })
-    if (
-      current &&
-      current.jobDescription !== jobDescription &&
-      (current.jobFit !== null || current.jobAnalysis !== null)
-    ) {
-      staleFitData = true
-    }
+  if (
+    jobDescription !== undefined &&
+    current &&
+    current.jobDescription !== jobDescription &&
+    (current.jobFit !== null || current.jobAnalysis !== null)
+  ) {
+    staleFitData = true
   }
 
   const result = await prisma.jobApplication.updateMany({
@@ -158,6 +194,10 @@ export async function updateJobApplication(
     data: payload,
   })
   if (result.count === 0) throw new Error('Job not found')
+
+  if (checkAssessedFields && current && assessedFieldsChanged(current, payload)) {
+    await queueJobAssessmentSafely(profile.id, id, { reason: 'edited' })
+  }
 
   revalidatePath('/dashboard/job-applications')
   revalidatePath(`/dashboard/job-applications/view/${id}`)
@@ -181,11 +221,23 @@ export async function archiveJobApplication(id: string) {
 export async function updateJobSalaryBand(id: string, salaryBand: string | null) {
   const { profile } = await requireProfile()
 
+  // Only the trigger needs the previous value: skip the read when it can't run.
+  const current = assessmentMaybeEnabled()
+    ? await prisma.jobApplication.findFirst({
+        where: { id, profileId: profile.id },
+        select: { salaryBand: true },
+      })
+    : null
+
   const result = await prisma.jobApplication.updateMany({
     where: { id, profileId: profile.id },
     data: { salaryBand },
   })
   if (result.count === 0) throw new Error('Job not found')
+
+  if (current && (current.salaryBand ?? '').trim() !== (salaryBand ?? '').trim()) {
+    await queueJobAssessmentSafely(profile.id, id, { reason: 'salary' })
+  }
 
   revalidatePath('/dashboard/job-applications')
   revalidatePath(`/dashboard/job-applications/view/${id}`)

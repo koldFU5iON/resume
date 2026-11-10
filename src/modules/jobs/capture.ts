@@ -9,6 +9,7 @@
 
 import { prisma } from '@/lib/db'
 import { extractJobFromUrl } from './extract'
+import { queueJobAssessmentSafely } from '@/modules/job-assessment/queue'
 import {
   findPotentialDuplicatesForProfile,
   type DuplicateMatch,
@@ -68,6 +69,10 @@ const PLACEHOLDER_COMPANY = '(unknown)'
 export async function captureJobFromUrl(
   profileId: string,
   input: CaptureInput,
+  opts: {
+    /** Date.now() at the start of the request; the assessment drain deadline counts from it. */
+    requestStartedAt?: number
+  } = {},
 ): Promise<CaptureResult> {
   const prepared = await prepareJobCapture(profileId, input.url)
   if (!prepared.ok) return prepared
@@ -99,6 +104,13 @@ export async function captureJobFromUrl(
       // status + progress default to "not started"; intake doesn't auto-apply.
     },
     select: { id: true, title: true, company: true },
+  })
+
+  // Runs after the response via after(); works from the bearer-token capture
+  // route and inside the batch-capture stream (both are request scopes).
+  await queueJobAssessmentSafely(profileId, created.id, {
+    reason: 'capture',
+    requestStartedAt: opts.requestStartedAt,
   })
 
   return {

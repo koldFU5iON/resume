@@ -47,6 +47,10 @@ describe("POST /api/jobs/capture", () => {
     } as never)
     const res = await POST(req())
     expect(res.status).toBe(201)
-    expect(mockCapture).toHaveBeenCalledWith("p", expect.objectContaining({ url: "https://example.com/job" }))
+    expect(mockCapture).toHaveBeenCalledWith(
+      "p",
+      expect.objectContaining({ url: "https://example.com/job" }),
+      { requestStartedAt: expect.any(Number) },
+    )
   })
 })

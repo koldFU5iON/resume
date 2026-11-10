@@ -1,9 +1,18 @@
 // Server-only client for TypeSafe's Jev (System One) model.
 //
 // Jev is the one exception to bring-your-own-key: the app pays for every call
-// with TYPESAFE_API_KEY. Each successful call is written to LlmUsageLog with
-// provider 'typesafe' so usage stays attributable per user, and a per-profile
+// with TYPESAFE_API_KEY. Every call is written to LlmUsageLog with provider
+// 'typesafe' so usage stays attributable per user, and a hard per-profile
 // daily cap (JEV_DAILY_CALL_LIMIT) guards against runaway loops.
+//
+// The cap is enforced atomically: before sending, a transaction holding a
+// per-profile advisory lock counts today's rows and inserts a reservation row
+// (zero tokens). Concurrent calls queue on the lock, so they can't all pass a
+// count taken before any of them wrote. After the call the reservation is
+// updated with the real model, tokens and latency; a failed call keeps its
+// row (zero tokens) with the feature marked `<feature>:failed`, so failures
+// count towards the cap too and a failure loop stays bounded. A process that
+// dies mid-call leaves the reservation as-is (counted, zero tokens).
 //
 // Failed calls always surface as JevError, never as an answer — callers must
 // not read a failure as a "no". Question wording does not live here; see
@@ -20,15 +29,18 @@ import {
   TypeSafeError,
   type EntryType,
   type Questions,
+  type RequestOptions,
   type SystemOneResult,
 } from '@typesafe-ai/sdk'
 import { prisma } from '@/lib/db'
-import { writeUsageLog } from '@/modules/llm/client'
 
 /** Pinned model. Upgrading changes answers, so it needs a new PIPELINE_VERSION. */
 export const JEV_MODEL = 'jev-1.14.0'
 
 export const JEV_PROVIDER = 'typesafe'
+
+/** Appended to `feature` on the usage row of a failed call (see file header). */
+export const JEV_FAILED_FEATURE_SUFFIX = ':failed'
 
 const DEFAULT_DAILY_CALL_LIMIT = 300
 
@@ -148,6 +160,67 @@ export function normalizeJevError(err: unknown): JevError {
   return new JevError('unavailable', 'Jev call failed unexpectedly.', undefined, undefined, cause)
 }
 
+/** SDK per-call options from askJev's bounds; undefined when none are set. */
+function requestOptions(opts: { timeoutMs?: number; maxRetries?: number; maxRetryAfterMs?: number }): RequestOptions | undefined {
+  const retry: { maxRetries?: number; maxRetryAfterMs?: number } = {}
+  if (opts.maxRetries !== undefined) retry.maxRetries = opts.maxRetries
+  if (opts.maxRetryAfterMs !== undefined) retry.maxRetryAfterMs = opts.maxRetryAfterMs
+  const options: RequestOptions = {}
+  if (opts.timeoutMs !== undefined) options.timeout = opts.timeoutMs
+  if (Object.keys(retry).length > 0) options.retry = retry
+  return Object.keys(options).length > 0 ? options : undefined
+}
+
+/** Advisory-lock key for the per-profile Jev quota (see reserveCall). */
+export function jevQuotaLockKey(profileId: string): string {
+  return `jev-quota:${profileId}`
+}
+
+/**
+ * Atomically checks the daily cap and inserts a zero-token reservation row.
+ * Throws JevError 'daily_cap' at the cap, and 'unavailable' when the
+ * reservation itself can't be made (then Jev is not called).
+ */
+async function reserveCall(profileId: string, feature: string): Promise<string> {
+  try {
+    return await prisma.$transaction(async (tx) => {
+      // Serialises reservations per profile until the transaction ends.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${jevQuotaLockKey(profileId)}))`
+      const usedToday = await tx.llmUsageLog.count({
+        where: { profileId, provider: JEV_PROVIDER, createdAt: { gte: startOfToday() } },
+      })
+      if (usedToday >= dailyCallLimit()) {
+        throw new JevError('daily_cap', 'Daily Jev call limit reached for this profile.')
+      }
+      const row = await tx.llmUsageLog.create({
+        data: {
+          profileId,
+          provider: JEV_PROVIDER,
+          model: JEV_MODEL,
+          feature,
+          promptTokens: 0,
+          completionTokens: 0,
+          totalTokens: 0,
+          latencyMs: 0,
+        },
+        select: { id: true },
+      })
+      return row.id
+    })
+  } catch (err) {
+    if (err instanceof JevError) throw err
+    throw new JevError('unavailable', 'Could not reserve a Jev call (usage log unavailable).', undefined, undefined, { cause: err })
+  }
+}
+
+/** Updates the reservation after the call. Never throws: the answer (or the call's error) matters more. */
+async function settleReservation(
+  id: string,
+  data: { model?: string; feature?: string; promptTokens?: number; completionTokens?: number; totalTokens?: number; latencyMs: number },
+): Promise<void> {
+  await prisma.llmUsageLog.update({ where: { id }, data }).catch(() => {})
+}
+
 /**
  * Ask Jev one request of typed questions over `state` with the pinned model.
  * Throws JevError on every failure; writes one LlmUsageLog row per success.
@@ -158,37 +231,47 @@ export async function askJev<const Q extends Questions>(
   opts: {
     /** Product feature for usage reporting, e.g. 'job-assessment-judge'. Required. */
     feature: string
+    /**
+     * Per-attempt timeout in ms (SDK default 10s). The SDK has no total budget,
+     * so background callers bound the whole call with this plus `maxRetries`.
+     */
+    timeoutMs?: number
+    /** Retries after the first attempt (SDK default 2). */
+    maxRetries?: number
+    /**
+     * Longest server `Retry-After` to honour, in ms (SDK default 60s); longer
+     * delays fall back to the SDK's short backoff.
+     */
+    maxRetryAfterMs?: number
   },
 ): Promise<JevResult<Q>> {
   if (!isJevConfigured()) {
     throw new JevError('not_configured', 'TYPESAFE_API_KEY is not set.')
   }
 
-  // Soft cap: calls still in flight and failed calls aren't counted, so
-  // concurrent runs for one profile can overshoot by their concurrency. The
-  // pipeline (Phase 3) limits concurrent runs per profile to keep this tight.
-  const usedToday = await prisma.llmUsageLog.count({
-    where: { profileId, provider: JEV_PROVIDER, createdAt: { gte: startOfToday() } },
-  })
-  if (usedToday >= dailyCallLimit()) {
-    throw new JevError('daily_cap', 'Daily Jev call limit reached for this profile.')
-  }
+  // Hard cap: reserve a usage row atomically before sending.
+  const reservationId = await reserveCall(profileId, opts.feature)
 
   const body = { model: JEV_MODEL, state: request.state, questions: request.questions }
-
-  let jev: TypeSafeClient
-  try {
-    jev = getClient()
-  } catch (err) {
-    // Constructor rejected the config (e.g. a malformed TYPESAFE_BASE_URL).
-    throw new JevError('not_configured', 'TypeSafe client could not be created; check TYPESAFE_* env vars.', undefined, undefined, { cause: err })
-  }
 
   const startedAt = Date.now()
   let result: SystemOneResult<Q>
   try {
-    result = await jev.systemOne(body)
+    let jev: TypeSafeClient
+    try {
+      jev = getClient()
+    } catch (err) {
+      // Constructor rejected the config (e.g. a malformed TYPESAFE_BASE_URL).
+      throw new JevError('not_configured', 'TypeSafe client could not be created; check TYPESAFE_* env vars.', undefined, undefined, { cause: err })
+    }
+    const options = requestOptions(opts)
+    result = await (options ? jev.systemOne(body, options) : jev.systemOne(body))
   } catch (err) {
+    // Keep the reservation (it counts towards the cap), marked as failed.
+    await settleReservation(reservationId, {
+      feature: `${opts.feature}${JEV_FAILED_FEATURE_SUFFIX}`,
+      latencyMs: Date.now() - startedAt,
+    })
     throw normalizeJevError(err)
   }
   const latencyMs = Date.now() - startedAt
@@ -196,14 +279,8 @@ export async function askJev<const Q extends Questions>(
   const inputTokens = result.usage.input_tokens ?? 0
   const outputTokens = result.usage.output_tokens ?? 0
 
-  // Awaited (not deferred with after()) so the daily-cap count above sees
-  // calls made earlier in the same background run, and so this also works in
-  // scripts outside a request scope. writeUsageLog never throws.
-  await writeUsageLog({
-    profileId,
-    provider: JEV_PROVIDER,
+  await settleReservation(reservationId, {
     model: result.model,
-    feature: opts.feature,
     promptTokens: inputTokens,
     completionTokens: outputTokens,
     totalTokens: inputTokens + outputTokens,

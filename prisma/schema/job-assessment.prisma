@@ -15,7 +15,7 @@ model JobAssessment {
   pipelineVersion  String
   /// queued | checking | fetching | assessing | complete | failed
   status           String
-  /// verification | no_llm_key | not_configured | daily_cap | rate_limited | overloaded | error
+  /// verification | no_llm_key | not_configured | daily_cap | rate_limited | overloaded | superseded | error
   failureKind      String?
   failureReasons   String[] @default([])
   enrichedFields   String[] @default([])

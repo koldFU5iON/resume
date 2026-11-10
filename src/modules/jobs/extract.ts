@@ -12,6 +12,17 @@ import {
 } from './extract-ats'
 import { isSafeUrl, fetchPageContent } from './extract-fetch'
 import { extractWithLLM } from './extract-llm'
+import { requireProfile } from '@/lib/session'
+
+/** The signed-in profile, or null (e.g. a bearer-token route with no session). */
+async function sessionProfileId(): Promise<string | null> {
+  try {
+    const { profile } = await requireProfile()
+    return profile.id
+  } catch {
+    return null
+  }
+}
 
 export async function extractJobFromUrl(url: string): Promise<ExtractionResult> {
   if (!(await isSafeUrl(url))) {
@@ -119,7 +130,7 @@ export async function extractJobFromUrl(url: string): Promise<ExtractionResult> 
   }
 
   // ── Tier 3: LLM extraction ────────────────────────────────────────────────
-  const llmResult = await extractWithLLM(html)
+  const llmResult = await extractWithLLM(html, await sessionProfileId())
   if (llmResult.ok) {
     accumulated = mergeExtractedJob(accumulated, llmResult.data)
   }

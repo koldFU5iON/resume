@@ -16,11 +16,12 @@ vi.mock('@typesafe-ai/sdk', async () => {
   return { ...actual, TypeSafeClient: MockClient }
 })
 
-vi.mock('@/lib/db', () => ({
-  prisma: {
-    llmUsageLog: { count: vi.fn(), create: vi.fn() },
-  },
-}))
+vi.mock('@/lib/db', () => {
+  const llmUsageLog = { count: vi.fn(), create: vi.fn(), update: vi.fn() }
+  // A fake interactive transaction: the callback gets a tx with the same delegates.
+  const tx = { $executeRaw: vi.fn(), llmUsageLog }
+  return { prisma: { llmUsageLog, $executeRaw: tx.$executeRaw, $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)) } }
+})
 
 vi.mock('next/server', () => ({ after: vi.fn(cb => cb()) }))
 
@@ -36,6 +37,9 @@ import { askJev, isJevConfigured, JevError, JEV_MODEL, normalizeJevError } from 
 
 const mockCount = vi.mocked(prisma.llmUsageLog.count)
 const mockCreate = vi.mocked(prisma.llmUsageLog.create)
+const mockUpdate = vi.mocked(prisma.llmUsageLog.update)
+const mockLock = vi.mocked(prisma.$executeRaw)
+const mockTransaction = vi.mocked(prisma.$transaction)
 
 const questions = { is_full_description: noul('`description` is a complete job posting.') }
 const state = { description: 'We are hiring a product manager…' }
@@ -70,7 +74,9 @@ describe('askJev', () => {
     vi.clearAllMocks()
     vi.stubEnv('TYPESAFE_API_KEY', 'ts-test')
     mockCount.mockResolvedValue(0 as never)
-    mockCreate.mockResolvedValue({} as never)
+    mockCreate.mockResolvedValue({ id: 'res-1' } as never)
+    mockUpdate.mockResolvedValue({} as never)
+    mockLock.mockResolvedValue(1 as never)
     mockSystemOne.mockResolvedValue(okResult)
   })
   afterEach(() => vi.unstubAllEnvs())
@@ -92,6 +98,25 @@ describe('askJev', () => {
     expect(mockCount).toHaveBeenCalledWith({
       where: { profileId: 'p1', provider: 'typesafe', createdAt: { gte: expect.any(Date) } },
     })
+    expect(mockCreate).not.toHaveBeenCalled() // no reservation at the cap
+  })
+
+  it('reserves under a per-profile advisory lock taken before the count', async () => {
+    await askJev('p1', { state, questions }, { feature: 'test' })
+    expect(mockTransaction).toHaveBeenCalledTimes(1)
+    const [sql, ...values] = mockLock.mock.calls[0] as unknown as [TemplateStringsArray, ...unknown[]]
+    expect(sql.join('?')).toBe('SELECT pg_advisory_xact_lock(hashtext(?))')
+    expect(values).toEqual(['jev-quota:p1'])
+    expect(mockLock.mock.invocationCallOrder[0]).toBeLessThan(mockCount.mock.invocationCallOrder[0])
+    expect(mockCount.mock.invocationCallOrder[0]).toBeLessThan(mockCreate.mock.invocationCallOrder[0])
+    expect(mockCreate.mock.invocationCallOrder[0]).toBeLessThan(mockSystemOne.mock.invocationCallOrder[0])
+  })
+
+  it('maps a failed reservation to unavailable without calling the API', async () => {
+    mockTransaction.mockRejectedValueOnce(new Error('pool exhausted'))
+    await expect(askJev('p1', { state, questions }, { feature: 'test' }))
+      .rejects.toMatchObject({ name: 'JevError', kind: 'unavailable' })
+    expect(mockSystemOne).not.toHaveBeenCalled()
   })
 
   it('counts calls from local midnight today', async () => {
@@ -140,7 +165,27 @@ describe('askJev', () => {
     expect(res.request).toEqual({ model: JEV_MODEL, state, questions })
   })
 
-  it('writes one usage row with provider typesafe and no request content', async () => {
+  it('sends no per-call options by default', async () => {
+    await askJev('p1', { state, questions }, { feature: 'test' })
+    expect(mockSystemOne.mock.calls[0]).toHaveLength(1)
+  })
+
+  it('forwards timeout and retry bounds to the SDK per call', async () => {
+    await askJev('p1', { state, questions }, {
+      feature: 'test', timeoutMs: 20_000, maxRetries: 1, maxRetryAfterMs: 5_000,
+    })
+    expect(mockSystemOne).toHaveBeenCalledWith(
+      { model: JEV_MODEL, state, questions },
+      { timeout: 20_000, retry: { maxRetries: 1, maxRetryAfterMs: 5_000 } },
+    )
+  })
+
+  it('forwards a timeout alone without a retry override', async () => {
+    await askJev('p1', { state, questions }, { feature: 'test', timeoutMs: 5_000 })
+    expect(mockSystemOne.mock.calls[0][1]).toEqual({ timeout: 5_000 })
+  })
+
+  it('reserves one zero-token typesafe row, then updates it with the real usage', async () => {
     await askJev('p1', { state, questions }, { feature: 'job-assessment-judge' })
 
     expect(mockCreate).toHaveBeenCalledTimes(1)
@@ -148,12 +193,16 @@ describe('askJev', () => {
     expect(data).toEqual({
       profileId: 'p1',
       provider: 'typesafe',
-      model: 'jev-1.14.0',
+      model: JEV_MODEL,
       feature: 'job-assessment-judge',
-      promptTokens: 120,
-      completionTokens: 3,
-      totalTokens: 123,
-      latencyMs: expect.any(Number),
+      promptTokens: 0,
+      completionTokens: 0,
+      totalTokens: 0,
+      latencyMs: 0,
+    })
+    expect(mockUpdate).toHaveBeenCalledWith({
+      where: { id: 'res-1' },
+      data: { model: 'jev-1.14.0', promptTokens: 120, completionTokens: 3, totalTokens: 123, latencyMs: expect.any(Number) },
     })
   })
 
@@ -163,16 +212,26 @@ describe('askJev', () => {
     expect(res.usage).toEqual({ inputTokens: 0, outputTokens: 0 })
   })
 
-  it('still returns the answer when the usage write fails', async () => {
-    mockCreate.mockRejectedValueOnce(new Error('DB down'))
+  it('still returns the answer when updating the reservation fails', async () => {
+    mockUpdate.mockRejectedValueOnce(new Error('DB down'))
     await expect(askJev('p1', { state, questions }, { feature: 'test' })).resolves.toBeDefined()
   })
 
-  it('throws JevError and writes no usage row when the call fails', async () => {
+  it('throws JevError and keeps the reservation, marked failed with zero tokens, when the call fails', async () => {
     mockSystemOne.mockRejectedValueOnce(apiError(529))
     await expect(askJev('p1', { state, questions }, { feature: 'test' }))
       .rejects.toBeInstanceOf(JevError)
-    expect(mockCreate).not.toHaveBeenCalled()
+    expect(mockCreate).toHaveBeenCalledTimes(1)
+    expect(mockUpdate).toHaveBeenCalledWith({
+      where: { id: 'res-1' },
+      data: { feature: 'test:failed', latencyMs: expect.any(Number) },
+    })
+  })
+
+  it('still throws the call error when marking the reservation failed also fails', async () => {
+    mockSystemOne.mockRejectedValueOnce(apiError(429))
+    mockUpdate.mockRejectedValueOnce(new Error('DB down'))
+    await expect(askJev('p1', { state, questions }, { feature: 'test' })).rejects.toMatchObject({ kind: 'rate_limited' })
   })
 
   it.each([
@@ -199,7 +258,7 @@ describe('askJev', () => {
     expect(rejection).toBeInstanceOf(JevError)
     expect(rejection.kind).toBe(kind)
     expect(rejection.cause).toBe(err)
-    expect(mockCreate).not.toHaveBeenCalled()
+    expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ feature: 'test:failed' }) }))
   })
 
   it('keeps status and request id on API errors', () => {

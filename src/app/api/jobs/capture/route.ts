@@ -21,10 +21,15 @@ const RequestSchema = z.object({
   dedupeStrategy: z.enum(['return_existing', 'create_anyway']).optional(),
 })
 
+// after() work (the early job assessment drain) runs within this limit; keep
+// in sync with ROUTE_MAX_DURATION_S in src/modules/job-assessment/queue.ts.
+export const maxDuration = 300
+
 const BASE_URL =
   process.env.BETTER_AUTH_URL?.replace(/\/$/, '') ?? 'https://resume.devonstanton.com'
 
 export async function POST(request: Request) {
+  const requestStartedAt = Date.now()
   const auth = await verifyBearerHeader(request.headers.get('authorization'))
   if (!auth) {
     return NextResponse.json(
@@ -62,7 +67,7 @@ export async function POST(request: Request) {
     )
   }
 
-  const result = await captureJobFromUrl(auth.profileId, parsed.data)
+  const result = await captureJobFromUrl(auth.profileId, parsed.data, { requestStartedAt })
   if (!result.ok) {
     return NextResponse.json(
       { error: 'capture_failed', message: result.error },

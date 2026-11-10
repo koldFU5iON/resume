@@ -21,6 +21,7 @@ export type LLMErrorKind =
   | 'unavailable'    // 5xx from provider
   | 'safety'         // policy refusal / empty output
   | 'invalid_output' // structured output didn't match schema
+  | 'timeout'        // the caller's timeoutMs elapsed and the call was aborted
   | 'unknown'
 
 export class LLMError extends Error {
@@ -36,7 +37,24 @@ export class LLMError extends Error {
 
 // Map AI SDK / provider errors to our normalized shape. Order matters — the
 // most specific cases come first; AISDKError is a base class for many of them.
-export function normalizeLLMError(err: unknown): LLMError {
+export type NormalizeLLMErrorOptions = {
+  /**
+   * Log only the zod issue paths for invalid output, never the raw model text
+   * (which can echo untrusted input such as a job description). Default false.
+   */
+  redactInvalidOutput?: boolean
+}
+
+/** Zod issue paths only, e.g. ["requirements.3.text"], with no values or messages. */
+function issuePaths(issues: unknown): string[] | undefined {
+  if (!Array.isArray(issues)) return undefined
+  return issues.map((i) => {
+    const path = (i as { path?: unknown })?.path
+    return Array.isArray(path) ? path.map(String).join('.') : '?'
+  })
+}
+
+export function normalizeLLMError(err: unknown, opts: NormalizeLLMErrorOptions = {}): LLMError {
   if (err instanceof LLMError) return err
 
   if (err instanceof LoadAPIKeyError || err instanceof LoadSettingError) {
@@ -76,7 +94,11 @@ export function normalizeLLMError(err: unknown): LLMError {
     const issues = cause && typeof cause === 'object' && 'issues' in cause
       ? (cause as { issues: unknown }).issues
       : cause
-    console.error('[LLM invalid_output]', { rawText: raw, issues })
+    if (opts.redactInvalidOutput) {
+      console.error('[LLM invalid_output]', { issuePaths: issuePaths(issues) })
+    } else {
+      console.error('[LLM invalid_output]', { rawText: raw, issues })
+    }
     return new LLMError('LLM output did not match the expected schema.', 'invalid_output', err)
   }
 

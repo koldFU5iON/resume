@@ -43,9 +43,9 @@ export type UsageLogEntry = {
 }
 
 /**
- * Shared LlmUsageLog writer. Never throws — usage logging must never crash the
- * caller. Also used by the app-billed Jev client (src/modules/jev/client.ts),
- * which awaits it directly so its daily-cap count stays exact.
+ * LlmUsageLog writer for the LLM layer. Never throws — usage logging must
+ * never crash the caller. (The app-billed Jev client writes its own rows: it
+ * reserves one before each call to enforce its daily cap.)
  */
 export async function writeUsageLog(entry: UsageLogEntry): Promise<void> {
   await prisma.llmUsageLog.create({ data: entry }).catch(() => {})
@@ -207,6 +207,13 @@ export type CompleteOptions = {
   maxOutputTokens?: number
   /** 0–1; lower = more deterministic. */
   temperature?: number
+  /**
+   * Abort the call after this many ms (AbortSignal.timeout, SDK retries
+   * included). An elapsed timeout throws LLMError kind 'timeout'.
+   */
+  timeoutMs?: number
+  /** Log only zod issue paths (not raw model output) on invalid structured output. */
+  redactInvalidOutput?: boolean
   /** Product feature that triggered this call. Required — every LLM call must be attributed.
    *  Use a short kebab-case string matching an entry in FEATURE_LABELS in usage-log.tsx.
    *  Example: 'job-fit', 'cv-import', 'profile-summary'. */
@@ -234,6 +241,7 @@ export async function complete(
   const modelId = opts.model ?? cfg.model
   const model = PROVIDERS[cfg.provider](cfg.apiKey, modelId)
 
+  const signal = timeoutSignal(opts)
   const startedAt = Date.now()
   try {
     const result = await generateText({
@@ -242,6 +250,7 @@ export async function complete(
       system: opts.system,
       maxOutputTokens: opts.maxOutputTokens,
       ...samplingOptions(cfg.provider, modelId, opts.temperature),
+      ...(signal ? { abortSignal: signal } : {}),
     })
     const latencyMs = Date.now() - startedAt
     logUsage(profileId, cfg.provider, modelId, opts.feature, result.usage, latencyMs)
@@ -254,7 +263,7 @@ export async function complete(
       latencyMs,
     }
   } catch (err) {
-    throw normalizeLLMError(err)
+    throw callError(err, signal, opts)
   }
 }
 
@@ -277,6 +286,19 @@ const ZERO_USAGE: LanguageModelUsage = {
   },
 }
 
+/** The caller's timeout as an AbortSignal, or undefined. */
+function timeoutSignal(opts: CompleteOptions): AbortSignal | undefined {
+  return opts.timeoutMs !== undefined ? AbortSignal.timeout(opts.timeoutMs) : undefined
+}
+
+/** Normalises a failed call; an elapsed timeoutMs becomes kind 'timeout' whatever the SDK threw. */
+function callError(err: unknown, signal: AbortSignal | undefined, opts: CompleteOptions): LLMError {
+  if (signal?.aborted) {
+    return new LLMError(`LLM call timed out after ${Math.round((opts.timeoutMs ?? 0) / 1000)}s.`, 'timeout', err)
+  }
+  return normalizeLLMError(err, { redactInvalidOutput: opts.redactInvalidOutput })
+}
+
 export async function completeStructured<T>(
   profileId: string,
   prompt: string,
@@ -287,6 +309,7 @@ export async function completeStructured<T>(
   const modelId = opts.model ?? cfg.model
   const model = PROVIDERS[cfg.provider](cfg.apiKey, modelId)
 
+  const signal = timeoutSignal(opts)
   const startedAt = Date.now()
   try {
     const result = await generateText({
@@ -296,6 +319,7 @@ export async function completeStructured<T>(
       maxOutputTokens: opts.maxOutputTokens,
       ...samplingOptions(cfg.provider, modelId, opts.temperature),
       output: Output.object({ schema }),
+      ...(signal ? { abortSignal: signal } : {}),
     })
     const latencyMs = Date.now() - startedAt
     logUsage(profileId, cfg.provider, modelId, opts.feature, result.usage, latencyMs)
@@ -326,7 +350,7 @@ export async function completeStructured<T>(
         }
       }
     }
-    throw normalizeLLMError(err)
+    throw callError(err, signal, opts)
   }
 }
 

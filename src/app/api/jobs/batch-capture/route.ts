@@ -2,6 +2,10 @@ import { type NextRequest, NextResponse } from 'next/server'
 import { requireProfile } from '@/lib/session'
 import { captureJobFromUrl } from '@/modules/jobs/capture'
 
+// after() work (the early job assessment drain) runs within this limit; keep
+// in sync with ROUTE_MAX_DURATION_S in src/modules/job-assessment/queue.ts.
+export const maxDuration = 300
+
 const CONCURRENCY = 3
 
 function makeSemaphore(limit: number) {
@@ -23,6 +27,7 @@ function makeSemaphore(limit: number) {
 }
 
 export async function POST(req: NextRequest) {
+  const requestStartedAt = Date.now()
   let profileId: string
   try {
     const { profile } = await requireProfile()
@@ -56,7 +61,7 @@ export async function POST(req: NextRequest) {
           throttle(async () => {
             emit({ index, url, status: 'processing' })
             try {
-              const result = await captureJobFromUrl(profileId, { url, dedupeStrategy: 'return_existing' })
+              const result = await captureJobFromUrl(profileId, { url, dedupeStrategy: 'return_existing' }, { requestStartedAt })
               if (result.ok) {
                 if (result.created) added++; else existing++
                 emit({ index, url, status: 'success', job: result.job, created: result.created })

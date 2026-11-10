@@ -9,6 +9,7 @@ import { buildProfileSnapshot, serializeProfileForLLM } from '@/modules/profile/
 import { normalizeOnboardingContext } from '@/modules/onboarding/schema'
 import { loadWritingRules, composeSystem } from '@/modules/llm/prompt-context'
 import { JobFitSchema } from '@/modules/jobs/schema'
+import { queueJobAssessmentSafely } from '@/modules/job-assessment/queue'
 import { discoverAts } from './ats-discovery'
 import { scanBoardSource } from './board-sources/actions'
 import { getAdapter } from './adapters/index'
@@ -470,6 +471,8 @@ export async function importJob(jobId: string): Promise<ImportResult> {
     where: { id: jobId, profileId: profile.id },
     data: { status: 'imported', importedJobId: newJob.id },
   })
+
+  await queueJobAssessmentSafely(profile.id, newJob.id, { reason: 'job-hunt-import' })
 
   revalidatePath('/dashboard/job-applications')
   revalidatePath('/dashboard/job-hunt')

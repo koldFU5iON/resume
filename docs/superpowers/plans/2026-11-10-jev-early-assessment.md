@@ -251,7 +251,7 @@ eligibility: z.object({
   - **Top users:** runs per day, as average and p95.
   - **Process time:** p50 and p95 of `processTimeMs` for this month, split into complete and failed runs, plus the average of each stage from `stageTimings`. That shows whether time goes to the fetch, the cheap model or Jev.
   - These numbers decide where real limits go.
-- **Safety cap:** `JEV_DAILY_CALL_LIMIT` (default 300) is checked by counting today's `typesafe` rows for the profile. Going over gives `failed / rate_limited`.
+- **Safety cap:** `JEV_DAILY_CALL_LIMIT` (default 300) is a hard cap. Before each call, a transaction holding a per-profile advisory lock counts today's `typesafe` rows and inserts a zero-token reservation row; the row is updated with the real usage afterwards, or kept with `feature` suffixed `:failed` when the call fails (failures count too). Going over gives `failed / daily_cap`.
 - **Kill switch:** if `TYPESAFE_API_KEY` is unset, the pipeline doesn't queue at all, and the UI shows nothing new.
 
 ---
@@ -378,7 +378,7 @@ eligibility: z.object({
 - [ ] `run.ts`: claim the row → verify → (enrich → verify) → facts → judge → combine → persist. Status written at each step; every failure path ends in `failed` with a kind.
 - [ ] Timing in `run.ts`: a `timed(stage, fn)` helper fills `stageTimings`. `queueTimeMs` and `processTimeMs` are written on every final update, failed runs included. Test it: a failed run still has `processTimeMs`, and skipped stages are left out.
 - [ ] `queue.ts` + flag, and wire it into every trigger call site. Batch capture runs one job at a time.
-- [ ] Limit each profile to a few concurrent runs at a time (e.g. 3). `askJev`'s daily cap is soft: calls still in flight aren't counted (PR #330 review).
+- [x] Limit each profile to 2 concurrent runs at a time, enforced atomically (count + claim in one transaction under a per-profile advisory lock, 5-minute lease). `askJev`'s daily cap is now hard too: the usage row is reserved atomically before the call (PR #330 review; PR #332 security review).
 - [ ] Bound Jev calls inside `after()`: pass a per-call SDK `timeout`/`retry` so a long `Retry-After` can't hold a run for minutes (PR #330 review).
 
 ### Phase 4 — UI
@@ -392,6 +392,8 @@ eligibility: z.object({
 - [ ] Admin usage: app-billed Jev card (cost, top users, runs per day, p50/p95 process time, average per stage). `FEATURE_LABELS`.
 - [ ] User usage page: separate app-billed Jev rows (`provider = 'typesafe'`) from own-key usage. The page says "each call uses your own API key", which isn't true for Jev. Must ship with Phase 3 (PR #330 review).
 - [ ] `scripts/assessment-compare.ts` + `npm run assess:compare`.
+- [ ] Queue continuation: rows still queued when a drain hits its deadline only run on the next trigger for that profile. Add a self-continuation endpoint (secret-authenticated POST that drains) or a cron that drains profiles with queued rows, so a large batch finishes without user action (PR #332 review).
+- [ ] Admin card: skip `stageTimings.requeues` when averaging stage times.
 - [ ] Run it over your active jobs. Hand-check the disagreements, adjust `ASSESSMENT_CONFIG`, and bump `PIPELINE_VERSION` on each change.
 - [ ] `docs/job-assessment.md`.
 

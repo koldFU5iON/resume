@@ -14,7 +14,7 @@ export default async function Page() {
   return (
     <ContentContainer
       title="AI Usage"
-      description="Token consumption across all AI features. Each call uses your own API key."
+      description="Token consumption on your own API key. Included early job assessments are run by the app and not billed to your key."
     >
       <UsageLog stats={stats} />
       {admin && <UsageAdmin stats={admin} />}

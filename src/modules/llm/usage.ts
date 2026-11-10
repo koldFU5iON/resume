@@ -1,5 +1,11 @@
 import { prisma } from '@/lib/db'
+import { JEV_FAILED_FEATURE_SUFFIX, JEV_PROVIDER } from '@/modules/jev/client'
 
+/**
+ * The user's own-key usage (BYOK) plus a count of app-billed calls. Jev
+ * (provider 'typesafe') is paid by the app, so it is left out of every
+ * token total, chart and log row here and only counted in `appBilled`.
+ */
 export type UserUsageSummary = {
   today: number
   thisMonth: number
@@ -18,6 +24,11 @@ export type UserUsageSummary = {
     latencyMs: number
     createdAt: Date
   }[]
+  /** Successful app-billed calls (early job assessment via Jev); not charged to the user's key. */
+  appBilled: {
+    thisMonthCalls: number
+    allTimeCalls: number
+  }
 }
 
 export type AdminUsageSummary = {
@@ -38,17 +49,24 @@ function startOfMonth(): Date {
 }
 
 export async function getUserUsageSummary(profileId: string): Promise<UserUsageSummary> {
-  const [today, thisMonth, allTime, byMonthRaw, byFeatureRaw, recentLogs] = await Promise.all([
+  // Own-key rows only: app-billed providers are counted separately below.
+  const ownKey = { profileId, provider: { not: JEV_PROVIDER } }
+  // Successful app-billed calls only: failed Jev calls keep a zero-token row
+  // (feature '<feature>:failed') that counts towards the daily cap but isn't
+  // an assessment the user received.
+  const appBilled = { profileId, provider: JEV_PROVIDER, NOT: { feature: { endsWith: JEV_FAILED_FEATURE_SUFFIX } } }
+
+  const [today, thisMonth, allTime, byMonthRaw, byFeatureRaw, recentLogs, appBilledMonth, appBilledAll] = await Promise.all([
     prisma.llmUsageLog.aggregate({
-      where: { profileId, createdAt: { gte: startOfToday() } },
+      where: { ...ownKey, createdAt: { gte: startOfToday() } },
       _sum: { totalTokens: true },
     }),
     prisma.llmUsageLog.aggregate({
-      where: { profileId, createdAt: { gte: startOfMonth() } },
+      where: { ...ownKey, createdAt: { gte: startOfMonth() } },
       _sum: { totalTokens: true },
     }),
     prisma.llmUsageLog.aggregate({
-      where: { profileId },
+      where: ownKey,
       _sum: { totalTokens: true },
       _count: { id: true },
     }),
@@ -58,20 +76,21 @@ export async function getUserUsageSummary(profileId: string): Promise<UserUsageS
         SUM("totalTokens") AS tokens
       FROM "LlmUsageLog"
       WHERE "profileId" = ${profileId}
+        AND "provider" <> ${JEV_PROVIDER}
         AND "createdAt" >= DATE_TRUNC('month', NOW()) - INTERVAL '5 months'
       GROUP BY DATE_TRUNC('month', "createdAt")
       ORDER BY month ASC
     `,
     prisma.llmUsageLog.groupBy({
       by: ['feature'],
-      where: { profileId },
+      where: ownKey,
       _sum: { totalTokens: true },
       _count: { id: true },
       orderBy: { _sum: { totalTokens: 'desc' } },
       take: 10,
     }),
     prisma.llmUsageLog.findMany({
-      where: { profileId },
+      where: ownKey,
       orderBy: { createdAt: 'desc' },
       take: 100,
       select: {
@@ -80,6 +99,8 @@ export async function getUserUsageSummary(profileId: string): Promise<UserUsageS
         latencyMs: true, createdAt: true,
       },
     }),
+    prisma.llmUsageLog.count({ where: { ...appBilled, createdAt: { gte: startOfMonth() } } }),
+    prisma.llmUsageLog.count({ where: appBilled }),
   ])
 
   return {
@@ -94,6 +115,7 @@ export async function getUserUsageSummary(profileId: string): Promise<UserUsageS
       calls: r._count.id,
     })),
     recentLogs,
+    appBilled: { thisMonthCalls: appBilledMonth, allTimeCalls: appBilledAll },
   }
 }
 
