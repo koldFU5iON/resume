@@ -27,6 +27,7 @@ vi.mock('@/lib/db', () => ({
   },
 }))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
+vi.mock('@/modules/job-assessment/queue', () => ({ queueJobAssessmentSafely: vi.fn() }))
 vi.mock('./ats-discovery', () => ({ discoverAts: vi.fn() }))
 vi.mock('./adapters/index', () => ({ getAdapter: vi.fn() }))
 vi.mock('@/modules/llm/client', () => ({
@@ -54,6 +55,7 @@ vi.mock('@/modules/onboarding/schema', () => ({
 
 import { addCompany, scanCompany, importJob, ignoreJob, addCompanyFromHint, getAtsHintFromUrl, removeWatch } from './actions'
 import { prisma } from '@/lib/db'
+import { queueJobAssessmentSafely } from '@/modules/job-assessment/queue'
 import { discoverAts } from './ats-discovery'
 import { getAdapter } from './adapters/index'
 
@@ -215,6 +217,13 @@ describe('importJob', () => {
         data: expect.objectContaining({ status: 'imported', importedJobId: 'ja-1' }),
       }),
     )
+    expect(queueJobAssessmentSafely).toHaveBeenCalledWith('profile-1', 'ja-1', { reason: 'job-hunt-import' })
+  })
+
+  it('queues nothing when the discovered job is missing', async () => {
+    mockDiscoveredFindFirst.mockResolvedValueOnce(null)
+    expect(await importJob('dj-x')).toEqual({ ok: false, error: 'Job not found' })
+    expect(queueJobAssessmentSafely).not.toHaveBeenCalled()
   })
 })
 

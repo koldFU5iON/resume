@@ -142,7 +142,35 @@ export const ASSESSMENT_CONFIG = {
 
 export type AssessmentStatus = 'queued' | 'checking' | 'fetching' | 'assessing' | 'complete' | 'failed'
 
-export type FailureKind = 'verification' | 'no_llm_key' | 'rate_limited' | 'error'
+/** A run in progress for longer than this is treated as dead (its after() was killed). */
+export const IN_PROGRESS_STALE_MS = 5 * 60_000
+
+/** A queued row older than this is treated as dead (its drain never ran). */
+export const QUEUED_STALE_MS = 15 * 60_000
+
+/** In-progress statuses: a run in one of these is being worked on. */
+export const IN_PROGRESS_STATUSES = ['checking', 'fetching', 'assessing'] as const satisfies readonly AssessmentStatus[]
+
+/**
+ * Why a run failed (stored in JobAssessment.failureKind).
+ * - verification   the job details are too thin to assess, even after fetching
+ * - no_llm_key     the user has no LLM key for the cheap-model steps
+ * - not_configured TYPESAFE_API_KEY unset when the run started
+ * - daily_cap      the profile hit JEV_DAILY_CALL_LIMIT
+ * - rate_limited   TypeSafe returned 429 after retries
+ * - overloaded     TypeSafe returned 529 after retries
+ * - superseded     a newer run for the same job was queued before this one started
+ * - error          anything else (also: a stale run, in the read view model)
+ */
+export type FailureKind =
+  | 'verification'
+  | 'no_llm_key'
+  | 'not_configured'
+  | 'daily_cap'
+  | 'rate_limited'
+  | 'overloaded'
+  | 'superseded'
+  | 'error'
 
 // ── Result (combine.ts output) ──────────────────────────────────────────────
 

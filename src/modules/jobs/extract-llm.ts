@@ -1,7 +1,6 @@
 import * as z from 'zod'
 import { Readability } from '@mozilla/readability'
 import { parseHTML } from 'linkedom'
-import { requireProfile } from '@/lib/session'
 import { completeStructured } from '@/modules/llm/client'
 import { LLMError } from '@/modules/llm/errors'
 import type { ExtractedJob, ExtractionResult } from './extract-utils'
@@ -45,26 +44,38 @@ export function extractReadableContent(html: string): string {
   return stripHtmlToText(html)
 }
 
-export async function extractWithLLM(html: string): Promise<ExtractionResult> {
-  let profileId: string
-  try {
-    const { profile } = await requireProfile()
-    profileId = profile.id
-  } catch {
-    return {
-      ok: false,
-      error: 'No job details found. Add an LLM key in Settings to enable AI extraction, or paste manually.',
-    }
-  }
+const NO_KEY_ERROR = 'No job details found. Add an LLM key in Settings to enable AI extraction, or paste manually.'
+
+export type ExtractWithLLMOptions = {
+  /** Usage feature tag. Default 'job-extract' (the capture/extract flows). */
+  feature?: string
+  /** Model override, e.g. resolveFastModel(profileId). Default: the user's model. */
+  model?: string
+  /** Default 400 (the capture/extract flows). */
+  maxOutputTokens?: number
+}
+
+/**
+ * LLM fallback for job-page extraction. Takes `profileId` explicitly (no
+ * session lookup) so it also works inside after() and bearer-token routes;
+ * null means "no signed-in profile" and returns the add-a-key message.
+ */
+export async function extractWithLLM(
+  html: string,
+  profileId: string | null,
+  opts: ExtractWithLLMOptions = {},
+): Promise<ExtractionResult> {
+  if (!profileId) return { ok: false, error: NO_KEY_ERROR }
 
   const text = extractReadableContent(html)
   const prompt = `Extract the job posting details from the following webpage text. Return only what is explicitly present — do not infer or invent values.\n\n${text}`
 
   try {
     const result = await completeStructured(profileId, prompt, ExtractedJobLLMSchema, {
-      maxOutputTokens: 400,
+      maxOutputTokens: opts.maxOutputTokens ?? 400,
       temperature: 0,
-      feature: 'job-extract',
+      feature: opts.feature ?? 'job-extract',
+      ...(opts.model ? { model: opts.model } : {}),
     })
     const raw = result.object
     const parsedDate = raw.datePublished ? new Date(raw.datePublished) : undefined
@@ -83,10 +94,7 @@ export async function extractWithLLM(html: string): Promise<ExtractionResult> {
     return { ok: true, data }
   } catch (err) {
     if (err instanceof LLMError && err.kind === 'not_configured') {
-      return {
-        ok: false,
-        error: 'No job details found. Add an LLM key in Settings to enable AI extraction, or paste manually.',
-      }
+      return { ok: false, error: NO_KEY_ERROR }
     }
     return { ok: false, error: 'Could not extract details — try pasting manually.' }
   }

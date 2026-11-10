@@ -20,6 +20,7 @@ import {
   TypeSafeError,
   type EntryType,
   type Questions,
+  type RequestOptions,
   type SystemOneResult,
 } from '@typesafe-ai/sdk'
 import { prisma } from '@/lib/db'
@@ -148,6 +149,17 @@ export function normalizeJevError(err: unknown): JevError {
   return new JevError('unavailable', 'Jev call failed unexpectedly.', undefined, undefined, cause)
 }
 
+/** SDK per-call options from askJev's bounds; undefined when none are set. */
+function requestOptions(opts: { timeoutMs?: number; maxRetries?: number; maxRetryAfterMs?: number }): RequestOptions | undefined {
+  const retry: { maxRetries?: number; maxRetryAfterMs?: number } = {}
+  if (opts.maxRetries !== undefined) retry.maxRetries = opts.maxRetries
+  if (opts.maxRetryAfterMs !== undefined) retry.maxRetryAfterMs = opts.maxRetryAfterMs
+  const options: RequestOptions = {}
+  if (opts.timeoutMs !== undefined) options.timeout = opts.timeoutMs
+  if (Object.keys(retry).length > 0) options.retry = retry
+  return Object.keys(options).length > 0 ? options : undefined
+}
+
 /**
  * Ask Jev one request of typed questions over `state` with the pinned model.
  * Throws JevError on every failure; writes one LlmUsageLog row per success.
@@ -158,6 +170,18 @@ export async function askJev<const Q extends Questions>(
   opts: {
     /** Product feature for usage reporting, e.g. 'job-assessment-judge'. Required. */
     feature: string
+    /**
+     * Per-attempt timeout in ms (SDK default 10s). The SDK has no total budget,
+     * so background callers bound the whole call with this plus `maxRetries`.
+     */
+    timeoutMs?: number
+    /** Retries after the first attempt (SDK default 2). */
+    maxRetries?: number
+    /**
+     * Longest server `Retry-After` to honour, in ms (SDK default 60s); longer
+     * delays fall back to the SDK's short backoff.
+     */
+    maxRetryAfterMs?: number
   },
 ): Promise<JevResult<Q>> {
   if (!isJevConfigured()) {
@@ -166,7 +190,7 @@ export async function askJev<const Q extends Questions>(
 
   // Soft cap: calls still in flight and failed calls aren't counted, so
   // concurrent runs for one profile can overshoot by their concurrency. The
-  // pipeline (Phase 3) limits concurrent runs per profile to keep this tight.
+  // pipeline limits concurrent runs per profile (job-assessment/queue.ts).
   const usedToday = await prisma.llmUsageLog.count({
     where: { profileId, provider: JEV_PROVIDER, createdAt: { gte: startOfToday() } },
   })
@@ -187,7 +211,8 @@ export async function askJev<const Q extends Questions>(
   const startedAt = Date.now()
   let result: SystemOneResult<Q>
   try {
-    result = await jev.systemOne(body)
+    const options = requestOptions(opts)
+    result = await (options ? jev.systemOne(body, options) : jev.systemOne(body))
   } catch (err) {
     throw normalizeJevError(err)
   }

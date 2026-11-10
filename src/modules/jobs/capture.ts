@@ -9,6 +9,7 @@
 
 import { prisma } from '@/lib/db'
 import { extractJobFromUrl } from './extract'
+import { queueJobAssessmentSafely } from '@/modules/job-assessment/queue'
 import {
   findPotentialDuplicatesForProfile,
   type DuplicateMatch,
@@ -100,6 +101,10 @@ export async function captureJobFromUrl(
     },
     select: { id: true, title: true, company: true },
   })
+
+  // Runs after the response via after(); works from the bearer-token capture
+  // route and inside the batch-capture stream (both are request scopes).
+  await queueJobAssessmentSafely(profileId, created.id, { reason: 'capture' })
 
   return {
     ok: true,

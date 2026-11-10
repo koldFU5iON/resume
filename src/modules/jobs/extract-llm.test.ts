@@ -1,5 +1,8 @@
-import { describe, it, expect } from 'vitest'
-import { stripHtmlToText, ExtractedJobLLMSchema, extractReadableContent } from './extract-llm'
+import { describe, it, expect, vi } from 'vitest'
+
+vi.mock('@/modules/llm/client', () => ({ completeStructured: vi.fn() }))
+
+import { stripHtmlToText, ExtractedJobLLMSchema, extractReadableContent, extractWithLLM } from './extract-llm'
 
 describe('stripHtmlToText', () => {
   it('removes script and style tags and their content', () => {
@@ -88,5 +91,31 @@ describe('extractReadableContent', () => {
   it('truncates output to 12000 characters', () => {
     const html = `<html><body><main><p>${'word '.repeat(5_000)}</p></main></body></html>`
     expect(extractReadableContent(html).length).toBeLessThanOrEqual(12_000)
+  })
+})
+
+describe('extractWithLLM', () => {
+  it('returns the add-a-key message without a profile and makes no call', async () => {
+    const { completeStructured } = await import('@/modules/llm/client')
+    const res = await extractWithLLM('<p>job</p>', null)
+    expect(res).toEqual({ ok: false, error: expect.stringContaining('Add an LLM key') })
+    expect(completeStructured).not.toHaveBeenCalled()
+  })
+
+  it('uses the job-extract defaults for existing callers', async () => {
+    const { completeStructured } = await import('@/modules/llm/client')
+    vi.mocked(completeStructured).mockResolvedValueOnce({ object: { title: 'PM' } } as never)
+    const res = await extractWithLLM('<p>job</p>', 'p1')
+    expect(res).toMatchObject({ ok: true, data: { title: 'PM' } })
+    const opts = vi.mocked(completeStructured).mock.calls.at(-1)![3]
+    expect(opts).toEqual({ maxOutputTokens: 400, temperature: 0, feature: 'job-extract' })
+  })
+
+  it('forwards feature, model and output cap overrides', async () => {
+    const { completeStructured } = await import('@/modules/llm/client')
+    vi.mocked(completeStructured).mockResolvedValueOnce({ object: { title: 'PM' } } as never)
+    await extractWithLLM('<p>job</p>', 'p1', { feature: 'job-assessment-enrich', model: 'fast', maxOutputTokens: 4000 })
+    const opts = vi.mocked(completeStructured).mock.calls.at(-1)![3]
+    expect(opts).toEqual({ maxOutputTokens: 4000, temperature: 0, feature: 'job-assessment-enrich', model: 'fast' })
   })
 })

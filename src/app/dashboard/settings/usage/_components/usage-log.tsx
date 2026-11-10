@@ -94,6 +94,16 @@ export function UsageLog({ stats }: { stats: UserUsageSummary }) {
         ))}
       </div>
 
+      {stats.appBilled.allTimeCalls > 0 && (
+        <p className="text-xs text-muted-foreground">
+          Included early assessments (not billed to your key):{' '}
+          <span className="tabular-nums font-medium text-foreground">
+            {stats.appBilled.thisMonthCalls.toLocaleString()}
+          </span>{' '}
+          {stats.appBilled.thisMonthCalls === 1 ? 'call' : 'calls'} this month
+        </p>
+      )}
+
       {!hasActivity ? (
         <p className="text-sm text-muted-foreground">No calls yet — use an AI feature to see usage here.</p>
       ) : (

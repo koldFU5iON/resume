@@ -140,6 +140,26 @@ describe('askJev', () => {
     expect(res.request).toEqual({ model: JEV_MODEL, state, questions })
   })
 
+  it('sends no per-call options by default', async () => {
+    await askJev('p1', { state, questions }, { feature: 'test' })
+    expect(mockSystemOne.mock.calls[0]).toHaveLength(1)
+  })
+
+  it('forwards timeout and retry bounds to the SDK per call', async () => {
+    await askJev('p1', { state, questions }, {
+      feature: 'test', timeoutMs: 20_000, maxRetries: 1, maxRetryAfterMs: 5_000,
+    })
+    expect(mockSystemOne).toHaveBeenCalledWith(
+      { model: JEV_MODEL, state, questions },
+      { timeout: 20_000, retry: { maxRetries: 1, maxRetryAfterMs: 5_000 } },
+    )
+  })
+
+  it('forwards a timeout alone without a retry override', async () => {
+    await askJev('p1', { state, questions }, { feature: 'test', timeoutMs: 5_000 })
+    expect(mockSystemOne.mock.calls[0][1]).toEqual({ timeout: 5_000 })
+  })
+
   it('writes one usage row with provider typesafe and no request content', async () => {
     await askJev('p1', { state, questions }, { feature: 'job-assessment-judge' })
 
