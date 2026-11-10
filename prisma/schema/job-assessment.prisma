@@ -1,0 +1,57 @@
+// ------------------------------------------------------------
+// JOB ASSESSMENT — early job assessment pipeline (Jev)
+// Design: docs/superpowers/specs/2026-11-10-jev-early-assessment-design.md
+// ------------------------------------------------------------
+
+/// One row per assessment run of a JobApplication. A row is never updated
+/// after it reaches `complete` or `failed`; re-assessing a job inserts a new
+/// row. The newest row per job (by createdAt) is the "current" assessment;
+/// older rows are kept for side-by-side comparison and tuning.
+/// `pipelineVersion` separates runs made under different pipeline tunings.
+model JobAssessment {
+  id               String    @id @default(cuid())
+  profileId        String
+  jobApplicationId String
+  pipelineVersion  String
+  /// queued | checking | fetching | assessing | complete | failed
+  status           String
+  /// verification | no_llm_key | rate_limited | error
+  failureKind      String?
+  failureReasons   String[]
+  enrichedFields   String[]
+  factsHash        String?
+  /// JobFacts from the cheap model (spec §3)
+  facts            Json?
+  /// Raw Jev answers, keyed by question id
+  signals          Json?
+  /// Exact Jev request bodies, so any run can be replayed (spec §1)
+  request          Json?
+  /// Versioned model id returned by the API, e.g. jev-1.14.0
+  jevModel         String?
+  score            Int?
+  /// weak | consider | pursue | priority
+  level            String?
+  blocked          Boolean   @default(false)
+  /// [{ kind, severity: 'hard' | 'unconfirmed', label, detail }]
+  blockers         Json?
+  strengths        String[]
+  gaps             String[]
+  /// Must-haves Jev couldn't settle (0.3 <= p < 0.7), shown as "check these"
+  unsettled        String[]
+  startedAt        DateTime?
+  completedAt      DateTime?
+  /// createdAt -> startedAt (time waiting for after() to pick it up)
+  queueTimeMs      Int?
+  /// startedAt -> completedAt, written for complete AND failed runs
+  processTimeMs    Int?
+  /// { verify, enrich, verifyRetry, facts, judge, combine, persist } in ms; skipped stages omitted
+  stageTimings     Json?
+  createdAt        DateTime  @default(now())
+
+  profile        Profile        @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  jobApplication JobApplication @relation(fields: [jobApplicationId], references: [id], onDelete: Cascade)
+
+  @@index([jobApplicationId, createdAt])
+  @@index([profileId, status])
+  @@index([profileId, createdAt])
+}

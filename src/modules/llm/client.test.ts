@@ -35,7 +35,7 @@ vi.mock('@ai-sdk/google', () => ({
 
 vi.mock('next/server', () => ({ after: vi.fn(cb => cb()) }))
 
-import { complete, completeStructured } from './client'
+import { complete, completeStructured, resolveFastModel, FAST_MODELS } from './client'
 import { prisma } from '@/lib/db'
 import { generateText, NoObjectGeneratedError } from 'ai'
 import type { LanguageModelResponseMetadata, LanguageModelUsage } from 'ai'
@@ -180,5 +180,44 @@ describe('LLM client logging', () => {
     await expect(
       completeStructured('profile-1', 'hello', schema, { feature: 'cv-import' }),
     ).rejects.toThrow('LLM output did not match the expected schema.')
+  })
+})
+
+describe('resolveFastModel', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  const settings = (over: Record<string, unknown>) =>
+    mockFindUnique.mockResolvedValueOnce({ ...fakeSettings, availableModels: null, ...over } as never)
+
+  it('returns the provider fast model when no model list is cached', async () => {
+    settings({})
+    await expect(resolveFastModel('profile-1')).resolves.toBe(FAST_MODELS.anthropic)
+  })
+
+  it('returns the fast model when the cached list contains it', async () => {
+    settings({ availableModels: [{ id: 'claude-sonnet-4-6', name: 'S' }, { id: 'claude-haiku-5-5', name: 'H' }] })
+    await expect(resolveFastModel('profile-1')).resolves.toBe('claude-haiku-5-5')
+  })
+
+  it('prefers a dated snapshot of the fast model from the cached list', async () => {
+    settings({ availableModels: [{ id: 'claude-haiku-5-5-20261001', name: 'H' }] })
+    await expect(resolveFastModel('profile-1')).resolves.toBe('claude-haiku-5-5-20261001')
+  })
+
+  it('falls back to the default model when the cached list lacks the fast model', async () => {
+    settings({ availableModels: [{ id: 'claude-sonnet-4-6', name: 'S' }] })
+    await expect(resolveFastModel('profile-1')).resolves.toBe('claude-sonnet-4-6')
+  })
+
+  it('falls back to the default model when the provider has no fast model', async () => {
+    settings({ llmProvider: 'openai', llmModel: 'gpt-5' })
+    await expect(resolveFastModel('profile-1')).resolves.toBe(FAST_MODELS.openai ?? 'gpt-5')
+  })
+
+  it('throws not_configured when the user has no key', async () => {
+    mockFindUnique.mockResolvedValueOnce(null as never)
+    await expect(resolveFastModel('profile-1')).rejects.toMatchObject({ kind: 'not_configured' })
   })
 })

@@ -41,6 +41,10 @@ const FEATURE_LABELS: Record<string, string> = {
   'job-hunt-ats-discovery':              'Job hunt — ATS discovery',
   'job-hunt-fit':                        'Job hunt — fit score',
   'scout-triage':                        'Scout Inbox — triage',
+  'job-assessment-verify':               'Early assessment — verify (Jev)',
+  'job-assessment-judge':                'Early assessment — judge (Jev)',
+  'job-assessment-enrich':               'Early assessment — fetch details',
+  'job-assessment-facts':                'Early assessment — extract facts',
   'chat-turn':      'Chat — career coach',
   'chat-summarize': 'Chat — session summary',
 }

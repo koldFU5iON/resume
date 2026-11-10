@@ -38,6 +38,7 @@ model JobApplication {
   coverLetters        CoverLetterDocument[]
   writingDesk         WritingDeskDocument?
   interviewPrepSessions InterviewPrepSession[]
+  assessments           JobAssessment[]
 
   @@index([profileId])
   @@index([status])
