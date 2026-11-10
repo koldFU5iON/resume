@@ -30,6 +30,8 @@ import { EditJobDialog } from "./edit-job-dialog"
 import { CreateJobSheet } from "./create-job-sheet"
 import { BatchCaptureDialog } from "./batch-capture-dialog"
 import { archiveJobApplication, bulkArchiveJobApplications } from "@/modules/jobs/mutations"
+import { AssessmentPoller } from "./assessment-poller"
+import { earlyFilterKey, earlySortValue, isAssessmentInProgress, parseEarlyFilter } from "./early-assessment-view"
 
 type ViewMode = 'grouped' | 'all'
 const VIEW_MODE_KEY = 'jobs-view-mode'
@@ -47,9 +49,11 @@ const OPEN_PRIORITY: ApplicationStatusType[] = [
 
 const CLOSED_SET: ReadonlySet<string> = new Set(ClosedStatuses)
 
-export function JobList({ jobs, hasLLMKey, openCreate, initialCreateUrl }: {
+export function JobList({ jobs, hasLLMKey, earlyEnabled = false, openCreate, initialCreateUrl }: {
   jobs: Job[]
   hasLLMKey: boolean
+  /** Early assessment on for this user (decided on the server). */
+  earlyEnabled?: boolean
   openCreate?: boolean
   initialCreateUrl?: string
 }) {
@@ -108,6 +112,7 @@ export function JobList({ jobs, hasLLMKey, openCreate, initialCreateUrl }: {
           status: new Set(p.status ?? []),
           source: new Set(p.source ?? []),
           fit: new Set(p.fit ?? []),
+          early: parseEarlyFilter(p.early),
         })
       }
     } catch { /* ignore malformed filter cache */ }
@@ -133,6 +138,7 @@ export function JobList({ jobs, hasLLMKey, openCreate, initialCreateUrl }: {
       status: [...next.status],
       source: [...next.source],
       fit: [...next.fit],
+      early: [...next.early],
     }))
   }
 
@@ -166,6 +172,9 @@ export function JobList({ jobs, hasLLMKey, openCreate, initialCreateUrl }: {
         return filter.fit.has(label as JobFit['label'] | 'none')
       })
     }
+    if (earlyEnabled && filter.early.size > 0) {
+      result = result.filter(j => filter.early.has(earlyFilterKey(j.earlyAssessment)))
+    }
 
     result.sort((a, b) => {
       let cmp = 0
@@ -194,6 +203,9 @@ export function JobList({ jobs, hasLLMKey, openCreate, initialCreateUrl }: {
         case 'fitRating':
           cmp = (a.jobFit?.rating ?? -1) - (b.jobFit?.rating ?? -1)
           break
+        case 'earlyScore':
+          cmp = earlySortValue(a.earlyAssessment) - earlySortValue(b.earlyAssessment)
+          break
         case 'lastUpdated':
           cmp = a.lastUpdated.getTime() - b.lastUpdated.getTime()
           break
@@ -202,7 +214,12 @@ export function JobList({ jobs, hasLLMKey, openCreate, initialCreateUrl }: {
     })
 
     return result
-  }, [jobs, query, filter, sort])
+  }, [jobs, query, filter, sort, earlyEnabled])
+
+  const assessmentRunning = useMemo(
+    () => jobs.some(j => isAssessmentInProgress(j.earlyAssessment)),
+    [jobs],
+  )
 
   // Search auto-switches to "All" so matches aren't visually split across groups.
   // User's view-mode preference is preserved — restored when the query clears.
@@ -305,6 +322,7 @@ export function JobList({ jobs, hasLLMKey, openCreate, initialCreateUrl }: {
 
   return (
     <div className="container w-full border-t border-accent pt-3 mt-2">
+      <AssessmentPoller active={assessmentRunning} />
       <ToolBar
         query={query}
         onQueryChange={setQuery}
@@ -321,6 +339,7 @@ export function JobList({ jobs, hasLLMKey, openCreate, initialCreateUrl }: {
         onSortChange={changeSort}
         onCreateOpen={() => setCreating(true)}
         onBatchOpen={() => setBatching(true)}
+        earlyEnabled={earlyEnabled}
       />
       <Separator className="my-3" />
 
@@ -343,6 +362,7 @@ export function JobList({ jobs, hasLLMKey, openCreate, initialCreateUrl }: {
                 onGenerateCV={handleGenerateCV}
                 onCreateCoverLetter={handleCreateCoverLetter}
                 hasLLMKey={hasLLMKey}
+                earlyEnabled={earlyEnabled}
                 isMobile
               />
             ))}
@@ -370,6 +390,7 @@ export function JobList({ jobs, hasLLMKey, openCreate, initialCreateUrl }: {
                 onGenerateCV={handleGenerateCV}
                 onCreateCoverLetter={handleCreateCoverLetter}
                 hasLLMKey={hasLLMKey}
+                earlyEnabled={earlyEnabled}
               />
             ))}
           </div>
@@ -418,6 +439,7 @@ type ToolBarProps = {
   onSortChange: (s: SortState) => void
   onCreateOpen: () => void
   onBatchOpen: () => void
+  earlyEnabled: boolean
 }
 
 function ToolBar({
@@ -436,6 +458,7 @@ function ToolBar({
   onSortChange,
   onCreateOpen,
   onBatchOpen,
+  earlyEnabled,
 }: ToolBarProps) {
   return (
     <div className="flex flex-col space-y-1">
@@ -449,6 +472,7 @@ function ToolBar({
           sort={sort}
           onFilterChange={onFilterChange}
           onSortChange={onSortChange}
+          earlyEnabled={earlyEnabled}
         />
 
         {selectedCount > 0 && (

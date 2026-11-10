@@ -1,4 +1,5 @@
 import type { JobApplication } from "@prisma/client"
+import type { AssessmentView } from "@/modules/job-assessment/queries"
 
 export const ApplicationStatus = {
   NotStarted: "not started",
@@ -98,6 +99,8 @@ export type Job = Omit<JobApplication, "status" | "progress" | "jobFit" | "appli
   coverLetterDocumentId?: string | null
   interviewPrepSessionId?: string | null
   salaryEstimate?: SalaryEstimate | null
+  /** Newest early assessment (Jev) run; absent when there is none or the feature is off for the user. */
+  earlyAssessment?: AssessmentView | null
 }
 
 export type ProfileType = {

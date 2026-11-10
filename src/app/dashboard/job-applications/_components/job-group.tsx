@@ -34,6 +34,7 @@ type JobGroupProps = {
   onCreateCoverLetter: (id: string) => void
   defaultCollapsed?: boolean
   hasLLMKey: boolean
+  earlyEnabled: boolean
   isMobile?: boolean
 }
 
@@ -50,6 +51,7 @@ export function JobGroup({
   onCreateCoverLetter,
   defaultCollapsed = false,
   hasLLMKey,
+  earlyEnabled,
   isMobile = false,
 }: JobGroupProps) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed)
@@ -109,6 +111,7 @@ export function JobGroup({
           onGenerateCV={onGenerateCV}
           onCreateCoverLetter={onCreateCoverLetter}
           hasLLMKey={hasLLMKey}
+          earlyEnabled={earlyEnabled}
         />
       ) : (
         <JobRow
@@ -122,6 +125,7 @@ export function JobGroup({
           onGenerateCV={onGenerateCV}
           onCreateCoverLetter={onCreateCoverLetter}
           hasLLMKey={hasLLMKey}
+          earlyEnabled={earlyEnabled}
         />
       ))}
     </div>

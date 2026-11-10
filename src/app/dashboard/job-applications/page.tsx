@@ -5,6 +5,7 @@ import { getActiveJobs } from "@/modules/jobs/queries"
 import { ContentContainer } from "@/app/components/ContentContainer"
 import { requireProfile } from "@/lib/session"
 import { getLLMConfigStatus } from "@/modules/llm/client"
+import { isEarlyAssessmentEnabled } from "@/modules/job-assessment/queries"
 
 // Server Actions on this page queue the early job assessment, which runs in
 // after() within this limit; keep in sync with ROUTE_MAX_DURATION_S in
@@ -21,7 +22,10 @@ export default async function Page({
     requireProfile(),
     searchParams,
   ])
-  const { configured: hasLLMKey } = await getLLMConfigStatus(profile.id)
+  const [{ configured: hasLLMKey }, earlyEnabled] = await Promise.all([
+    getLLMConfigStatus(profile.id),
+    isEarlyAssessmentEnabled(profile.id),
+  ])
 
   return (
     <ContentContainer fullWidth title="Job Applications" description="Track all the jobs you're currently interested in. Update the status to keep up to date on the current process and where you stand with your application">
@@ -34,6 +38,7 @@ export default async function Page({
           <JobList
             jobs={jobs}
             hasLLMKey={hasLLMKey}
+            earlyEnabled={earlyEnabled}
             openCreate={create === '1'}
             initialCreateUrl={url}
           />

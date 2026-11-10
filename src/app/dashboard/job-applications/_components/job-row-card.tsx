@@ -10,6 +10,7 @@ import { AppProgressBar } from "./app-progress-bar"
 import { AppControls } from "@/components/app-item-menu"
 import { FileText, Mail, Loader2, SquareArrowOutUpRight } from "lucide-react"
 import { JobFit } from "./job-fit"
+import { EarlyAssessment } from "./early-assessment"
 import { SalaryPopover } from "./salary-popover"
 import { JobNotes } from "./job-notes"
 import { StatusDropdown } from "./status-dropdown"
@@ -30,9 +31,10 @@ type JobRowCardProps = {
   onGenerateCV: (id: string) => void
   onCreateCoverLetter: (id: string) => void
   hasLLMKey: boolean
+  earlyEnabled: boolean
 }
 
-export function JobRowCard({ job, selected, busyLabel, onToggleSelect, onEdit, onArchive, onGenerateCV, onCreateCoverLetter, hasLLMKey }: JobRowCardProps) {
+export function JobRowCard({ job, selected, busyLabel, onToggleSelect, onEdit, onArchive, onGenerateCV, onCreateCoverLetter, hasLLMKey, earlyEnabled }: JobRowCardProps) {
   const {
     id, jobNumber, title, company, countries, url,
     dateApplied, datePublished, lastUpdated, status, progress,
@@ -155,7 +157,10 @@ export function JobRowCard({ job, selected, busyLabel, onToggleSelect, onEdit, o
             hasLLMKey={hasLLMKey}
           />
         </span>
-        <JobFit jobId={id} jobFit={jobFit ?? null} canAssess={!!jobDescription?.trim()} hasLLMKey={hasLLMKey} company={company ?? undefined} jdSnippet={jobDescription ? jobDescription.slice(0, 800) : undefined} />
+        <span className="inline-flex items-center gap-0.5">
+          <JobFit jobId={id} jobFit={jobFit ?? null} canAssess={!!jobDescription?.trim()} hasLLMKey={hasLLMKey} company={company ?? undefined} jdSnippet={jobDescription ? jobDescription.slice(0, 800) : undefined} />
+          <EarlyAssessment jobId={id} assessment={job.earlyAssessment ?? null} enabled={earlyEnabled} hasLLMKey={hasLLMKey} hasDescription={!!jobDescription?.trim()} />
+        </span>
         {dateApplied && (
           <span className="text-xs text-muted-foreground">{formatShortDate(dateApplied)}</span>
         )}

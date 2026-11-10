@@ -12,6 +12,7 @@ import { AppControls } from "@/components/app-item-menu"
 import { Loader2, FileText, Mail, SquareArrowOutUpRight } from "lucide-react"
 import { ApplicationDateBlock } from "./app-date-block"
 import { JobFit } from "./job-fit"
+import { EarlyAssessment } from "./early-assessment"
 import { JobNotes } from "./job-notes"
 import { SalaryBandCell } from "./salary-band-cell"
 import { JobCompletenessDot } from "./job-completeness-dot"
@@ -31,9 +32,10 @@ type JobRowProps = {
   onGenerateCV: (id: string) => void
   onCreateCoverLetter: (id: string) => void
   hasLLMKey: boolean
+  earlyEnabled: boolean
 }
 
-export function JobRow({ job, selected, busyLabel, onToggleSelect, onEdit, onArchive, onGenerateCV, onCreateCoverLetter, hasLLMKey }: JobRowProps) {
+export function JobRow({ job, selected, busyLabel, onToggleSelect, onEdit, onArchive, onGenerateCV, onCreateCoverLetter, hasLLMKey, earlyEnabled }: JobRowProps) {
   const {
     id, jobNumber, title, company, countries, url,
     dateApplied, datePublished, lastUpdated, status, progress,
@@ -156,8 +158,9 @@ export function JobRow({ job, selected, busyLabel, onToggleSelect, onEdit, onArc
       </div>
 
       {/* Job fit */}
-      <div className="py-2">
+      <div className="flex items-center gap-0.5 py-2">
         <JobFit jobId={id} jobFit={jobFit ?? null} canAssess={!!jobDescription?.trim()} hasLLMKey={hasLLMKey} company={company ?? undefined} jdSnippet={jobDescription ? jobDescription.slice(0, 800) : undefined} />
+        <EarlyAssessment jobId={id} assessment={job.earlyAssessment ?? null} enabled={earlyEnabled} hasLLMKey={hasLLMKey} hasDescription={!!jobDescription?.trim()} />
       </div>
 
       {/* Applied date */}

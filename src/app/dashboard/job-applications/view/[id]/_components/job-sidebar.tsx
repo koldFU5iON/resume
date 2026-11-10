@@ -3,6 +3,9 @@ import { Card, CardContent } from "@/components/ui/card"
 import { buttonVariants } from "@/components/ui/button"
 import { type Job } from "@/app/types/job-application"
 import { JobFit } from "@/app/dashboard/job-applications/_components/job-fit"
+import { EarlyAssessment } from "@/app/dashboard/job-applications/_components/early-assessment"
+import { AssessmentPoller } from "@/app/dashboard/job-applications/_components/assessment-poller"
+import { isAssessmentInProgress } from "@/app/dashboard/job-applications/_components/early-assessment-view"
 import { SalaryPopover } from "@/app/dashboard/job-applications/_components/salary-popover"
 import { StatusDropdown } from "@/app/dashboard/job-applications/_components/status-dropdown"
 import { formatDate, cn } from "@/lib/utils"
@@ -11,6 +14,8 @@ import { FileText, Mail, ClipboardList, NotebookPen } from "lucide-react"
 interface Props {
   job: Job
   hasLLMKey: boolean
+  /** Early assessment on for this user (decided on the server). */
+  earlyEnabled?: boolean
 }
 
 function fitStrengthLabel(rating: number): string {
@@ -19,7 +24,9 @@ function fitStrengthLabel(rating: number): string {
   return "Partial match"
 }
 
-export function JobSidebar({ job, hasLLMKey }: Props) {
+export function JobSidebar({ job, hasLLMKey, earlyEnabled = false }: Props) {
+  const early = job.earlyAssessment ?? null
+
   return (
     <div className="flex flex-col gap-4 overflow-y-auto border-r p-4">
       {/* Stats card */}
@@ -72,6 +79,19 @@ export function JobSidebar({ job, hasLLMKey }: Props) {
             <p className="text-xs text-muted-foreground">
               {fitStrengthLabel(job.jobFit.rating)}
             </p>
+          )}
+          {(early || earlyEnabled) && (
+            <div className="mt-1 space-y-1 border-t pt-3">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Early assessment</p>
+              <EarlyAssessment
+                jobId={job.id}
+                assessment={early}
+                enabled={earlyEnabled}
+                hasLLMKey={hasLLMKey}
+                hasDescription={!!job.jobDescription?.trim()}
+              />
+              <AssessmentPoller active={isAssessmentInProgress(early)} />
+            </div>
           )}
         </CardContent>
       </Card>

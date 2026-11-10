@@ -13,14 +13,16 @@ import {
   type ApplicationSourceType,
 } from '@/app/types/job-application'
 import type { JobFit } from '@/app/types/job-application'
+import { EARLY_FILTER_OPTIONS, type EarlyLevelFilter } from './early-assessment-view'
 
 export type FilterState = {
   status: Set<ApplicationStatusType>
   source: Set<ApplicationSourceType>
   fit: Set<JobFit['label'] | 'none'>
+  early: Set<EarlyLevelFilter>
 }
 
-export type SortField = 'dateApplied' | 'datePublished' | 'company' | 'fitRating' | 'lastUpdated'
+export type SortField = 'dateApplied' | 'datePublished' | 'company' | 'fitRating' | 'earlyScore' | 'lastUpdated'
 export type SortDirection = 'asc' | 'desc'
 export type SortState = { field: SortField; direction: SortDirection }
 
@@ -28,12 +30,13 @@ export const DEFAULT_FILTER: FilterState = {
   status: new Set(),
   source: new Set(),
   fit: new Set(),
+  early: new Set(),
 }
 
 export const DEFAULT_SORT: SortState = { field: 'dateApplied', direction: 'desc' }
 
 export function isFilterActive(f: FilterState) {
-  return f.status.size > 0 || f.source.size > 0 || f.fit.size > 0
+  return f.status.size > 0 || f.source.size > 0 || f.fit.size > 0 || f.early.size > 0
 }
 
 const SORT_OPTIONS: { value: SortField; label: string }[] = [
@@ -41,6 +44,7 @@ const SORT_OPTIONS: { value: SortField; label: string }[] = [
   { value: 'datePublished', label: 'Date published' },
   { value: 'company',       label: 'Company A–Z' },
   { value: 'fitRating',     label: 'Fit score' },
+  { value: 'earlyScore',    label: 'Early score' },
   { value: 'lastUpdated',   label: 'Last updated' },
 ]
 
@@ -68,13 +72,16 @@ type FilterBarProps = {
   sort: SortState
   onFilterChange: (f: FilterState) => void
   onSortChange: (s: SortState) => void
+  /** Show the "Early level" filter and "Early score" sort (early assessment on for this user). */
+  earlyEnabled?: boolean
 }
 
-export function FilterBar({ filter, sort, onFilterChange, onSortChange }: FilterBarProps) {
+export function FilterBar({ filter, sort, onFilterChange, onSortChange, earlyEnabled = false }: FilterBarProps) {
   const active = isFilterActive(filter)
+  const sortOptions = earlyEnabled ? SORT_OPTIONS : SORT_OPTIONS.filter(o => o.value !== 'earlyScore')
 
   function clearFilters() {
-    onFilterChange({ status: new Set(), source: new Set(), fit: new Set() })
+    onFilterChange({ status: new Set(), source: new Set(), fit: new Set(), early: new Set() })
   }
 
   return (
@@ -97,7 +104,15 @@ export function FilterBar({ filter, sort, onFilterChange, onSortChange }: Filter
         selected={filter.fit}
         onChange={(next) => onFilterChange({ ...filter, fit: next as Set<JobFit['label'] | 'none'> })}
       />
-      <SortDropdown sort={sort} onSortChange={onSortChange} />
+      {earlyEnabled && (
+        <FilterDropdown
+          label="Early level"
+          options={EARLY_FILTER_OPTIONS}
+          selected={filter.early}
+          onChange={(next) => onFilterChange({ ...filter, early: next })}
+        />
+      )}
+      <SortDropdown sort={sort} options={sortOptions} onSortChange={onSortChange} />
       {active && (
         <button
           type="button"
@@ -169,11 +184,12 @@ function FilterDropdown<T extends string>({ label, options, selected, onChange }
 
 type SortDropdownProps = {
   sort: SortState
+  options: { value: SortField; label: string }[]
   onSortChange: (s: SortState) => void
 }
 
-function SortDropdown({ sort, onSortChange }: SortDropdownProps) {
-  const currentLabel = SORT_OPTIONS.find(o => o.value === sort.field)?.label ?? 'Sort'
+function SortDropdown({ sort, options, onSortChange }: SortDropdownProps) {
+  const currentLabel = options.find(o => o.value === sort.field)?.label ?? 'Sort'
   const dirLabel = sort.direction === 'asc' ? '↑' : '↓'
 
   return (
@@ -185,7 +201,7 @@ function SortDropdown({ sort, onSortChange }: SortDropdownProps) {
         <ChevronDown size={11} className="shrink-0 opacity-60" />
       </PopoverTrigger>
       <PopoverContent align="start" className="w-52 p-1">
-        {SORT_OPTIONS.map(opt => {
+        {options.map(opt => {
           const isActive = sort.field === opt.value
           return (
             <div key={opt.value} className="flex items-center rounded hover:bg-muted transition-colors">
