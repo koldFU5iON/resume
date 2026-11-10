@@ -51,3 +51,6 @@ skills-lock.json
 
 # Local benchmark fixtures (may contain PII) — keep out of history
 docs/samples/
+
+# Local script output (e.g. assess:compare CSVs)
+/tmp/

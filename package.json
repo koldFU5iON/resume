@@ -16,6 +16,7 @@
     "test": "vitest run",
     "test:mcp-oauth": "tsx scripts/verify-mcp-oauth.ts",
     "test:watch": "vitest",
+    "assess:compare": "tsx scripts/assessment-compare.ts",
     "pdf:fixtures": "tsx scripts/render-writing-desk-pdf-fixtures.tsx"
   },
   "prisma": {

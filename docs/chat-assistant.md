@@ -216,7 +216,7 @@ Users can pick a model specifically for chat sessions, separate from their globa
 
 ## Usage Tracking
 
-Two feature keys — add them to `FEATURE_LABELS` in `src/app/dashboard/settings/usage/_components/usage-log.tsx` if they ever need renaming:
+Two feature keys — add them to `FEATURE_LABELS` in `src/app/dashboard/settings/usage/_components/feature-labels.ts` if they ever need renaming:
 
 | Feature key | Label | When |
 |-------------|-------|------|

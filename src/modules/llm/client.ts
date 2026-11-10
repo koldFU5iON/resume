@@ -215,7 +215,7 @@ export type CompleteOptions = {
   /** Log only zod issue paths (not raw model output) on invalid structured output. */
   redactInvalidOutput?: boolean
   /** Product feature that triggered this call. Required — every LLM call must be attributed.
-   *  Use a short kebab-case string matching an entry in FEATURE_LABELS in usage-log.tsx.
+   *  Use a short kebab-case string matching an entry in FEATURE_LABELS in feature-labels.ts.
    *  Example: 'job-fit', 'cv-import', 'profile-summary'. */
   feature: string
 }
