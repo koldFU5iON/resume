@@ -134,7 +134,7 @@ Jev's docs advise putting every question about the same state in one request: ex
 | Check | Hard blocker | Unconfirmed | Source |
 |---|---|---|---|
 | Work rights | Job country not covered by the user's rights **and** `sponsorship = explicitly_not_offered` | Not covered **and** `not_mentioned` → "Requires sponsorship — not confirmed" | `eligibility.ts` + Jev |
-| Pay floor | The job's stated `max` is below the floor for that currency | The range straddles the floor | facts.salary + `salaryFloors`. A currency with no floor set is neither. |
+| Pay floor | The job's stated `max` is below the floor for that currency | The range straddles the floor (**Changed:** only when its midpoint is below the floor) | facts.salary + `salaryFloors`. A currency with no floor set is neither. |
 | Must-have requirement | `req_i < 0.3` | — (0.3–0.7 becomes a **gap**) | Jev |
 | Dealbreaker | `dealbreaker_i > 0.7` | 0.4–0.7 | Jev |
 

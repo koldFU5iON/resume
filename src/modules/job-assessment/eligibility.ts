@@ -105,11 +105,11 @@ export type RelocationStatus = 'none' | 'unconfirmed' | 'unknown'
 /**
  * - `ok` — the stated pay reaches the floor
  * - `below_floor` — stated `max` < floor (hard blocker)
- * - `straddles_floor` — the range reaches the floor only at the top, or one end is missing so it can't be confirmed (amber)
+ * - `mostly_below_floor` — the range reaches the floor, but its midpoint is below it, so only the top of the band would do; or only a `min` below the floor is stated (amber)
  * - `no_floor_for_currency` — the user has no floor in this currency; no check
  * - `unknown` — no salary stated, a non-annual period, or no figures
  */
-export type PayStatus = 'ok' | 'below_floor' | 'straddles_floor' | 'no_floor_for_currency' | 'unknown'
+export type PayStatus = 'ok' | 'below_floor' | 'mostly_below_floor' | 'no_floor_for_currency' | 'unknown'
 
 export interface PayCheckResult {
   status: PayStatus
@@ -300,14 +300,17 @@ export function checkRelocation(
 
 /**
  * Pay — spec §5 Blockers, "Pay" row: hard when stated `max` < floor (same
- * currency); unconfirmed when `min` < floor ≤ `max`. Also reports
- * `belowTarget` for the score's −0.05 (spec §5 Score).
+ * currency). A range that reaches the floor is fine when its midpoint does
+ * too (an offer usually lands mid-band, and the top is negotiable); amber
+ * (`mostly_below_floor`) only when the midpoint is below the floor. Also
+ * reports `belowTarget` for the score's −0.05 (spec §5 Score).
  *
  * Only annual salaries are compared (`period: 'year'`); other periods are
- * `unknown` — no conversion. With one end of the range missing: only `min`
- * ≥ floor → ok; only `min` < floor, or only `max` ≥ floor → straddles_floor
- * (can't be confirmed either way). A reversed range (`min` > `max`) is
- * swapped before comparing.
+ * `unknown` — no conversion. A single stated figure is compared as-is,
+ * whichever end the extractor filed it under ("€100k" or "up to €100k" ≥
+ * floor → ok), except a lone `min` below the floor ("from €80k"), which is
+ * amber because the top is open. A reversed range (`min` > `max`) is swapped
+ * before comparing.
  */
 export function checkPay(e: Eligibility, salary: JobSalary | null): PayCheckResult {
   if (!salary || salary.period !== 'year') return { status: 'unknown', belowTarget: false }
@@ -326,6 +329,8 @@ export function checkPay(e: Eligibility, salary: JobSalary | null): PayCheckResu
 
   if (min === null && max === null) return { ...base, status: 'unknown' }
   if (max !== null && max < floor) return { ...base, status: 'below_floor' }
-  if (min !== null && min >= floor) return { ...base, status: 'ok' }
-  return { ...base, status: 'straddles_floor' }
+  if (min === null || max === null) {
+    return { ...base, status: (min ?? max)! >= floor ? 'ok' : 'mostly_below_floor' }
+  }
+  return { ...base, status: (min + max) / 2 >= floor ? 'ok' : 'mostly_below_floor' }
 }

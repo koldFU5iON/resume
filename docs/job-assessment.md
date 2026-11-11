@@ -81,6 +81,13 @@ as one penalty item. This applies to every role: a regulated role with no separa
 limitation). From early-v2 this differs from spec section 5, where education blocked. Coverage maths is unchanged, and p between the gap and met bands still
 goes to `unsettled`.
 
+Pay (`checkPay` in `eligibility.ts`, annual salaries in a currency the user has a floor for): a stated `max` below the
+floor is a hard blocker. A range that reaches the floor is fine when its midpoint reaches it too, because offers
+usually land mid-band (€85k–110k against a €90k floor is clear). It is amber ("Most of the pay range is below your
+floor") only when the midpoint is below the floor (€62k–92k). A single stated figure is compared as-is, whichever end
+the extractor filed it under, so "€100k" or "up to €103k" is clear. A lone `min` below the floor ("from €80k") stays
+amber ("Pay starts below your floor"), since the top isn't stated. Separately, a `max` below the user's target takes 0.05 off the composite.
+
 Work-rights lines ("must have the right to work in X", "no visa sponsorship") are never requirements: a CV can't show
 them, so Jev would answer low and cause a false block. The facts prompt files them under `availability`, and
 `isWorkRightsRequirement()` in `questions.ts` backs that up in code (`requirementMode` returns `skip`, so they are
@@ -236,6 +243,9 @@ Changes since early-v1, from analysing real runs:
 - The user's first and last names are removed from role descriptions as well as the summary (in role text:
   case-sensitive, a possessive "'s" goes with the name, and a name that is also a word in a company, role title or skill
   name is kept).
+
+Pay midpoint rule (added after early-v2 without a version bump, because it changes no facts or questions): it applies
+to runs made after the deploy. A run made earlier keeps its "Pay range straddles your floor" blocker until it is re-run.
 
 ## Troubleshooting by failureKind
 

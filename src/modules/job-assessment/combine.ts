@@ -318,11 +318,23 @@ export function combineAssessment(input: CombineInput): AssessmentResult {
   const pay = checkPay(eligibility, facts.salary)
   if (facts.salary && pay.floor !== undefined) {
     const cur = facts.salary.currency.toUpperCase()
-    const range = [facts.salary.min, facts.salary.max].filter((n) => n !== null).map((n) => n!.toLocaleString('en-US')).join('–')
+    const { min, max } = facts.salary
+    const fmt = (n: number) => n.toLocaleString('en-US')
+    const amount =
+      min !== null && max !== null ? (min === max ? `${cur} ${fmt(min)}` : `${cur} ${fmt(Math.min(min, max))}–${fmt(Math.max(min, max))}`)
+      : min !== null ? `from ${cur} ${fmt(min)}`
+      : max !== null ? `up to ${cur} ${fmt(max)}`
+      : ''
+    const vsFloor = `${amount[0].toUpperCase()}${amount.slice(1)} vs your floor of ${cur} ${fmt(pay.floor)}`
     if (pay.status === 'below_floor') {
-      blockers.push({ kind: 'pay', severity: 'hard', label: 'Pay is below your floor', detail: `${cur} ${range} vs your floor of ${cur} ${pay.floor.toLocaleString('en-US')}.` })
-    } else if (pay.status === 'straddles_floor') {
-      blockers.push({ kind: 'pay', severity: 'unconfirmed', label: 'Pay range straddles your floor', detail: `${cur} ${range} vs your floor of ${cur} ${pay.floor.toLocaleString('en-US')}.` })
+      blockers.push({ kind: 'pay', severity: 'hard', label: 'Pay is below your floor', detail: `${vsFloor}.` })
+    } else if (pay.status === 'mostly_below_floor') {
+      const bothEnds = min !== null && max !== null
+      blockers.push({
+        kind: 'pay', severity: 'unconfirmed',
+        label: bothEnds ? 'Most of the pay range is below your floor' : 'Pay starts below your floor',
+        detail: bothEnds ? `${vsFloor}. Only the top of the band reaches it.` : `${vsFloor}. The top isn't stated.`,
+      })
     }
   }
 

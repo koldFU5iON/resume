@@ -231,10 +231,17 @@ describe('checkPay', () => {
       .toEqual({ status: 'below_floor', belowTarget: true, floor: 90000, target: 100000 })
   })
 
-  it('straddles when min < floor <= max', () => {
+  it('ok when min < floor <= max and the midpoint reaches the floor', () => {
     expect(checkPay(floors, eur(78000, 129800)))
-      .toEqual({ status: 'straddles_floor', belowTarget: false, floor: 90000, target: 100000 })
-    expect(checkPay(floors, eur(78000, 90000)).status).toBe('straddles_floor')
+      .toEqual({ status: 'ok', belowTarget: false, floor: 90000, target: 100000 })
+    expect(checkPay(floors, eur(85000, 110000)).status).toBe('ok')
+    expect(checkPay(floors, eur(80000, 100000)).status).toBe('ok')
+  })
+
+  it('mostly below the floor when min < floor <= max but the midpoint is below it', () => {
+    expect(checkPay(floors, eur(78000, 90000)))
+      .toEqual({ status: 'mostly_below_floor', belowTarget: true, floor: 90000, target: 100000 })
+    expect(checkPay(floors, eur(61680, 92520)).status).toBe('mostly_below_floor')
   })
 
   it('ok when min >= floor, including a missing max', () => {
@@ -242,9 +249,11 @@ describe('checkPay', () => {
     expect(checkPay(floors, eur(90000, null))).toEqual({ status: 'ok', belowTarget: false, floor: 90000, target: 100000 })
   })
 
-  it('straddles when only one end is stated and it cannot confirm the floor', () => {
-    expect(checkPay(floors, eur(80000, null)).status).toBe('straddles_floor')
-    expect(checkPay(floors, eur(null, 120000)).status).toBe('straddles_floor')
+  it('compares a single stated figure as-is, whichever end it was filed under', () => {
+    expect(checkPay(floors, eur(null, 103000))).toEqual({ status: 'ok', belowTarget: false, floor: 90000, target: 100000 })
+    expect(checkPay(floors, eur(null, 90000)).status).toBe('ok')
+    expect(checkPay(floors, eur(null, 80000)).status).toBe('below_floor')
+    expect(checkPay(floors, eur(80000, null)).status).toBe('mostly_below_floor')
   })
 
   it('belowTarget when max < target even when the floor is met', () => {
@@ -270,7 +279,8 @@ describe('checkPay', () => {
   })
 
   it('swaps a reversed range before comparing', () => {
-    expect(checkPay(floors, eur(129800, 78000))).toEqual({ status: 'straddles_floor', belowTarget: false, floor: 90000, target: 100000 })
+    expect(checkPay(floors, eur(129800, 78000))).toEqual({ status: 'ok', belowTarget: false, floor: 90000, target: 100000 })
+    expect(checkPay(floors, eur(90000, 62000)).status).toBe('mostly_below_floor')
     expect(checkPay(floors, eur(85000, 70000)).status).toBe('below_floor')
   })
 
