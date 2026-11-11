@@ -365,6 +365,21 @@ type ResponseMeta = {
 export type CompleteResult = ResponseMeta & {
   text: string
   finishReason: string
+  /** Web pages the provider cited or searched (web search calls); empty otherwise. */
+  sources: WebSource[]
+}
+
+export type WebSource = { url: string; title: string | null }
+
+/** URL sources from a generateText result, deduplicated by URL. */
+function webSources(sources: ReadonlyArray<{ sourceType: string; url?: string; title?: string }> | undefined): WebSource[] {
+  const out = new Map<string, WebSource>()
+  for (const s of sources ?? []) {
+    if (s.sourceType === 'url' && typeof s.url === 'string' && !out.has(s.url)) {
+      out.set(s.url, { url: s.url, title: s.title ?? null })
+    }
+  }
+  return [...out.values()]
 }
 
 export async function complete(
@@ -394,6 +409,7 @@ export async function complete(
     return {
       text: result.text,
       finishReason: result.finishReason,
+      sources: webSources(result.sources),
       provider: cfg.provider,
       model: modelId,
       usage: result.usage,

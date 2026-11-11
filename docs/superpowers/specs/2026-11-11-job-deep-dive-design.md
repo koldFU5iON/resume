@@ -1,6 +1,6 @@
 # Job Deep Dive — Design Spec
 
-**Status:** Design agreed in discussion on 2026-11-11, not yet built.
+**Status:** Design agreed in discussion on 2026-11-11. Steps 2–3 merged; step 4 (backend) built in #360, see `docs/deep-dive.md`. Step 5 (UI) not built.
 **Depends on:** #345 (LLM usage → job attribution), merged in #347: `attribution: { jobApplicationId, cvDocumentId, runId }` on LLM calls, plus `serverToolCalls`, cache tokens and failed-call rows on `LlmUsageLog`.
 **Related:** `2026-11-10-jev-early-assessment-design.md` (the early assessment this builds on), `2026-11-11-profile-map-design.md` (the evidence links the report cites).
 
@@ -367,6 +367,7 @@ Each array has a maximum length so the report stays readable: blockers 8, gaps 1
   - A researcher over budget is cut and marked `timeout`, and the run continues.
   - A synthesis over budget fails the run with `timeout`.
   - If real runs often go past ~240s, move the pipeline to Vercel Workflow, one step per stage. The module boundary allows it.
+- **As built (#360):** a start past the per-profile limit is refused (`429`), not queued. `inputsHash` is nullable and set by the gather stage. `wrong_provider` isn't used: a provider without web search runs with research skipped.
 - **Rows left behind:** a row stuck in a running status for over 10 minutes is shown as failed (`timeout`), using the same stale rule as `IN_PROGRESS_STALE_MS`.
 
 **Module layout:** `src/modules/deep-dive/`
@@ -393,7 +394,7 @@ Cost depends on which models the user puts in each role. As one example, with An
 | Synthesis | ~40k in / ~12k out incl. reasoning | ~$0.40 |
 | **Total** | | **~$0.65–$1.00** before searches |
 
-These are guesses until real runs are measured. With #345 in place, the page shows each run's actual tokens and searches, and this table gets replaced with measured numbers after the first 20 runs. Company research is cached, so a second job at the same company skips the `company` researcher.
+These are guesses until real runs are measured. **Step 4 (#360) could not measure them:** no provider key was available in the build environment, so this table and the `research` / `analysis` columns of `ROLE_RECOMMENDATIONS` are still open. The GET route returns each run's `usage` (tokens, searches, estimated cost) to fill them in. With #345 in place, the page shows each run's actual tokens and searches, and this table gets replaced with measured numbers after the first 20 runs. Company research is cached, so a second job at the same company skips the `company` researcher.
 
 **Before starting:** the button shows "Uses your own API key" with an estimate. The estimate comes from the per-role models and a pricing table. With no known pricing for a model, it shows "cost unknown" rather than a guess.
 

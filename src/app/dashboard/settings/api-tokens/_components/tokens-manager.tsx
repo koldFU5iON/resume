@@ -29,6 +29,7 @@ type Props = {
 
 const ACCESS_OPTIONS: Record<string, { label: string; scopes: ApiTokenScope[] }> = {
   capture: { label: 'Capture jobs only', scopes: ['capture'] },
+  deepDive: { label: 'Capture jobs and run deep dives', scopes: ['capture', 'deep-dive:run'] },
   read: { label: 'MCP read-only', scopes: ['mcp:read'] },
   write: { label: 'MCP read and edit drafts', scopes: ['mcp:read', 'mcp:write'] },
 }
@@ -223,6 +224,7 @@ function CreateTokenDialog({
                 <SelectTrigger id="token-access" className="w-full"><SelectValue>{ACCESS_OPTIONS[access].label}</SelectValue></SelectTrigger>
                 <SelectContent>{Object.entries(ACCESS_OPTIONS).map(([value, option]) => <SelectItem key={value} value={value}>{option.label}</SelectItem>)}</SelectContent>
               </Select>
+              {access === 'deepDive' && <p className="text-xs text-muted-foreground">This agent can start deep dives on your jobs. Each one runs on your own LLM API key and costs roughly what a deep dive from the dashboard costs.</p>}
               {access === 'write' && <p className="text-xs text-muted-foreground">This agent can create and edit CV drafts for any of your jobs. You still accept drafts in the Writing Desk.</p>}
               <Label htmlFor="token-expiry" className="mt-4">Expires after</Label>
               <Select value={expiry} onValueChange={value => { if (value) setExpiry(value) }}>

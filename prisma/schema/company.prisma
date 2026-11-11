@@ -21,6 +21,7 @@ model Company {
   updatedAt      DateTime @updatedAt
 
   sponsorLicences SponsorLicence[]
+  research        CompanyResearch[]
   jobApplications JobApplication[]
 
   @@index([aliases], type: Gin)
@@ -69,4 +70,24 @@ model SponsorRegisterImport {
   completedAt DateTime?
 
   @@index([country, status, startedAt])
+}
+
+/// Public research findings about a company, shared across users (deep dive `company`
+/// researcher). Researchers never see profile data, so nothing personal is stored here.
+/// A row is fresh until expiresAt (createdAt + 30 days); newer rows supersede older ones.
+model CompanyResearch {
+  id        String   @id @default(cuid())
+  companyId String
+  /// 'company' (the company researcher's output) for now
+  topic     String
+  /// Finding[] (src/modules/deep-dive/schema.ts)
+  findings  Json
+  /// Model that did the search
+  model     String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, topic, createdAt])
 }
