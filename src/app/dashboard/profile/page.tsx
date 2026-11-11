@@ -8,13 +8,26 @@ import { ProfileSummaryCard } from "./_components/ProfileSummaryCard"
 import { ExperienceWorkspace } from "./_components/ExperienceWorkspace"
 import { getLLMConfigStatus } from "@/modules/llm/client"
 import { requireProfile } from "@/lib/session"
+import { notesOf } from "@/modules/profile-map/build"
+import { loadVault } from "@/modules/profile-map/load"
+import { listPendingSuggestions } from "@/modules/profile-map/link-store"
+import { EvidenceLinksSection, type EvidenceLinkStats } from "./_components/EvidenceLinksSection"
 
 export default async function Page() {
   const { profile: sessionProfile } = await requireProfile()
-  const [profile, { configured: hasLLMKey }] = await Promise.all([
+  const [profile, { configured: hasLLMKey }, vault, pendingLinks] = await Promise.all([
     getFullProfile(),
     getLLMConfigStatus(sessionProfile.id),
+    loadVault(sessionProfile.id),
+    listPendingSuggestions(sessionProfile.id),
   ])
+  const capabilities = notesOf(vault, "capability")
+  const linkStats: EvidenceLinkStats = {
+    total: capabilities.length,
+    proven: capabilities.filter(c => c.props.status === "proven").length,
+    certified: capabilities.filter(c => c.props.status === "certified").length,
+    claimed: capabilities.filter(c => c.props.status === "claimed").length,
+  }
 
   const currentYear = new Date().getFullYear()
   const earliestYear =
@@ -59,7 +72,8 @@ export default async function Page() {
         </div>
 
         {/* Right column — skills, education, credentials */}
-        <aside className="xl:sticky xl:top-6 xl:max-h-[calc(100vh-6rem)] xl:overflow-y-auto">
+        <aside className="space-y-6 xl:sticky xl:top-6 xl:max-h-[calc(100vh-6rem)] xl:overflow-y-auto">
+          <EvidenceLinksSection stats={linkStats} pending={pendingLinks} hasLLMKey={hasLLMKey} />
           <LeftRail
             skills={profile.skills}
             tools={profile.tools}

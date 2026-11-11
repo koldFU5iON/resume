@@ -9,7 +9,8 @@ export const VAULT_INCLUDE = {
     include: {
       activities: {
         orderBy: [{ highlighted: 'desc' }, { order: 'asc' }],
-        include: { skills: { select: { skillId: true } } },
+        // Stored link decisions: confirmed, suggested (ignored here) or rejected.
+        include: { skills: { select: { skillId: true, status: true } } },
       },
       skills: { select: { skillId: true } },
     },

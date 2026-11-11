@@ -5,6 +5,7 @@
 import { parseJsonField } from '@/lib/utils'
 import { normalizeSearchProfile } from '@/modules/search-profile/schema'
 import { formatMonth, formatSpan, normalizeName, oneLine } from './format'
+import { findMentions, parseWikilinks, stripWikilinks } from './links'
 import type { VaultSource } from './source'
 import type {
   CapabilityKind,
@@ -17,6 +18,7 @@ import type {
   IdentityNote,
   LanguageNote,
   Link,
+  LinkVia,
   Note,
   NoteType,
   PreferencesNote,
@@ -135,7 +137,34 @@ export function buildVault(row: VaultSource): Vault {
   }
   const capLinks = (ids: { skillId: string }[], type: Link['type']): Link[] =>
     [...new Set(ids.map((s) => alias.get(s.skillId)).filter((id): id is string => Boolean(id)))]
-      .map((id) => ({ type, id }))
+      .map((id) => ({ type, id, via: 'confirmed' as const }))
+
+  // Derived links: exact mentions and [[wikilinks]] in the note's own text.
+  // `confirmed` wins over derived; `rejected` hides a derived match.
+  const mentionable = [...byName.values()].map((id) => ({ id, name: (notes.get(id) as CapabilityNote).props.name }))
+  const unresolved: Vault['unresolved'] = []
+  const derivedLinks = (
+    noteId: string,
+    text: string,
+    type: Link['type'],
+    stored: Link[],
+    rejected: Set<string> = new Set(),
+  ): Link[] => {
+    const links = [...stored]
+    const has = new Set(stored.map((l) => l.id))
+    const push = (id: string, via: LinkVia) => {
+      if (has.has(id) || rejected.has(id)) return
+      has.add(id)
+      links.push({ type, id, via })
+    }
+    for (const name of parseWikilinks(text)) {
+      const id = byName.get(normalizeName(name))
+      if (id) push(id, 'wikilink')
+      else unresolved.push({ noteId, name })
+    }
+    for (const id of findMentions(stripWikilinks(text), mentionable)) push(id, 'exact')
+    return links
+  }
 
   // ── Experiences and their evidence ──
   for (const e of row.experiences) {
@@ -154,7 +183,13 @@ export function buildVault(row: VaultSource): Vault {
           highlighted: a.highlighted,
           parentId: e.id,
         },
-        links: capLinks(a.skills, 'demonstrates'),
+        links: derivedLinks(
+          a.id,
+          [a.description, a.impact].filter(Boolean).join('\n'),
+          'demonstrates',
+          capLinks(a.skills.filter((l) => l.status === 'confirmed'), 'demonstrates'),
+          new Set(a.skills.filter((l) => l.status === 'rejected').map((l) => alias.get(l.skillId) ?? l.skillId)),
+        ),
         backlinks: [],
         updatedAt: a.updatedAt,
       }
@@ -185,7 +220,7 @@ export function buildVault(row: VaultSource): Vault {
       links: [
         ...projectIds.map((id) => ({ type: 'contains' as const, id })),
         ...evidenceIds.map((id) => ({ type: 'has' as const, id })),
-        ...capLinks(e.skills, 'uses'),
+        ...derivedLinks(e.id, e.summary, 'uses', capLinks(e.skills, 'uses')),
       ],
       backlinks: [],
       updatedAt: e.updatedAt,
@@ -214,7 +249,7 @@ export function buildVault(row: VaultSource): Vault {
         experienceId: p.experienceId,
       },
       body: body || undefined,
-      links: capLinks(p.skills, 'uses'),
+      links: derivedLinks(p.id, body, 'uses', capLinks(p.skills, 'uses')),
       backlinks: [],
       updatedAt: p.updatedAt,
     }
@@ -297,7 +332,7 @@ export function buildVault(row: VaultSource): Vault {
     ].filter(Boolean).join(' · ')
   }
 
-  return { profileId: row.id, identity, preferences, notes, byType }
+  return { profileId: row.id, identity, preferences, notes, byType, unresolved }
 }
 
 function capabilityStatus(cap: CapabilityNote): CapabilityStatus {

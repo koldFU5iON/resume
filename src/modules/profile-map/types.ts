@@ -32,7 +32,13 @@ export type NoteType =
  */
 export type LinkType = 'contains' | 'has' | 'demonstrates' | 'uses' | 'certifies'
 
-export type Link = { type: LinkType; id: string }
+/**
+ * How a capability link came about. Confirmed links are stored decisions;
+ * exact mentions and [[wikilinks]] are derived from the text on each load.
+ */
+export type LinkVia = 'confirmed' | 'exact' | 'wikilink'
+
+export type Link = { type: LinkType; id: string; via?: LinkVia }
 
 export type CapabilityKind = 'skill' | 'tool' | 'competency'
 
@@ -161,4 +167,6 @@ export type Vault = {
   notes: Map<string, Note>
   /** Ids per type, in display order (newest first for dated notes). */
   byType: { [T in NoteType]: string[] }
+  /** [[Wikilinks]] that match no capability, for the gap list. */
+  unresolved: { noteId: string; name: string }[]
 }
