@@ -24,7 +24,7 @@ export async function GET(request: Request) {
     })
   }
 
-  return new Response(serializeProfileForLLM(snapshot), {
+  return new Response(serializeProfileForLLM(snapshot, { pii: 'include' }), {
     headers: {
       'Content-Type': 'text/markdown',
       'Content-Disposition': 'attachment; filename="profile.md"',

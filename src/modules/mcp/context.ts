@@ -84,7 +84,11 @@ export async function getJobContext(profileId: string, jobId: string): Promise<J
     },
     untrustedFields: UNTRUSTED_FIELDS,
     untrustedNotice: UNTRUSTED_NOTICE,
-    profile: capField(serializeProfileForLLM(snapshot), MAX_PROFILE_ESCAPED),
+    // Contact details stay in for now: writing-desk drafts carry the CV header
+    // as agent-written markdown, so the agent needs them. The planned fix is a
+    // server-filled {{contact}} placeholder (profile-map design, step 2), after
+    // which this becomes the default scrubbed render.
+    profile: capField(serializeProfileForLLM(snapshot, { pii: 'include' }), MAX_PROFILE_ESCAPED),
     masterCv: master ? capField(toMarkdown(master), MAX_MASTER_CV_ESCAPED) : null,
     structureGuide,
     blocks: BLOCK_LIST.map(({ id, label, description, example }) => ({

@@ -38,6 +38,11 @@ const VERTICAL = {
   competencies: ['Programme Management', 'Process Design'],
 }
 
+// The header's name, location and contact come from the profile, not the model.
+const HEADER_PROFILE = {
+  name: 'Devon', headline: null, location: 'Paris', email: 'd@example.test', phone: null, linkedin: null, website: null,
+}
+
 const CONTENT = {
   version: 1 as const,
   sections: [
@@ -48,6 +53,22 @@ const CONTENT = {
       data: { name: 'Devon', headline: 'Operations Leader', contact: {} },
     },
   ],
+}
+
+const FILLED = {
+  ...CONTENT,
+  sections: CONTENT.sections.map((section) =>
+    section.type === 'header'
+      ? {
+          ...section,
+          data: {
+            ...section.data,
+            location: 'Paris',
+            contact: { email: 'd@example.test', phone: null, linkedin: null, website: null },
+          },
+        }
+      : section,
+  ),
 }
 
 describe('formatCareerVerticalContext', () => {
@@ -150,7 +171,7 @@ describe('generateMasterCVContent', () => {
     mockLoadCVPrompt.mockResolvedValue('cv prompt')
     mockLoadWritingContext.mockResolvedValue({ rules: 'rules', brief: 'brief', searchProfileSummary: null })
     mockComposeSystem.mockReturnValue('Composed system')
-    mockBuildProfileSnapshot.mockResolvedValue({} as never)
+    mockBuildProfileSnapshot.mockResolvedValue(HEADER_PROFILE as never)
     mockSerializeProfileForLLM.mockReturnValue('Serialized profile')
     mockApplyRoleBudgets.mockImplementation(x => x)
     mockComplete.mockResolvedValue({
@@ -184,7 +205,7 @@ describe('generateMasterCVContent', () => {
 
   it('parses the fenced JSON output into a CVDocumentContent', async () => {
     const result = await generateMasterCVContent(PROFILE_ID, VERTICAL)
-    expect(result).toEqual(CONTENT)
+    expect(result).toEqual(FILLED)
     expect(result.sections[0].type).toBe('header')
   })
 
@@ -193,7 +214,7 @@ describe('generateMasterCVContent', () => {
       text: `Sure, here it is:\n\`\`\`json\n${JSON.stringify(CONTENT)}\n\`\`\`\nLet me know if you want edits.`,
     } as never)
     const result = await generateMasterCVContent(PROFILE_ID, VERTICAL)
-    expect(result).toEqual(CONTENT)
+    expect(result).toEqual(FILLED)
   })
 
   it('throws a normalized LLMError instead of a raw SyntaxError when output is unparseable', async () => {

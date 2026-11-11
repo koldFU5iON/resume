@@ -32,6 +32,9 @@ const MOCK_SNAPSHOT: ProfileSnapshot = {
   linkedin: null,
   location: null,
   headline: null,
+  github: null,
+  summary: null,
+  tools: [],
   experiences: [
     {
       role: 'Director',

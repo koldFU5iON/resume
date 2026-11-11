@@ -60,7 +60,7 @@ const facts: JobFacts = {
 }
 
 const snapshot: ProfileSnapshot = {
-  name: 'Sam Example', email: null, phone: null, website: null, linkedin: null, location: null, headline: 'PM',
+  name: 'Sam Example', email: null, phone: null, website: null, linkedin: null, github: null, summary: 'Delivery lead.', tools: [], location: null, headline: 'PM',
   experiences: [{
     role: 'Programme Manager', company: 'Old Co', startDate: new Date('2020-01-01'), endDate: null,
     location: null, remote: false, summary: 'Ran programmes.', activities: [],
@@ -118,7 +118,6 @@ beforeEach(() => {
   mockUpdate.mockResolvedValue({} as never)
   mockRow.mockResolvedValue({ profileId: 'p1', jobApplicationId: 'job-1', createdAt } as never)
   mockJob.mockResolvedValue(baseJob as never)
-  vi.mocked(prisma.profile.findUnique).mockResolvedValue({ summary: 'Delivery lead.' } as never)
   vi.mocked(prisma.userSettings.findUnique).mockResolvedValue({ searchProfile: {} } as never)
   vi.mocked(buildProfileSnapshot).mockResolvedValue(snapshot)
   mockFacts.mockResolvedValue({ facts, factsHash: 'hash-1', cached: false })

@@ -8,13 +8,14 @@ import { CVDocumentContentSchema, parseCVContent, type CVDocumentContent } from 
 import { analyseJob } from './analyse-job'
 import { scoreEvidence, applyRoleBudgets } from './score-evidence'
 import { scanCV } from './scan-cv'
+import { fillCVHeader } from './header'
 import { JobAnalysisSchema, type JobAnalysis } from '@/modules/jobs/schema'
 import { buildATSContext, formatATSContext } from './ats-context'
 import type { ATSContextResult } from './ats-context-schema'
 
 const SCHEMA_HINT = `
 Section types and their data shapes:
-- header:        { name, headline, subHeadline?, location?, contact: { email?, phone?, linkedin?, website? } }
+- header:        { name, headline, subHeadline?, location?, contact: {} }  -- name, location and contact are filled in automatically from the profile; write the headline and sub-headline, leave contact empty
 - profile:       { content }  -- prose, Markdown allowed
 - competencies:  { items: string[] }
 - capabilities:  { items: string[] }
@@ -192,7 +193,7 @@ export async function generateCVContent(
       extracted.error,
     )
   }
-  const cvContent = extracted.value
+  const cvContent = fillCVHeader(extracted.value, snapshot)
 
   // Fire-and-forget: log recruiter scan results for generation quality monitoring.
   // Errors are swallowed — the scan never blocks the CV being returned.

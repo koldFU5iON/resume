@@ -78,11 +78,8 @@ export interface CandidateStateResult {
   timeline: RoleTimelineEntry[]
 }
 
-/**
- * The snapshot plus the profile's free-text summary. ProfileSnapshot has no
- * `summary` field today; pass `Profile.summary` alongside it.
- */
-export type CandidateSource = ProfileSnapshot & { summary?: string | null }
+/** The profile snapshot; `summary` is optional so fixtures can omit it. */
+export type CandidateSource = Omit<ProfileSnapshot, 'summary'> & { summary?: string | null }
 
 // ── Text helpers ────────────────────────────────────────────────────────────
 
