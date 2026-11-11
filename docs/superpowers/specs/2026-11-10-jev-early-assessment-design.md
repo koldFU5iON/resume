@@ -338,7 +338,7 @@ A **stretch** is amber, counts toward the penalty like a warn, and reads: "Short
 | Other experience or skill must-have | — | — | `p < 0.3` |
 | Work rights | Not covered and `sponsorship ∈ {not_offered, right_to_work_required}` | Not covered and `not_mentioned` | — |
 | Relocation | — | `basedInRequired` / onsite, `currentCountry` not among the job's countries, and those countries not among the user's target countries | — |
-| Pay | Stated `max` < floor (same currency) | `min` < floor ≤ `max` | — |
+| Pay | Stated `max` < floor (same currency) | `min` < floor ≤ `max` (**Changed:** only when the range's midpoint is below the floor; a single stated figure is compared as-is, and a lone `min` below the floor stays amber) | — |
 | Dealbreaker | `dealbreaker_i > 0.7` | 0.3–0.7 | — |
 
 ### Score
@@ -380,7 +380,7 @@ The test eligibility was an EU (non-Irish) citizen based in FR, with a EUR floor
 |---|---|---|---|---|
 | 1 | Agency business-excellence manager (social platform) | not stated | **priority 8** | — |
 | 2 | EMEA business manager (cloud infrastructure) | not stated | **priority 8** | — |
-| 3 | Senior program manager (risk data) | Paris or London, €78k–129.8k | pursue 7 | pay: range straddles floor · 1 unsettled |
+| 3 | Senior program manager (risk data) | Paris or London, €78k–129.8k | pursue 7 | pay: range straddles floor (clear under the midpoint rule) · 1 unsettled |
 | 4 | Senior manager, marketing operations Europe (streaming) | hybrid, not stated | pursue 7 | 2 unsettled |
 | 5 | Business manager, GTM (HR-tech) | remote anywhere | pursue 7 | years warn: 5+ biz ops / chief of staff, ~3.7 |
 | 6 | Strategy & ops lead, applied AI (US healthcare marketplace) | remote, US | pursue 7 | work rights: US, not mentioned |
@@ -468,5 +468,5 @@ The bundled "hands-on across…" line is now split. Brand/PR at 0.96 lifts its m
   - an IE citizen: GB covered
   - an expired visa
   - remote-anywhere
-  - a pay range that straddles the floor
+  - a pay range that straddles the floor (midpoint rule)
   - a currency with no floor

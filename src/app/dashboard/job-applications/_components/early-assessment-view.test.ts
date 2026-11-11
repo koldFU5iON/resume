@@ -122,7 +122,7 @@ describe('pill text, tone, heading and aria-label', () => {
 
 describe('blocker sections', () => {
   const blockers: Blocker[] = [
-    { kind: 'pay', severity: 'unconfirmed', label: 'Pay range straddles your floor' },
+    { kind: 'pay', severity: 'unconfirmed', label: 'Most of the pay range is below your floor' },
     { kind: 'years', severity: 'warn', label: 'Short on years (~3.7 of 5): biz ops', detail: '~3.7 yrs: A 2.3 + B 0.7' },
     { kind: 'credential', severity: 'hard', label: 'Missing requirement: BSc' },
     { kind: 'years', severity: 'stretch', label: 'Short on years (~2.0 of 5) — strong transferable experience across your CV' },
@@ -130,7 +130,7 @@ describe('blocker sections', () => {
   ]
   it('blockers: hard first (stored order), then unconfirmed; no years warn/stretch', () => {
     expect(blockerItems(blockers).map((b) => b.label)).toEqual([
-      'Missing requirement: BSc', 'Needs sponsorship for US', 'Pay range straddles your floor',
+      'Missing requirement: BSc', 'Needs sponsorship for US', 'Most of the pay range is below your floor',
     ])
   })
   it('years gaps: warn and stretch with their detail', () => {

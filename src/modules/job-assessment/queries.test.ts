@@ -30,7 +30,7 @@ const complete: AssessmentRow = {
   score: 7,
   blocked: false,
   blockers: [
-    { kind: 'pay', severity: 'unconfirmed', label: 'Pay range straddles your floor' },
+    { kind: 'pay', severity: 'unconfirmed', label: 'Most of the pay range is below your floor' },
     { bogus: true },
   ],
   strengths: ['Delivery'],
@@ -60,7 +60,7 @@ describe('toAssessmentView', () => {
       strengths: ['Delivery'], unsettled: ['Budget ownership'], jevModel: 'jev-1.14.0',
       pipelineVersion: 'early-v1', processTimeMs: 1200, failureKind: null,
     })
-    expect(v.blockers).toEqual([{ kind: 'pay', severity: 'unconfirmed', label: 'Pay range straddles your floor' }])
+    expect(v.blockers).toEqual([{ kind: 'pay', severity: 'unconfirmed', label: 'Most of the pay range is below your floor' }])
   })
 
   it.each([

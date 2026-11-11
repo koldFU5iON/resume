@@ -359,8 +359,26 @@ describe('blockers table', () => {
       expect(res.blocked).toBe(true)
     })
 
-    it('is unconfirmed when the range straddles the floor (example 3: €78k–129.8k)', () => {
-      expect(severities(run({ facts: salary(78000, 129800) }), 'pay')).toEqual(['unconfirmed'])
+    it('is clear when the range reaches the floor at its midpoint (example 3: €78k–129.8k; €85k–110k)', () => {
+      expect(severities(run({ facts: salary(78000, 129800) }), 'pay')).toEqual([])
+      expect(severities(run({ facts: salary(85000, 110000) }), 'pay')).toEqual([])
+    })
+
+    it('is unconfirmed when most of the range is below the floor', () => {
+      const res = run({ facts: salary(62000, 92000) })
+      expect(res.blockers.find((b) => b.kind === 'pay')).toMatchObject({
+        severity: 'unconfirmed', label: 'Most of the pay range is below your floor',
+        detail: 'EUR 62,000–92,000 vs your floor of EUR 90,000. Only the top of the band reaches it.',
+      })
+    })
+
+    it('treats a single stated figure as the pay, whichever end it was filed under', () => {
+      expect(severities(run({ facts: salary(null, 103000) }), 'pay')).toEqual([])
+      expect(severities(run({ facts: salary(100000, 100000) }), 'pay')).toEqual([])
+      expect(run({ facts: salary(null, 80000) }).blockers[0]).toMatchObject({ severity: 'hard', detail: 'EUR up to 80,000 vs your floor of EUR 90,000.' })
+      expect(run({ facts: salary(80000, null) }).blockers.find((b) => b.kind === 'pay')).toMatchObject({
+        severity: 'unconfirmed', detail: "EUR from 80,000 vs your floor of EUR 90,000. The top isn't stated.",
+      })
     })
 
     it('subtracts 0.05 from the composite when max is below target', () => {
