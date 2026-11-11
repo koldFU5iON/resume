@@ -31,6 +31,8 @@ export async function createAndGenerateCV({
         select: { title: true, company: true },
       })
     : null
+  // Never link a CV to a job the profile doesn't own.
+  if (jobApplicationId && !jobApp) throw new Error('Job not found')
 
   // Find or bootstrap the default template — safe to run on first use in prod
   const template = await prisma.cVTemplate.upsert({

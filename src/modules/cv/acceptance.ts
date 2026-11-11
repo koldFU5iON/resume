@@ -33,17 +33,18 @@ export type AcceptCVResult =
 /** Marks one of the profile's job CVs as accepted. Only a draft can be accepted. */
 export async function acceptCV(profileId: string, cvId: string, now = new Date()): Promise<AcceptCVResult> {
   const res = await prisma.cVDocument.updateMany({
-    where: { id: cvId, profileId, status: CV_STATUS.Draft, jobApplicationId: { not: null } },
+    // The linked job must be the profile's own, not just the CV.
+    where: { id: cvId, profileId, status: CV_STATUS.Draft, jobApplication: { profileId } },
     data: { status: CV_STATUS.Accepted, acceptedAt: now, acceptedVia: 'manual' satisfies CVAcceptedVia },
   })
   if (res.count === 1) return { ok: true, acceptedAt: now }
 
   const doc = await prisma.cVDocument.findFirst({
     where: { id: cvId, profileId },
-    select: { status: true, jobApplicationId: true },
+    select: { status: true, jobApplication: { select: { profileId: true } } },
   })
   if (!doc) return { ok: false, reason: 'not_found' }
-  if (!doc.jobApplicationId) return { ok: false, reason: 'no_job' }
+  if (doc.jobApplication?.profileId !== profileId) return { ok: false, reason: 'no_job' }
   if (doc.status === CV_STATUS.Accepted) return { ok: false, reason: 'already_accepted' }
   return { ok: false, reason: 'not_ready' }
 }
@@ -81,7 +82,9 @@ export async function acceptLatestCVForAppliedJob(
       profileId,
       jobApplicationId,
       status: CV_STATUS.Draft,
-      jobApplication: { profileId, cvDocuments: { none: { status: CV_STATUS.Accepted } } },
+      // Only the job owner's CVs count: another profile's CV linked to this
+      // job can't block the owner's acceptance.
+      jobApplication: { profileId, cvDocuments: { none: { profileId, status: CV_STATUS.Accepted } } },
     },
     data: { status: CV_STATUS.Accepted, acceptedAt: now, acceptedVia: 'applied' satisfies CVAcceptedVia },
   })

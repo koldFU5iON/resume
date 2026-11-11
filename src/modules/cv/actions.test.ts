@@ -6,12 +6,13 @@ vi.mock('@/lib/session', () => ({
 vi.mock('@/lib/db', () => ({
   prisma: {
     cVDocument: { findFirst: vi.fn(), update: vi.fn(), create: vi.fn(), updateMany: vi.fn() },
+    jobApplication: { findFirst: vi.fn() },
   },
 }))
 vi.mock('./generate', () => ({ generateCVContent: vi.fn() }))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 
-import { addCustomSection, reorderSections, patchCVSectionData, regenerateCVContent, markCVAccepted } from './actions'
+import { addCustomSection, reorderSections, patchCVSectionData, regenerateCVContent, markCVAccepted, createAndGenerateCV } from './actions'
 import { prisma } from '@/lib/db'
 import { generateCVContent } from './generate'
 import type { CVDocumentContent } from './schema'
@@ -230,7 +231,20 @@ describe('markCVAccepted', () => {
 
   it('throws a readable error when the CV is still a draft without a job', async () => {
     vi.mocked(prisma.cVDocument.updateMany).mockResolvedValue({ count: 0 })
-    mockFindFirst.mockResolvedValue({ status: 'draft', jobApplicationId: null } as never)
+    mockFindFirst.mockResolvedValue({ status: 'draft', jobApplication: null } as never)
     await expect(markCVAccepted('cv-1')).rejects.toThrow('Only a CV for a job can be accepted.')
+  })
+})
+
+describe('createAndGenerateCV', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it("refuses to link a CV to a job the profile doesn't own", async () => {
+    mockFindFirst.mockResolvedValue(null as never)
+    vi.mocked(prisma.jobApplication.findFirst).mockResolvedValue(null as never)
+
+    await expect(createAndGenerateCV({ jobApplicationId: 'foreign-job' })).rejects.toThrow('Job not found')
+    expect(vi.mocked(prisma.jobApplication.findFirst).mock.calls[0][0]?.where).toEqual({ id: 'foreign-job', profileId: 'profile-1' })
+    expect(prisma.cVDocument.create).not.toHaveBeenCalled()
   })
 })

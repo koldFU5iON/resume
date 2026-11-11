@@ -18,17 +18,18 @@ describe('acceptCV', () => {
     updateMany.mockResolvedValueOnce({ count: 1 })
     expect(await acceptCV('p1', 'cv-1', now)).toEqual({ ok: true, acceptedAt: now })
     expect(updateMany).toHaveBeenCalledWith({
-      where: { id: 'cv-1', profileId: 'p1', status: 'draft', jobApplicationId: { not: null } },
+      where: { id: 'cv-1', profileId: 'p1', status: 'draft', jobApplication: { profileId: 'p1' } },
       data: { status: 'accepted', acceptedAt: now, acceptedVia: 'manual' },
     })
   })
 
   it.each([
     [null, 'not_found'],
-    [{ status: 'draft', jobApplicationId: null }, 'no_job'],
-    [{ status: 'accepted', jobApplicationId: 'job-1' }, 'already_accepted'],
-    [{ status: 'generating', jobApplicationId: 'job-1' }, 'not_ready'],
-    [{ status: 'failed', jobApplicationId: 'job-1' }, 'not_ready'],
+    [{ status: 'draft', jobApplication: null }, 'no_job'],
+    [{ status: 'draft', jobApplication: { profileId: 'someone-else' } }, 'no_job'],
+    [{ status: 'accepted', jobApplication: { profileId: 'p1' } }, 'already_accepted'],
+    [{ status: 'generating', jobApplication: { profileId: 'p1' } }, 'not_ready'],
+    [{ status: 'failed', jobApplication: { profileId: 'p1' } }, 'not_ready'],
   ])('explains why nothing changed (%o → %s)', async (doc, reason) => {
     updateMany.mockResolvedValueOnce({ count: 0 })
     findFirst.mockResolvedValueOnce(doc as never)
@@ -70,7 +71,7 @@ describe('acceptLatestCVForAppliedJob', () => {
         profileId: 'p1',
         jobApplicationId: 'job-1',
         status: 'draft',
-        jobApplication: { profileId: 'p1', cvDocuments: { none: { status: 'accepted' } } },
+        jobApplication: { profileId: 'p1', cvDocuments: { none: { profileId: 'p1', status: 'accepted' } } },
       },
       data: { status: 'accepted', acceptedAt: now, acceptedVia: 'applied' },
     })
