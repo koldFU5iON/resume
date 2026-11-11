@@ -92,6 +92,16 @@ Feature code declares **what kind of work** a call is. The LLM layer picks the m
 
 **Migrating existing callers:** `facts.ts`, `enrich.ts` and `extract-llm.ts` move from `resolveFastModel` to `role: 'fast'`. `FAST_MODELS` becomes the `fast` column of `ROLE_RECOMMENDATIONS`.
 
+**Status (#350):** built. Web search mapping per provider (`src/modules/llm/web-search.ts`), unit-tested against the installed SDK tool factories:
+
+| Provider | Mapping | Live test |
+|---|---|---|
+| Anthropic | `webSearch_20260209` + `webFetch_20260209`, `maxUses` and `allowedDomains` on both | Not yet: no key in the build environment |
+| OpenAI | `webSearch` with `filters.allowedDomains`; no per-call use limit, so `maxUses` isn't enforced | Not yet: no key |
+| Google | `googleSearch`; no use limit or domain filter; searches counted from `groundingMetadata.webSearchQueries` | Not yet: no key |
+
+Record live results here once tried with real keys (step 2 of the build order).
+
 ### 3.1 Gather (no LLM)
 
 - Job: title, company, `countries`, `jobDescription`, `salaryBand`, notes (only when `notesIncludeInFit`)

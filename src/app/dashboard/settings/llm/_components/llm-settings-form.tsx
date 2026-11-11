@@ -15,6 +15,8 @@ import {
 } from '@/components/ui/select'
 import { saveLLMApiKey, saveLLMModel, refreshModels, clearLLMApiKey } from '@/modules/llm/actions'
 import { toast } from 'sonner'
+import type { ModelRoleChoices } from '@/modules/llm/roles'
+import { ModelRolesSection } from './model-roles-section'
 
 type ProviderModel = { id: string; name: string }
 
@@ -25,6 +27,7 @@ type Props = {
     keyConfigured: boolean
     availableModels: ProviderModel[] | null
     availableModelsUpdatedAt: Date | null
+    modelRoles: ModelRoleChoices
   }
 }
 
@@ -261,6 +264,17 @@ export function LLMSettingsForm({ initial }: Props) {
           </p>
         )}
       </div>
+
+      {keyConfigured && availableModels !== null && availableModels.length > 0 && (
+        <ModelRolesSection
+          // Saving a key for another provider clears the stored choices.
+          key={provider}
+          provider={provider}
+          defaultModel={selectedModel}
+          availableModels={availableModels}
+          initialChoices={initial.provider === provider ? initial.modelRoles : {}}
+        />
+      )}
 
       {/* Remove key */}
       {keyConfigured && (

@@ -7,7 +7,7 @@
 // never import from 'ai' or any provider SDK directly — adding a new provider
 // is a single addition to PROVIDERS below, with no ripple beyond this file.
 
-import { generateText, Output, NoObjectGeneratedError, type LanguageModel, type LanguageModelUsage } from 'ai'
+import { generateText, Output, NoObjectGeneratedError, type LanguageModel, type LanguageModelUsage, type ToolSet } from 'ai'
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { createOpenAI } from '@ai-sdk/openai'
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
@@ -18,8 +18,12 @@ import { decrypt } from '@/lib/encryption'
 import { LLMError, normalizeLLMError } from './errors'
 import { extractJSON } from './extract-json'
 import { resolveAttribution, type LlmAttribution } from './attribution'
+import { availableModelIds, normalizeModelRoleChoices, resolveRoleModel, type ModelRole, type ModelRoleChoices } from './roles'
+import { googleSearchQueryCount, webSearchTools, type WebSearchOptions } from './web-search'
 
 export type { LlmAttribution } from './attribution'
+export type { ModelRole } from './roles'
+export type { WebSearchOptions } from './web-search'
 
 // Supported providers. Adding a new one is a single entry here — the factory
 // receives the user's decrypted API key and the model id and returns a
@@ -39,6 +43,8 @@ export type UsageLogEntry = {
   provider: string
   model: string
   feature: string | null
+  /** Model role the call asked for (see ./roles.ts). */
+  role?: string | null
   promptTokens: number
   completionTokens: number
   totalTokens: number
@@ -109,11 +115,28 @@ export function countServerToolCalls(result: {
   return n
 }
 
+/**
+ * Server tool calls for a usage row. Google reports grounding searches only
+ * in provider metadata, so a web-search call on Google counts its queries.
+ */
+function serverToolCallsFor(
+  provider: string,
+  result: Parameters<typeof countServerToolCalls>[0] & { providerMetadata?: unknown },
+  webSearch: boolean,
+): number | null {
+  const counted = countServerToolCalls(result)
+  if (provider === 'google' && webSearch) {
+    const queries = googleSearchQueryCount(result.providerMetadata)
+    if (queries !== null) return Math.max(counted ?? 0, queries)
+  }
+  return counted
+}
+
 function logUsage(
   profileId: string,
   provider: string,
   model: string,
-  opts: Pick<CompleteOptions, 'feature' | 'attribution'>,
+  opts: Pick<CompleteOptions, 'feature' | 'attribution' | 'role'>,
   usage: LanguageModelUsage | undefined,
   latencyMs: number,
   serverToolCalls: number | null,
@@ -124,6 +147,7 @@ function logUsage(
       provider,
       model,
       feature: opts.feature ?? null,
+      role: opts.role ?? 'default',
       ...usageColumns(usage),
       serverToolCalls,
       latencyMs,
@@ -142,7 +166,7 @@ function logFailedCall(
   profileId: string,
   provider: string,
   model: string,
-  opts: Pick<CompleteOptions, 'feature' | 'attribution'>,
+  opts: Pick<CompleteOptions, 'feature' | 'attribution' | 'role'>,
   error: LLMError,
   rawError: unknown,
   latencyMs: number,
@@ -155,6 +179,7 @@ function logFailedCall(
         provider,
         model,
         feature: opts.feature ?? null,
+        role: opts.role ?? 'default',
         ...usageColumns(usage),
         serverToolCalls: null,
         latencyMs,
@@ -168,25 +193,14 @@ function logFailedCall(
   }
 }
 
-// Cheap, fast model per provider for high-volume structured steps (e.g. job
-// assessment facts). null = no verified id yet; resolveFastModel falls back to
-// the user's default model.
-export const FAST_MODELS: Record<'anthropic' | 'openai' | 'google', string | null> = {
-  anthropic: 'claude-haiku-5-5',
-  openai: null,
-  google: null,
-}
-
 /**
- * Model id to pass as `opts.model` for cheap structured calls. Uses the
- * provider's FAST_MODELS entry when the user's cached model list (if any)
- * contains that exact id (current Claude ids carry no date suffix), otherwise
- * the user's default model.
+ * Throws LLMError kind 'not_configured' when the user has no key. For callers
+ * that want to fail before doing other work (e.g. fetching a page).
  */
-export async function resolveFastModel(profileId: string): Promise<string> {
+export async function assertLLMConfigured(profileId: string): Promise<void> {
   const settings = await prisma.userSettings.findUnique({
     where: { profileId },
-    select: { llmProvider: true, llmModel: true, llmApiKey: true, availableModels: true },
+    select: { llmApiKey: true },
   })
   if (!settings?.llmApiKey) {
     throw new LLMError(
@@ -194,17 +208,6 @@ export async function resolveFastModel(profileId: string): Promise<string> {
       'not_configured',
     )
   }
-
-  const fast = (FAST_MODELS as Record<string, string | null | undefined>)[settings.llmProvider]
-  if (!fast) return settings.llmModel
-
-  const available = Array.isArray(settings.availableModels)
-    ? (settings.availableModels as { id?: unknown }[])
-        .map(m => m?.id)
-        .filter((id): id is string => typeof id === 'string')
-    : null
-  if (!available || available.includes(fast)) return fast
-  return settings.llmModel
 }
 
 type ResolvedConfig = {
@@ -222,10 +225,11 @@ function samplingOptions(provider: string, model: string, temperature: number | 
   return temperature === undefined ? {} : { temperature }
 }
 
-async function resolveConfig(profileId: string): Promise<ResolvedConfig> {
+/** Provider, key and model for a call: `opts.model` if given, else the model for `opts.role`. */
+async function resolveConfig(profileId: string, opts: Pick<CompleteOptions, 'model' | 'role'>): Promise<ResolvedConfig> {
   const settings = await prisma.userSettings.findUnique({
     where: { profileId },
-    select: { llmProvider: true, llmModel: true, llmApiKey: true },
+    select: { llmProvider: true, llmModel: true, llmApiKey: true, availableModels: true, llmModelRoles: true },
   })
 
   if (!settings?.llmApiKey) {
@@ -253,7 +257,17 @@ async function resolveConfig(profileId: string): Promise<ResolvedConfig> {
     )
   }
 
-  return { provider, model: settings.llmModel, apiKey }
+  const model = opts.model ?? resolveRoleModel(
+    {
+      provider,
+      defaultModel: settings.llmModel,
+      availableModels: availableModelIds(settings.availableModels),
+      choices: normalizeModelRoleChoices(settings.llmModelRoles),
+    },
+    opts.role ?? 'default',
+  ).model
+
+  return { provider, model, apiKey }
 }
 
 export async function resolveModelForChat(profileId: string): Promise<{ languageModel: LanguageModel; provider: string; model: string }> {
@@ -294,8 +308,23 @@ export async function resolveModelForChat(profileId: string): Promise<{ language
 }
 
 export type CompleteOptions = {
-  /** Override the user's default model for this call (e.g. switch to a stronger model). */
+  /**
+   * What kind of work this call is; the user's settings pick the model for
+   * it (see ./roles.ts). Default 'default' (the user's main model). Feature
+   * code uses this, never `model`.
+   */
+  role?: ModelRole
+  /**
+   * Explicit model id, overriding `role`. Only for tests and admin tools:
+   * feature code must not name model ids.
+   */
   model?: string
+  /**
+   * Turn on the provider's server-side web search for this call. Throws
+   * LLMError kind 'unsupported' when the provider has none. Searches are
+   * recorded in the usage row's serverToolCalls.
+   */
+  webSearch?: WebSearchOptions
   /** System prompt — sets persona / constraints separately from the user prompt. */
   system?: string
   /** Cap on generated tokens. Useful for keeping costs bounded. */
@@ -338,9 +367,10 @@ export async function complete(
   prompt: string,
   opts: CompleteOptions,
 ): Promise<CompleteResult> {
-  const cfg = await resolveConfig(profileId)
-  const modelId = opts.model ?? cfg.model
+  const cfg = await resolveConfig(profileId, opts)
+  const modelId = cfg.model
   const model = PROVIDERS[cfg.provider](cfg.apiKey, modelId)
+  const tools = searchTools(cfg.provider, opts)
 
   const signal = timeoutSignal(opts)
   const startedAt = Date.now()
@@ -351,10 +381,11 @@ export async function complete(
       system: opts.system,
       maxOutputTokens: opts.maxOutputTokens,
       ...samplingOptions(cfg.provider, modelId, opts.temperature),
+      ...(tools ? { tools } : {}),
       ...(signal ? { abortSignal: signal } : {}),
     })
     const latencyMs = Date.now() - startedAt
-    logUsage(profileId, cfg.provider, modelId, opts, result.usage, latencyMs, countServerToolCalls(result))
+    logUsage(profileId, cfg.provider, modelId, opts, result.usage, latencyMs, serverToolCallsFor(cfg.provider, result, !!tools))
     return {
       text: result.text,
       finishReason: result.finishReason,
@@ -389,6 +420,11 @@ const ZERO_USAGE: LanguageModelUsage = {
   },
 }
 
+/** Search tools for `opts.webSearch`, or undefined. Throws LLMError 'unsupported' for a provider without search. */
+function searchTools(provider: string, opts: CompleteOptions): ToolSet | undefined {
+  return opts.webSearch ? webSearchTools(provider, opts.webSearch) : undefined
+}
+
 /** The caller's timeout as an AbortSignal, or undefined. */
 function timeoutSignal(opts: CompleteOptions): AbortSignal | undefined {
   return opts.timeoutMs !== undefined ? AbortSignal.timeout(opts.timeoutMs) : undefined
@@ -408,9 +444,10 @@ export async function completeStructured<T>(
   schema: z.ZodType<T>,
   opts: CompleteOptions,
 ): Promise<CompleteStructuredResult<T>> {
-  const cfg = await resolveConfig(profileId)
-  const modelId = opts.model ?? cfg.model
+  const cfg = await resolveConfig(profileId, opts)
+  const modelId = cfg.model
   const model = PROVIDERS[cfg.provider](cfg.apiKey, modelId)
+  const tools = searchTools(cfg.provider, opts)
 
   const signal = timeoutSignal(opts)
   const startedAt = Date.now()
@@ -421,11 +458,12 @@ export async function completeStructured<T>(
       system: opts.system,
       maxOutputTokens: opts.maxOutputTokens,
       ...samplingOptions(cfg.provider, modelId, opts.temperature),
+      ...(tools ? { tools } : {}),
       output: Output.object({ schema }),
       ...(signal ? { abortSignal: signal } : {}),
     })
     const latencyMs = Date.now() - startedAt
-    logUsage(profileId, cfg.provider, modelId, opts, result.usage, latencyMs, countServerToolCalls(result))
+    logUsage(profileId, cfg.provider, modelId, opts, result.usage, latencyMs, serverToolCallsFor(cfg.provider, result, !!tools))
     return {
       object: result.output as T,
       provider: cfg.provider,
@@ -469,6 +507,7 @@ export async function getLLMConfigStatus(profileId: string): Promise<{
   model: string | null
   availableModels: { id: string; name: string }[] | null
   availableModelsUpdatedAt: Date | null
+  modelRoles: ModelRoleChoices
 }> {
   const settings = await prisma.userSettings.findUnique({
     where: { profileId },
@@ -478,6 +517,7 @@ export async function getLLMConfigStatus(profileId: string): Promise<{
       llmApiKey: true,
       availableModels: true,
       availableModelsUpdatedAt: true,
+      llmModelRoles: true,
     },
   })
   return {
@@ -486,5 +526,6 @@ export async function getLLMConfigStatus(profileId: string): Promise<{
     model: settings?.llmModel ?? null,
     availableModels: (settings?.availableModels as { id: string; name: string }[] | null) ?? null,
     availableModelsUpdatedAt: settings?.availableModelsUpdatedAt ?? null,
+    modelRoles: normalizeModelRoleChoices(settings?.llmModelRoles),
   }
 }

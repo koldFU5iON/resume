@@ -90,6 +90,7 @@ export async function POST(request: Request) {
               provider: resolvedChat.provider,
               model: resolvedChat.model,
               feature: 'chat-turn',
+              role: 'default',
               promptTokens: totalUsage.inputTokens ?? 0,
               completionTokens: totalUsage.outputTokens ?? 0,
               totalTokens: totalUsage.totalTokens ?? 0,

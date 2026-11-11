@@ -16,6 +16,7 @@ Each log entry captures:
 | `provider` | `anthropic`, `openai`, or `google` |
 | `model` | Exact model ID (e.g. `claude-sonnet-4-6`) |
 | `feature` | The product operation that triggered the call (required) |
+| `role` | Model role the call asked for (`default`, `fast`, `research`, `analysis`); null on older rows and Jev |
 | `promptTokens` | Input tokens consumed |
 | `completionTokens` | Output tokens generated |
 | `totalTokens` | Sum of the above |

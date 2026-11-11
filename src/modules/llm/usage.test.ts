@@ -8,7 +8,7 @@ vi.mock('@/lib/db', () => ({
 }))
 
 import { prisma } from '@/lib/db'
-import { getUserUsageSummary } from './usage'
+import { getUserUsageSummary, summarizeByRole, type RoleModelGroup } from './usage'
 
 const log = vi.mocked(prisma.llmUsageLog)
 
@@ -42,5 +42,35 @@ describe('getUserUsageSummary', () => {
     const notFailed = { NOT: { feature: { endsWith: ':failed' } } }
     expect(log.count.mock.calls[0][0]).toMatchObject({ where: { profileId: 'p1', provider: 'typesafe', ...notFailed, createdAt: { gte: expect.any(Date) } } })
     expect(log.count.mock.calls[1][0]).toEqual({ where: { profileId: 'p1', provider: 'typesafe', ...notFailed } })
+  })
+})
+
+describe('summarizeByRole', () => {
+  const group = (role: string | null, provider: string, model: string, tokens: number, over: Partial<RoleModelGroup['_sum']> = {}): RoleModelGroup => ({
+    role, provider, model, _count: { id: 2 },
+    _sum: { promptTokens: tokens / 2, completionTokens: tokens / 2, totalTokens: tokens, cacheReadTokens: null, cacheWriteTokens: null, serverToolCalls: null, ...over },
+  })
+
+  it('folds models into one row per role, priced, most tokens first', () => {
+    const rows = summarizeByRole([
+      group('fast', 'anthropic', 'claude-haiku-5-5', 2_000_000),
+      group('default', 'anthropic', 'claude-sonnet-5-5', 6_000_000),
+      group('fast', 'anthropic', 'claude-sonnet-5-5', 2_000_000),
+    ])
+    expect(rows.map(r => r.role)).toEqual(['default', 'fast'])
+    expect(rows[1]).toMatchObject({ tokens: 4_000_000, calls: 4, estimateComplete: true })
+    // haiku: 1M in × 0.1 + 1M out × 0.5 = 0.6; sonnet: 1M × 2 + 1M × 10 = 12
+    expect(rows[1].estimatedCostUsd).toBeCloseTo(12.6)
+  })
+
+  it('marks the estimate incomplete for unpriced models and server tool calls', () => {
+    const [openai] = summarizeByRole([group('research', 'openai', 'gpt-5', 100)])
+    expect(openai).toMatchObject({ estimateComplete: false, estimatedCostUsd: 0 })
+    const [search] = summarizeByRole([group('research', 'anthropic', 'claude-sonnet-5-5', 100, { serverToolCalls: 3 })])
+    expect(search.estimateComplete).toBe(false)
+  })
+
+  it('keeps pre-role rows under null', () => {
+    expect(summarizeByRole([group(null, 'anthropic', 'claude-sonnet-5-5', 10)])[0].role).toBeNull()
   })
 })

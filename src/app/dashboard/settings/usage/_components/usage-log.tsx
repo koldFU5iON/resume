@@ -4,6 +4,7 @@ import type { UserUsageSummary } from '@/modules/llm/usage'
 import { formatDate } from '@/lib/utils'
 import { formatTokens } from '@/modules/llm/format'
 import { featureLabel } from './feature-labels'
+import { isModelRole, ROLE_INFO } from '@/modules/llm/roles'
 import { Bar, BarChart, XAxis, YAxis, CartesianGrid, Cell } from 'recharts'
 import {
   ChartContainer,
@@ -16,6 +17,15 @@ function shortMonth(yyyyMm: string): string {
   const [year, month] = yyyyMm.split('-')
   const d = new Date(Number(year), Number(month) - 1, 1)
   return d.toLocaleString('default', { month: 'short', year: '2-digit' })
+}
+
+function roleLabel(role: string | null): string {
+  if (role === null) return 'Not recorded (older calls)'
+  return isModelRole(role) ? ROLE_INFO[role].label : role
+}
+
+function formatUsd(n: number): string {
+  return n < 0.01 && n > 0 ? '<$0.01' : `$${n.toFixed(2)}`
 }
 
 const monthChartConfig = {
@@ -142,6 +152,43 @@ export function UsageLog({ stats }: { stats: UserUsageSummary }) {
               </div>
             )}
           </div>
+
+          {/* By task (model role) */}
+          {stats.byRole.length > 0 && (
+            <div className="rounded-lg border bg-card p-4">
+              <p className="mb-1 text-sm font-medium">By task</p>
+              <p className="mb-3 text-xs text-muted-foreground">
+                Which kind of work your tokens went on. Costs are estimates from list prices, not your provider&apos;s bill.
+              </p>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-xs text-muted-foreground">
+                    <th className="py-1.5 text-left font-medium">Task</th>
+                    <th className="py-1.5 text-right font-medium">Calls</th>
+                    <th className="py-1.5 text-right font-medium">Tokens</th>
+                    <th className="py-1.5 text-right font-medium">Est. cost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stats.byRole.map(r => (
+                    <tr key={r.role ?? 'none'} className="border-b last:border-0">
+                      <td className="py-1.5 text-xs">{roleLabel(r.role)}</td>
+                      <td className="py-1.5 text-right tabular-nums text-xs text-muted-foreground">
+                        {r.calls.toLocaleString()}
+                      </td>
+                      <td className="py-1.5 text-right tabular-nums text-xs">{formatTokens(r.tokens)}</td>
+                      <td
+                        className="py-1.5 text-right tabular-nums text-xs text-muted-foreground"
+                        title={r.estimateComplete ? undefined : 'Partial: some models have no known price, or web searches were billed per call'}
+                      >
+                        {r.estimateComplete ? formatUsd(r.estimatedCostUsd) : `${formatUsd(r.estimatedCostUsd)}+`}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           {/* Log table */}
           <div className="overflow-x-auto rounded-lg border">

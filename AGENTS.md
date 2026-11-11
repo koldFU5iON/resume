@@ -224,6 +224,8 @@ abstraction in `src/modules/llm/`:
 - `completeStructured(profileId, prompt, zodSchema, opts)` — typed JSON output via `Output.object`
 - All errors normalize to `LLMError` with a `kind` field; product code branches on `kind` instead of provider-specific SDK errors
 - `getLLMConfigStatus(profileId)` — cheap read-only check for "is this user set up?"
+- `role: 'fast' | 'research' | 'analysis'` (default `'default'`) — feature code says what kind of work a call is; the user's "Models by task" settings pick the model. **No feature module names a model id**: only `ROLE_RECOMMENDATIONS` in `src/modules/llm/roles.ts` does. `opts.model` is for tests and admin tools only.
+- `webSearch: { maxUses, allowedDomains? }` — provider-side web search (Anthropic, OpenAI, Google); a provider without one throws `LLMError` kind `unsupported`
 
 Providers wired in: Anthropic, OpenAI, Google. Adding more is a single entry in
 the `PROVIDERS` map in `client.ts`. See `docs/llm-layer.md` for usage examples.

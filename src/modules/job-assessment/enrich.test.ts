@@ -1,19 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('@/lib/db', () => ({ prisma: { jobApplication: { updateMany: vi.fn() } } }))
-vi.mock('@/modules/llm/client', () => ({ resolveFastModel: vi.fn() }))
+vi.mock('@/modules/llm/client', () => ({ assertLLMConfigured: vi.fn() }))
 vi.mock('@/modules/jobs/extract-fetch', () => ({ fetchPageContent: vi.fn() }))
 vi.mock('@/modules/jobs/extract-llm', () => ({ extractWithLLM: vi.fn() }))
 
 import { prisma } from '@/lib/db'
-import { resolveFastModel } from '@/modules/llm/client'
+import { assertLLMConfigured } from '@/modules/llm/client'
 import { LLMError } from '@/modules/llm/errors'
 import { fetchPageContent } from '@/modules/jobs/extract-fetch'
 import { extractWithLLM } from '@/modules/jobs/extract-llm'
 import { enrichJob, isClearlyBetterDescription, missingFields, needsEnrichment, REPLACED_DESCRIPTION, type EnrichJob } from './enrich'
 
 const mockUpdate = vi.mocked(prisma.jobApplication.updateMany)
-const mockFast = vi.mocked(resolveFastModel)
+const mockConfigured = vi.mocked(assertLLMConfigured)
 const mockFetch = vi.mocked(fetchPageContent)
 const mockExtract = vi.mocked(extractWithLLM)
 
@@ -37,7 +37,7 @@ const extracted = {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  mockFast.mockResolvedValue('claude-haiku-5-5')
+  mockConfigured.mockResolvedValue(undefined)
   mockFetch.mockResolvedValue({ ok: true, html: '<html></html>', via: 'raw' })
   mockExtract.mockResolvedValue({ ok: true, data: extracted })
   mockUpdate.mockResolvedValue({ count: 1 })
@@ -72,13 +72,14 @@ describe('enrichJob', () => {
     })
   })
 
-  it('uses the cheap model and the enrich feature tag, fetching once', async () => {
+  it('uses the enrich feature tag, fetching once', async () => {
     await enrichJob('p1', thin)
     expect(mockFetch).toHaveBeenCalledTimes(1)
     expect(mockFetch).toHaveBeenCalledWith('https://jobs.example.com/1')
     expect(mockExtract).toHaveBeenCalledWith('<html></html>', 'p1', expect.objectContaining({
-      feature: 'job-assessment-enrich', model: 'claude-haiku-5-5', timeoutMs: 30_000, redactInvalidOutput: true,
+      feature: 'job-assessment-enrich', timeoutMs: 30_000, redactInvalidOutput: true,
     }))
+    expect(mockExtract.mock.calls[0][2]).not.toHaveProperty('model')
   })
 
   it('reports a timed-out extraction clearly', async () => {
@@ -92,7 +93,7 @@ describe('enrichJob', () => {
     expect(needsEnrichment(job)).toBe(false)
     const res = await enrichJob('p1', job)
     expect(res.filled).toEqual([])
-    expect(mockFast).not.toHaveBeenCalled()
+    expect(mockConfigured).not.toHaveBeenCalled()
     expect(mockFetch).not.toHaveBeenCalled()
   })
 
@@ -114,7 +115,7 @@ describe('enrichJob', () => {
   })
 
   it('throws not_configured before fetching when the user has no key', async () => {
-    mockFast.mockRejectedValueOnce(new LLMError('no key', 'not_configured'))
+    mockConfigured.mockRejectedValueOnce(new LLMError('no key', 'not_configured'))
     await expect(enrichJob('p1', thin)).rejects.toMatchObject({ kind: 'not_configured' })
     expect(mockFetch).not.toHaveBeenCalled()
   })

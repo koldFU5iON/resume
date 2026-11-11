@@ -49,8 +49,6 @@ const NO_KEY_ERROR = 'No job details found. Add an LLM key in Settings to enable
 export type ExtractWithLLMOptions = {
   /** Usage feature tag. Default 'job-extract' (the capture/extract flows). */
   feature?: string
-  /** Model override, e.g. resolveFastModel(profileId). Default: the user's model. */
-  model?: string
   /** Default 400 (the capture/extract flows). */
   maxOutputTokens?: number
   /** Abort after this many ms; a timeout returns `{ ok: false, timedOut: true }`. */
@@ -81,7 +79,7 @@ export async function extractWithLLM(
       maxOutputTokens: opts.maxOutputTokens ?? 400,
       temperature: 0,
       feature: opts.feature ?? 'job-extract',
-      ...(opts.model ? { model: opts.model } : {}),
+      role: 'fast',
       ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
       ...(opts.redactInvalidOutput ? { redactInvalidOutput: true } : {}),
       ...(opts.attribution ? { attribution: opts.attribution } : {}),

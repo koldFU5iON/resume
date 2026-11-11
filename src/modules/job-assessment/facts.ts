@@ -2,7 +2,7 @@
  * Facts step (spec §3): the cheap model turns the job description into the
  * structured JobFacts the judge questions and combine rules are built from.
  *
- * - Runs on the user's own key with FAST_MODELS (`resolveFastModel`),
+ * - Runs on the user's own key with the `fast` model role,
  *   temperature 0, feature 'job-assessment-facts'.
  * - The job description is untrusted page text: it goes into the user
  *   message inside <job_description> tags, never into the system prompt.
@@ -17,7 +17,7 @@
 import { createHash } from 'node:crypto'
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
-import { completeStructured, resolveFastModel, type LlmAttribution } from '@/modules/llm/client'
+import { completeStructured, type LlmAttribution } from '@/modules/llm/client'
 import { cutAtSentence } from './candidate-state'
 import { toCountryCode } from './countries'
 import { DESCRIPTION_MAX_CHARS, JobFactsSchema, PIPELINE_VERSION, type JobFacts } from './schema'
@@ -159,7 +159,7 @@ export async function extractJobFacts(
 
   const result = await completeStructured(profileId, buildFactsPrompt(job), JobFactsSchema, {
     system: FACTS_SYSTEM_PROMPT,
-    model: await resolveFastModel(profileId),
+    role: 'fast',
     feature: 'job-assessment-facts',
     ...(attribution ? { attribution } : {}),
     temperature: 0,
