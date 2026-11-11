@@ -4,7 +4,7 @@
 import { normalize } from '@/modules/profile/duplicate-detect'
 import { notesOf } from './build'
 import { normalizeName } from './format'
-import type { NoteType, Vault } from './types'
+import type { ExperienceNote, NoteType, Vault } from './types'
 
 export type MapEntry = {
   id: string
@@ -141,24 +141,46 @@ function findGaps(vault: Vault): { gaps: Gap[]; checks: number; passed: number }
 const MONTH_MS = 30 * 24 * 60 * 60 * 1000
 /** A handover of up to this long between roles at one company is normal, not an overlap. */
 const OVERLAP_GRACE_MS = 3 * MONTH_MS
+const MAX_OVERLAP_GAPS = 100
+const GAP_LABEL_CHARS = 160
 
-/** Roles at the same company whose dates overlap by more than a handover. */
+/** Sorted interval sweep: each visit either expires a role or emits a bounded warning. */
 function overlappingRoles(vault: Vault): Gap[] {
   const gaps: Gap[] = []
   const now = Date.now()
-  const roles = notesOf(vault, 'experience')
-  for (let i = 0; i < roles.length; i++) {
-    for (let j = i + 1; j < roles.length; j++) {
-      const a = roles[i], b = roles[j]
-      if (normalizeName(a.props.company) !== normalizeName(b.props.company)) continue
-      const start = Math.max(a.props.startDate.getTime(), b.props.startDate.getTime())
-      const end = Math.min(a.props.endDate?.getTime() ?? now, b.props.endDate?.getTime() ?? now)
-      if (end - start <= OVERLAP_GRACE_MS) continue
-      const months = Math.round((end - start) / MONTH_MS)
-      gaps.push({
-        noteId: a.id, area: 'experience',
-        message: `${a.props.role} and ${b.props.role} at ${a.props.company} overlap by about ${months} months. Were they held at the same time, or should the dates change?`,
-      })
+  type Interval = { note: ExperienceNote; start: number; end: number }
+  const companies = new Map<string, Interval[]>()
+  for (const note of notesOf(vault, 'experience')) {
+    const start = note.props.startDate.getTime()
+    const end = note.props.endDate?.getTime() ?? now
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end - start <= OVERLAP_GRACE_MS) continue
+    const company = normalizeName(note.props.company)
+    const group = companies.get(company) ?? []
+    group.push({ note, start, end })
+    companies.set(company, group)
+  }
+  for (const roles of companies.values()) {
+    roles.sort((a, b) => a.start - b.start)
+    let active: Interval[] = []
+    for (const current of roles) {
+      const next: Interval[] = []
+      for (const previous of active) {
+        const end = Math.min(previous.end, current.end)
+        if (end - current.start <= OVERLAP_GRACE_MS) continue
+        if (gaps.length === MAX_OVERLAP_GAPS) {
+          gaps.push({ area: 'experience', message: 'Additional role overlap warnings omitted. Review the reported dates first.' })
+          return gaps
+        }
+        const a = previous.note, b = current.note
+        const months = Math.round((end - current.start) / MONTH_MS)
+        gaps.push({
+          noteId: a.id, area: 'experience',
+          message: `${a.props.role.slice(0, GAP_LABEL_CHARS)} and ${b.props.role.slice(0, GAP_LABEL_CHARS)} at ${a.props.company.slice(0, GAP_LABEL_CHARS)} overlap by about ${months} months. Were they held at the same time, or should the dates change?`,
+        })
+        next.push(previous)
+      }
+      next.push(current)
+      active = next
     }
   }
   return gaps
@@ -168,11 +190,16 @@ function overlappingRoles(vault: Vault): Gap[] {
 const DUPLICATE_SIMILARITY = 0.8
 /** Pairwise comparison is quadratic; past this many atoms the check is skipped. */
 const MAX_EVIDENCE_FOR_DUPLICATES = 400
+/** Bound token-set work as well as pair count, including legacy unbounded descriptions. */
+const MAX_DUPLICATE_TEXT_CHARS = 100_000
 
 /** Near-identical evidence filed under two different roles. */
 function duplicatedEvidence(vault: Vault): Gap[] {
   const atoms = notesOf(vault, 'evidence')
-  if (atoms.length > MAX_EVIDENCE_FOR_DUPLICATES) return []
+  if (atoms.length > MAX_EVIDENCE_FOR_DUPLICATES ||
+      atoms.reduce((total, atom) => total + atom.props.description.length, 0) > MAX_DUPLICATE_TEXT_CHARS) {
+    return [{ area: 'evidence', message: 'Duplicate evidence check omitted for a large evidence collection. Review repeated achievements manually.' }]
+  }
   const words = atoms.map((e) => new Set(normalize(e.props.description).split(' ').filter((w) => w.length > 2)))
   const gaps: Gap[] = []
   const reported = new Set<string>()
@@ -186,8 +213,8 @@ function duplicatedEvidence(vault: Vault): Gap[] {
       for (const w of wa) if (wb.has(w)) shared++
       if (shared / (wa.size + wb.size - shared) < DUPLICATE_SIMILARITY) continue
       reported.add(a.id).add(b.id)
-      const roleA = vault.notes.get(a.props.parentId)?.title ?? 'one role'
-      const roleB = vault.notes.get(b.props.parentId)?.title ?? 'another'
+      const roleA = vault.notes.get(a.props.parentId)?.title.slice(0, GAP_LABEL_CHARS) ?? 'one role'
+      const roleB = vault.notes.get(b.props.parentId)?.title.slice(0, GAP_LABEL_CHARS) ?? 'another'
       gaps.push({
         noteId: a.id, area: 'evidence',
         message: `"${a.title}" appears under both ${roleA} and ${roleB}. Which role does it belong to?`,

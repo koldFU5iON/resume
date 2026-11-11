@@ -4,7 +4,7 @@ import { buildVault, notesOf, PREFERENCES_NOTE_ID } from './build'
 import { profileMap } from './map'
 import { renderNote } from './render'
 import { d, vaultSource } from './__fixtures__/source'
-import type { CapabilityNote, EvidenceNote } from './types'
+import type { CapabilityNote, EvidenceNote, ExperienceNote } from './types'
 
 const source = vaultSource
 
@@ -145,6 +145,68 @@ describe('profileMap', () => {
       educations: [], certifications: [], languages: [], settings: null,
     })))
     expect(map.gaps.map((g) => g.area)).toEqual(expect.arrayContaining(['identity', 'experience', 'capability', 'education', 'preferences']))
+  })
+
+  it('handles many long company names without pairwise normalization', () => {
+    const vault = buildVault(source())
+    const template = vault.notes.get('e1') as ExperienceNote
+    vault.byType.experience = []
+    for (let i = 0; i < 400; i++) {
+      const id = `role-${i}`
+      vault.byType.experience.push(id)
+      vault.notes.set(id, {
+        ...template, id, links: [],
+        props: { ...template.props, company: `${'company '.repeat(3000)}${i}` },
+      })
+    }
+    const started = performance.now()
+    const map = profileMap(vault)
+    expect(map.gaps.filter((g) => g.message.includes('overlap'))).toEqual([])
+    // Leave room for concurrent CI workers; the pairwise version takes ~26 seconds.
+    expect(performance.now() - started).toBeLessThan(3000)
+  })
+
+  it('bounds warnings when many roles overlap and says when results are omitted', () => {
+    const vault = buildVault(source())
+    const template = vault.notes.get('e1') as ExperienceNote
+    vault.byType.experience = []
+    for (let i = 0; i < 100; i++) {
+      const id = `role-${i}`
+      vault.byType.experience.push(id)
+      vault.notes.set(id, {
+        ...template, id, links: [],
+        props: { ...template.props, role: 'Role'.repeat(1000), company: 'Company'.repeat(1000) },
+      })
+    }
+    const warnings = profileMap(vault).gaps.filter((g) => g.message.includes('overlap'))
+    expect(warnings.length).toBeLessThanOrEqual(101)
+    expect(warnings.every((g) => g.message.length < 1000)).toBe(true)
+    expect(warnings.at(-1)?.message).toContain('omitted')
+  })
+
+  it('finds nested overlaps in unsorted roles without losing a long-running role', () => {
+    const base = source()
+    const template = base.experiences[0]
+    const experiences = [
+      { id: 'late', role: 'Late', company: ' Acme ', startDate: d('2018-01'), endDate: d('2019-01') },
+      { id: 'short', role: 'Handover', company: 'ACME', startDate: d('2015-01'), endDate: d('2015-02') },
+      { id: 'outer', role: 'Outer', company: 'acme', startDate: d('2010-01'), endDate: d('2020-01') },
+      { id: 'inner', role: 'Inner', company: 'acme', startDate: d('2012-01'), endDate: d('2013-01') },
+    ].map((role) => ({ ...template, ...role, activities: [], skills: [] }))
+    const warnings = profileMap(buildVault(source({ experiences }))).gaps.filter((g) => g.message.includes('overlap'))
+    expect(warnings).toHaveLength(2)
+    expect(warnings.map((g) => g.message)).toEqual(expect.arrayContaining([
+      expect.stringContaining('Outer and Inner'), expect.stringContaining('Outer and Late'),
+    ]))
+  })
+
+  it('bounds duplicate-evidence text work and reports when the check is omitted', () => {
+    const vault = buildVault(source())
+    const atom = vault.notes.get('a1') as EvidenceNote
+    vault.notes.set(atom.id, { ...atom, props: { ...atom.props, description: 'word '.repeat(30_000) } })
+    expect(profileMap(vault).gaps.map((g) => g.message)).toContainEqual(
+      expect.stringContaining('Duplicate evidence check omitted'),
+    )
   })
 })
 
