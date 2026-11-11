@@ -21,8 +21,6 @@ import { Drawer, DrawerContent, DrawerTitle, DrawerTrigger } from "@/components/
 import { Separator } from "@/components/ui/separator"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { notifyUsageUpdated } from "@/lib/usage-events"
-import { assessJobFit } from "@/modules/jobs/job-fit"
 import { rerunJobAssessment } from "@/modules/job-assessment/actions"
 import type { AssessmentView } from "@/modules/job-assessment/queries"
 import type { Blocker } from "@/modules/job-assessment/schema"
@@ -34,7 +32,6 @@ import {
   EARLY_TEXT_STYLES,
   IN_PROGRESS_LABEL,
   blockerItems,
-  canDeepAnalyse,
   earlyAriaLabel,
   earlyHeading,
   earlyPillText,
@@ -53,24 +50,21 @@ type EarlyAssessmentProps = {
   assessment: AssessmentView | null
   /** The early assessment is on for this user (decided on the server): shows Assess and Re-run. */
   enabled: boolean
-  hasLLMKey?: boolean
-  /** The job has a description, so the deep analysis (assessJobFit) can run. */
-  hasDescription?: boolean
   /** Where to edit the job, shown when the run failed because its details are too thin. Omit where an Edit button is already on screen. */
   editHref?: string
 }
 
 /**
- * Early assessment (Jev) pill, next to the JobFit pill. Works the same way:
+ * Early assessment (Jev) pill, the job's fit score (it replaces the deprecated
+ * JobFit pill wherever the feature is on). Works the same way as JobFit did:
  * desktop opens a Popover, mobile a bottom Drawer, both with
  * EarlyAssessmentDetail inside. Runs in progress show a spinner; the
  * AssessmentPoller on the page refreshes them.
  */
-export function EarlyAssessment({ jobId, assessment, enabled, hasLLMKey = true, hasDescription = true, editHref }: EarlyAssessmentProps) {
+export function EarlyAssessment({ jobId, assessment, enabled, editHref }: EarlyAssessmentProps) {
   const [popoverOpen, setPopoverOpen] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [isRerunning, startRerun] = useTransition()
-  const [isAnalysing, startAnalysis] = useTransition()
   // Id of the run that was current when Re-run succeeded (see isAwaitingRerun).
   const [rerunFrom, setRerunFrom] = useState<string | null | undefined>(undefined)
   const showQueued = isRerunning || isAwaitingRerun(rerunFrom, assessment?.id)
@@ -91,24 +85,6 @@ export function EarlyAssessment({ jobId, assessment, enabled, hasLLMKey = true, 
         notifyAssessmentStarted()
       } else {
         toast.error(result.error)
-      }
-    })
-  }
-
-  function handleDeepAnalysis() {
-    if (isAnalysing) return
-    startAnalysis(async () => {
-      const result = await assessJobFit(jobId)
-      if (result.ok) {
-        notifyUsageUpdated()
-        closeDetail()
-        toast.success("Deep analysis ready. Open the fit score to read it.")
-      } else {
-        toast.error(result.message, {
-          action: result.error === 'not_configured'
-            ? { label: 'Set up', onClick: () => { window.location.href = '/dashboard/settings/llm' } }
-            : undefined,
-        })
       }
     })
   }
@@ -141,15 +117,6 @@ export function EarlyAssessment({ jobId, assessment, enabled, hasLLMKey = true, 
       enabled={enabled}
       onRerun={handleRerun}
       editHref={editHref}
-      deepAnalysis={{
-        pending: isAnalysing,
-        disabledReason: !hasLLMKey
-          ? 'Add an LLM API key in Settings to run a deep analysis'
-          : !hasDescription
-            ? 'Add a job description first'
-            : null,
-        onRun: handleDeepAnalysis,
-      }}
     />
   )
 
@@ -225,29 +192,20 @@ function EarlyPill({ view }: { view: AssessmentView }) {
   )
 }
 
-type DeepAnalysis = {
-  pending: boolean
-  /** Why the button is disabled, or null when it can run. */
-  disabledReason: string | null
-  onRun: () => void
-}
-
 type EarlyAssessmentDetailProps = {
   view: AssessmentView
   enabled: boolean
   onRerun: () => void
-  deepAnalysis?: DeepAnalysis
   editHref?: string
 }
 
-export function EarlyAssessmentDetail({ view, enabled, onRerun, deepAnalysis, editHref }: EarlyAssessmentDetailProps) {
+export function EarlyAssessmentDetail({ view, enabled, onRerun, editHref }: EarlyAssessmentDetailProps) {
   const failed = view.status === 'failed'
   const blockers = blockerItems(view.blockers)
   const yearsGaps = yearsGapItems(view.blockers)
   const enrichment = enrichmentNote(view)
   const summary = failed ? failureSummary(view.failureKind) : null
   const reasons = view.failureReasons.filter((r) => r !== summary)
-  const showDeep = deepAnalysis && canDeepAnalyse(view)
 
   return (
     <div className="space-y-3">
@@ -395,24 +353,6 @@ export function EarlyAssessmentDetail({ view, enabled, onRerun, deepAnalysis, ed
         )}
       </div>
 
-      {showDeep && (
-        <Button
-          variant="outline"
-          size="sm"
-          className="w-full justify-start gap-1.5 text-xs"
-          onClick={deepAnalysis.onRun}
-          disabled={deepAnalysis.pending || deepAnalysis.disabledReason !== null}
-          title={deepAnalysis.disabledReason ?? undefined}
-        >
-          {deepAnalysis.pending
-            ? <Loader2 className="size-3 animate-spin" aria-hidden="true" />
-            : <ScanSearch className="size-3" aria-hidden="true" />}
-          {deepAnalysis.pending ? 'Running deep analysis…' : 'Deep analysis'}
-        </Button>
-      )}
-      {showDeep && deepAnalysis.disabledReason && (
-        <p className="text-xs text-muted-foreground">{deepAnalysis.disabledReason}</p>
-      )}
     </div>
   )
 }

@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation"
 import { useEffect, useMemo, useRef, useState } from "react"
-import { Archive, ListPlus, Plus, SearchIcon, X } from "lucide-react"
+import { Archive, ArrowDown, ArrowUp, ListPlus, Plus, SearchIcon, X } from "lucide-react"
 import {
   APPLICATION_STATUS_LABEL,
   ApplicationStatus,
@@ -16,6 +16,7 @@ import {
   DEFAULT_FILTER,
   DEFAULT_SORT,
   isFilterActive,
+  normaliseSort,
   type FilterState,
   type SortState,
 } from './filter-bar'
@@ -111,8 +112,9 @@ export function JobList({ jobs, hasLLMKey, earlyEnabled = false, openCreate, ini
         setFilter({
           status: new Set(p.status ?? []),
           source: new Set(p.source ?? []),
-          fit: new Set(p.fit ?? []),
-          early: parseEarlyFilter(p.early),
+          // Only the current model's fit filter is kept, so a hidden one can't stay active.
+          fit: earlyEnabled ? new Set() : new Set(p.fit ?? []),
+          early: earlyEnabled ? parseEarlyFilter(p.early) : new Set(),
         })
       }
     } catch { /* ignore malformed filter cache */ }
@@ -121,8 +123,8 @@ export function JobList({ jobs, hasLLMKey, earlyEnabled = false, openCreate, ini
       const savedSort = window.localStorage.getItem(SORT_KEY)
       if (savedSort) {
         const p = JSON.parse(savedSort)
-        // A saved "Early score" sort is dropped while the feature is off for this user.
-        if (p.field && p.direction && (p.field !== 'earlyScore' || earlyEnabled)) setSort(p)
+        // "Fit score" follows whichever assessment is current for this user.
+        if (p.field && p.direction) setSort(normaliseSort(p, earlyEnabled))
       }
     } catch { /* ignore malformed sort cache */ }
   }, [earlyEnabled])
@@ -167,7 +169,8 @@ export function JobList({ jobs, hasLLMKey, earlyEnabled = false, openCreate, ini
     if (filter.source.size > 0) {
       result = result.filter(j => filter.source.has(j.applicationSource))
     }
-    if (filter.fit.size > 0) {
+    // The deprecated JobFit filter applies only while the early assessment is off.
+    if (!earlyEnabled && filter.fit.size > 0) {
       result = result.filter(j => {
         const label = j.jobFit?.label ?? 'none'
         return filter.fit.has(label as JobFit['label'] | 'none')
@@ -375,6 +378,9 @@ export function JobList({ jobs, hasLLMKey, earlyEnabled = false, openCreate, ini
               isAllSelected={isAllSelected}
               isSomeSelected={isSomeSelected}
               onToggleAll={toggleSelectAll}
+              sort={sort}
+              onSortChange={changeSort}
+              fitField={earlyEnabled ? 'earlyScore' : 'fitRating'}
             />
             {groups.map(g => (
               <JobGroup
@@ -579,6 +585,10 @@ type ColHeadersProps = {
   isAllSelected: boolean
   isSomeSelected: boolean
   onToggleAll: () => void
+  sort: SortState
+  onSortChange: (s: SortState) => void
+  /** The sort behind the Fit column: the early score, or the deprecated JobFit rating while that is off. */
+  fitField: SortState['field']
 }
 
 const COL_HEADERS = [
@@ -593,7 +603,13 @@ const COL_HEADERS = [
   { label: "Updated",   className: "hidden xl:block" },
 ] as const
 
-function ColHeaders({ isAllSelected, isSomeSelected, onToggleAll }: ColHeadersProps) {
+function ColHeaders({ isAllSelected, isSomeSelected, onToggleAll, sort, onSortChange, fitField }: ColHeadersProps) {
+  const fitSorted = sort.field === fitField
+  // First click sorts best-first; later clicks flip the direction.
+  function sortByFit() {
+    onSortChange({ field: fitField, direction: fitSorted && sort.direction === 'desc' ? 'asc' : 'desc' })
+  }
+
   return (
     <div className="col-span-full grid grid-cols-subgrid border-b border-border/50">
       <div className="flex items-center justify-center px-2 py-1.5">
@@ -604,7 +620,24 @@ function ColHeaders({ isAllSelected, isSomeSelected, onToggleAll }: ColHeadersPr
           aria-label={isAllSelected ? 'Deselect all' : 'Select all'}
         />
       </div>
-      {COL_HEADERS.map(({ label, className }) => (
+      {COL_HEADERS.map(({ label, className }) => label === 'Fit' ? (
+        <button
+          key={label}
+          type="button"
+          onClick={sortByFit}
+          aria-label={`Sort by fit score${fitSorted ? `, currently ${sort.direction === 'desc' ? 'highest' : 'lowest'} first` : ''}`}
+          className={cn(
+            'flex items-center gap-0.5 px-3 py-1.5 text-left text-[10px] font-semibold uppercase tracking-wide transition-colors hover:text-foreground',
+            fitSorted ? 'text-foreground' : 'text-muted-foreground/50',
+            className,
+          )}
+        >
+          {label}
+          {fitSorted && (sort.direction === 'desc'
+            ? <ArrowDown size={10} aria-hidden="true" />
+            : <ArrowUp size={10} aria-hidden="true" />)}
+        </button>
+      ) : (
         <div key={label} className={`px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/50 ${className}`}>
           {label}
         </div>

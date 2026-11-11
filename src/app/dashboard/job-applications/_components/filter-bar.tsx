@@ -22,6 +22,7 @@ export type FilterState = {
   early: Set<EarlyLevelFilter>
 }
 
+/** `fitRating` is the deprecated JobFit score; `earlyScore` is the early assessment's. */
 export type SortField = 'dateApplied' | 'datePublished' | 'company' | 'fitRating' | 'earlyScore' | 'lastUpdated'
 export type SortDirection = 'asc' | 'desc'
 export type SortState = { field: SortField; direction: SortDirection }
@@ -39,14 +40,29 @@ export function isFilterActive(f: FilterState) {
   return f.status.size > 0 || f.source.size > 0 || f.fit.size > 0 || f.early.size > 0
 }
 
-const SORT_OPTIONS: { value: SortField; label: string }[] = [
-  { value: 'dateApplied',   label: 'Date applied' },
-  { value: 'datePublished', label: 'Date published' },
-  { value: 'company',       label: 'Company A–Z' },
-  { value: 'fitRating',     label: 'Fit score' },
-  { value: 'earlyScore',    label: 'Early score' },
-  { value: 'lastUpdated',   label: 'Last updated' },
-]
+/**
+ * Sort options. With the early assessment on, "Fit score" sorts by it and the
+ * deprecated JobFit rating isn't offered; with it off, "Fit score" is JobFit's.
+ */
+function sortOptions(earlyEnabled: boolean): { value: SortField; label: string }[] {
+  return [
+    { value: 'dateApplied',   label: 'Date applied' },
+    { value: 'datePublished', label: 'Date published' },
+    { value: 'company',       label: 'Company A–Z' },
+    { value: earlyEnabled ? 'earlyScore' : 'fitRating', label: 'Fit score' },
+    { value: 'lastUpdated',   label: 'Last updated' },
+  ]
+}
+
+/**
+ * The sort to use for this user: a saved sort on the other model's fit score
+ * maps to the current one, so a "Fit score" choice survives the switch.
+ */
+export function normaliseSort(sort: SortState, earlyEnabled: boolean): SortState {
+  if (earlyEnabled && sort.field === 'fitRating') return { ...sort, field: 'earlyScore' }
+  if (!earlyEnabled && sort.field === 'earlyScore') return { ...sort, field: 'fitRating' }
+  return sort
+}
 
 const STATUS_OPTIONS = Object.values(ApplicationStatus).map(v => ({
   value: v as ApplicationStatusType,
@@ -72,13 +88,13 @@ type FilterBarProps = {
   sort: SortState
   onFilterChange: (f: FilterState) => void
   onSortChange: (s: SortState) => void
-  /** Show the "Early level" filter and "Early score" sort (early assessment on for this user). */
+  /** Early assessment on for this user: "Fit" filters and sorts by it instead of the deprecated JobFit. */
   earlyEnabled?: boolean
 }
 
 export function FilterBar({ filter, sort, onFilterChange, onSortChange, earlyEnabled = false }: FilterBarProps) {
   const active = isFilterActive(filter)
-  const sortOptions = earlyEnabled ? SORT_OPTIONS : SORT_OPTIONS.filter(o => o.value !== 'earlyScore')
+  const options = sortOptions(earlyEnabled)
 
   function clearFilters() {
     onFilterChange({ status: new Set(), source: new Set(), fit: new Set(), early: new Set() })
@@ -98,21 +114,22 @@ export function FilterBar({ filter, sort, onFilterChange, onSortChange, earlyEna
         selected={filter.source}
         onChange={(next) => onFilterChange({ ...filter, source: next as Set<ApplicationSourceType> })}
       />
-      <FilterDropdown
-        label="Fit"
-        options={FIT_OPTIONS}
-        selected={filter.fit}
-        onChange={(next) => onFilterChange({ ...filter, fit: next as Set<JobFit['label'] | 'none'> })}
-      />
-      {earlyEnabled && (
+      {earlyEnabled ? (
         <FilterDropdown
-          label="Early level"
+          label="Fit"
           options={EARLY_FILTER_OPTIONS}
           selected={filter.early}
           onChange={(next) => onFilterChange({ ...filter, early: next })}
         />
+      ) : (
+        <FilterDropdown
+          label="Fit"
+          options={FIT_OPTIONS}
+          selected={filter.fit}
+          onChange={(next) => onFilterChange({ ...filter, fit: next as Set<JobFit['label'] | 'none'> })}
+        />
       )}
-      <SortDropdown sort={sort} options={sortOptions} onSortChange={onSortChange} />
+      <SortDropdown sort={sort} options={options} onSortChange={onSortChange} />
       {active && (
         <button
           type="button"

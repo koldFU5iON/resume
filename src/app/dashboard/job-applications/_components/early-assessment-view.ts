@@ -174,11 +174,6 @@ export function yearsGapItems(blockers: readonly Blocker[]): Blocker[] {
   return blockers.filter((b) => b.severity === 'warn' || b.severity === 'stretch')
 }
 
-/** Level pursue or priority, and not blocked: worth a deep analysis. */
-export function canDeepAnalyse(view: Pick<AssessmentView, 'status' | 'level' | 'blocked'>): boolean {
-  return view.status === 'complete' && !view.blocked && (view.level === 'pursue' || view.level === 'priority')
-}
-
 /** "4.2s", "850ms", "1m 05s". */
 export function formatProcessTime(ms: number): string {
   if (ms < 1000) return `${Math.max(0, Math.round(ms))}ms`

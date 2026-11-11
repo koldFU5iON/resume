@@ -4,7 +4,6 @@ import type { AssessmentView } from '@/modules/job-assessment/queries'
 import type { Blocker } from '@/modules/job-assessment/schema'
 import {
   blockerItems,
-  canDeepAnalyse,
   earlyAriaLabel,
   earlyFilterKey,
   earlyHeading,
@@ -136,16 +135,6 @@ describe('blocker sections', () => {
   it('years gaps: warn and stretch with their detail', () => {
     expect(yearsGapItems(blockers).map((b) => b.severity)).toEqual(['warn', 'stretch'])
     expect(yearsGapItems(blockers)[0].detail).toBe('~3.7 yrs: A 2.3 + B 0.7')
-  })
-})
-
-describe('canDeepAnalyse', () => {
-  it('pursue or priority and not blocked', () => {
-    expect(canDeepAnalyse(view())).toBe(true)
-    expect(canDeepAnalyse(view({ level: 'priority' }))).toBe(true)
-    expect(canDeepAnalyse(view({ level: 'consider' }))).toBe(false)
-    expect(canDeepAnalyse(view({ blocked: true }))).toBe(false)
-    expect(canDeepAnalyse(view({ status: 'failed' }))).toBe(false)
   })
 })
 

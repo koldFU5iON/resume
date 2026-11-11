@@ -13,7 +13,11 @@ moment it is saved, with blockers, strengths, gaps and "check these" notes. It r
 profile and answers a fixed set of typed questions with Jev, TypeSafe's System One model.
 
 **JobFit** (`src/modules/jobs/job-fit.ts`) is the older, on-demand assessment: one Claude call on the user's own key,
-rated 0–10, stored on `JobApplication.jobFit`. The two run side by side and neither replaces the other. Differences:
+rated 0–10, stored on `JobApplication.jobFit`. **JobFit is deprecated:** wherever the early assessment is on for a user,
+the early assessment is the fit score in the UI and JobFit is hidden, apart from a collapsed "Legacy fit score
+(deprecated)" section on the job page kept for reference. Users with the early assessment off still see JobFit. The
+stored `jobFit` is still shown in the CV editor's job panel and read by the chat job tools; those move over before JobFit
+is removed. Differences:
 
 | | Early assessment | JobFit |
 |---|---|---|
@@ -208,8 +212,13 @@ Admins also see an **App-billed (Jev)** card on `/dashboard/settings/usage` (`ge
 
 `src/app/dashboard/job-applications/_components/`: `early-assessment.tsx` (pill on job rows and cards, detail panel with
 Re-run), `early-assessment-view.ts` (labels, colours, filters, formatting; pure), `assessment-poller.tsx` (polls while a
-run is pending). The job list has an early-level filter (priority, pursue, consider, weak, blocked, needs attention,
-not assessed). Read models come from `queries.ts`, which maps stale runs to failed.
+run is pending). Read models come from `queries.ts`, which maps stale runs to failed.
+
+With the early assessment on, the job list's "Fit" column, "Fit" filter (priority, pursue, consider, weak, blocked,
+needs attention, not assessed) and "Fit score" sort all use it. Clicking the Fit column header sorts by it (best first,
+then flips). Blocked jobs rank below every unblocked one, and unassessed or running jobs below those. A saved JobFit sort
+carries over (`normaliseSort` in `filter-bar.tsx`), and a saved JobFit filter is dropped. The "Deep analysis" button
+(which ran JobFit) was removed with the deprecation.
 
 ## Tuning
 
