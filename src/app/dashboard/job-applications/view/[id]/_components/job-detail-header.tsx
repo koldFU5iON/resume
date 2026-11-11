@@ -7,8 +7,18 @@ import { ArrowLeft, Pencil, SquareArrowOutUpRight } from "lucide-react"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { EditJobDialog } from "@/app/dashboard/job-applications/_components/edit-job-dialog"
+import type { SponsorStatus } from "@/modules/companies/queries"
+import { SponsorChip } from "./sponsor-chip"
 
-export function JobDetailHeader({ job, hasLLMKey }: { job: Job; hasLLMKey: boolean }) {
+export function JobDetailHeader({
+  job,
+  hasLLMKey,
+  sponsor = null,
+}: {
+  job: Job
+  hasLLMKey: boolean
+  sponsor?: SponsorStatus | null
+}) {
   const [editOpen, setEditOpen] = useState(false)
 
   return (
@@ -24,7 +34,10 @@ export function JobDetailHeader({ job, hasLLMKey }: { job: Job; hasLLMKey: boole
           </Link>
           <div className="min-w-0">
             <h1 className="truncate text-base font-semibold leading-tight">{job.title}</h1>
-            <p className="truncate text-sm text-muted-foreground">{job.company}</p>
+            <div className="flex min-w-0 items-center gap-2">
+              <p className="truncate text-sm text-muted-foreground">{job.company}</p>
+              <SponsorChip sponsor={sponsor} />
+            </div>
           </div>
         </div>
 

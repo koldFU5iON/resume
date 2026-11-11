@@ -5,6 +5,7 @@ import { prisma } from '@/lib/db'
 import { requireProfile } from '@/lib/session'
 import { extractJobFromUrl } from './extract'
 import { queueJobAssessmentSafely } from '@/modules/job-assessment/queue'
+import { linkJobCompany } from '@/modules/companies/match'
 
 export type QuickCaptureResult =
   | { ok: true; jobId: string; title: string; company: string | null; duplicate: boolean }
@@ -54,6 +55,7 @@ export async function quickCaptureJob(rawUrl: string): Promise<QuickCaptureResul
     select: { id: true, title: true, company: true },
   })
 
+  await linkJobCompany(profile.id, job.id)
   await queueJobAssessmentSafely(profile.id, job.id, { reason: 'quick-capture', requestStartedAt })
 
   revalidatePath('/dashboard/job-applications')

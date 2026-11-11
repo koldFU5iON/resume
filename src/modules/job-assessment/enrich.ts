@@ -22,6 +22,7 @@
  */
 
 import { prisma } from '@/lib/db'
+import { linkJobCompany } from '@/modules/companies/match'
 import { assertLLMConfigured } from '@/modules/llm/client'
 import { fetchPageContent } from '@/modules/jobs/extract-fetch'
 import { extractWithLLM } from '@/modules/jobs/extract-llm'
@@ -173,6 +174,7 @@ export async function enrichJob(profileId: string, job: EnrichJob, opts: EnrichO
     data: updates,
   })
   if (res.count === 0) return { filled: [], job, error: 'The job was edited while details were fetched' }
+  if (updates.company !== undefined) await linkJobCompany(profileId, job.id)
 
   return { filled, job: { ...job, ...updates } }
 }
