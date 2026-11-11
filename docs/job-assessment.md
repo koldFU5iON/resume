@@ -216,7 +216,7 @@ run is pending). Read models come from `queries.ts`, which maps stale runs to fa
 
 With the early assessment on, the job list's "Fit" column, "Fit" filter (priority, pursue, consider, weak, blocked,
 needs attention, not assessed) and "Fit score" sort all use it. Clicking the Fit column header sorts by it (best first,
-then flips). Blocked jobs rank below every unblocked one, and unassessed or running jobs below those. A saved JobFit sort
+then flips). Blocked jobs rank below every unblocked one; unassessed or running jobs come last in either direction. A saved JobFit sort
 carries over (`normaliseSort` in `filter-bar.tsx`), and a saved JobFit filter is dropped. The "Deep analysis" button
 (which ran JobFit) was removed with the deprecation.
 

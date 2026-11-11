@@ -207,9 +207,16 @@ export function JobList({ jobs, hasLLMKey, earlyEnabled = false, openCreate, ini
         case 'fitRating':
           cmp = (a.jobFit?.rating ?? -1) - (b.jobFit?.rating ?? -1)
           break
-        case 'earlyScore':
-          cmp = earlySortValue(a.earlyAssessment) - earlySortValue(b.earlyAssessment)
+        case 'earlyScore': {
+          const aVal = earlySortValue(a.earlyAssessment)
+          const bVal = earlySortValue(b.earlyAssessment)
+          // Unassessed or running (-1) always last, like missing dates.
+          if (aVal < 0 && bVal < 0) { cmp = 0; break }
+          if (aVal < 0) { return 1 }
+          if (bVal < 0) { return -1 }
+          cmp = aVal - bVal
           break
+        }
         case 'lastUpdated':
           cmp = a.lastUpdated.getTime() - b.lastUpdated.getTime()
           break
@@ -627,7 +634,7 @@ function ColHeaders({ isAllSelected, isSomeSelected, onToggleAll, sort, onSortCh
           onClick={sortByFit}
           aria-label={`Sort by fit score${fitSorted ? `, currently ${sort.direction === 'desc' ? 'highest' : 'lowest'} first` : ''}`}
           className={cn(
-            'flex items-center gap-0.5 px-3 py-1.5 text-left text-[10px] font-semibold uppercase tracking-wide transition-colors hover:text-foreground',
+            'flex items-center gap-0.5 px-3 py-1.5 text-left text-[10px] font-semibold uppercase tracking-wide transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
             fitSorted ? 'text-foreground' : 'text-muted-foreground/50',
             className,
           )}

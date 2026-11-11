@@ -88,7 +88,7 @@ export const IN_PROGRESS_LABEL: Record<'queued' | 'checking' | 'fetching' | 'ass
   assessing: 'Assessing…',
 }
 
-/** Which "Early level" filter bucket a job falls in. Runs still in progress count as not assessed. */
+/** Which "Fit" filter bucket a job falls in (early assessment on). Runs still in progress count as not assessed. */
 export function earlyFilterKey(view: Pick<AssessmentView, 'status' | 'level' | 'blocked'> | null | undefined): EarlyLevelFilter {
   if (!view) return 'none'
   if (view.status === 'failed') return 'attention'
@@ -97,7 +97,7 @@ export function earlyFilterKey(view: Pick<AssessmentView, 'status' | 'level' | '
 }
 
 /**
- * Sort key for "Early score": unblocked runs by score (1–10); blocked runs
+ * Sort key for "Fit score" (early assessment on): unblocked runs by score (1–10); blocked runs
  * below every unblocked one but still ordered by score; everything without a
  * complete result last.
  */
