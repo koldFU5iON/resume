@@ -132,11 +132,16 @@ function serverToolCallsFor(
   return counted
 }
 
+/** Role for the usage row. An explicit model with no role isn't a task role, so it's left unset. */
+function loggedRole(opts: Pick<CompleteOptions, 'role' | 'model'>): ModelRole | null {
+  return opts.role ?? (opts.model ? null : 'default')
+}
+
 function logUsage(
   profileId: string,
   provider: string,
   model: string,
-  opts: Pick<CompleteOptions, 'feature' | 'attribution' | 'role'>,
+  opts: Pick<CompleteOptions, 'feature' | 'attribution' | 'role' | 'model'>,
   usage: LanguageModelUsage | undefined,
   latencyMs: number,
   serverToolCalls: number | null,
@@ -147,7 +152,7 @@ function logUsage(
       provider,
       model,
       feature: opts.feature ?? null,
-      role: opts.role ?? 'default',
+      role: loggedRole(opts),
       ...usageColumns(usage),
       serverToolCalls,
       latencyMs,
@@ -166,7 +171,7 @@ function logFailedCall(
   profileId: string,
   provider: string,
   model: string,
-  opts: Pick<CompleteOptions, 'feature' | 'attribution' | 'role'>,
+  opts: Pick<CompleteOptions, 'feature' | 'attribution' | 'role' | 'model'>,
   error: LLMError,
   rawError: unknown,
   latencyMs: number,
@@ -179,7 +184,7 @@ function logFailedCall(
         provider,
         model,
         feature: opts.feature ?? null,
-        role: opts.role ?? 'default',
+        role: loggedRole(opts),
         ...usageColumns(usage),
         serverToolCalls: null,
         latencyMs,
@@ -444,6 +449,14 @@ export async function completeStructured<T>(
   schema: z.ZodType<T>,
   opts: CompleteOptions,
 ): Promise<CompleteStructuredResult<T>> {
+  if (opts.webSearch) {
+    // Gemini rejects search grounding together with a JSON response schema, and other
+    // providers don't combine them reliably. Search with complete(), then structure the notes.
+    throw new LLMError(
+      'webSearch is not supported with structured output. Use complete() for the search, then completeStructured() on its notes.',
+      'unsupported',
+    )
+  }
   const cfg = await resolveConfig(profileId, opts)
   const modelId = cfg.model
   const model = PROVIDERS[cfg.provider](cfg.apiKey, modelId)

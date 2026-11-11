@@ -7,7 +7,7 @@ import { requireProfile } from '@/lib/session'
 import { encrypt, decrypt } from '@/lib/encryption'
 import { SUPPORTED_PROVIDERS } from './client'
 import { fetchProviderModels, type ProviderModel } from './models'
-import { isConfigurableRole, normalizeModelRoleChoices, type ConfigurableRole } from './roles'
+import { availableModelIds, isConfigurableRole, normalizeModelRoleChoices, type ConfigurableRole } from './roles'
 
 export type SaveLLMApiKeyInput = {
   provider: string
@@ -89,8 +89,8 @@ export async function saveLLMModelRole(role: ConfigurableRole, model: string | n
   if (!settings) throw new Error('No LLM settings yet. Save an API key first.')
 
   const id = model?.trim() || null
-  if (id && Array.isArray(settings.availableModels)) {
-    const ids = (settings.availableModels as { id?: unknown }[]).map(m => m?.id)
+  const ids = availableModelIds(settings.availableModels)
+  if (id && ids) {
     if (!ids.includes(id)) throw new Error('That model is not available for your key. Refresh the model list.')
   }
 

@@ -82,7 +82,9 @@ export function ModelRolesSection({ provider, defaultModel, availableModels, ini
           { provider, defaultModel, availableModels: ids, choices },
           role,
         )
-        const value = choices[role] && !resolved.staleChoice ? choices[role]! : SAME_AS_DEFAULT
+        // A stale choice stays the select's value (shown as unavailable), so picking the
+        // default option is a real change and clears it.
+        const value = choices[role] ?? SAME_AS_DEFAULT
         const selectId = `model-role-${role}`
 
         return (
@@ -91,7 +93,13 @@ export function ModelRolesSection({ provider, defaultModel, availableModels, ini
             <p className="text-xs text-muted-foreground">{info.description}</p>
             <Select value={value} onValueChange={v => handleSelect(role, v)} disabled={saving}>
               <SelectTrigger id={selectId} className="w-full">
-                <SelectValue>{value === SAME_AS_DEFAULT ? sameAsDefaultLabel : nameOf(value)}</SelectValue>
+                <SelectValue>
+                  {value === SAME_AS_DEFAULT
+                    ? sameAsDefaultLabel
+                    : resolved.staleChoice
+                      ? `${value} (unavailable)`
+                      : nameOf(value)}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value={SAME_AS_DEFAULT}>{sameAsDefaultLabel}</SelectItem>

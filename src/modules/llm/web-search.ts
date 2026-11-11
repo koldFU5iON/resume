@@ -11,7 +11,10 @@ import { google } from '@ai-sdk/google'
 import { LLMError } from './errors'
 
 export type WebSearchOptions = {
-  /** Upper bound on searches (and, for Anthropic, page fetches) in this call. */
+  /**
+   * Upper bound on searches in this call. On Anthropic it applies to search and
+   * fetch separately, so a call can make up to 2 × maxUses billed tool uses.
+   */
   maxUses: number
   /** Restrict results to these domains. Not supported by Google search (ignored there). */
   allowedDomains?: string[]
