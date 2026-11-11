@@ -42,6 +42,12 @@ const PILL_TEXT_STYLES: Record<JobFitType['label'], string> = {
   standout: 'text-red-600',
 }
 
+/**
+ * @deprecated JobFit (Claude, user's LLM key) is superseded by the early
+ * assessment (`EarlyAssessment`). Shown only where that is off for the user,
+ * and in the job page's "Legacy fit score" section for reference. Remove once
+ * nothing needs to look back at it.
+ */
 export function JobFit({ jobId, jobFit, canAssess = true, hasLLMKey = true, company, jdSnippet }: JobFitProps) {
   const [isPending, startTransition] = useTransition()
   const [popoverOpen, setPopoverOpen] = useState(false)

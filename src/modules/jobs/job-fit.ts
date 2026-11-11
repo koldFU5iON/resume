@@ -36,6 +36,12 @@ type AssessJobFitResult =
   | { ok: false; error: 'not_found'; message: string }
   | { ok: false; error: LLMErrorKind; message: string }
 
+/**
+ * @deprecated Superseded by the early assessment (`src/modules/job-assessment`).
+ * Still runs from the legacy JobFit UI; the stored `jobFit` is still shown in
+ * the CV editor's job panel and read by the chat job tools. Remove once those
+ * move to the early assessment.
+ */
 export async function assessJobFit(jobId: string): Promise<AssessJobFitResult> {
   const { profile } = await requireProfile()
 

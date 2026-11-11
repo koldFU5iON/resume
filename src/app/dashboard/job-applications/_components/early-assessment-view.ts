@@ -88,7 +88,7 @@ export const IN_PROGRESS_LABEL: Record<'queued' | 'checking' | 'fetching' | 'ass
   assessing: 'Assessing…',
 }
 
-/** Which "Early level" filter bucket a job falls in. Runs still in progress count as not assessed. */
+/** Which "Fit" filter bucket a job falls in (early assessment on). Runs still in progress count as not assessed. */
 export function earlyFilterKey(view: Pick<AssessmentView, 'status' | 'level' | 'blocked'> | null | undefined): EarlyLevelFilter {
   if (!view) return 'none'
   if (view.status === 'failed') return 'attention'
@@ -97,7 +97,7 @@ export function earlyFilterKey(view: Pick<AssessmentView, 'status' | 'level' | '
 }
 
 /**
- * Sort key for "Early score": unblocked runs by score (1–10); blocked runs
+ * Sort key for "Fit score" (early assessment on): unblocked runs by score (1–10); blocked runs
  * below every unblocked one but still ordered by score; everything without a
  * complete result last.
  */
@@ -172,11 +172,6 @@ export function blockerItems(blockers: readonly Blocker[]): Blocker[] {
 /** Years warnings and stretches, shown at the top of Gaps with their breakdown. */
 export function yearsGapItems(blockers: readonly Blocker[]): Blocker[] {
   return blockers.filter((b) => b.severity === 'warn' || b.severity === 'stretch')
-}
-
-/** Level pursue or priority, and not blocked: worth a deep analysis. */
-export function canDeepAnalyse(view: Pick<AssessmentView, 'status' | 'level' | 'blocked'>): boolean {
-  return view.status === 'complete' && !view.blocked && (view.level === 'pursue' || view.level === 'priority')
 }
 
 /** "4.2s", "850ms", "1m 05s". */

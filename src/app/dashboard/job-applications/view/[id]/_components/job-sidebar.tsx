@@ -24,6 +24,27 @@ function fitStrengthLabel(rating: number): string {
   return "Partial match"
 }
 
+/** @deprecated JobFit (Claude) is superseded by the early assessment; shown only for reference or while that is off. */
+function LegacyJobFit({ job, hasLLMKey }: { job: Job; hasLLMKey: boolean }) {
+  return (
+    <>
+      <JobFit
+        jobId={job.id}
+        jobFit={job.jobFit ?? null}
+        canAssess={!!job.jobDescription?.trim()}
+        hasLLMKey={hasLLMKey}
+        company={job.company ?? undefined}
+        jdSnippet={job.jobDescription ? job.jobDescription.slice(0, 800) : undefined}
+      />
+      {job.jobFit && (
+        <p className="text-xs text-muted-foreground">
+          {fitStrengthLabel(job.jobFit.rating)}
+        </p>
+      )}
+    </>
+  )
+}
+
 export function JobSidebar({ job, hasLLMKey, earlyEnabled = false }: Props) {
   const early = job.earlyAssessment ?? null
 
@@ -67,31 +88,31 @@ export function JobSidebar({ job, hasLLMKey, earlyEnabled = false }: Props) {
       <Card>
         <CardContent className="flex flex-col gap-2 pt-4">
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Fit Score</p>
-          <JobFit
-            jobId={job.id}
-            jobFit={job.jobFit ?? null}
-            canAssess={!!job.jobDescription?.trim()}
-            hasLLMKey={hasLLMKey}
-            company={job.company ?? undefined}
-            jdSnippet={job.jobDescription ? job.jobDescription.slice(0, 800) : undefined}
-          />
-          {job.jobFit && (
-            <p className="text-xs text-muted-foreground">
-              {fitStrengthLabel(job.jobFit.rating)}
-            </p>
-          )}
-          {(early || earlyEnabled) && (
-            <div className="mt-1 space-y-1 border-t pt-3">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Early assessment</p>
-              <EarlyAssessment
-                jobId={job.id}
-                assessment={early}
-                enabled={earlyEnabled}
-                hasLLMKey={hasLLMKey}
-                hasDescription={!!job.jobDescription?.trim()}
-              />
+          {earlyEnabled ? (
+            <>
+              <EarlyAssessment jobId={job.id} assessment={early} enabled />
               <AssessmentPoller signature={pendingSignature([early])} />
-            </div>
+              {/* JobFit is deprecated: kept here for reference until it's removed. */}
+              <details className="mt-1 border-t pt-3 text-xs">
+                <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                  Legacy fit score (deprecated)
+                </summary>
+                <div className="mt-2 space-y-1">
+                  <LegacyJobFit job={job} hasLLMKey={hasLLMKey} />
+                </div>
+              </details>
+            </>
+          ) : (
+            <>
+              <LegacyJobFit job={job} hasLLMKey={hasLLMKey} />
+              {early && (
+                <div className="mt-1 space-y-1 border-t pt-3">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Early assessment</p>
+                  <EarlyAssessment jobId={job.id} assessment={early} enabled={false} />
+                  <AssessmentPoller signature={pendingSignature([early])} />
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>
