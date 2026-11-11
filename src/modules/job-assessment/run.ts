@@ -351,14 +351,12 @@ export async function runJobAssessment(claim: RunClaim, opts: RunOptions = {}): 
     // ── Judge ──
     ensureTime('judge')
     const judged = await timed(ctx.timings, 'judge', async () => {
-      const [snapshot, profileRow, settings] = await Promise.all([
+      const [snapshot, settings] = await Promise.all([
         buildProfileSnapshot(profileId),
-        // ProfileSnapshot has no summary; buildCandidateState takes it alongside.
-        prisma.profile.findUnique({ where: { id: profileId }, select: { summary: true } }),
         prisma.userSettings.findUnique({ where: { profileId }, select: { searchProfile: true } }),
       ])
       const searchProfile = normalizeSearchProfile(settings?.searchProfile)
-      const candidate = buildCandidateState({ ...snapshot, summary: profileRow?.summary ?? null })
+      const candidate = buildCandidateState(snapshot)
       const preferences = buildJudgePreferences(searchProfile)
       const state = buildJudgeState({
         candidate: candidate.state,

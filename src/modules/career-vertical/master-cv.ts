@@ -5,6 +5,7 @@ import { LLMError } from '@/modules/llm/errors'
 import { composeSystem, loadCVPrompt, loadWritingContext } from '@/modules/llm/prompt-context'
 import { buildProfileSnapshot, serializeProfileForLLM } from '@/modules/profile/snapshot'
 import { applyRoleBudgets } from '@/modules/cv/score-evidence'
+import { fillCVHeader } from '@/modules/cv/header'
 import {
   CVDocumentContentSchema,
   type CapabilitiesData,
@@ -20,7 +21,7 @@ import type { CareerVerticalThreads } from './schema'
 
 const SCHEMA_HINT = `
 Section types and their data shapes:
-- header:        { name, headline, subHeadline?, location?, contact: { email?, phone?, linkedin?, website? } }
+- header:        { name, headline, subHeadline?, location?, contact: {} }  -- name, location and contact are filled in automatically from the profile; write the headline and sub-headline, leave contact empty
 - profile:       { content }  -- prose, Markdown allowed
 - competencies:  { items: string[] }
 - capabilities:  { items: string[] }
@@ -149,5 +150,5 @@ export async function generateMasterCVContent(
       extracted.error,
     )
   }
-  return extracted.value
+  return fillCVHeader(extracted.value, snapshot)
 }

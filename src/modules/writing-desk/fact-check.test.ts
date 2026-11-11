@@ -8,7 +8,7 @@ const d = (y: number, m: number) => new Date(Date.UTC(y, m - 1, 1))
 
 const profile = {
   name: 'Ada Lovelace',
-  email: null, phone: null, website: null, linkedin: null, location: null, headline: null,
+  email: null, phone: null, website: null, linkedin: null, github: null, location: null, headline: null, summary: null, tools: [],
   experiences: [
     { role: 'Senior Engineer', company: 'Acme Corp Ltd', startDate: d(2019, 3), endDate: null, location: null, remote: false, summary: '', activities: [] },
     { role: 'Developer', company: 'Globex', startDate: d(2016, 1), endDate: d(2019, 2), location: null, remote: false, summary: '', activities: [] },
