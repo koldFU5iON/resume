@@ -16,6 +16,7 @@ import {
   type JevAnswer,
   type JudgeAnswers,
 } from './combine'
+import { buildJudgeQuestions } from './questions'
 import type { JobFacts, JobRequirement } from './schema'
 
 const TODAY = new Date('2026-11-10T12:00:00Z')
@@ -167,11 +168,41 @@ describe('blockers table', () => {
   describe('credential must-have', () => {
     const facts = { requirements: [...BASE_FACTS.requirements.slice(0, 3), r('BSc in Computer Science', { kind: 'education' })] }
 
-    it('blocks below 0.3', () => {
-      const res = run({ facts, answers: { req_3: n(0.06) } })
-      expect(res.blockers[0]).toMatchObject({ kind: 'credential', severity: 'hard', label: 'Missing requirement: BSc in Computer Science' })
+    it('blocks below 0.3 for a certification', () => {
+      const certFacts = { requirements: [...BASE_FACTS.requirements.slice(0, 3), r('PMP certification', { kind: 'certification' })] }
+      const res = run({ facts: certFacts, answers: { req_3: n(0.06) } })
+      expect(res.blockers[0]).toMatchObject({ kind: 'credential', severity: 'hard', label: 'Missing requirement: PMP certification' })
       expect(res.blocked).toBe(true)
       expect(displayLabel(res)).toBe(`Blocked · ${res.score}/10`)
+    })
+
+    it('warns instead of blocking for an education gap, with a penalty', () => {
+      const res = run({ facts, answers: { req_3: n(0.06) } })
+      expect(res.blocked).toBe(false)
+      expect(res.blockers.filter((b) => b.kind === 'credential')).toHaveLength(1)
+      expect(res.blockers.find((b) => b.kind === 'credential')).toMatchObject({
+        kind: 'credential', severity: 'unconfirmed', label: 'Education asked for: BSc in Computer Science',
+        detail: 'Strong experience often substitutes for a degree, but some employers screen on it.',
+      })
+      expect(res.breakdown.penalty).toBe(run({ facts, answers: { req_3: n(0.95) } }).breakdown.penalty + 0.5)
+      expect(res.gaps).toEqual([])
+    })
+
+    it('gives no blocker and no penalty for a nice-to-have education gap', () => {
+      const res = run({ answers: { req_3: n(0.02) } })
+      expect(res.blockers.filter((b) => b.kind === 'credential')).toEqual([])
+      expect(res.breakdown.penaltyItems).toBe(run().breakdown.penaltyItems)
+    })
+
+    it('skips a work-rights line (kind clearance): no question, no coverage', () => {
+      const wr = r('Candidates must have the right to work in Ireland', { kind: 'clearance' })
+      const withLine = { requirements: [...BASE_FACTS.requirements, wr] }
+      const res = run({ facts: withLine })
+      const base = run()
+      expect(res.blocked).toBe(base.blocked)
+      expect(res.breakdown.coverage).toBe(base.breakdown.coverage)
+      expect(res.breakdown.penaltyItems).toBe(base.breakdown.penaltyItems)
+      expect(buildJudgeQuestions({ facts: withLine, roleKeys: [], preferences: null, dealbreakers: [] })).not.toHaveProperty('req_5')
     })
 
     it('is met with an allowed equivalent at 0.73', () => {

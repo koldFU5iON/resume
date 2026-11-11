@@ -6,7 +6,7 @@
  * Blockers (spec §5 table):
  * | Kind                      | Hard (→ Blocked)            | Amber                                    | Major gap (red, penalty) |
  * |---------------------------|-----------------------------|------------------------------------------|--------------------------|
- * | Credential must-have      | p < 0.3                     | —                                        | —                        |
+ * | Credential must-have      | p < 0.3 (certification, licence, clearance, language) | education p < 0.3 (also +1 penalty item) | — |
  * | Years must-have           | years rule = block          | warn / stretch (both count to penalty)   | —                        |
  * | Other experience/skill    | —                           | —                                        | p < 0.3                  |
  * | Work rights               | not covered + not_offered / right_to_work_required | not covered + not_mentioned | —            |
@@ -17,7 +17,7 @@
  * Score:
  *   coverage  = Σ w·p / Σ w   (w: must 2, nice 1; years p = min(1, est/required); parts p = mean)
  *   composite = weighted skills / seniority / domain / coverage (+ direction when asked) − 0.05 if max pay < target
- *   score     = clamp(round(1 + 9·composite − min(2, 0.5·(major gaps + years warns + stretches))), 1, 10)
+ *   score     = clamp(round(1 + 9·composite − min(2, 0.5·(major gaps + years warns + stretches + missing education))), 1, 10)
  */
 
 import type { BoxResponse, ChoiceResponse, NoulResponse, ScoreResponse } from '@typesafe-ai/sdk'
@@ -28,6 +28,7 @@ import { questionIds, requirementMode, type SeniorityOption } from './questions'
 import {
   ASSESSMENT_CONFIG,
   CREDENTIAL_KINDS,
+  SOFT_CREDENTIAL_KINDS,
   PIPELINE_VERSION,
   type AssessmentLevel,
   type AssessmentResult,
@@ -254,6 +255,12 @@ export function combineAssessment(input: CombineInput): AssessmentResult {
     if (p < band.gap) {
       if (CREDENTIAL_KINDS.has(req.kind)) {
         blockers.push({ kind: 'credential', severity: 'hard', label: `Missing requirement: ${req.text}` })
+      } else if (SOFT_CREDENTIAL_KINDS.has(req.kind)) {
+        penaltyItems += 1
+        blockers.push({
+          kind: 'credential', severity: 'unconfirmed', label: `Education asked for: ${req.text}`,
+          detail: 'Strong experience often substitutes for a degree, but some employers screen on it.',
+        })
       } else {
         penaltyItems += 1
         gaps.push(weakParts.length > 0 && weakParts.length < req.parts!.length

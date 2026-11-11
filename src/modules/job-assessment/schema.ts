@@ -14,7 +14,7 @@ import * as z from 'zod'
 import { toCountryCode } from './countries'
 
 /** Stored on every run. Bump on any change to wording, thresholds or weights. */
-export const PIPELINE_VERSION = 'early-v1'
+export const PIPELINE_VERSION = 'early-v2'
 
 /**
  * Job description cap, in characters, for every request built from it: the
@@ -32,10 +32,20 @@ export const REQUIREMENT_KINDS = [
 
 export type RequirementKind = typeof REQUIREMENT_KINDS[number]
 
-/** Kinds that block outright when a must-have scores below the gap threshold (spec §5 Blockers). */
+/**
+ * Kinds that block outright when a must-have scores below the gap threshold
+ * (spec §5 Blockers). `education` is deliberately not here (early-v2): experience
+ * outweighs a degree for non-regulated roles, so it is in SOFT_CREDENTIAL_KINDS.
+ */
 export const CREDENTIAL_KINDS: ReadonlySet<RequirementKind> = new Set([
-  'education', 'certification', 'licence', 'clearance', 'language',
+  'certification', 'licence', 'clearance', 'language',
 ])
+
+/**
+ * Credential kinds that only warn: a must-have below the gap threshold becomes
+ * an unconfirmed blocker and counts as one penalty item, never a hard block.
+ */
+export const SOFT_CREDENTIAL_KINDS: ReadonlySet<RequirementKind> = new Set(['education'])
 
 // Model output is tolerated rather than rejected: over-long strings are
 // trimmed and cut, over-long lists are cut, and unreadable country codes and
@@ -143,7 +153,7 @@ export const ASSESSMENT_CONFIG = {
   /** Score levels: skills_match has 5 (0–4), domain_fit and direction_fit 4 (0–3). */
   rubricMax: { skills: 4, domain: 3, direction: 3 },
 
-  /** −perItem for each major gap, years warning and years stretch, at most −cap. */
+  /** −perItem for each major gap, years warning, years stretch and missing education must-have, at most −cap. */
   penalty: { perItem: 0.5, cap: 2 },
 
   /** Subtracted from the composite when the stated max pay is below the user's target. */
@@ -293,7 +303,7 @@ export interface ScoreBreakdown {
   composite: number
   /** 1 + 9 · composite, before the penalty. */
   raw: number
-  /** Number of major gaps + years warnings + years stretches (must-haves). */
+  /** Number of major gaps + years warnings + years stretches + missing education must-haves. */
   penaltyItems: number
   penalty: number
 }

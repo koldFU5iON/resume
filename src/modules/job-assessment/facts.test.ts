@@ -63,7 +63,7 @@ describe('computeFactsHash', () => {
     const other = await import('./facts')
     expect(other.computeFactsHash(job)).not.toBe(computeFactsHash(job))
     vi.doUnmock('./schema')
-    expect(PIPELINE_VERSION).toBe('early-v1')
+    expect(PIPELINE_VERSION).toBe('early-v2')
   })
 })
 

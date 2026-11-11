@@ -60,7 +60,7 @@ Each stage's duration lands in `JobAssessment.stageTimings`. Skipped stages are 
 coverage  = Σ w·p / Σ w          (w: must 2, nice 1)
 composite = weighted coverage, skills, seniority, domain (+ direction when asked), minus 0.05 if max pay is below target
 score     = clamp(round(1 + 9·composite − penalty), 1, 10)
-penalty   = min(2, 0.5 · (major gaps + years warnings + years stretches))
+penalty   = min(2, 0.5 · (major gaps + years warnings + years stretches + missing degrees))
 ```
 
 Level ladder (`ASSESSMENT_CONFIG.ladder`): 1–2 weak, 3–4 consider, 5–7 pursue, 8–10 priority. A run with any hard
@@ -73,6 +73,22 @@ Blockers come from `combine.ts` and `eligibility.ts`: credentials below the gap 
 pay against the user's floor, dealbreakers, and the years rule. Severities: `hard` (makes the result Blocked),
 `unconfirmed` (amber, "check this"), and for years `warn` and `stretch` (amber, count toward the penalty). Major gaps on
 experience or skill must-haves are not blockers; they go to `gaps` and the penalty.
+
+Credentials split in two (`CREDENTIAL_KINDS` and `SOFT_CREDENTIAL_KINDS` in `schema.ts`). A must-have certification,
+licence, clearance or language below the gap threshold is a hard blocker. A must-have `education` requirement below it
+is not: experience outweighs a degree, so it becomes an amber (`unconfirmed`) "Education asked for" blocker and counts
+as one penalty item. This applies to every role: a regulated role with no separate licence line will only warn (a known
+limitation). From early-v2 this differs from spec section 5, where education blocked. Coverage maths is unchanged, and p between the gap and met bands still
+goes to `unsettled`.
+
+Work-rights lines ("must have the right to work in X", "no visa sponsorship") are never requirements: a CV can't show
+them, so Jev would answer low and cause a false block. The facts prompt files them under `availability`, and
+`isWorkRightsRequirement()` in `questions.ts` backs that up in code (`requirementMode` returns `skip`, so they are
+neither asked nor scored). The guard only applies to credential kinds (education, certification, licence, clearance),
+never to experience or skill lines, so "experience managing work permit applications" is still asked, and language
+requirements are exempt. The patterns are phrase-level on purpose, to avoid
+catching "experience with visa case management". Work rights themselves are checked by `eligibility.ts`
+(`checkWorkRights`) and the `sponsorship` question.
 
 The years rule estimates years in an area from the CV timeline and Jev's per-role share answers, all arithmetic in
 code. Status is met, warn, stretch or block. Tables and worked examples: spec section 5 ("Combine rules").
@@ -126,7 +142,37 @@ assessment never breaks the original action.
 
 ## Queue continuation and backfill
 
-Added in a follow-up PR. To be filled in.
+**Continuation** (`continuation.ts`, route `src/app/api/internal/job-assessment/drain/route.ts`). A drain that stops
+on its deadline or run cap (`deadline` / `cap` exits, never `limit`, `empty` or `stuck`) while rows are still queued
+POSTs to `/api/internal/job-assessment/drain` so a fresh invocation keeps draining.
+
+- **Token.** `Authorization: Bearer <profileId>.<exp>.<hop>.<deploymentId>.<sig>`. `deploymentId` is
+  `VERCEL_DEPLOYMENT_ID` (empty outside Vercel); `sig` is base64url HMAC-SHA256 over everything before it, keyed with
+  HMAC-SHA256(`BETTER_AUTH_SECRET`, a fixed label), so the auth secret never signs directly. TTL is 2 minutes (plus
+  30 s clock skew tolerance). A token from another deployment is rejected. Without `BETTER_AUTH_SECRET` or a base URL,
+  continuation is off and rows wait for the next trigger.
+- **Hop limit.** `MAX_CONTINUATIONS` (20) hops per chain; the hop number is in the token and verified.
+- **Target URL.** On a Vercel preview (`VERCEL_ENV` set and not `production`) it is the deployment's own
+  `VERCEL_URL`, so the code and database that queued the rows drain them; otherwise `BETTER_AUTH_URL`.
+- **Bypass header.** `x-vercel-protection-bypass` is sent when `VERCEL_AUTOMATION_BYPASS_SECRET` is set, so previews
+  behind Deployment Protection accept the call.
+- **Route.** Invalid token: 401. Otherwise it answers 202 either way. If `assessmentMaybeEnabled()` (the kill switch)
+  is true when the request arrives, it schedules an `after()` that re-checks `isAssessmentEnabledFor(profileId)` (the
+  rollout flag; a failed lookup stops the chain) and drains with a fresh time budget; otherwise nothing is drained.
+  A failed continuation POST is logged by `requestContinuation` in `continuation.ts` (no token or secret), not by the
+  route.
+
+**Backfill** (`backfill.ts`, started from Settings). Assesses the profile's non-archived "not started" jobs that have
+no `complete` run for the current `PIPELINE_VERSION` and no pending run, newest first (by `lastUpdated`). After a
+`PIPELINE_VERSION` bump this means the backfill re-assesses jobs whose only results are from older versions.
+
+- **Batch size.** `min(BACKFILL_BATCH_SIZE (20), Jev calls left today / 3, candidates)`; the batch stays small so every
+  row starts within the queued-stale window, and never plans past the daily cap.
+- **Skipped.** Jobs whose current-version run failed with a persistent kind (`verification`, `no_llm_key`, `error`) are
+  skipped and reported as "need attention"; re-run them by hand. Transient kinds stay eligible.
+- **Refusals.** No LLM key configured, or any run still pending for the profile.
+- **Advisory lock.** The pending check and the insert run in one transaction holding a per-profile advisory lock, so a
+  double submit can't queue two batches. Continuation finishes the batch without more clicks.
 
 ## Usage tracking and the admin card
 
@@ -164,7 +210,8 @@ not assessed). Read models come from `queries.ts`, which maps stale runs to fail
    the pure modules.
 2. Bump `PIPELINE_VERSION` on any change to wording, thresholds, weights or the Jev model, so runs under different
    tunings are never mixed up. It also invalidates the facts cache.
-3. Re-run the jobs you care about, then compare:
+3. Re-run the jobs you care about (or use the Settings backfill, which picks up jobs with no complete run for the
+   current version), then compare:
 
    ```bash
    npm run assess:compare -- --profile <profileId|email> [--version <pipelineVersion>] [--csv tmp/compare.csv]
@@ -176,6 +223,19 @@ not assessed). Read models come from `queries.ts`, which maps stale runs to fail
    job is flagged when the buckets are two or more steps apart, or the early result is blocked while JobFit says pursue
    or priority. The script refuses a non-local `DATABASE_URL` unless `--allow-remote`, and CSVs must go under the
    gitignored `tmp/`. Logic is in `compare.ts` with unit tests.
+
+### early-v2
+
+Changes since early-v1, from analysing real runs:
+
+- Right-to-work / visa / sponsorship lines are never requirements (prompt plus `isWorkRightsRequirement` guard); they
+  were being asked as `clearance` and hard-blocking everyone.
+- A years requirement's `area` names the kind of work only, with no industry or environment qualifier (industry fit is
+  judged by `domain_fit`); qualifiers made the per-role share answers collapse to ~0.
+- Education must-haves no longer hard-block: amber "Education asked for" blocker plus a penalty item.
+- The user's first and last names are removed from role descriptions as well as the summary (in role text:
+  case-sensitive, a possessive "'s" goes with the name, and a name that is also a word in a company, role title or skill
+  name is kept).
 
 ## Troubleshooting by failureKind
 

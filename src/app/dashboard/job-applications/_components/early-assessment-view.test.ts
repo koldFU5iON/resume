@@ -44,7 +44,7 @@ const view = (over: Partial<AssessmentView> = {}): AssessmentView => ({
   failureKind: null,
   failureReasons: [],
   jevModel: 'jev-1.14.0',
-  pipelineVersion: 'early-v1',
+  pipelineVersion: 'early-v2',
   processTimeMs: 4200,
   completedAt: null,
   createdAt: new Date('2026-11-10T12:00:00Z'),
@@ -159,9 +159,9 @@ describe('formatProcessTime / footerLine', () => {
     expect(formatProcessTime(ms)).toBe(out)
   })
   it('builds the footer and leaves out missing parts', () => {
-    expect(footerLine(view())).toBe('jev-1.14.0 · early-v1 · assessed in 4.2s')
-    expect(footerLine(view({ jevModel: null, processTimeMs: null }))).toBe('early-v1')
-    expect(footerLine(view({ status: 'failed', jevModel: null, processTimeMs: 1500 }))).toBe('early-v1 · stopped after 1.5s')
+    expect(footerLine(view())).toBe('jev-1.14.0 · early-v2 · assessed in 4.2s')
+    expect(footerLine(view({ jevModel: null, processTimeMs: null }))).toBe('early-v2')
+    expect(footerLine(view({ status: 'failed', jevModel: null, processTimeMs: 1500 }))).toBe('early-v2 · stopped after 1.5s')
   })
 })
 

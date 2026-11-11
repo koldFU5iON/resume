@@ -189,7 +189,7 @@ export function formatProcessTime(ms: number): string {
   return `${minutes}m ${String(seconds).padStart(2, '0')}s`
 }
 
-/** Footer line: "jev-1.14.0 · early-v1 · assessed in 4.2s"; missing parts are left out. */
+/** Footer line: "jev-1.14.0 · early-v2 · assessed in 4.2s"; missing parts are left out. */
 export function footerLine(view: Pick<AssessmentView, 'status' | 'jevModel' | 'pipelineVersion' | 'processTimeMs'>): string {
   const parts: string[] = []
   if (view.jevModel) parts.push(view.jevModel)

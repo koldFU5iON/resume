@@ -111,6 +111,38 @@ describe('buildCandidateState', () => {
     expect(state.summary).toContain('12 000 000')
   })
 
+  it('removes the first name from role descriptions too', () => {
+    const { state } = buildCandidateState(snapshot({
+      name: 'Alex Morgan',
+      experiences: [exp('Program Manager', 'Fictional Freight', '2021-03', null, '', ['Alex served as the de facto social team'])],
+    }))
+    expect(state.roles.role_1.description).not.toContain('Alex')
+    expect(state.roles.role_1.description).toContain('served as the de facto social team')
+  })
+
+  it('keeps a name part that is a skill, company or title word, and never touches lowercase', () => {
+    const ruby = buildCandidateState(snapshot({
+      name: 'Ruby Case',
+      skills: [{ name: 'Ruby', category: 'Languages', level: 'expert', yearsOfExperience: null }],
+      experiences: [exp('Program Manager', 'Fictional Freight', '2021-03', null, '', ['Built the business case for migrating Ruby services'])],
+    }))
+    expect(ruby.state.roles.role_1.description).toBe('Built the business case for migrating Ruby services.')
+
+    const company = buildCandidateState(snapshot({
+      name: 'Alex Morgan',
+      experiences: [exp('Analyst', 'Morgan Stanley', '2021-03', null, '', ['Joined Morgan Stanley'])],
+    }))
+    expect(company.state.roles.role_1.description).toBe('Joined Morgan Stanley.')
+  })
+
+  it('strips the possessive with a removed name in role text', () => {
+    const { state } = buildCandidateState(snapshot({
+      name: 'Alex Morgan',
+      experiences: [exp('Program Manager', 'Fictional Freight', '2021-03', null, '', ["Led Alex's team of five"])],
+    }))
+    expect(state.roles.role_1.description).toBe('Led team of five.')
+  })
+
   it('keeps short name parts (under 3 characters)', () => {
     const { state } = buildCandidateState(snapshot({ name: 'Al Placeholder', summary: 'Al ran the AI program.' }))
     expect(state.summary).toContain('Al ran')
