@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/db'
 import { completeJSON } from '@/modules/llm/complete-json'
 import { LLMError } from '@/modules/llm/errors'
+import { newRunId, type LlmAttribution } from '@/modules/llm/attribution'
 import { loadWritingContext, loadCVPrompt, composeSystem } from '@/modules/llm/prompt-context'
 import { buildProfileSnapshot, serializeProfileForLLM } from '@/modules/profile/snapshot'
 import { formatMasterCVNarrative } from '@/modules/career-vertical/master-cv'
@@ -47,10 +48,26 @@ export type GenerateCVResult = {
   masterUpdatedAt: Date | null
 }
 
+export type GenerateCVOptions = {
+  /** The CVDocument being (re)generated, for usage attribution. */
+  cvDocumentId?: string
+  /** Groups this generation's calls in usage logs; one is created when omitted. */
+  runId?: string
+}
+
 export async function generateCVContent(
   profileId: string,
   jobApplicationId?: string,
+  opts: GenerateCVOptions = {},
 ): Promise<GenerateCVResult> {
+  // Every model call of this generation (analysis, evidence scoring, ATS
+  // context, the draft and the recruiter scan) shares one attribution.
+  const attribution: LlmAttribution = {
+    jobApplicationId: jobApplicationId ?? null,
+    cvDocumentId: opts.cvDocumentId ?? null,
+    runId: opts.runId ?? newRunId(),
+  }
+
   const [snapshot, { rules, brief }, cvPrompt, jobApp, cvGenSettings, careerVertical, masterDoc] = await Promise.all([
     buildProfileSnapshot(profileId),
     loadWritingContext(profileId),
@@ -83,7 +100,7 @@ export async function generateCVContent(
     const parsed = jobApp.jobAnalysis
       ? JobAnalysisSchema.safeParse(jobApp.jobAnalysis)
       : null
-    analysis = parsed?.success ? parsed.data : await analyseJob(profileId, jobApplicationId!)
+    analysis = parsed?.success ? parsed.data : await analyseJob(profileId, jobApplicationId!, attribution)
 
     jobContext = [
       `== JOB TARGET ==`,
@@ -99,7 +116,7 @@ export async function generateCVContent(
   // Job-targeted: LLM scores and ranks activities by relevance, then applies role budgets.
   // Generic: role budgets applied deterministically (no LLM call).
   const filteredSnapshot = analysis
-    ? await scoreEvidence(profileId, snapshot, analysis)
+    ? await scoreEvidence(profileId, snapshot, analysis, attribution)
     : applyRoleBudgets(snapshot)
 
   // Serialize both snapshots:
@@ -113,7 +130,7 @@ export async function generateCVContent(
   let atsContext: ATSContextResult | null = null
   if (jobApp?.jobDescription) {
     try {
-      atsContext = await buildATSContext(profileId, jobApp.jobDescription, fullProfileText)
+      atsContext = await buildATSContext(profileId, jobApp.jobDescription, fullProfileText, attribution)
     } catch {
       // continue without ATS context
     }
@@ -178,6 +195,7 @@ export async function generateCVContent(
     {
       system: composeSystem(rules, brief, cvPrompt),
       feature: 'cv-generate',
+      attribution,
       temperature: 0.3,
     },
   )
@@ -197,7 +215,7 @@ export async function generateCVContent(
 
   // Fire-and-forget: log recruiter scan results for generation quality monitoring.
   // Errors are swallowed — the scan never blocks the CV being returned.
-  scanCV(profileId, cvContent, analysis?.positioningStrategy, analysis?.mustHave).then(scan => {
+  scanCV(profileId, cvContent, analysis?.positioningStrategy, analysis?.mustHave, attribution).then(scan => {
     if (scan) {
       console.info('[generateCVContent] recruiter scan', {
         positioningMatch: scan.positioningMatch,

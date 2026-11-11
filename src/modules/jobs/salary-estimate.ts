@@ -68,6 +68,7 @@ ${job.jobDescription.slice(0, 4000)}`
       maxOutputTokens: 300,
       temperature: 0.1,
       feature: 'salary-estimate',
+      attribution: { jobApplicationId: jobId },
     })
     estimate = result.object
   } catch (err) {

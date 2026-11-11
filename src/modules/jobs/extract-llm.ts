@@ -1,7 +1,7 @@
 import * as z from 'zod'
 import { Readability } from '@mozilla/readability'
 import { parseHTML } from 'linkedom'
-import { completeStructured } from '@/modules/llm/client'
+import { completeStructured, type LlmAttribution } from '@/modules/llm/client'
 import { LLMError } from '@/modules/llm/errors'
 import type { ExtractedJob, ExtractionResult } from './extract-utils'
 
@@ -57,6 +57,8 @@ export type ExtractWithLLMOptions = {
   timeoutMs?: number
   /** Log only zod issue paths on invalid output (the raw output echoes page text). */
   redactInvalidOutput?: boolean
+  /** Set when the job row already exists (e.g. assessment enrichment); capture flows have none. */
+  attribution?: LlmAttribution
 }
 
 /**
@@ -82,6 +84,7 @@ export async function extractWithLLM(
       ...(opts.model ? { model: opts.model } : {}),
       ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
       ...(opts.redactInvalidOutput ? { redactInvalidOutput: true } : {}),
+      ...(opts.attribution ? { attribution: opts.attribution } : {}),
     })
     const raw = result.object
     const parsedDate = raw.datePublished ? new Date(raw.datePublished) : undefined

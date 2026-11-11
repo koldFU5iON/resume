@@ -19,8 +19,11 @@ vi.mock('@typesafe-ai/sdk', async () => {
 vi.mock('@/lib/db', () => {
   const llmUsageLog = { count: vi.fn(), create: vi.fn(), update: vi.fn() }
   // A fake interactive transaction: the callback gets a tx with the same delegates.
-  const tx = { $executeRaw: vi.fn(), llmUsageLog }
-  return { prisma: { llmUsageLog, $executeRaw: tx.$executeRaw, $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)) } }
+  // Attribution is validated inside the reservation transaction (see llm/attribution.ts).
+  const jobApplication = { findFirst: vi.fn() }
+  const cVDocument = { findFirst: vi.fn() }
+  const tx = { $executeRaw: vi.fn(), llmUsageLog, jobApplication, cVDocument }
+  return { prisma: { llmUsageLog, jobApplication, cVDocument, $executeRaw: tx.$executeRaw, $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)) } }
 })
 
 vi.mock('next/server', () => ({ after: vi.fn(cb => cb()) }))
@@ -199,17 +202,39 @@ describe('askJev', () => {
       completionTokens: 0,
       totalTokens: 0,
       latencyMs: 0,
+      usageKnown: false,
+      jobApplicationId: null,
+      cvDocumentId: null,
+      runId: null,
     })
     expect(mockUpdate).toHaveBeenCalledWith({
       where: { id: 'res-1' },
-      data: { model: 'jev-1.14.0', promptTokens: 120, completionTokens: 3, totalTokens: 123, latencyMs: expect.any(Number) },
+      data: { model: 'jev-1.14.0', promptTokens: 120, completionTokens: 3, totalTokens: 123, usageKnown: true, latencyMs: expect.any(Number) },
     })
+  })
+
+  it('writes validated job/run attribution on the reservation and keeps it on failure', async () => {
+    vi.mocked(prisma.jobApplication.findFirst).mockImplementation((async ({ where }: { where: { id: string; profileId: string } }) =>
+      where.id === 'job-1' && where.profileId === 'p1' ? { id: 'job-1' } : null) as never)
+    await askJev('p1', { state, questions }, { feature: 'job-assessment-judge', attribution: { jobApplicationId: 'job-1', runId: 'a1' } })
+    expect((mockCreate.mock.calls[0][0] as { data: Record<string, unknown> }).data)
+      .toMatchObject({ jobApplicationId: 'job-1', cvDocumentId: null, runId: 'a1', usageKnown: false })
+
+    // Another profile's job is dropped; a failed call keeps its row as unknown usage.
+    mockSystemOne.mockRejectedValueOnce(apiError(500))
+    await expect(askJev('p2', { state, questions }, { feature: 'x', attribution: { jobApplicationId: 'job-1', runId: 'a2' } })).rejects.toThrow(JevError)
+    expect((mockCreate.mock.calls[1][0] as { data: Record<string, unknown> }).data).toMatchObject({ jobApplicationId: null, runId: 'a2' })
+    const failedUpdate = mockUpdate.mock.calls.at(-1)![0] as { data: Record<string, unknown> }
+    expect(failedUpdate.data).toMatchObject({ feature: 'x:failed' })
+    expect(failedUpdate.data).not.toHaveProperty('usageKnown')
   })
 
   it('treats null token counts as zero', async () => {
     mockSystemOne.mockResolvedValueOnce({ ...okResult, usage: { input_tokens: null, output_tokens: null } })
     const res = await askJev('p1', { state, questions }, { feature: 'test' })
     expect(res.usage).toEqual({ inputTokens: 0, outputTokens: 0 })
+    // …but the row says the usage wasn't reported, rather than claiming a measured zero.
+    expect((mockUpdate.mock.calls.at(-1)![0] as { data: Record<string, unknown> }).data).toMatchObject({ usageKnown: false })
   })
 
   it('still returns the answer when updating the reservation fails', async () => {

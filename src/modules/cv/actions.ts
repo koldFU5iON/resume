@@ -57,7 +57,7 @@ export async function createAndGenerateCV({
   })
 
   try {
-    const { content, masterUpdatedAt } = await generateCVContent(profile.id, jobApplicationId)
+    const { content, masterUpdatedAt } = await generateCVContent(profile.id, jobApplicationId, { cvDocumentId: doc.id })
     await prisma.cVDocument.update({
       where: { id: doc.id },
       data: { generatedContent: JSON.stringify(content), status: 'draft', masterCvUpdatedAt: masterUpdatedAt },
@@ -242,7 +242,7 @@ export async function regenerateCVContent(cvId: string): Promise<CVDocumentConte
   })
 
   try {
-    const { content, masterUpdatedAt } = await generateCVContent(profile.id, doc.jobApplicationId ?? undefined)
+    const { content, masterUpdatedAt } = await generateCVContent(profile.id, doc.jobApplicationId ?? undefined, { cvDocumentId: doc.id })
     await prisma.cVDocument.update({
       where: { id: cvId },
       data: {

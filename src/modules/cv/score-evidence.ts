@@ -1,5 +1,5 @@
 import * as z from 'zod'
-import { completeStructured } from '@/modules/llm/client'
+import { completeStructured, type LlmAttribution } from '@/modules/llm/client'
 import { loadEvidenceScoringPrompt, composeSystem } from '@/modules/llm/prompt-context'
 import type { ProfileSnapshot } from '@/modules/profile/snapshot'
 import type { JobAnalysis } from '@/modules/jobs/schema'
@@ -36,6 +36,7 @@ export async function scoreEvidence(
   profileId: string,
   snapshot: ProfileSnapshot,
   analysis: JobAnalysis,
+  attribution?: LlmAttribution,
 ): Promise<ProfileSnapshot> {
   const activitiesText = snapshot.experiences
     .map((exp, ei) => {
@@ -74,6 +75,7 @@ export async function scoreEvidence(
       {
         system: composeSystem(systemPrompt),
         feature: 'cv-evidence-score',
+        ...(attribution ? { attribution } : {}),
         maxOutputTokens: 1200,
         temperature: 0.1,
       },

@@ -36,6 +36,7 @@ model CVDocument {
   careerVertical  CareerVertical? @relation(fields: [careerVerticalId], references: [id])
   coverLetters    CoverLetterDocument[]
   writingDeskSources WritingDeskDocument[] @relation("WritingDeskSourceCV")
+  llmUsageLogs       LlmUsageLog[]
 
   @@index([profileId])
 }

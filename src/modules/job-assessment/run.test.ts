@@ -158,9 +158,11 @@ describe('runJobAssessment', () => {
     await expect(runJobAssessment(claim)).resolves.toBe('complete')
 
     expect(mockAskJev).toHaveBeenCalledTimes(2)
-    expect(mockAskJev.mock.calls[0][2]).toEqual({ feature: 'job-assessment-verify', ...JEV_CALL_BOUNDS })
-    expect(mockAskJev.mock.calls[1][2]).toEqual({ feature: 'job-assessment-judge', ...JEV_CALL_BOUNDS })
-    expect(mockFacts).toHaveBeenCalledWith('p1', expect.objectContaining({ id: 'job-1' }))
+    // Every call of the run carries the job and the assessment id as its runId.
+    const attribution = { jobApplicationId: 'job-1', runId: 'a1' }
+    expect(mockAskJev.mock.calls[0][2]).toEqual({ feature: 'job-assessment-verify', attribution, ...JEV_CALL_BOUNDS })
+    expect(mockAskJev.mock.calls[1][2]).toEqual({ feature: 'job-assessment-judge', attribution, ...JEV_CALL_BOUNDS })
+    expect(mockFacts).toHaveBeenCalledWith('p1', expect.objectContaining({ id: 'job-1' }), attribution)
     expect(statusUpdates()).toEqual(['assessing', 'complete'])
 
     const data = lastUpdateData()
@@ -227,7 +229,7 @@ describe('runJobAssessment', () => {
       job: { ...baseJob, jobDescription: `${LONG_JD}${LONG_JD}` },
     })
     await expect(runJobAssessment(claim)).resolves.toBe('complete')
-    expect(mockEnrich).toHaveBeenCalledWith('p1', expect.objectContaining({ id: 'job-1' }), { replaceDescription: true })
+    expect(mockEnrich).toHaveBeenCalledWith('p1', expect.objectContaining({ id: 'job-1' }), { replaceDescription: true, runId: 'a1' })
     expect(mockAskJev).toHaveBeenCalledTimes(3)
     expect(lastUpdateData().enrichedFields).toEqual(['jobDescription (replaced truncated)'])
   })
@@ -238,7 +240,7 @@ describe('runJobAssessment', () => {
     } as never)
     mockEnrich.mockResolvedValueOnce({ filled: [], job: baseJob })
     await runJobAssessment(claim)
-    expect(mockEnrich).toHaveBeenCalledWith('p1', expect.anything(), { replaceDescription: false })
+    expect(mockEnrich).toHaveBeenCalledWith('p1', expect.anything(), { replaceDescription: false, runId: 'a1' })
   })
 
   it('fails verification after the retry still fails', async () => {

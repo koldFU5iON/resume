@@ -57,6 +57,8 @@ export const REPLACE_DESCRIPTION_MIN_RATIO = 1.5
 export interface EnrichOptions {
   /** Verification found the description incomplete: a non-empty one may be replaced (see file header). */
   replaceDescription?: boolean
+  /** Groups the call with the rest of the assessment run in usage logs. */
+  runId?: string
 }
 
 export interface EnrichResult {
@@ -124,6 +126,7 @@ export async function enrichJob(profileId: string, job: EnrichJob, opts: EnrichO
     maxOutputTokens: ENRICH_MAX_OUTPUT_TOKENS,
     timeoutMs: ENRICH_TIMEOUT_MS,
     redactInvalidOutput: true,
+    attribution: { jobApplicationId: job.id, runId: opts.runId },
   })
   if (!extracted.ok) {
     return {

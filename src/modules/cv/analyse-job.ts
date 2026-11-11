@@ -1,7 +1,7 @@
 // Plain module — not a server action. Called from generate.ts (plain module) and
 // job-fit.ts ('use server'). Adding 'use server' would break the generate.ts call path.
 import { prisma } from '@/lib/db'
-import { completeStructured } from '@/modules/llm/client'
+import { completeStructured, type LlmAttribution } from '@/modules/llm/client'
 import { loadCVJobAnalysisPrompt, composeSystem } from '@/modules/llm/prompt-context'
 import { buildProfileSnapshot, serializeProfileForLLM } from '@/modules/profile/snapshot'
 import { JobAnalysisSchema, type JobAnalysis } from '@/modules/jobs/schema'
@@ -9,6 +9,8 @@ import { JobAnalysisSchema, type JobAnalysis } from '@/modules/jobs/schema'
 export async function analyseJob(
   profileId: string,
   jobId: string,
+  /** Extra attribution (e.g. the CV and run when called from CV generation); the job is always set. */
+  attribution: Omit<LlmAttribution, 'jobApplicationId'> = {},
 ): Promise<JobAnalysis | null> {
   const job = await prisma.jobApplication.findFirst({
     where: { id: jobId, profileId },
@@ -38,6 +40,7 @@ export async function analyseJob(
       // Tone/voice constraints belong in the CV draft step, not the analysis step.
       system: composeSystem(systemPrompt),
       feature: 'cv-job-analysis',
+      attribution: { ...attribution, jobApplicationId: job.id },
       maxOutputTokens: 800,
       temperature: 0.2,
     })

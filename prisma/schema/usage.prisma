@@ -14,7 +14,30 @@ model LlmUsageLog {
   latencyMs        Int
   createdAt        DateTime @default(now())
 
-  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  // Provider-reported cache tokens and server-side tool calls (web search/fetch,
+  // billed per call on top of tokens). Null = not reported, distinct from 0.
+  cacheReadTokens  Int?
+  cacheWriteTokens Int?
+  serverToolCalls  Int?
+  // False when the token columns are placeholders (failed call, reservation,
+  // or a provider that returned no usage) rather than measured values.
+  usageKnown       Boolean  @default(true)
+
+  // Explicit job/CV attribution, validated against profileId at write time
+  // (see src/modules/llm/attribution.ts). Never inferred from timestamps, so
+  // rows written before this existed stay unattributed. SetNull keeps billing
+  // history when a job or CV is deleted.
+  jobApplicationId String?
+  cvDocumentId     String?
+  // Groups every call of one multi-call operation (a CV generation, an assessment run).
+  runId            String?
+
+  profile        Profile         @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  jobApplication JobApplication? @relation(fields: [jobApplicationId], references: [id], onDelete: SetNull)
+  cvDocument     CVDocument?     @relation(fields: [cvDocumentId], references: [id], onDelete: SetNull)
 
   @@index([profileId, createdAt])
+  @@index([jobApplicationId])
+  @@index([cvDocumentId])
+  @@index([runId])
 }

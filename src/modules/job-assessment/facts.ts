@@ -17,7 +17,7 @@
 import { createHash } from 'node:crypto'
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
-import { completeStructured, resolveFastModel } from '@/modules/llm/client'
+import { completeStructured, resolveFastModel, type LlmAttribution } from '@/modules/llm/client'
 import { cutAtSentence } from './candidate-state'
 import { toCountryCode } from './countries'
 import { DESCRIPTION_MAX_CHARS, JobFactsSchema, PIPELINE_VERSION, type JobFacts } from './schema'
@@ -147,7 +147,12 @@ async function findCachedFacts(profileId: string, factsHash: string): Promise<Jo
  * Facts for `job`, from the cache or the cheap model. Throws LLMError (e.g.
  * kind 'not_configured' when the user has no key) on a model failure.
  */
-export async function extractJobFacts(profileId: string, job: FactsJob): Promise<FactsResult> {
+export async function extractJobFacts(
+  profileId: string,
+  job: FactsJob,
+  /** Usage-log attribution (the job and assessment run); not part of the facts hash. */
+  attribution?: LlmAttribution,
+): Promise<FactsResult> {
   const factsHash = computeFactsHash(job)
   const cached = await findCachedFacts(profileId, factsHash)
   if (cached) return { facts: cached, factsHash, cached: true }
@@ -156,6 +161,7 @@ export async function extractJobFacts(profileId: string, job: FactsJob): Promise
     system: FACTS_SYSTEM_PROMPT,
     model: await resolveFastModel(profileId),
     feature: 'job-assessment-facts',
+    ...(attribution ? { attribution } : {}),
     temperature: 0,
     maxOutputTokens: FACTS_MAX_OUTPUT_TOKENS,
     timeoutMs: FACTS_TIMEOUT_MS,
