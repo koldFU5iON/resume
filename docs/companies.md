@@ -8,7 +8,7 @@ Shared, public-facts-only tables that link jobs to employers (spec: `docs/superp
 |---|---|
 | `Company` | One per normalised legal name. `aliases` holds register trading names ("X LTD T/A Y" → `y`); `fromRegister` marks names the register has listed. |
 | `SponsorLicence` | One row of the Home Office register. Unique on `(country, orgName, townCity, route)`: the register repeats an org + route in different towns. |
-| `SponsorRegisterImport` | One row per import run: `running`, `complete`, `failed` or `skipped`. |
+| `SponsorRegisterImport` | One row per import run: `running`, `complete` or `failed` (`skipped` only on early runs). `rows` is the size of the register file. |
 
 `JobApplication.companyId` points at the matched `Company` (SetNull).
 
@@ -33,17 +33,18 @@ So one user's typing can't add aliases, make a register alias ambiguous, or outr
 ## Import (`src/modules/companies/sponsor-register.ts`, `import.ts`)
 
 - **Source:** gov.uk *Register of licensed sponsors: workers*. The importer finds the current CSV link on the publication page; the link changes with each publication. Columns: `Organisation Name, Town/City, County, Type & Rating, Route`. Values are trimmed and whitespace collapsed.
-- **Skip:** if the CSV link is the same as the last complete import's, nothing is downloaded (`skipped`). `POST …?force=1` re-imports anyway.
+- **Only job companies are stored.** The whole file is read, but only the entries of companies named in someone's job are kept: the exact legal name, or a trading name used by exactly one register company (the same trust rules as matching). The same run deletes stored entries no job names any more. This keeps the tables to a few hundred rows instead of ~190 MB (the full register as of Nov 2026).
+- **Daily, no skip:** every run reads the register, even if gov.uk hasn't republished, so companies from newly captured jobs are checked by the next morning. A new job at a company nothing was stored for gets its chip after that run.
 - **Safety:** a file with different columns or fewer than 50,000 rows is refused before any write, so a bad download can't mark every licence as lost.
-- **Writes:** one transaction under `pg_try_advisory_xact_lock`. Companies and licences are upserted in batches of 5,000 via `unnest()` arrays. Locally, a full import (~142k licences, ~127k companies) takes about 12s.
+- **Writes:** one transaction under `pg_try_advisory_xact_lock`: upserts in batches via `unnest()` arrays, then pruning.
 - **Current vs lost:** a licence is current when `lastSeenAt` ≥ the start of the newest complete import. `removed` counts licences seen in the previous import but not this one.
 
 ## Cron
 
-`vercel.json` runs `GET /api/internal/sponsor-register/import` daily at 05:30 UTC. Auth is `Authorization: Bearer $CRON_SECRET`; Vercel sends this automatically when the `CRON_SECRET` env var is set. **Without `CRON_SECRET` the route returns 401 and nothing is imported.** Manual run:
+`vercel.json` runs `GET /api/internal/sponsor-register/import` daily at 05:30 UTC. Auth is `Authorization: Bearer $CRON_SECRET`; Vercel sends this automatically when the `CRON_SECRET` env var is set. **Without `CRON_SECRET` the route returns 401 and nothing is imported.** Manual run: Vercel → project → Settings → Cron Jobs → **Run**, or `vercel crons run /api/internal/sponsor-register/import`, or with a known secret:
 
 ```bash
-curl -X POST -H "Authorization: Bearer $CRON_SECRET" "https://<host>/api/internal/sponsor-register/import?force=1"
+curl -X POST -H "Authorization: Bearer $CRON_SECRET" "https://<host>/api/internal/sponsor-register/import"
 ```
 
 ## Status (`src/modules/companies/queries.ts`)

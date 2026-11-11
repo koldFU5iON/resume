@@ -1,16 +1,20 @@
-// Imports the UK sponsor register into Company + SponsorLicence. Run daily by
-// the cron route (/api/internal/sponsor-register/import).
+// Imports the UK sponsor register for the companies in people's jobs. Run daily
+// by the cron route (/api/internal/sponsor-register/import).
 //
-// - Skips the download when the gov.uk CSV link is the one the last complete
-//   import used, unless forced.
+// - Reads the whole register (~11 MB, ~142k rows) but stores only the entries
+//   of companies named in a job: exact legal name, or a trading name held by
+//   exactly one register company. Everything else is dropped, and rows kept
+//   from earlier imports for companies no job names any more are pruned. That
+//   keeps the tables to a few hundred rows instead of ~190 MB.
+// - Runs every day, even when gov.uk hasn't republished, so companies from
+//   newly captured jobs are checked by the next morning.
 // - Refuses a file that looks wrong (columns, row count) before writing, so a
 //   bad download can't mark every licence as lost.
 // - Writes in one transaction under an advisory lock: a failed run leaves the
 //   previous data untouched, and two runs never overlap.
-// - Set-based SQL over unnest() arrays: ~143k rows in a few dozen statements.
 
 import { prisma } from '@/lib/db'
-import { parseCompanyName } from './normalize'
+import { isPlaceholderCompany, parseCompanyName } from './normalize'
 import { fetchRegisterCsvUrl, fetchRegisterText, parseRegisterCsv, type RegisterRow } from './sponsor-register'
 
 export const REGISTER_COUNTRY = 'GB'
@@ -24,8 +28,23 @@ const BATCH_SIZE = 5_000
 const TRANSACTION_TIMEOUT_MS = 200_000
 
 export type ImportResult =
-  | { status: 'complete'; importId: string; sourceUrl: string; rows: number; added: number; removed: number }
-  | { status: 'skipped'; importId: string; sourceUrl: string }
+  | {
+      status: 'complete'
+      importId: string
+      sourceUrl: string
+      /** Rows in the register file. */
+      rows: number
+      /** Distinct company names found in jobs. */
+      jobCompanies: number
+      /** Register companies / licences kept for those names. */
+      companiesKept: number
+      licencesKept: number
+      added: number
+      /** Licences of kept companies listed last time but not now (licence lost). */
+      removed: number
+      /** Rows deleted because no job names their company any more. */
+      pruned: { licences: number; companies: number }
+    }
   | { status: 'failed'; importId: string | null; error: string }
 
 type CompanyRow = { name: string; normalizedName: string; aliases: string[] }
@@ -47,6 +66,57 @@ export function companiesFromRegister(rows: readonly RegisterRow[]): CompanyRow[
   return [...byKey.values()]
 }
 
+/**
+ * Pure: the register entries to store for the given job company names. A name
+ * selects a register company by its exact legal-name key, else by a trading
+ * name that exactly one register company uses (several = ambiguous: nothing).
+ * The same trust rules as match.ts, applied before anything is written.
+ */
+export function selectForJobs(
+  rows: readonly RegisterRow[],
+  jobCompanyNames: readonly string[],
+): { companies: CompanyRow[]; rows: RegisterRow[] } {
+  const rowsByKey = new Map<string, RegisterRow[]>()
+  const aliasHolders = new Map<string, Set<string>>()
+  for (const r of rows) {
+    const { normalizedName, aliases } = parseCompanyName(r.orgName)
+    if (!normalizedName) continue
+    const list = rowsByKey.get(normalizedName)
+    if (list) list.push(r)
+    else rowsByKey.set(normalizedName, [r])
+    for (const a of aliases) {
+      const holders = aliasHolders.get(a) ?? new Set<string>()
+      holders.add(normalizedName)
+      aliasHolders.set(a, holders)
+    }
+  }
+
+  const wanted = new Set<string>()
+  for (const name of jobCompanyNames) {
+    const { normalizedName } = parseCompanyName(name)
+    if (!normalizedName) continue
+    if (rowsByKey.has(normalizedName)) {
+      wanted.add(normalizedName)
+      continue
+    }
+    const holders = aliasHolders.get(normalizedName)
+    if (holders?.size === 1) wanted.add([...holders][0])
+  }
+
+  const kept = [...wanted].flatMap((key) => rowsByKey.get(key) ?? [])
+  return { companies: companiesFromRegister(kept), rows: kept }
+}
+
+/** Distinct, non-placeholder company names across every user's jobs. */
+async function jobCompanyNames(): Promise<string[]> {
+  const rows = await prisma.jobApplication.findMany({
+    where: { company: { not: null } },
+    distinct: ['company'],
+    select: { company: true },
+  })
+  return rows.map((r) => r.company!).filter((c) => !isPlaceholderCompany(c))
+}
+
 function chunks<T>(items: readonly T[], size: number): T[][] {
   const out: T[][] = []
   for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size))
@@ -64,20 +134,12 @@ export async function latestCompleteImport(): Promise<{ startedAt: Date; sourceU
 
 type Fetch = typeof fetch
 
-export async function runSponsorRegisterImport(opts: { force?: boolean; fetchImpl?: Fetch } = {}): Promise<ImportResult> {
+export async function runSponsorRegisterImport(opts: { fetchImpl?: Fetch } = {}): Promise<ImportResult> {
   const fetchImpl = opts.fetchImpl ?? fetch
   let importId: string | null = null
   try {
     const sourceUrl = await fetchRegisterCsvUrl(fetchImpl)
     const previous = await latestCompleteImport()
-
-    if (!opts.force && previous?.sourceUrl === sourceUrl) {
-      const row = await prisma.sponsorRegisterImport.create({
-        data: { sourceUrl, status: 'skipped', completedAt: new Date() },
-        select: { id: true },
-      })
-      return { status: 'skipped', importId: row.id, sourceUrl }
-    }
 
     const started = await prisma.sponsorRegisterImport.create({
       data: { sourceUrl, status: 'running' },
@@ -86,10 +148,11 @@ export async function runSponsorRegisterImport(opts: { force?: boolean; fetchImp
     importId = started.id
     const seenAt = started.startedAt
 
-    const rows = parseRegisterCsv(await fetchRegisterText(sourceUrl, fetchImpl))
-    const companies = companiesFromRegister(rows)
+    const register = parseRegisterCsv(await fetchRegisterText(sourceUrl, fetchImpl))
+    const names = await jobCompanyNames()
+    const { companies, rows } = selectForJobs(register, names)
 
-    const { added, removed } = await prisma.$transaction(
+    const { added, removed, pruned } = await prisma.$transaction(
       async (tx) => {
         const [{ locked }] = await tx.$queryRaw<{ locked: boolean }[]>`
           SELECT pg_try_advisory_xact_lock(${IMPORT_LOCK_KEY}) AS locked`
@@ -143,22 +206,42 @@ export async function runSponsorRegisterImport(opts: { force?: boolean; fetchImp
           added += inserted
         }
 
+        // Keep only the register companies chosen this run (plus any a job is linked to).
+        const keptNames = companies.map((c) => c.normalizedName)
+        const prunedLicences = await tx.sponsorLicence.deleteMany({
+          where: { country: REGISTER_COUNTRY, company: { normalizedName: { notIn: keptNames } } },
+        })
+        const prunedCompanies = await tx.company.deleteMany({
+          where: { fromRegister: true, normalizedName: { notIn: keptNames }, jobApplications: { none: {} } },
+        })
+
         // Lost since the previous complete import: listed then, not now.
         const removed = previous
           ? await tx.sponsorLicence.count({
               where: { country: REGISTER_COUNTRY, lastSeenAt: { gte: previous.startedAt, lt: seenAt } },
             })
           : 0
-        return { added, removed }
+        return { added, removed, pruned: { licences: prunedLicences.count, companies: prunedCompanies.count } }
       },
       { timeout: TRANSACTION_TIMEOUT_MS, maxWait: 10_000 },
     )
 
     await prisma.sponsorRegisterImport.update({
       where: { id: importId },
-      data: { status: 'complete', rows: rows.length, added, removed, completedAt: new Date() },
+      data: { status: 'complete', rows: register.length, added, removed, completedAt: new Date() },
     })
-    return { status: 'complete', importId, sourceUrl, rows: rows.length, added, removed }
+    return {
+      status: 'complete',
+      importId,
+      sourceUrl,
+      rows: register.length,
+      jobCompanies: names.length,
+      companiesKept: companies.length,
+      licencesKept: rows.length,
+      added,
+      removed,
+      pruned,
+    }
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err)
     if (importId) {

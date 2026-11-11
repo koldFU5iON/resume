@@ -13,8 +13,8 @@ model Company {
   /// Other normalised spellings, e.g. trading names ("X LTD T/A Y"). Written only by the
   /// register import: user-entered job names never add aliases (they're shared matching keys).
   aliases        String[]
-  /// True once the register import has seen this name. Companies created from job names
-  /// stay false and never take precedence over register names or aliases in matching.
+  /// True for register entries the import stored (only those named in someone's job). Companies
+  /// created from job names stay false and never outrank register names or aliases in matching.
   fromRegister   Boolean  @default(false)
   domain         String?
   createdAt      DateTime @default(now())
@@ -59,7 +59,7 @@ model SponsorRegisterImport {
   id          String    @id @default(cuid())
   country     String    @default("GB")
   sourceUrl   String
-  /// 'running' | 'complete' | 'failed' | 'skipped' (source unchanged since the last complete import)
+  /// 'running' | 'complete' | 'failed' ('skipped' on early runs, before every run imported)
   status      String
   rows        Int?
   added       Int?
