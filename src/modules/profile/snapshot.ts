@@ -9,6 +9,7 @@
 import { loadVault } from '@/modules/profile-map/load'
 import { notesOf } from '@/modules/profile-map/build'
 import { formatMonth as formatMonthUtc } from '@/modules/profile-map/format'
+import { stripWikilinks as plain } from '@/modules/profile-map/links'
 import { makeContactScrubber, type PiiMode } from '@/modules/profile-map/pii'
 import type { Vault } from '@/modules/profile-map/types'
 
@@ -87,6 +88,9 @@ export async function buildProfileSnapshot(profileId: string): Promise<ProfileSn
   return toProfileSnapshot(await loadVault(profileId))
 }
 
+// Free text is passed through `plain`: [[wikilinks]] are links inside the
+// vault, but every consumer of the snapshot (CV, cover letter, Jev, ...) wants
+// prose, so "[[Jira]]" reads as "Jira".
 export function toProfileSnapshot(vault: Vault): ProfileSnapshot {
   const id = vault.identity.props
   const capabilities = notesOf(vault, 'capability')
@@ -99,7 +103,7 @@ export function toProfileSnapshot(vault: Vault): ProfileSnapshot {
     github: id.contact.github,
     location: id.location,
     headline: id.headline,
-    summary: vault.identity.body ?? null,
+    summary: vault.identity.body ? plain(vault.identity.body) : null,
     experiences: notesOf(vault, 'experience').map((e) => ({
       role: e.props.role,
       company: e.props.company,
@@ -107,12 +111,12 @@ export function toProfileSnapshot(vault: Vault): ProfileSnapshot {
       endDate: e.props.endDate,
       location: e.props.location,
       remote: e.props.remote,
-      summary: e.body ?? '',
+      summary: plain(e.body ?? ''),
       activities: e.links
         .filter((l) => l.type === 'has')
         .map((l) => vault.notes.get(l.id))
         .flatMap((a) => (a?.type === 'evidence'
-          ? [{ kind: a.props.kind, description: a.props.description, impact: a.props.impact, highlighted: a.props.highlighted }]
+          ? [{ kind: a.props.kind, description: plain(a.props.description), impact: a.props.impact && plain(a.props.impact), highlighted: a.props.highlighted }]
           : [])),
     })),
     skills: capabilities
@@ -137,8 +141,8 @@ export function toProfileSnapshot(vault: Vault): ProfileSnapshot {
     languages: notesOf(vault, 'language').map((l) => ({ ...l.props })),
     projects: notesOf(vault, 'project').map((p) => ({
       name: p.props.name,
-      description: p.props.description,
-      highlights: p.props.highlights,
+      description: plain(p.props.description),
+      highlights: p.props.highlights.map(plain),
       status: p.props.status,
       startDate: p.props.startDate,
       endDate: p.props.endDate,

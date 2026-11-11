@@ -7,6 +7,7 @@ export const FEATURE_LABELS: Record<string, string> = {
   'cv-import': 'CV import',
   'profile-summary': 'Profile summary',
   'profile-extract': 'Profile extract',
+  'profile-evidence-links': 'Profile — evidence links',
   'cv-job-analysis': 'Job analysis',
   'cv-evidence-score': 'Evidence scoring',
   'cv-recruiter-scan': 'Recruiter scan',

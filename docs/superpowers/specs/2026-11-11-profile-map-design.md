@@ -1,6 +1,6 @@
 # Profile Map: the profile as a linked vault of atomic notes
 
-**Date:** 2026-11-11 · **Status:** Approved; steps 1–2 shipped, step 3 in progress
+**Date:** 2026-11-11 · **Status:** Approved; steps 1–3 shipped
 **Builds on:** `2026-11-11-profile-review-and-profile-map.md` (review, decisions, phasing)
 
 ## 1. The idea
@@ -184,3 +184,24 @@ The link tables (`RoleActivitySkill`, `ProjectSkill`, `ExperienceSkill`, `Certif
 - Migration `20261111140000_merge_capabilities` copies `Tool` and `Competency` rows into `Skill`, keeping their ids. The old tables stay in place, unread, for a later cleanup.
 - The tool and competency actions write `Skill` rows and return the legacy shapes, so the profile UI is unchanged.
 - The vault reads every capability from `Skill`. A skill still wins a name clash with a tool or competency.
+
+## 11. Step 3, part 2: evidence links
+
+- **Derived links, not stored.** When the vault loads, exact mentions and `[[wikilinks]]` link a note to the capabilities it names (`profile-map/links.ts`):
+  - evidence → `demonstrates`; experience and project bodies → `uses`;
+  - each link records `via`: `confirmed`, `exact` or `wikilink`;
+  - matching is whole-word; names of three characters or fewer are case-sensitive, and one-letter names need plain punctuation around them ("R&D" is not "R");
+  - every scan is linear-time.
+- **Stored decisions.** `RoleActivitySkill` gains `status` (`confirmed` | `suggested` | `rejected`), `source` and `reason`. A confirmed link always counts. A rejection hides a wrong derived match.
+- **AI suggestions** (`suggest.ts`, `link-store.ts`, feature `profile-evidence-links`):
+  - the prompt refers to evidence and capabilities as E1/C1, and every reference in the reply is validated;
+  - existing and rejected pairs are dropped;
+  - links are stored as `suggested`, replacing the previous batch;
+  - missing capabilities are returned for the user to add.
+- **Review UI.** An "Evidence links" section on the profile page shows how many capabilities are backed by evidence, a "Suggest links" button, and pending suggestions grouped by capability (accept or reject, one at a time or all at once).
+- **Snapshots strip `[[wikilinks]]`,** so CVs, cover letters and Jev get plain prose. The profile tools keep them as links.
+- **New gaps:**
+  - roles at one company that overlap by more than a three-month handover;
+  - near-identical evidence under two roles;
+  - `[[wikilinks]]` that match no capability.
+- **Re-extraction** already diffs against existing evidence (`annotateMatches` → `replaceId`), so it needed no change.

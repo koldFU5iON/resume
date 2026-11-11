@@ -233,9 +233,17 @@ model ExperienceSkill {
   @@id([experienceId, skillId])
 }
 
+// Evidence -> capability ("demonstrates"). Exact name matches and
+// [[wikilinks]] are derived when the vault loads and are not stored; rows here
+// are decisions: confirmed links, AI suggestions awaiting review, and
+// rejections that hide a wrong derived match.
 model RoleActivitySkill {
   roleActivityId String
   skillId        String
+  status         String   @default("confirmed") // "confirmed" | "suggested" | "rejected"
+  source         String   @default("manual") // "manual" | "ai"
+  reason         String? // why an AI suggestion links them, shown in review
+  createdAt      DateTime @default(now())
   roleActivity   RoleActivity @relation(fields: [roleActivityId], references: [id], onDelete: Cascade)
   skill          Skill        @relation(fields: [skillId], references: [id], onDelete: Cascade)
 
