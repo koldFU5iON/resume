@@ -318,6 +318,12 @@ describe('model roles', () => {
     expect(usedModel()).toBe('mock-model')
   })
 
+  it('logs no role for an explicit model without one', async () => {
+    settings({})
+    await complete('profile-1', 'hi', { feature: 'x', model: 'claude-test-1' })
+    expect(await loggedRow()).toMatchObject({ role: null, model: 'claude-test-1' })
+  })
+
   it('logs the role on a failed call', async () => {
     settings({})
     mockGenerateText.mockRejectedValueOnce(new Error('boom'))
@@ -367,6 +373,14 @@ describe('web search', () => {
     expect(mockLogCreate).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ serverToolCalls: 3 }) }),
     )
+  })
+
+  it("rejects webSearch on structured output with 'unsupported', before any provider call", async () => {
+    await expect(
+      completeStructured('profile-1', 'find', z.object({ name: z.string() }), { feature: 'x', webSearch: { maxUses: 2 } }),
+    ).rejects.toMatchObject({ name: 'LLMError', kind: 'unsupported' })
+    expect(mockFindUnique).not.toHaveBeenCalled()
+    expect(mockGenerateText).not.toHaveBeenCalled()
   })
 
   it('sends no tools without webSearch', async () => {

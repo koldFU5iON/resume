@@ -137,15 +137,17 @@ in the usage row's `serverToolCalls`.
 
 | Provider | Tools | `maxUses` | `allowedDomains` | Live-tested |
 |---|---|---|---|---|
-| Anthropic | `webSearch_20260209` + `webFetch_20260209` | yes (each tool) | yes | not yet |
+| Anthropic | `webSearch_20260209` + `webFetch_20260209` | yes, per tool (up to 2 × `maxUses` billed uses) | yes | not yet |
 | OpenAI | `webSearch` (Responses API) | not supported, ignored | yes (`filters.allowedDomains`) | not yet |
 | Google | `googleSearch` (grounding) | not supported, ignored | not supported, ignored | not yet |
 
 Google reports searches in grounding metadata rather than as tool calls; the
 layer counts `webSearchQueries` for `serverToolCalls`. A provider without a
-search tool throws `LLMError` kind `unsupported`. Providers don't reliably
-combine search tools with structured output, so research is free text
-(`complete`), structured afterwards by a separate `role: 'fast'` call.
+search tool throws `LLMError` kind `unsupported`. `webSearch` works with
+`complete` only: `completeStructured` throws `unsupported` for it, because
+Gemini rejects search grounding with a JSON schema and other providers don't
+combine them reliably. Search with `complete`, then structure the notes with a
+separate `role: 'fast'` call.
 
 ### Cheap config check (no LLM call)
 
