@@ -68,7 +68,9 @@ export function normalizeModelRoleChoices(raw: unknown): ModelRoleChoices {
  * role; null falls back to the user's default model.
  */
 export const ROLE_RECOMMENDATIONS: Record<'anthropic' | 'openai' | 'google', Record<ConfigurableRole, string | null>> = {
-  anthropic: { fast: 'claude-haiku-5-5', research: null, analysis: null },
+  // research/analysis: measured on the job deep dive, 2026-11-11 (docs/deep-dive.md). Haiku as the research
+  // model cost ~4x less but returned far fewer pay findings (0 and 4 vs 13-15 for Sonnet).
+  anthropic: { fast: 'claude-haiku-5-5', research: 'claude-sonnet-5-5', analysis: 'claude-opus-5-5' },
   openai: { fast: null, research: null, analysis: null },
   google: { fast: null, research: null, analysis: null },
 }

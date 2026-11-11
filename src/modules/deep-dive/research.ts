@@ -231,7 +231,8 @@ async function runResearcher(researcher: Researcher, brief: ResearchBrief, ctx: 
     })
     model = search.model
     const notes = search.text.trim()
-    if (!notes) return outcome('ok', 'no_notes', { model, sourceCount: search.sources.length })
+    // Seen live with Haiku: 45 pages searched, no text written. That's a failed search, not "nothing found".
+    if (!notes) return outcome('failed', `no_notes:${search.finishReason}`, { model, sourceCount: search.sources.length })
 
     const left = ctx.deadline - Date.now()
     if (left < MIN_STRUCTURE_MS) return outcome('timeout', 'timeout', { model, sourceCount: search.sources.length })

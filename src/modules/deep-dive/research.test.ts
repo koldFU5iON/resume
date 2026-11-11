@@ -161,6 +161,13 @@ describe('runResearch', () => {
     expect(run.researchers.practicalities).toMatchObject({ status: 'ok' })
   })
 
+  it('treats a search that wrote no notes as failed, with the finish reason', async () => {
+    mockComplete.mockResolvedValue({ ...searchResult('  '), finishReason: 'other' } as never)
+    const run = await runResearch(brief, ctx())
+    expect(run.researchers.pay).toMatchObject({ status: 'failed', reason: 'no_notes:other', findings: [] })
+    expect(mockStructured).not.toHaveBeenCalled()
+  })
+
   it("doesn't start structuring with too little time left", async () => {
     mockComplete.mockResolvedValue(searchResult('notes') as never)
     const run = await runResearch(brief, ctx({ deadline: Date.now() + 1_000 }))

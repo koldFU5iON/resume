@@ -96,7 +96,7 @@ Feature code declares **what kind of work** a call is. The LLM layer picks the m
 
 | Provider | Mapping | Live test |
 |---|---|---|
-| Anthropic | `webSearch_20260209` + `webFetch_20260209`, `maxUses` and `allowedDomains` on both | Not yet: no key in the build environment |
+| Anthropic | `webSearch_20260209` + `webFetch_20260209`, `maxUses` and `allowedDomains` on both | Yes, with the deep dive (#360, 2026-11-11): Sonnet 5.5 and Haiku 5.5 |
 | OpenAI | `webSearch` with `filters.allowedDomains`; no per-call use limit, so `maxUses` isn't enforced | Not yet: no key |
 | Google | `googleSearch`; no use limit or domain filter; searches counted from `groundingMetadata.webSearchQueries` | Not yet: no key |
 
@@ -383,18 +383,18 @@ No model ids appear in this module.
 
 Separately, `src/modules/companies/` holds `match.ts`, `sponsor-register.ts` and `queries.ts`.
 
-## 9. Cost (estimate, user's key)
+## 9. Cost (measured on Anthropic, user's key)
 
-Cost depends on which models the user puts in each role. As one example, with Anthropic's mid-tier model for `research`/`fast` ($2/$10 per M) and its top model for `analysis` ($4/$20 per M):
+Measured on 2026-11-11 (#360) on real job postings, with `research` = Sonnet 5.5, `fast` = Haiku 5.5, `analysis` = Opus 5.5. Token costs are estimates from list prices; web search is billed per search by Anthropic on top.
 
-| Stage | Rough tokens | Rough cost (example) |
-|---|---|---|
-| Research ×3 (search + structure) | 3 × ~25k in / ~3k out | ~$0.25 |
-| Web searches | ≤ 13 searches | billed per search by the provider |
-| Synthesis | ~40k in / ~12k out incl. reasoning | ~$0.40 |
-| **Total** | | **~$0.65–$1.00** before searches |
+| Stage | Measured tokens | Time | Cost (tokens) |
+|---|---|---|---|
+| Research ×3 (search + structure) | ~200–260k in / ~15–24k out | 35–60s per researcher, in parallel | ~$0.46–0.60 |
+| Web search + fetch | 23–27 tool calls | | Anthropic's per-search fee |
+| Synthesis | ~10–15k in / ~7–9k out | 58–84s | ~$0.18–0.25 |
+| **Total** | | **~1.5–2.5 min** | **~$0.70–0.85** plus searches |
 
-These are guesses until real runs are measured. **Step 4 (#360) could not measure them:** no provider key was available in the build environment, so this table and the Anthropic `research` / `analysis` entries of `ROLE_RECOMMENDATIONS` are still open. OpenAI and Google are out of scope for the deep dive for now: their search mappings exist in the LLM layer, ready to test later. The GET route returns each run's `usage` (tokens, searches, estimated cost) to fill them in. With #345 in place, the page shows each run's actual tokens and searches, and this table gets replaced with measured numbers after the first 20 runs. Company research is cached, so a second job at the same company skips the `company` researcher.
+A second job at the same company reuses cached company research and costs about a third less. With Haiku as the research model a run cost about $0.22 in tokens, but its research was much thinner (one pay researcher searched 45 pages and wrote nothing), so Sonnet is the recommended `research` model. OpenAI and Google are out of scope for now.
 
 **Before starting:** the button shows "Uses your own API key" with an estimate. The estimate comes from the per-role models and a pricing table. With no known pricing for a model, it shows "cost unknown" rather than a guess.
 

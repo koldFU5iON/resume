@@ -76,15 +76,20 @@ The Server Action `startDeepDiveAction(jobId)` (`actions.ts`) calls the same `st
 
 ## Measured (Anthropic, 2026-11-11)
 
-Research stage, `research` = Sonnet 5.5, `fast` = Haiku 5.5, real Greenhouse postings (Monzo, Intercom ×2, Cloudflare, GitLab), 4 runs with all three researchers live:
+Real Greenhouse postings (Monzo, Intercom ×2, Cloudflare, GitLab), driven through the real route on a local dev server. Token costs are list-price estimates; web search is billed per search on top.
 
-| | Per run |
-|---|---|
-| Time per researcher | 35–60s (budget 120s) |
-| Findings per researcher | 11–15 (cap 15), every one sourced or quoting the ad |
-| Pages reported by search | 18–48 per researcher |
-| Tokens (3 searches + 3 structuring calls) | ~200–260k in, ~15–24k out |
-| Server tool calls (search + fetch) | 23–27 |
-| Estimated token cost | $0.46–0.60, plus Anthropic's per-search fee |
+| | Sonnet 5.5 research | Haiku 5.5 research |
+|---|---|---|
+| Research time per researcher | 35–60s | 25–45s |
+| Findings per researcher | 11–15 | 0–15 (pay: 0 and 4) |
+| Research tokens per run | ~200–260k in, ~15–24k out | ~170–355k in, ~16–20k out |
+| Search + fetch calls per run | 23–27 | 18–29 |
+| Research token cost | ~$0.46–0.60 | ~$0.05 |
 
-Not yet measured: synthesis (blocked first by the two schema limits above, then by the test key running out of credit), the Haiku-for-research comparison, and so the full cost per run. `ROLE_RECOMMENDATIONS.anthropic` `research` / `analysis` stay `null` until then. The GET response's `usage` gives tokens, searches and estimated cost per run.
+Synthesis (`analysis` = Opus 5.5), 7 runs: ~10–15k in, ~7–9k out, 58–84s, ~$0.18–0.25. Full run: ~1.5–2.5 minutes, **~$0.70–0.85 with Sonnet research** plus searches; a cached company saves about a third of the research.
+
+**Recommendations** (`ROLE_RECOMMENDATIONS.anthropic`): `research` Sonnet 5.5, `analysis` Opus 5.5, `fast` Haiku 5.5. Haiku research is about 4× cheaper but much thinner: on Monzo its pay researcher searched 45 pages and wrote no notes. Such a researcher now fails as `no_notes:<finishReason>` so the report lists pay as unresearched.
+
+Report quality on the test profile: verdicts were calibrated (long shot / don't apply for principal-PM roles on a programme-manager profile, apply with caveats for the matching Senior Program Manager role), profile evidence quoted real profile items, pay asks cited findings and noted when the ad gave two ranges, and register vs ad wording were reported separately.
+
+Not covered: the early-assessment path (no Jev assessments on the local test jobs), and OpenAI / Google (out of scope).
