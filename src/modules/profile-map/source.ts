@@ -18,9 +18,8 @@ export const VAULT_INCLUDE = {
     orderBy: [{ startDate: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }],
     include: { skills: { select: { skillId: true } } },
   },
-  skills: { orderBy: [{ category: 'asc' }, { name: 'asc' }] },
-  tools: { orderBy: [{ order: 'asc' }, { name: 'asc' }] },
-  competencies: { orderBy: [{ order: 'asc' }, { name: 'asc' }] },
+  // Skills, tools and competencies (Skill.kind).
+  skills: { orderBy: [{ order: 'asc' }, { category: 'asc' }, { name: 'asc' }] },
   educations: { orderBy: { startDate: 'desc' } },
   certifications: {
     orderBy: { issueDate: { sort: 'desc', nulls: 'last' } },

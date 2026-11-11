@@ -97,7 +97,7 @@ describe('profileMap', () => {
 
   it('flags an empty profile', () => {
     const map = profileMap(buildVault(source({
-      headline: null, summary: null, experiences: [], projects: [], skills: [], tools: [], competencies: [],
+      headline: null, summary: null, experiences: [], projects: [], skills: [],
       educations: [], certifications: [], languages: [], settings: null,
     })))
     expect(map.gaps.map((g) => g.area)).toEqual(expect.arrayContaining(['identity', 'experience', 'capability', 'education', 'preferences']))

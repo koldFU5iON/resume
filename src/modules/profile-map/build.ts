@@ -91,7 +91,7 @@ export function buildVault(row: VaultSource): Vault {
   add(preferences)
 
   // ── Capabilities: skills, tools and competencies as one faceted set ──
-  // Same-name entries across the three tables collapse into one note
+  // Same-name entries across the three kinds collapse into one note
   // (skill > tool > competency); `alias` maps every source id to it.
   const alias = new Map<string, string>()
   const byName = new Map<string, string>()
@@ -121,16 +121,17 @@ export function buildVault(row: VaultSource): Vault {
       updatedAt,
     } satisfies CapabilityNote)
   }
-  for (const s of row.skills) {
-    addCapability(s.id, s.name, 'skill', {
-      category: s.category || null, level: s.level || null, yearsOfExperience: s.yearsOfExperience,
+  // Skills first, so a skill wins a name clash with a tool or competency.
+  const KIND_RANK: Record<CapabilityKind, number> = { skill: 0, tool: 1, competency: 2 }
+  const capabilityKind = (k: string): CapabilityKind => (k === 'tool' || k === 'competency' ? k : 'skill')
+  const capabilities = [...row.skills].sort((a, b) => KIND_RANK[capabilityKind(a.kind)] - KIND_RANK[capabilityKind(b.kind)])
+  for (const s of capabilities) {
+    const kind = capabilityKind(s.kind)
+    addCapability(s.id, s.name, kind, {
+      category: s.category || null,
+      level: kind === 'skill' ? s.level || null : null,
+      yearsOfExperience: kind === 'skill' ? s.yearsOfExperience : null,
     }, s.updatedAt)
-  }
-  for (const t of row.tools) {
-    addCapability(t.id, t.name, 'tool', { category: t.category, level: null, yearsOfExperience: null }, t.updatedAt)
-  }
-  for (const c of row.competencies) {
-    addCapability(c.id, c.name, 'competency', { category: null, level: null, yearsOfExperience: null }, c.updatedAt)
   }
   const capLinks = (ids: { skillId: string }[], type: Link['type']): Link[] =>
     [...new Set(ids.map((s) => alias.get(s.skillId)).filter((id): id is string => Boolean(id)))]

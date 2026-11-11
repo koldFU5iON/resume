@@ -246,7 +246,7 @@ function SkillDialog({
             </Field>
             <Field>
               <Label htmlFor="skill-category">Category</Label>
-              <Input id="skill-category" name="category" placeholder="e.g. Backend, DevOps" defaultValue={editing?.category} required />
+              <Input id="skill-category" name="category" placeholder="e.g. Backend, DevOps" defaultValue={editing?.category ?? undefined} required />
             </Field>
             <Field>
               <Label>Level</Label>

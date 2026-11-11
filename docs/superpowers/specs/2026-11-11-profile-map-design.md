@@ -1,6 +1,6 @@
 # Profile Map: the profile as a linked vault of atomic notes
 
-**Date:** 2026-11-11 · **Status:** Approved; steps 1–2 shipped
+**Date:** 2026-11-11 · **Status:** Approved; steps 1–2 shipped, step 3 in progress
 **Builds on:** `2026-11-11-profile-review-and-profile-map.md` (review, decisions, phasing)
 
 ## 1. The idea
@@ -176,3 +176,11 @@ Shipped in `feat/profile-tools`:
   - `acceptDraft` replaces it with the profile's contact line (`profile-map/contact.ts`). Drafts keep the placeholder until then, so agents never read contact details back through `get_draft`.
   - The review screen explains the placeholder.
 - Every tool scrubs contact details, and search never matches them.
+
+## 10. Step 3, part 1: capability merge
+
+The link tables (`RoleActivitySkill`, `ProjectSkill`, `ExperienceSkill`, `CertificationSkill`) reference `Skill` only, so evidence could not be linked to a tool or a competency. Step 4's capability merge therefore moves ahead of the links:
+- `Skill` gains `kind` (`skill` | `tool` | `competency`), `order` and `origin`. `level` and `category` become optional, because tools have no level.
+- Migration `20261111140000_merge_capabilities` copies `Tool` and `Competency` rows into `Skill`, keeping their ids. The old tables stay in place, unread, for a later cleanup.
+- The tool and competency actions write `Skill` rows and return the legacy shapes, so the profile UI is unchanged.
+- The vault reads every capability from `Skill`. A skill still wins a name clash with a tool or competency.
