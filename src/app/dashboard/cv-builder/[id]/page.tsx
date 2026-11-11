@@ -38,7 +38,7 @@ export default async function CVEditorPage({ params }: Props) {
           current="cv"
         />
       )}
-      <CvEditor cv={{ ...cv, profileName: cv.profile.name }} stale={stale} />
+      <CvEditor key={cv.id} cv={{ ...cv, profileName: cv.profile.name }} stale={stale} />
     </div>
   )
 }

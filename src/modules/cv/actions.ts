@@ -5,6 +5,7 @@ import { requireProfile } from '@/lib/session'
 import { revalidatePath } from 'next/cache'
 import { parseCVContent, mergeSectionData, CVSectionSchema, type CVSection, type CVDocumentContent } from './schema'
 import { generateCVContent } from './generate'
+import { acceptCV, unacceptCV, CV_STATUS } from './acceptance'
 
 export async function createAndGenerateCV({
   jobApplicationId,
@@ -17,6 +18,7 @@ export async function createAndGenerateCV({
   if (jobApplicationId) {
     const existing = await prisma.cVDocument.findFirst({
       where: { profileId: profile.id, jobApplicationId },
+      orderBy: { createdAt: 'desc' },
       select: { id: true },
     })
     if (existing) return { id: existing.id }
@@ -29,6 +31,8 @@ export async function createAndGenerateCV({
         select: { title: true, company: true },
       })
     : null
+  // Never link a CV to a job the profile doesn't own.
+  if (jobApplicationId && !jobApp) throw new Error('Job not found')
 
   // Find or bootstrap the default template — safe to run on first use in prod
   const template = await prisma.cVTemplate.upsert({
@@ -228,36 +232,87 @@ export async function reorderSections(cvId: string, orderedSectionIds: string[])
   revalidatePath(`/dashboard/cv-builder/${cvId}`)
 }
 
-export async function regenerateCVContent(cvId: string): Promise<CVDocumentContent> {
+/**
+ * Regenerates a CV's content. A draft (or failed) CV is overwritten in place.
+ * An accepted CV is left exactly as it is, so the record of what was sent
+ * survives: the new content goes into a new draft CV for the same job, and
+ * its id is returned so the editor can switch to it.
+ */
+export async function regenerateCVContent(cvId: string): Promise<{ id: string; content: CVDocumentContent }> {
   const { profile } = await requireProfile()
   const doc = await prisma.cVDocument.findFirst({
     where: { id: cvId, profileId: profile.id },
-    select: { id: true, jobApplicationId: true },
+    select: {
+      id: true, status: true, jobApplicationId: true, careerVerticalId: true,
+      templateId: true, jobDescription: true, jobTitle: true, company: true,
+    },
   })
   if (!doc) throw new Error('CV not found')
 
-  await prisma.cVDocument.update({
-    where: { id: cvId },
-    data: { status: 'generating' },
-  })
+  const target = doc.status === CV_STATUS.Accepted
+    ? await prisma.cVDocument.create({
+        data: {
+          profileId: profile.id,
+          jobApplicationId: doc.jobApplicationId,
+          careerVerticalId: doc.careerVerticalId,
+          templateId: doc.templateId,
+          jobDescription: doc.jobDescription,
+          jobTitle: doc.jobTitle,
+          company: doc.company,
+          generatedContent: '{}',
+          status: CV_STATUS.Generating,
+        },
+        select: { id: true },
+      })
+    : await prisma.cVDocument.update({
+        where: { id: doc.id, profileId: profile.id },
+        data: { status: CV_STATUS.Generating },
+        select: { id: true },
+      })
 
   try {
-    const { content, masterUpdatedAt } = await generateCVContent(profile.id, doc.jobApplicationId ?? undefined, { cvDocumentId: doc.id })
+    const { content, masterUpdatedAt } = await generateCVContent(profile.id, doc.jobApplicationId ?? undefined, { cvDocumentId: target.id })
     await prisma.cVDocument.update({
-      where: { id: cvId },
+      where: { id: target.id, profileId: profile.id },
       data: {
         generatedContent: JSON.stringify(content),
-        status: 'draft',
+        status: CV_STATUS.Draft,
         masterCvUpdatedAt: masterUpdatedAt,
       },
     })
-    revalidatePath(`/dashboard/cv-builder/${cvId}`)
-    return content
+    revalidatePath(`/dashboard/cv-builder/${target.id}`)
+    revalidatePath('/dashboard/cv-builder')
+    return { id: target.id, content }
   } catch (err) {
     await prisma.cVDocument.update({
-      where: { id: cvId },
-      data: { status: 'failed' },
+      where: { id: target.id, profileId: profile.id },
+      data: { status: CV_STATUS.Failed },
     })
     throw err
   }
+}
+
+const ACCEPT_ERRORS = {
+  not_found: 'CV not found',
+  no_job: 'Only a CV for a job can be accepted.',
+  not_ready: 'This CV is not ready to accept yet.',
+  already_accepted: 'This CV is already accepted.',
+} as const
+
+/** Marks a job CV as accepted (the one used to apply). */
+export async function markCVAccepted(cvId: string): Promise<{ acceptedAt: Date }> {
+  const { profile } = await requireProfile()
+  const res = await acceptCV(profile.id, cvId)
+  if (!res.ok) throw new Error(ACCEPT_ERRORS[res.reason])
+  revalidatePath(`/dashboard/cv-builder/${cvId}`)
+  revalidatePath('/dashboard/cv-builder')
+  return { acceptedAt: res.acceptedAt }
+}
+
+/** Undoes an acceptance: the CV goes back to draft. */
+export async function unmarkCVAccepted(cvId: string): Promise<void> {
+  const { profile } = await requireProfile()
+  if (!(await unacceptCV(profile.id, cvId))) throw new Error('This CV is not accepted.')
+  revalidatePath(`/dashboard/cv-builder/${cvId}`)
+  revalidatePath('/dashboard/cv-builder')
 }
