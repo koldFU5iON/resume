@@ -4,6 +4,9 @@ import * as z from 'zod'
 // extraction, CV import) goes through normalizeSkillLevel so the stored value
 // always matches the UI select and the readers that filter on it
 // (e.g. chat/context.ts keeps only 'expert' | 'advanced').
+/** A professional summary is a few paragraphs; anything longer is not one. */
+export const MAX_SUMMARY_LENGTH = 5000
+
 export const SKILL_LEVELS = ['beginner', 'intermediate', 'advanced', 'expert'] as const
 export type SkillLevel = (typeof SKILL_LEVELS)[number]
 export const DEFAULT_SKILL_LEVEL: SkillLevel = 'intermediate'

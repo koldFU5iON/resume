@@ -3,7 +3,7 @@
 import { prisma } from '@/lib/db'
 import { requireProfile } from '@/lib/session'
 import { revalidatePath } from 'next/cache'
-import { ActivityInputSchema, ACTIVITY_KINDS, DEFAULT_SKILL_CATEGORY, SkillInputSchema, normalizeSkillLevel } from './schema'
+import { ActivityInputSchema, ACTIVITY_KINDS, DEFAULT_SKILL_CATEGORY, MAX_SUMMARY_LENGTH, SkillInputSchema, normalizeSkillLevel } from './schema'
 
 export type ContactField = 'name' | 'email' | 'phone' | 'location' | 'website' | 'linkedIn' | 'github' | 'headline'
 
@@ -21,6 +21,9 @@ export async function updateContactField(field: ContactField, value: string) {
 
 export async function updateProfileSummary(summary: string) {
   const { profile } = await requireProfile()
+  if (summary.trim().length > MAX_SUMMARY_LENGTH) {
+    throw new Error(`Summary must be ${MAX_SUMMARY_LENGTH} characters or fewer`)
+  }
   await prisma.profile.update({
     where: { id: profile.id },
     data: { summary: summary.trim() || null },
