@@ -3,14 +3,18 @@
 import { prisma } from '@/lib/db'
 import { requireProfile } from '@/lib/session'
 import { revalidatePath } from 'next/cache'
+import { ActivityInputSchema, ACTIVITY_KINDS, DEFAULT_SKILL_CATEGORY, SkillInputSchema, normalizeSkillLevel } from './schema'
 
 export type ContactField = 'name' | 'email' | 'phone' | 'location' | 'website' | 'linkedIn' | 'github' | 'headline'
 
 export async function updateContactField(field: ContactField, value: string) {
   const { profile } = await requireProfile()
+  const trimmed = value.trim()
+  // `name` is a required column: refuse to blank it rather than write null.
+  if (field === 'name' && !trimmed) throw new Error('Name is required')
   await prisma.profile.update({
     where: { id: profile.id },
-    data: { [field]: value.trim() || null },
+    data: { [field]: trimmed || null },
   })
   revalidatePath('/dashboard/profile')
 }
@@ -44,7 +48,7 @@ export async function createActivity(experienceId: string, data: ActivityData) {
   const experience = await prisma.experience.findFirst({ where: { id: experienceId, profileId: profile.id } })
   if (!experience) throw new Error('Experience not found')
   const activity = await prisma.roleActivity.create({
-    data: { ...data, experienceId, tags: '[]', order: 0 },
+    data: { ...ActivityInputSchema.parse(data), experienceId, tags: '[]', order: 0 },
   })
   revalidatePath('/dashboard/profile')
   return activity
@@ -56,7 +60,7 @@ export async function updateActivity(id: string, data: ActivityData) {
     where: { id, experience: { profileId: profile.id } },
   })
   if (!existing) throw new Error('Activity not found')
-  const activity = await prisma.roleActivity.update({ where: { id }, data })
+  const activity = await prisma.roleActivity.update({ where: { id }, data: ActivityInputSchema.parse(data) })
   revalidatePath('/dashboard/profile')
   return activity
 }
@@ -177,6 +181,9 @@ export async function acceptSuggestions(payload: AcceptSuggestionsPayload) {
     select: { id: true },
   })
   if (!experience) throw new Error('Experience not found')
+  if (payload.activities.some((a) => !(ACTIVITY_KINDS as readonly string[]).includes(a.kind))) {
+    throw new Error('Invalid activity kind')
+  }
 
   await prisma.$transaction([
     ...payload.activities.map((a) =>
@@ -203,15 +210,15 @@ export async function acceptSuggestions(payload: AcceptSuggestionsPayload) {
             data: {
               name: s.name,
               ...(s.category ? { category: s.category } : {}),
-              ...(s.level ? { level: s.level } : {}),
+              ...(s.level ? { level: normalizeSkillLevel(s.level) } : {}),
             },
           })
         : prisma.skill.create({
             data: {
               profileId: profile.id,
               name: s.name,
-              category: s.category ?? 'General',
-              level: s.level ?? 'Intermediate',
+              category: s.category ?? DEFAULT_SKILL_CATEGORY,
+              level: normalizeSkillLevel(s.level),
               tags: '[]',
             },
           }),
@@ -229,7 +236,7 @@ type SkillData = { name: string; category: string; level: string; yearsOfExperie
 export async function createSkill(data: SkillData) {
   const { profile } = await requireProfile()
   const skill = await prisma.skill.create({
-    data: { ...data, profileId: profile.id, tags: '[]' },
+    data: { ...SkillInputSchema.parse(data), profileId: profile.id, tags: '[]' },
   })
   revalidatePath('/dashboard/profile')
   return skill
@@ -237,7 +244,7 @@ export async function createSkill(data: SkillData) {
 
 export async function updateSkill(id: string, data: SkillData) {
   const { profile } = await requireProfile()
-  const skill = await prisma.skill.update({ where: { id, profileId: profile.id }, data })
+  const skill = await prisma.skill.update({ where: { id, profileId: profile.id }, data: SkillInputSchema.parse(data) })
   revalidatePath('/dashboard/profile')
   return skill
 }
@@ -372,6 +379,14 @@ export async function createProject(data: ProjectData) {
 export async function updateProject(id: string, data: ProjectData) {
   const { profile } = await requireProfile()
   const { highlights, tags, ...rest } = data
+  // Re-linking a project must stay within the caller's own experiences.
+  if (rest.experienceId) {
+    const experience = await prisma.experience.findFirst({
+      where: { id: rest.experienceId, profileId: profile.id },
+      select: { id: true },
+    })
+    if (!experience) throw new Error('Experience not found')
+  }
   const project = await prisma.project.update({
     where: { id, profileId: profile.id },
     data: {

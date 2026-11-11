@@ -1,4 +1,5 @@
 import { normalize } from "@/modules/profile/duplicate-detect"
+import { DEFAULT_SKILL_CATEGORY, DEFAULT_SKILL_LEVEL } from "@/modules/profile/schema"
 import { parseMonthYear, parseYear } from "./date-parse"
 import type { ExtractedActivity, ExtractedProfile } from "./schema"
 
@@ -14,7 +15,11 @@ export type ExistingProfileState = {
   summary: string                         // current summary, "" when empty
   experienceKeys: Set<string>             // normalized "company|role"
   skillKeys: Set<string>                  // normalized skill name
+  educationKeys: Set<string>              // normalized "institution|qualification"
+  certificationKeys: Set<string>          // normalized "name|issuer"
 }
+
+export type SkippedItem = { type: "experience" | "education" | "certification"; label: string; reason: string }
 
 export type PlannedExperience = {
   company: string
@@ -41,7 +46,15 @@ export type CommitPlan = {
   education: PlannedEducation[]
   certifications: Array<{ name: string; issuer: string | null; issueDate: Date | null }>
   skills: Array<{ name: string; category: string; level: string }>
-  skipped: Array<{ type: "experience" | "education"; label: string; reason: string }>
+  skipped: SkippedItem[]
+}
+
+export function educationKey(institution: string, qualification: string): string {
+  return `${normalize(institution)}|${normalize(qualification)}`
+}
+
+export function certificationKey(name: string, issuer: string | null | undefined): string {
+  return `${normalize(name)}|${normalize(issuer ?? "")}`
 }
 
 function expKey(company: string, role: string): string {
@@ -95,13 +108,21 @@ export function buildCommitPlan(extracted: ExtractedProfile, existing: ExistingP
     })
   }
 
-  // Education: skip entries with no parseable start year.
+  // Education: skip duplicates (existing or repeated within this import) and
+  // entries with no parseable start year.
+  const educationKeys = new Set(existing.educationKeys)
   for (const ed of extracted.education) {
+    const key = educationKey(ed.institution, ed.qualification)
+    if (educationKeys.has(key)) {
+      plan.skipped.push({ type: "education", label: `${ed.qualification} — ${ed.institution}`, reason: "duplicate" })
+      continue
+    }
     const startDate = parseYear(ed.startDate)
     if (!startDate) {
       plan.skipped.push({ type: "education", label: `${ed.qualification} — ${ed.institution}`, reason: "missing start year" })
       continue
     }
+    educationKeys.add(key)
     plan.education.push({
       institution: ed.institution,
       qualification: ed.qualification,
@@ -113,14 +134,21 @@ export function buildCommitPlan(extracted: ExtractedProfile, existing: ExistingP
 
   // Certifications: issuer/issueDate are optional in the schema; normalize the
   // absent case to null for the planned (DB-facing) shape.
+  const certificationKeys = new Set(existing.certificationKeys)
   for (const cert of extracted.certifications) {
+    const key = certificationKey(cert.name, cert.issuer)
+    if (certificationKeys.has(key)) {
+      plan.skipped.push({ type: "certification", label: cert.name, reason: "duplicate" })
+      continue
+    }
+    certificationKeys.add(key)
     plan.certifications.push({ name: cert.name, issuer: cert.issuer ?? null, issueDate: parseMonthYear(cert.issueDate) })
   }
 
   // Skills: dedup against existing by normalized name; apply DB defaults.
   for (const skill of extracted.skills) {
     if (existing.skillKeys.has(normalize(skill.name))) continue
-    plan.skills.push({ name: skill.name, category: skill.category ?? "General", level: "Intermediate" })
+    plan.skills.push({ name: skill.name, category: skill.category ?? DEFAULT_SKILL_CATEGORY, level: DEFAULT_SKILL_LEVEL })
   }
 
   return plan

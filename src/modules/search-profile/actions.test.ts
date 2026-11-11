@@ -79,6 +79,24 @@ describe('acceptSuggestion', () => {
       }),
     )
   })
+
+  it('drops an invalid suggestion without blanking the stored field', async () => {
+    const suggestion = {
+      id: 'sugg-2', field: 'remotePreference', suggestedValue: 'sometimes-ish',
+      reason: 'bad value', source: 'chat', createdAt: '2026-01-01T00:00:00Z',
+    }
+    vi.mocked(prisma.userSettings.findUnique).mockResolvedValue({
+      searchProfile: { ...emptySearchProfile, remotePreference: 'hybrid' },
+      searchSuggestions: [suggestion],
+    } as never)
+    vi.mocked(prisma.userSettings.update).mockResolvedValue({} as never)
+
+    await acceptSuggestion('sugg-2')
+
+    const data = vi.mocked(prisma.userSettings.update).mock.calls[0][0].data as Record<string, unknown>
+    expect(data.searchProfile).toEqual(expect.objectContaining({ remotePreference: 'hybrid' }))
+    expect(data.searchSuggestions).toEqual([])
+  })
 })
 
 describe('dismissSuggestion', () => {

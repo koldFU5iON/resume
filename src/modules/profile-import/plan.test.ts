@@ -7,6 +7,8 @@ const emptyExisting: ExistingProfileState = {
   summary: "",
   experienceKeys: new Set(),
   skillKeys: new Set(),
+  educationKeys: new Set(),
+  certificationKeys: new Set(),
 }
 
 function withExperience(over: Partial<ExtractedProfile["experiences"][number]> = {}): ExtractedProfile {
@@ -71,7 +73,7 @@ test("certifications keep optional issuer/date; skills get defaults", () => {
   }
   const plan = buildCommitPlan(extracted, emptyExisting)
   expect(plan.certifications[0]).toEqual({ name: "Learn SQL Course", issuer: null, issueDate: null })
-  expect(plan.skills[0]).toEqual({ name: "AI Fluency", category: "General", level: "Intermediate" })
+  expect(plan.skills[0]).toEqual({ name: "AI Fluency", category: "General", level: "intermediate" })
 })
 
 test("dedups skills against existing by normalized name", () => {
@@ -79,4 +81,32 @@ test("dedups skills against existing by normalized name", () => {
   const existing: ExistingProfileState = { ...emptyExisting, skillKeys: new Set(["ai fluency"]) }
   const plan = buildCommitPlan(extracted, existing)
   expect(plan.skills).toHaveLength(0)
+})
+
+test("dedups education against existing and within the import", () => {
+  const ed = { institution: "UCT", qualification: "BCom", startDate: "2005" }
+  const extracted: ExtractedProfile = {
+    ...emptyExtractedProfile,
+    education: [ed, { ...ed, institution: "uct " }, { institution: "Wits", qualification: "BA", startDate: "2001" }],
+  }
+  const existing: ExistingProfileState = { ...emptyExisting, educationKeys: new Set(["wits|ba"]) }
+  const plan = buildCommitPlan(extracted, existing)
+  expect(plan.education.map((e) => e.institution)).toEqual(["UCT"])
+  expect(plan.skipped.filter((s) => s.reason === "duplicate")).toHaveLength(2)
+})
+
+test("dedups certifications by name and issuer", () => {
+  const extracted: ExtractedProfile = {
+    ...emptyExtractedProfile,
+    certifications: [
+      { name: "PMP", issuer: "PMI" },
+      { name: "pmp", issuer: "pmi" },
+      { name: "PMP", issuer: "Other Body" },
+      { name: "Scrum Master" },
+    ],
+  }
+  const existing: ExistingProfileState = { ...emptyExisting, certificationKeys: new Set(["scrum master|"]) }
+  const plan = buildCommitPlan(extracted, existing)
+  expect(plan.certifications.map((c) => `${c.name}/${c.issuer}`)).toEqual(["PMP/PMI", "PMP/Other Body"])
+  expect(plan.skipped.map((s) => s.type)).toEqual(["certification", "certification"])
 })
