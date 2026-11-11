@@ -8,6 +8,8 @@ model JobApplication {
   jobNumber         String?
   title             String
   company           String?
+  /// Shared Company this job's company name matched (src/modules/companies/match.ts).
+  companyId         String?
   url               String?
   countries         String[]
   dateApplied       DateTime?
@@ -32,6 +34,7 @@ model JobApplication {
   archivedAt        DateTime?
 
   profile             Profile               @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  companyRef          Company?              @relation(fields: [companyId], references: [id], onDelete: SetNull)
   contacts            ApplicationContact[]
   events              ApplicationEvent[]
   cvDocuments         CVDocument[]
@@ -44,6 +47,7 @@ model JobApplication {
   @@index([profileId])
   @@index([status])
   @@index([profileId, archivedAt])
+  @@index([companyId])
 }
 
 model ApplicationContact {

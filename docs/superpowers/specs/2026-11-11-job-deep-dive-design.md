@@ -235,7 +235,7 @@ model SponsorLicence {
   lastSeenAt  DateTime             // bumped on each import; rows not seen in the latest import = licence lost
   company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
-  @@unique([country, orgName, route])
+  @@unique([country, orgName, townCity, route])   // built (#356): the register repeats org + route across towns
   @@index([companyId])
 }
 
@@ -426,7 +426,7 @@ The tables in §4.2 are the start of a company profile. Not in this spec:
    - `role` and `webSearch` options on the LLM layer, plus `LlmUsageLog.role`
    - Move the `resolveFastModel` callers over
    - Test web search on OpenAI and Google keys
-3. **Companies + sponsor register:**
+3. **Companies + sponsor register** (#356; see `docs/companies.md`):
    - `Company`, `SponsorLicence` and `SponsorRegisterImport`
    - The importer and cron
    - `JobApplication.companyId`, with matching on capture and edit and a backfill for existing jobs

@@ -1,0 +1,6 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    { "path": "/api/internal/sponsor-register/import", "schedule": "30 5 * * *" }
+  ]
+}

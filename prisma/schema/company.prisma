@@ -1,0 +1,67 @@
+// ------------------------------------------------------------
+// COMPANIES (shared across users — public facts only)
+// ------------------------------------------------------------
+// Per-user history (applications, contacts, outcomes) never goes here; it
+// stays keyed by profileId. See docs/superpowers/specs/2026-11-11-job-deep-dive-design.md §4.2.
+
+model Company {
+  id             String   @id @default(cuid())
+  /// Display name, as first seen (register or job).
+  name           String
+  /// Matching key: see normalizeCompanyName in src/modules/companies/normalize.ts.
+  normalizedName String   @unique
+  /// Other normalised spellings, e.g. trading names ("X LTD T/A Y").
+  aliases        String[]
+  domain         String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  sponsorLicences SponsorLicence[]
+  jobApplications JobApplication[]
+
+  @@index([aliases], type: Gin)
+}
+
+/// One row of the Home Office register of licensed sponsors (workers).
+model SponsorLicence {
+  id          String   @id @default(cuid())
+  companyId   String
+  /// 'GB' (room for other registers later).
+  country     String
+  /// As written in the register (trimmed).
+  orgName     String
+  /// '' when the register leaves it blank, so the unique key works.
+  townCity    String   @default("")
+  county      String?
+  /// e.g. "Worker (A rating)"
+  typeRating  String
+  /// e.g. "Skilled Worker"
+  route       String
+  firstSeenAt DateTime
+  /// Set by every import that lists this row. Older than the latest complete import = licence lost.
+  lastSeenAt  DateTime
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // The register repeats an org + route in different towns (779 pairs in Nov 2026).
+  @@unique([country, orgName, townCity, route])
+  @@index([companyId])
+  @@index([lastSeenAt])
+}
+
+/// One import run, for troubleshooting and for "current" licence checks.
+model SponsorRegisterImport {
+  id          String    @id @default(cuid())
+  country     String    @default("GB")
+  sourceUrl   String
+  /// 'running' | 'complete' | 'failed' | 'skipped' (source unchanged since the last complete import)
+  status      String
+  rows        Int?
+  added       Int?
+  removed     Int?
+  error       String?
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  @@index([country, status, startedAt])
+}

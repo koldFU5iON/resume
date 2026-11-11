@@ -3,6 +3,7 @@ import { getJobApplicationById } from "@/modules/jobs/queries"
 import { requireProfile } from "@/lib/session"
 import { getLLMConfigStatus } from "@/modules/llm/client"
 import { isEarlyAssessmentEnabled } from "@/modules/job-assessment/queries"
+import { getJobSponsorStatus } from "@/modules/companies/queries"
 import { JobDetailHeader } from "./_components/job-detail-header"
 import { JobSidebar } from "./_components/job-sidebar"
 import { JobDescriptionPane } from "./_components/job-description-pane"
@@ -29,9 +30,11 @@ export default async function ViewJobPage({
     notFound()
   }
 
-  const [{ configured: hasLLMKey }, earlyEnabled] = await Promise.all([
+  const [{ configured: hasLLMKey }, earlyEnabled, sponsor] = await Promise.all([
     getLLMConfigStatus(profile.id),
     isEarlyAssessmentEnabled(profile.id),
+    // The chip is a nice-to-have: a failed lookup must not break the page.
+    getJobSponsorStatus(profile.id, job.id).catch(() => null),
   ])
 
   return (
@@ -39,7 +42,7 @@ export default async function ViewJobPage({
       <JobPageContext jobId={job.id} title={job.title} company={job.company} status={job.status} />
 
       {/* Full-width header */}
-      <JobDetailHeader job={job} hasLLMKey={hasLLMKey} />
+      <JobDetailHeader job={job} hasLLMKey={hasLLMKey} sponsor={sponsor} />
 
       {/* Three-column workspace */}
       <div className="grid flex-1 grid-cols-[200px_1fr_1fr] overflow-hidden">

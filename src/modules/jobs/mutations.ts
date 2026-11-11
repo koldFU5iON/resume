@@ -14,6 +14,7 @@ import type { Job } from '@/app/types/job-application'
 import { requireProfile } from '@/lib/session'
 import { getArchivedJobs } from './queries'
 import { assessmentMaybeEnabled, queueJobAssessmentSafely } from '@/modules/job-assessment/queue'
+import { linkJobCompany } from '@/modules/companies/match'
 import { acceptLatestCVForAppliedJob } from '@/modules/cv/acceptance'
 
 // Progress stages in funnel order. Used to compute "everything before stage X"
@@ -63,6 +64,7 @@ export async function createJobApplication(data: z.infer<typeof createJobSchema>
       profileId: profile.id,
     },
   })
+  await linkJobCompany(profile.id, job.id)
   await queueJobAssessmentSafely(profile.id, job.id, { reason: 'created' })
   return job
 }
@@ -210,6 +212,8 @@ export async function updateJobApplication(
     data: payload,
   })
   if (result.count === 0) throw new Error('Job not found')
+
+  if (payload.company !== undefined) await linkJobCompany(profile.id, id)
 
   if (checkAssessedFields && current && assessedFieldsChanged(current, payload)) {
     await queueJobAssessmentSafely(profile.id, id, { reason: 'edited' })
