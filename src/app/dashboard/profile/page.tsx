@@ -30,6 +30,7 @@ export default async function Page() {
     email: profile.email ?? undefined,
     site: profile.website ?? undefined,
     profile: profile.linkedIn ?? undefined,
+    github: profile.github ?? undefined,
     location: profile.location ?? undefined,
   }
 

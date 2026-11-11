@@ -7,6 +7,7 @@ import {
   AlertTriangleIcon,
   Check,
   ExternalLink,
+  Code2,
   Globe,
   Link2,
   Mail,
@@ -22,6 +23,7 @@ type ContactBlockProps = {
   email?: string
   site?: string
   profile?: string
+  github?: string
   location?: string
 }
 
@@ -146,6 +148,7 @@ export function ContactBlock({ contact }: { contact: ContactBlockProps }) {
       <EditableField icon={<Mail size={14} />} field="email" value={contact.email} label="Email" />
       <EditableField icon={<Phone size={14} />} field="phone" value={contact.phone} label="Phone" />
       <EditableField icon={<Link2 size={14} />} field="linkedIn" value={contact.profile} label="LinkedIn" isLink />
+      <EditableField icon={<Code2 size={14} />} field="github" value={contact.github} label="GitHub" isLink />
       <EditableField icon={<Globe size={14} />} field="website" value={contact.site} label="Website" isLink />
       <EditableField icon={<MapPin size={14} />} field="location" value={contact.location} label="Location" />
     </div>

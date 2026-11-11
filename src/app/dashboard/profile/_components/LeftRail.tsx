@@ -23,6 +23,7 @@ import {
   createEducation, updateEducation, deleteEducation,
   createCertification, updateCertification, deleteCertification,
 } from '@/modules/profile/actions'
+import { SKILL_LEVELS } from '@/modules/profile/schema'
 import { SectionHelp } from './SectionHelp'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -195,7 +196,7 @@ function SkillsSection({ initial, careerYears }: { initial: SkillType[]; careerY
                 {skill.yearsOfExperience != null && (
                   <RadialGauge years={skill.yearsOfExperience} totalYears={careerYears} />
                 )}
-                <Badge variant="outline" className="text-xs shrink-0">{skill.level}</Badge>
+                <Badge variant="outline" className="text-xs shrink-0 capitalize">{skill.level}</Badge>
                 <RowControls label={skill.name} onEdit={() => openEdit(skill)} onDelete={() => handleDelete(skill.id)} />
               </div>
             ))}
@@ -252,7 +253,7 @@ function SkillDialog({
               <Select value={level} onValueChange={(v) => v && setLevel(v)}>
                 <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {['beginner', 'intermediate', 'advanced', 'expert'].map(l => (
+                  {SKILL_LEVELS.map(l => (
                     <SelectItem key={l} value={l} className="capitalize">{l}</SelectItem>
                   ))}
                 </SelectContent>

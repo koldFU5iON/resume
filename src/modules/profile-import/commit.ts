@@ -4,17 +4,22 @@ import { prisma } from "@/lib/db"
 import { requireProfile } from "@/lib/session"
 import { normalize } from "@/modules/profile/duplicate-detect"
 import { revalidatePath } from "next/cache"
-import { buildCommitPlan, type ExistingProfileState } from "./plan"
-import type { ExtractedProfile } from "./schema"
+import { buildCommitPlan, certificationKey, educationKey, type ExistingProfileState, type SkippedItem } from "./plan"
+import { ExtractedProfileSchema, type ExtractedProfile } from "./schema"
 import { buildImportSummary } from "./summary-builder"
 
 export type CommitResult = {
   created: { experiences: number; education: number; certifications: number; skills: number; contactFields: number }
-  skipped: Array<{ type: "experience" | "education"; label: string; reason: string }>
+  skipped: SkippedItem[]
 }
 
 export async function commitImportedProfile(payload: ExtractedProfile): Promise<CommitResult> {
   const { profile } = await requireProfile()
+  // This is a directly callable server action: never trust the client copy of
+  // the extraction. Re-parse it with the same schema the extractor used.
+  const parsed = ExtractedProfileSchema.safeParse(payload)
+  if (!parsed.success) throw new Error("Invalid import payload")
+  const extracted = parsed.data
 
   const row = await prisma.profile.findUniqueOrThrow({
     where: { id: profile.id },
@@ -23,6 +28,8 @@ export async function commitImportedProfile(payload: ExtractedProfile): Promise<
       linkedIn: true, github: true, headline: true, summary: true,
       experiences: { select: { company: true, role: true } },
       skills: { select: { name: true } },
+      educations: { select: { institution: true, qualification: true } },
+      certifications: { select: { name: true, issuer: true } },
     },
   })
 
@@ -35,9 +42,11 @@ export async function commitImportedProfile(payload: ExtractedProfile): Promise<
     summary: row.summary ?? "",
     experienceKeys: new Set(row.experiences.map((e) => `${normalize(e.company)}|${normalize(e.role)}`)),
     skillKeys: new Set(row.skills.map((s) => normalize(s.name))),
+    educationKeys: new Set(row.educations.map((e) => educationKey(e.institution, e.qualification))),
+    certificationKeys: new Set(row.certifications.map((c) => certificationKey(c.name, c.issuer))),
   }
 
-  const plan = buildCommitPlan(payload, existing)
+  const plan = buildCommitPlan(extracted, existing)
 
   await prisma.$transaction([
     prisma.profile.update({ where: { id: profile.id }, data: plan.contactUpdate }),

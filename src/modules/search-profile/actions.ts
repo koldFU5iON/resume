@@ -71,8 +71,16 @@ export async function acceptSuggestion(suggestionId: string) {
   if (!suggestion) return
 
   const current = normalizeSearchProfile(settings?.searchProfile)
-  const updated: SearchProfile = { ...current, [suggestion.field]: suggestion.suggestedValue }
   const remaining = suggestions.filter((s) => s.id !== suggestionId)
+  // suggestedValue is z.unknown() in the queue, so run the merged profile
+  // through the schema. The schema is lenient (a bad field falls back to its
+  // empty value), so a non-empty suggestion that parses to empty was invalid:
+  // drop it instead of blanking the user's field.
+  const parsed = SearchProfileSchema.safeParse({ ...current, [suggestion.field]: suggestion.suggestedValue })
+  const valid =
+    parsed.success &&
+    !(isEmptyValue(parsed.data[suggestion.field]) && !isEmptyValue(suggestion.suggestedValue))
+  const updated: SearchProfile = valid ? parsed.data : current
 
   await prisma.userSettings.update({
     where: { profileId: profile.id },
@@ -82,6 +90,13 @@ export async function acceptSuggestion(suggestionId: string) {
     },
   })
   revalidatePath('/dashboard/search-context')
+}
+
+function isEmptyValue(value: unknown): boolean {
+  if (value === null || value === undefined) return true
+  if (typeof value === 'string') return value.trim() === ''
+  if (Array.isArray(value)) return value.length === 0
+  return false
 }
 
 export async function dismissSuggestion(suggestionId: string) {

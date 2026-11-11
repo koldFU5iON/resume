@@ -106,7 +106,8 @@ export async function saveOnboardingContextData(data: Partial<OnboardingContext>
     select: { onboardingContext: true },
   })
   const currentContext = normalizeOnboardingContext(existing?.onboardingContext)
-  const context = { ...currentContext, ...data }
+  // `data` comes from the client: validate the merged result, dropping unknown keys.
+  const context = normalizeOnboardingContext({ ...currentContext, ...data })
 
   await prisma.userSettings.upsert({
     where: { profileId: profile.id },
