@@ -31,6 +31,16 @@ describe('findMentions', () => {
     findMentions(text, [{ id: 'x', name: 'aab' }, ...caps])
     expect(performance.now() - started).toBeLessThan(200)
   })
+
+  it('stays fast when long overlapping matches fail word boundaries', () => {
+    const name = 'a'.repeat(50_000)
+    const text = 'a'.repeat(500_000)
+    const started = performance.now()
+    expect(findMentions(text, [{ id: 'overlap', name }])).toEqual([])
+    expect(performance.now() - started).toBeLessThan(200)
+    // A rejected overlap must not hide a later whole-word match.
+    expect(findMentions(`${text} ${name}.`, [{ id: 'overlap', name }])).toEqual(['overlap'])
+  })
 })
 
 describe('wikilinks', () => {

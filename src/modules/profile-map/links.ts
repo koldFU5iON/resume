@@ -101,8 +101,18 @@ export function findMentions(text: string, capabilities: Mentionable[]): string[
     const exact = name.length <= CASE_SENSITIVE_MAX || !caseless
     const hay = exact ? text : lower
     const needle = exact ? name : name.toLowerCase()
-    let at = hay.indexOf(needle)
-    while (at !== -1) {
+    // KMP reuses matched prefixes instead of rescanning long overlapping names.
+    const prefix = new Uint32Array(needle.length)
+    for (let i = 1, matched = 0; i < needle.length; i++) {
+      while (matched > 0 && needle[i] !== needle[matched]) matched = prefix[matched - 1]
+      if (needle[i] === needle[matched]) matched++
+      prefix[i] = matched
+    }
+    for (let i = 0, matched = 0; i < hay.length; i++) {
+      while (matched > 0 && hay[i] !== needle[matched]) matched = prefix[matched - 1]
+      if (hay[i] === needle[matched]) matched++
+      if (matched !== needle.length) continue
+      const at = i + 1 - needle.length
       const before = at === 0 ? -1 : text.charCodeAt(at - 1)
       const after = at + needle.length >= text.length ? -1 : text.charCodeAt(at + needle.length)
       const single = needle.length === 1
@@ -112,7 +122,7 @@ export function findMentions(text: string, capabilities: Mentionable[]): string[
         found.push(cap.id)
         break
       }
-      at = hay.indexOf(needle, at + 1)
+      matched = prefix[matched - 1]
     }
   }
   return found
