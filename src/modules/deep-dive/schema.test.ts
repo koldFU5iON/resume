@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import * as z from 'zod'
 import {
   DeepDiveReportSchema,
   FindingSchema,
@@ -8,9 +9,7 @@ import {
 } from './schema'
 import { modelReport } from './__fixtures__/inputs'
 
-const ev = (over: Partial<Record<'kind' | 'quote' | 'ref' | 'text' | 'index', unknown>>) => ({
-  kind: 'jd', quote: null, ref: null, text: null, index: null, ...over,
-})
+const ev = (over: Partial<Record<'kind' | 'ref' | 'detail', unknown>>) => ({ kind: 'jd', ref: '', detail: '', ...over })
 
 describe('DeepDiveReportSchema', () => {
   it('turns flat evidence into the Evidence union and drops entries missing their fields', () => {
@@ -18,14 +17,14 @@ describe('DeepDiveReportSchema', () => {
       strengths: [{
         point: 'Ran a platform team',
         evidence: [
-          ev({ kind: 'jd', quote: ' lead a platform team ' }),
-          ev({ kind: 'jd', quote: '  ' }),
-          ev({ kind: 'profile', ref: 'Head of Platform — Acme', text: 'Led 8 engineers' }),
-          ev({ kind: 'profile', ref: null, text: 'no ref' }),
-          ev({ kind: 'finding', index: 2 }),
-          ev({ kind: 'finding', index: -1 }),
-          ev({ kind: 'finding', index: 1.5 }),
-          ev({ kind: 'register' }),
+          ev({ kind: 'jd', ref: ' lead a platform team ' }),
+          ev({ kind: 'jd', ref: '  ' }),
+          ev({ kind: 'profile', ref: 'Head of Platform — Acme', detail: 'Led 8 engineers' }),
+          ev({ kind: 'profile', ref: '', detail: 'no ref' }),
+          ev({ kind: 'finding', ref: '2' }),
+          ev({ kind: 'finding', ref: '[7]' }),
+          ev({ kind: 'finding', ref: '-1' }),
+          ev({ kind: 'finding', ref: '1.5' }),
         ],
       }],
     }))
@@ -33,8 +32,24 @@ describe('DeepDiveReportSchema', () => {
       { kind: 'jd', quote: 'lead a platform team' },
       { kind: 'profile', ref: 'Head of Platform — Acme', text: 'Led 8 engineers' },
       { kind: 'finding', index: 2 },
-      { kind: 'register' },
+      { kind: 'finding', index: 7 },
     ])
+  })
+
+  it("stays within Anthropic's limit of 16 nullable/union parameters per schema", () => {
+    // Anthropic rejects structured output schemas with more ("too many parameters with union types").
+    let unions = 0
+    const walk = (node: unknown): void => {
+      if (!node || typeof node !== 'object') return
+      const n = node as { properties?: Record<string, { anyOf?: unknown; type?: unknown }> }
+      for (const prop of Object.values(n.properties ?? {})) if (prop.anyOf || Array.isArray(prop.type)) unions++
+      Object.values(node).forEach(walk)
+    }
+    for (const schema of [DeepDiveReportSchema, StructuredFindingsSchema]) {
+      unions = 0
+      walk(z.toJSONSchema(schema, { io: 'input' }))
+      expect(unions).toBeLessThanOrEqual(16)
+    }
   })
 
   it('cuts over-long lists to the spec maximums instead of failing', () => {

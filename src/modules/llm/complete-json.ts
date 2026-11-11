@@ -15,6 +15,8 @@ export type CompleteJSONResult<T> = {
   finishReason: string
   /** Raw text of the last attempt, for diagnostics on failure. */
   rawText: string
+  /** Model that answered the last attempt. */
+  model: string
 }
 
 export async function completeJSON<T>(
@@ -40,5 +42,5 @@ export async function completeJSON<T>(
     extracted = extractJSON(result.text, schema)
   }
 
-  return { extracted, finishReason: result.finishReason, rawText: result.text }
+  return { extracted, finishReason: result.finishReason, rawText: result.text, model: result.model }
 }

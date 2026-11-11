@@ -1,17 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@/modules/llm/client', () => ({ completeStructured: vi.fn() }))
+vi.mock('@/modules/llm/complete-json', () => ({ completeJSON: vi.fn() }))
 
-import { completeStructured } from '@/modules/llm/client'
+import { completeJSON } from '@/modules/llm/complete-json'
 import { finding, gatherFixture, modelReport, researchFixture } from './__fixtures__/inputs'
 import { DEEP_DIVE_FEATURES, DeepDiveReportSchema } from './schema'
 import { enforceReportFacts, synthesise, synthesisPrompt } from './synthesise'
 
-const mockStructured = vi.mocked(completeStructured)
+const mockJSON = vi.mocked(completeJSON)
 
 beforeEach(() => vi.clearAllMocks())
 
-const ev = (over: Record<string, unknown>) => ({ kind: 'finding', quote: null, ref: null, text: null, index: null, ...over })
+const ev = (over: Record<string, unknown>) => ({ kind: 'finding', ref: '', detail: '', ...over })
 
 describe('synthesisPrompt', () => {
   it('puts the inputs in the cache-friendly order of spec §3.3', () => {
@@ -59,7 +59,7 @@ describe('enforceReportFacts', () => {
 
   it('drops evidence citing findings that do not exist', () => {
     const report = DeepDiveReportSchema.parse(modelReport({
-      strengths: [{ point: 'p', evidence: [ev({ index: 0 }), ev({ index: 5 }), ev({ kind: 'register' })] }],
+      strengths: [{ point: 'p', evidence: [ev({ ref: '0' }), ev({ ref: '5' }), ev({ kind: 'register' })] }],
     }))
     expect(enforceReportFacts(report, gatherFixture(), 1).strengths[0].evidence).toEqual([
       { kind: 'finding', index: 0 },
@@ -71,19 +71,23 @@ describe('enforceReportFacts', () => {
     const market = (evidence: unknown[]) => DeepDiveReportSchema.parse(modelReport({
       pay: { stated: null, market: { min: 90000, max: 120000, currency: 'GBP', evidence }, ask: null, vsSearchProfile: 'x' },
     }))
-    expect(enforceReportFacts(market([ev({ kind: 'jd', quote: 'great pay' })]), gatherFixture(), 1).pay.market).toBeNull()
-    expect(enforceReportFacts(market([ev({ index: 3 })]), gatherFixture(), 1).pay.market).toBeNull()
-    expect(enforceReportFacts(market([ev({ index: 0 })]), gatherFixture(), 1).pay.market).toMatchObject({ min: 90000 })
+    expect(enforceReportFacts(market([ev({ kind: 'jd', ref: 'great pay' })]), gatherFixture(), 1).pay.market).toBeNull()
+    expect(enforceReportFacts(market([ev({ ref: '3' })]), gatherFixture(), 1).pay.market).toBeNull()
+    expect(enforceReportFacts(market([ev({ ref: '0' })]), gatherFixture(), 1).pay.market).toMatchObject({ min: 90000 })
   })
 })
 
 describe('synthesise', () => {
-  it('runs one structured call with role analysis, a generous output cap and run attribution', async () => {
-    mockStructured.mockResolvedValue({ object: DeepDiveReportSchema.parse(modelReport()), model: 'analysis-model' } as never)
-    const res = await synthesise(gatherFixture(), researchFixture(), { profileId: 'p1', jobApplicationId: 'job-1', runId: 'run-1', timeoutMs: 120_000 })
+  const ctx = { profileId: 'p1', jobApplicationId: 'job-1', runId: 'run-1', timeoutMs: 120_000 }
+
+  it('runs one JSON call with role analysis, the schema in the system prompt, generous caps and run attribution', async () => {
+    mockJSON.mockResolvedValue({
+      extracted: { ok: true, value: DeepDiveReportSchema.parse(modelReport()) }, finishReason: 'stop', rawText: '', model: 'analysis-model',
+    })
+    const res = await synthesise(gatherFixture(), researchFixture(), ctx)
     expect(res.model).toBe('analysis-model')
     expect(res.report.practicalities.sponsorship.register).toBe('licensed')
-    const [profileId, , schema, opts] = mockStructured.mock.calls[0]
+    const [profileId, , schema, opts] = mockJSON.mock.calls[0]
     expect(profileId).toBe('p1')
     expect(schema).toBe(DeepDiveReportSchema)
     expect(opts).toMatchObject({
@@ -95,5 +99,19 @@ describe('synthesise', () => {
     expect(opts.model).toBeUndefined()
     expect(opts.webSearch).toBeUndefined()
     expect(opts.maxOutputTokens).toBeGreaterThanOrEqual(16_000)
+    expect(opts.retryMaxOutputTokens).toBeGreaterThan(opts.maxOutputTokens!)
+    expect(opts.system).toContain('"verdictSummary"')
+    expect(opts.system).not.toContain('${')
+  })
+
+  it('throws invalid_output (logging finishReason, not the text) when the JSON is unusable', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockJSON.mockResolvedValue({
+      extracted: { ok: false, reason: 'parse', error: new Error('x') }, finishReason: 'length', rawText: 'PRIVATE_PROFILE_MARKER', model: 'm',
+    })
+    await expect(synthesise(gatherFixture(), researchFixture(), ctx)).rejects.toMatchObject({ kind: 'invalid_output' })
+    expect(err.mock.calls[0][1]).toMatchObject({ finishReason: 'length', reason: 'parse' })
+    expect(JSON.stringify(err.mock.calls)).not.toContain('PRIVATE')
+    err.mockRestore()
   })
 })

@@ -53,6 +53,8 @@ export const MAX_OUTPUT_TOKENS = {
   researchNotes: 4_000,
   structure: 8_000,
   synthesis: 16_000,
+  /** completeJSON's one retry when the report is cut off (Anthropic models allow well above this). */
+  synthesisRetry: 32_000,
 } as const
 
 /** Company research is shared across users and reused for this long. */
@@ -148,31 +150,32 @@ export type Evidence =
   | { kind: 'register' }
 
 /**
- * Evidence as the model writes it: one flat object (no union, which some
- * providers' structured output handles poorly), turned into `Evidence` or
- * dropped when the fields for its kind are missing.
+ * Evidence as the model writes it: one flat object of plain strings, turned
+ * into `Evidence` or dropped when the fields for its kind are missing.
+ * No nullable fields on purpose: Anthropic's structured output allows at most
+ * 16 nullable/union parameters per schema, and evidence repeats in 5 places.
  */
 const EvidenceInputSchema = z.object({
   kind: z.enum(['jd', 'profile', 'finding', 'register']),
-  quote: z.string().nullable().describe("kind 'jd': the job description's exact words (at most 300 characters); else null"),
-  ref: z.string().nullable().describe("kind 'profile': which profile item, e.g. 'Senior PM — Acme' or a skill name; else null"),
-  text: z.string().nullable().describe("kind 'profile': what the item says that matters here; else null"),
-  index: z.number().nullable().describe("kind 'finding': the finding's index from the Findings list; else null"),
+  ref: z.string().describe(
+    "kind 'jd': the job description's exact words (at most 300 characters). kind 'profile': which profile item, e.g. 'Senior PM — Acme' or a skill name. kind 'finding': the finding's index from the Findings list, e.g. '3'. kind 'register': empty.",
+  ),
+  detail: z.string().describe("kind 'profile': what the item says that matters here. Otherwise empty."),
 })
 
 function toEvidence(e: z.infer<typeof EvidenceInputSchema>): Evidence | null {
+  const ref = e.ref.trim()
   switch (e.kind) {
     case 'jd': {
-      const quote = e.quote?.trim().slice(0, 300)
+      const quote = ref.slice(0, 300)
       return quote ? { kind: 'jd', quote } : null
     }
-    case 'profile': {
-      const ref = e.ref?.trim().slice(0, 120)
-      const text = e.text?.trim().slice(0, 300) ?? ''
-      return ref ? { kind: 'profile', ref, text } : null
+    case 'profile':
+      return ref ? { kind: 'profile', ref: ref.slice(0, 120), text: e.detail.trim().slice(0, 300) } : null
+    case 'finding': {
+      const match = /^\[?(\d+)\]?$/.exec(ref)
+      return match ? { kind: 'finding', index: Number(match[1]) } : null
     }
-    case 'finding':
-      return e.index !== null && Number.isInteger(e.index) && e.index >= 0 ? { kind: 'finding', index: e.index } : null
     case 'register':
       return { kind: 'register' }
   }

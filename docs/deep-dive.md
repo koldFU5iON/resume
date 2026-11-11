@@ -8,7 +8,7 @@ A user-triggered report on one job: should they apply, and how. Billed to the us
 |---|---|---|---|
 | Gather | `gather.ts` | none | Job, profile snapshot, search profile, newest complete `JobAssessment`, sponsor register status, fresh `CompanyResearch`. Splits the public `ResearchBrief` from everything private. |
 | Research | `research.ts` | `role: 'research'` + `webSearch`, then `role: 'fast'` | Three researchers in parallel (company 5 searches, pay 5, practicalities 3). They get the `ResearchBrief` only: no profile, goals or notes. |
-| Synthesis | `synthesise.ts` | `role: 'analysis'`, structured | The only step that judges. Output: `DeepDiveReportSchema` (`schema.ts`). |
+| Synthesis | `synthesise.ts` | `role: 'analysis'`, JSON in text | The only step that judges. Output: `DeepDiveReportSchema` (`schema.ts`), validated with Zod. |
 | Run | `run.ts` | | Admission, status updates, failure mapping, company research cache. |
 | Read | `queries.ts` | | Newest run as a view; stale runs read as failed / timeout; per-run usage from `LlmUsageLog.runId`. |
 
@@ -69,6 +69,22 @@ The Server Action `startDeepDiveAction(jobId)` (`actions.ts`) calls the same `st
 
 **Anthropic is the supported provider for now.** OpenAI and Google are out of scope: the LLM layer already maps their web search tools (`src/modules/llm/web-search.ts`) and the schemas avoid optional fields and unions, so adding them later is a matter of testing, not rework. Until then they aren't tested with the deep dive.
 
-## Not yet measured
+## Anthropic structured output limits (found live)
 
-No Anthropic run has been made live yet (no key in the build environment). `ROLE_RECOMMENDATIONS.anthropic` for `research` and `analysis` stay `null` (they fall back to the user's default model), and spec §9's cost table is still an estimate. Both get filled in from real runs: the GET response's `usage` gives tokens, searches and an estimated cost per run.
+- **At most 16 nullable/union parameters per schema.** The report's evidence objects are plain strings (`kind`, `ref`, `detail`, "" when unused) for this reason; `schema.test.ts` fails if a schema goes over 16.
+- **"The compiled grammar is too large"**: the full report schema is too big for constrained decoding even under that limit. Synthesis therefore asks for JSON in text (`completeJSON`, the same path as the master CV): the JSON Schema is in the system prompt, the output is validated with the Zod schema, and a cut-off answer is retried once with a 32k cap. The research `structure` call keeps native structured output: its schema is small and works.
+
+## Measured (Anthropic, 2026-11-11)
+
+Research stage, `research` = Sonnet 5.5, `fast` = Haiku 5.5, real Greenhouse postings (Monzo, Intercom ×2, Cloudflare, GitLab), 4 runs with all three researchers live:
+
+| | Per run |
+|---|---|
+| Time per researcher | 35–60s (budget 120s) |
+| Findings per researcher | 11–15 (cap 15), every one sourced or quoting the ad |
+| Pages reported by search | 18–48 per researcher |
+| Tokens (3 searches + 3 structuring calls) | ~200–260k in, ~15–24k out |
+| Server tool calls (search + fetch) | 23–27 |
+| Estimated token cost | $0.46–0.60, plus Anthropic's per-search fee |
+
+Not yet measured: synthesis (blocked first by the two schema limits above, then by the test key running out of credit), the Haiku-for-research comparison, and so the full cost per run. `ROLE_RECOMMENDATIONS.anthropic` `research` / `analysis` stay `null` until then. The GET response's `usage` gives tokens, searches and estimated cost per run.
