@@ -7,7 +7,7 @@
 import { NextResponse } from 'next/server'
 import { isAuthorizedCronRequest } from '@/lib/cron-auth'
 import { runSponsorRegisterImport } from '@/modules/companies/import'
-import { linkUnlinkedJobs } from '@/modules/companies/match'
+import { sweepJobCompanyLinks } from '@/modules/companies/match'
 
 export const maxDuration = 300
 
@@ -19,7 +19,7 @@ async function run(request: Request, force: boolean) {
   if (!isAuthorizedCronRequest(request)) return new NextResponse(null, { status: 401 })
 
   const result = await runSponsorRegisterImport({ force })
-  const linking = await linkUnlinkedJobs({ deadline: startedAt + maxDuration * 1000 - LINK_RESERVE_MS })
+  const linking = await sweepJobCompanyLinks({ deadline: startedAt + maxDuration * 1000 - LINK_RESERVE_MS })
   const status = result.status === 'failed' ? 500 : 200
   return NextResponse.json({ import: result, linking }, { status })
 }

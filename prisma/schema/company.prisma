@@ -10,8 +10,12 @@ model Company {
   name           String
   /// Matching key: see normalizeCompanyName in src/modules/companies/normalize.ts.
   normalizedName String   @unique
-  /// Other normalised spellings, e.g. trading names ("X LTD T/A Y").
+  /// Other normalised spellings, e.g. trading names ("X LTD T/A Y"). Written only by the
+  /// register import: user-entered job names never add aliases (they're shared matching keys).
   aliases        String[]
+  /// True once the register import has seen this name. Companies created from job names
+  /// stay false and never take precedence over register names or aliases in matching.
+  fromRegister   Boolean  @default(false)
   domain         String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
@@ -20,6 +24,7 @@ model Company {
   jobApplications JobApplication[]
 
   @@index([aliases], type: Gin)
+  @@index([fromRegister])
 }
 
 /// One row of the Home Office register of licensed sponsors (workers).

@@ -97,10 +97,10 @@ export async function runSponsorRegisterImport(opts: { force?: boolean; fetchImp
 
         for (const batch of chunks(companies, BATCH_SIZE)) {
           await tx.$executeRaw`
-            INSERT INTO "Company" ("id", "name", "normalizedName", "aliases", "createdAt", "updatedAt")
+            INSERT INTO "Company" ("id", "name", "normalizedName", "aliases", "fromRegister", "createdAt", "updatedAt")
             SELECT gen_random_uuid()::text, v.name, v.norm,
                    CASE WHEN v.aliases = '' THEN '{}'::text[] ELSE string_to_array(v.aliases, E'\\x1f') END,
-                   now(), now()
+                   true, now(), now()
             FROM unnest(
               ${batch.map((c) => c.name)}::text[],
               ${batch.map((c) => c.normalizedName)}::text[],
@@ -108,8 +108,11 @@ export async function runSponsorRegisterImport(opts: { force?: boolean; fetchImp
             ) AS v(name, norm, aliases)
             ON CONFLICT ("normalizedName") DO UPDATE
               SET "aliases" = ARRAY(SELECT DISTINCT unnest("Company"."aliases" || EXCLUDED."aliases")),
+                  -- A company first created from a job name takes the register's name.
+                  "name" = CASE WHEN "Company"."fromRegister" THEN "Company"."name" ELSE EXCLUDED."name" END,
+                  "fromRegister" = true,
                   "updatedAt" = now()
-              WHERE NOT (EXCLUDED."aliases" <@ "Company"."aliases")`
+              WHERE NOT "Company"."fromRegister" OR NOT (EXCLUDED."aliases" <@ "Company"."aliases")`
         }
 
         let added = 0

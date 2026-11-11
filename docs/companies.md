@@ -6,7 +6,7 @@ Shared, public-facts-only tables that link jobs to employers (spec: `docs/superp
 
 | Table | What |
 |---|---|
-| `Company` | One per normalised legal name. `aliases` holds trading names ("X LTD T/A Y" → `y`). |
+| `Company` | One per normalised legal name. `aliases` holds register trading names ("X LTD T/A Y" → `y`); `fromRegister` marks names the register has listed. |
 | `SponsorLicence` | One row of the Home Office register. Unique on `(country, orgName, townCity, route)`: the register repeats an org + route in different towns. |
 | `SponsorRegisterImport` | One row per import run: `running`, `complete`, `failed` or `skipped`. |
 
@@ -15,10 +15,18 @@ Shared, public-facts-only tables that link jobs to employers (spec: `docs/superp
 ## Matching (`src/modules/companies/normalize.ts`, `match.ts`)
 
 - `normalizeCompanyName`: lowercase, accents and punctuation removed, `&` → `and`, a leading "the" and trailing legal/country suffixes dropped (`ltd`, `limited`, `plc`, `llp`, `inc`, `gmbh`, `sa`, `uk`, …).
-- A job links by **exact** normalised name, then by an alias held by **exactly one** company. Nothing fuzzier is linked automatically: a wrong sponsor result is worse than none.
-- No match: a `Company` is created from the job's name. Placeholders ("(unknown)", "Confidential", …) are never matched or created.
+Company names are shared across users, so **only the register is trusted** to say what matches what. A job's name is reduced to its legal-name key (any "T/A …" the user typed is ignored), then looked up in this order:
+
+1. A register company (`fromRegister = true`) with that exact name
+2. A register trading-name alias held by **exactly one** company. If several companies hold it (franchise names), the job stays **unlinked** and nothing is created.
+3. A company created earlier from a job with that exact name
+4. Otherwise a new company is created from the job's name, with **no aliases** and `fromRegister = false`
+
+So one user's typing can't add aliases, make a register alias ambiguous, or outrank a register name for another user. When the register later lists a job-created name, the import takes the company over (register name, `fromRegister = true`).
+
+- Placeholders ("(unknown)", "Confidential", …) are never matched or created.
 - `linkJobCompany(profileId, jobId)` runs on create, edit (when `company` changes), URL capture, quick capture, job-hunt import and assessment enrichment. It is best effort (never throws) and writes with raw SQL so `lastUpdated` doesn't change.
-- The daily cron also calls `linkUnlinkedJobs`, which links any job with a name but no company. This is the backfill for older jobs.
+- The daily cron also calls `sweepJobCompanyLinks`, which links jobs with a name but no company (the backfill for older jobs) and re-checks jobs linked to job-created companies, so they move to a register company once one matches.
 
 **Known limit:** exact names still merge different businesses with the same name. Franchises are the main case ("Subway", "Costcutter", "One Stop"; 960 keys in the Nov 2026 register cover several register names). The UI says the result is a name match and lists the matched register entries, so the user can check.
 

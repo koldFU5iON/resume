@@ -1,40 +1,65 @@
 // Links a job application's free-text company to a shared Company.
 //
-// Matching is exact only: the normalised name, then a trading-name alias held
-// by exactly one company. When nothing matches, a Company is created from the
-// job's name. Placeholders ("(unknown)", "Confidential") are never matched or
-// created. Linking is best effort and never fails the caller.
+// Company names are shared across users, so only the register is trusted to
+// say what matches what. Lookup order for a job's normalised name:
+//   1. a register company with that exact name
+//   2. a register trading-name alias held by exactly one company
+//      (held by several = ambiguous: the job stays unlinked, nothing is created)
+//   3. a company created earlier from a job with that exact name
+//   4. otherwise a new company is created from the job's name, without aliases
+// A job-created company never adds aliases and never outranks a register
+// name or alias, so one user's typing can't change another user's matches.
+// Placeholders ("(unknown)", "Confidential") are never matched or created.
+// Linking is best effort and never fails the caller.
 
 import { prisma } from '@/lib/db'
 import { isPlaceholderCompany, parseCompanyName } from './normalize'
 
-/** Company id for a name, by normalised name and then by a unique alias; null when none. */
-export async function findCompanyId(rawName: string): Promise<string | null> {
+export type CompanyLookup =
+  | { kind: 'match'; id: string }
+  /** A register alias held by several companies (e.g. a franchise trading name). */
+  | { kind: 'ambiguous' }
+  | { kind: 'none' }
+
+/** The Company a name matches, following the order above. Never creates anything. */
+export async function findCompany(rawName: string): Promise<CompanyLookup> {
+  // Trading names in a job's company field are ignored: only the register supplies aliases.
   const { normalizedName } = parseCompanyName(rawName)
-  if (!normalizedName) return null
-  const exact = await prisma.company.findUnique({ where: { normalizedName }, select: { id: true } })
-  if (exact) return exact.id
-  // An alias shared by several companies (a franchise trading name) is ambiguous: no match.
+  if (!normalizedName) return { kind: 'none' }
+
+  const exact = await prisma.company.findUnique({
+    where: { normalizedName },
+    select: { id: true, fromRegister: true },
+  })
+  if (exact?.fromRegister) return { kind: 'match', id: exact.id }
+
   const byAlias = await prisma.company.findMany({
-    where: { aliases: { has: normalizedName } },
+    where: { fromRegister: true, aliases: { has: normalizedName } },
     select: { id: true },
     take: 2,
   })
-  return byAlias.length === 1 ? byAlias[0].id : null
+  if (byAlias.length === 1) return { kind: 'match', id: byAlias[0].id }
+  if (byAlias.length > 1) return { kind: 'ambiguous' }
+
+  return exact ? { kind: 'match', id: exact.id } : { kind: 'none' }
 }
 
-/** The matching Company's id, creating one when nothing matches; null for a blank or placeholder name. */
+/**
+ * The matching Company's id, creating one when nothing matches. Null for a
+ * blank or placeholder name, and for an ambiguous register alias.
+ */
 export async function matchOrCreateCompany(rawName: string | null | undefined): Promise<string | null> {
   const name = rawName?.trim()
   if (!name || isPlaceholderCompany(name)) return null
-  const found = await findCompanyId(name)
-  if (found) return found
+  const found = await findCompany(name)
+  if (found.kind === 'match') return found.id
+  if (found.kind === 'ambiguous') return null
 
-  const { normalizedName, aliases } = parseCompanyName(name)
-  // Upsert so two concurrent links of the same new name end on one row.
+  const { normalizedName } = parseCompanyName(name)
+  // Upsert so two concurrent links of the same new name end on one row. No aliases, not from the register.
   const row = await prisma.company.upsert({
     where: { normalizedName },
-    create: { name, normalizedName, aliases },
+    create: { name, normalizedName, aliases: [], fromRegister: false },
     update: {},
     select: { id: true },
   })
@@ -69,16 +94,23 @@ export async function linkJobCompany(profileId: string, jobId: string): Promise<
 /**
  * Links jobs that have a company name but no Company yet (the backfill for
  * jobs captured before companies existed, and a safety net for any write path
- * that didn't link). Walks by id so placeholder names don't block the rest.
+ * that didn't link), and re-checks jobs linked to a job-created company so
+ * they move to a register company once the register lists that name. Walks by
+ * id so placeholder names don't block the rest.
  */
-export async function linkUnlinkedJobs(opts: { deadline: number; batchSize?: number }): Promise<{ checked: number; linked: number }> {
+export async function sweepJobCompanyLinks(opts: { deadline: number; batchSize?: number }): Promise<{ checked: number; linked: number }> {
   const batchSize = opts.batchSize ?? 200
   let cursor: string | undefined
   let checked = 0
   let linked = 0
   while (Date.now() < opts.deadline) {
     const jobs = await prisma.jobApplication.findMany({
-      where: { companyId: null, company: { not: null }, ...(cursor ? { id: { gt: cursor } } : {}) },
+      where: {
+        company: { not: null },
+        // Unlinked, or linked to a job-created company that a register name may now outrank.
+        OR: [{ companyId: null }, { companyRef: { fromRegister: false } }],
+        ...(cursor ? { id: { gt: cursor } } : {}),
+      },
       orderBy: { id: 'asc' },
       take: batchSize,
       select: { id: true, profileId: true, company: true },
