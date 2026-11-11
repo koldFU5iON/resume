@@ -139,7 +139,18 @@ export const auth = betterAuth({
       loginPage: "/mcp/login",
       consentPage: "/mcp/consent",
       scopes: [...MCP_OAUTH_SCOPES],
-      validAudiences: [getMcpUrls().resource],
+      // 1.7 replaced validAudiences with resources (RFC 8707): the MCP
+      // endpoint is the only resource tokens can be issued for. There is one
+      // resource, so every client may request it; per-client links would also
+      // lock out clients registered before 1.7, which have none.
+      // allowedScopes is set explicitly: left out, 1.7 seeds null, which a
+      // Prisma list column rejects. It also keeps MCP tokens to MCP scopes.
+      resources: [{ identifier: getMcpUrls().resource, name: "currnt MCP", allowedScopes: [...MCP_OAUTH_SCOPES] }],
+      enforcePerClientResources: false,
+      // DCR clients such as Claude Code register an http://localhost callback
+      // without application_type, which 1.7 would treat as a web client and
+      // reject. Loopback http stays allowed, as in 1.6 (RFC 8252 §7.3).
+      allowInsecureRedirectUri: url => ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname),
       grantTypes: ["authorization_code", "refresh_token"],
       allowDynamicClientRegistration: true,
       allowUnauthenticatedClientRegistration: true,

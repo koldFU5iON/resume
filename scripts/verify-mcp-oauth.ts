@@ -146,7 +146,13 @@ async function main() {
       id: `duplicate-${runId}`, clientId, userId: owner.id, scopes: ['mcp:read'],
       createdAt: new Date(), updatedAt: new Date(),
     } }), (error: unknown) => (error as { code?: string }).code === 'P2002')
-    assert(!(await exchange(clientId, approved.code, approved.verifier)).ok, 'Authorization code replay must fail')
+    // Replay a separate grant: Better Auth 1.7 revokes every token a replayed
+    // code issued (RFC 6749 §4.1.2), which would kill the SDK grant used below.
+    const replayed = await consent(clientId, owner.cookie, 'mcp:read mcp:write offline_access')
+    const replayedTokens = await json(await exchange(clientId, replayed.code, replayed.verifier))
+    assert(!(await exchange(clientId, replayed.code, replayed.verifier)).ok, 'Authorization code replay must fail')
+    assert(!(await request('/oauth2/token', { grant_type: 'refresh_token', client_id: clientId,
+      refresh_token: replayedTokens.refresh_token, resource }, undefined, true)).ok, 'Code replay must revoke the grant it issued')
     const toolList = await json(await rpc(tokens.access_token, 'tools/list'))
     assert.equal(toolList.result.tools.length, 8)
     const profile = await prisma.profile.findUniqueOrThrow({ where: { userId: owner.id } })
@@ -214,6 +220,21 @@ async function main() {
     assert.equal((await rpc(reconnectTokens.access_token, 'tools/list')).status, 200)
     assert.equal((await rpc(tokens.access_token, 'tools/list')).status, 401)
     console.log('PASS unique consent, PKCE/resource, expired codes, refresh replay, disconnect/reconnect, and user isolation')
+
+    // Desktop clients (Claude Code) register a loopback http callback without
+    // application_type; Better Auth 1.7 treats that as a web client.
+    for (const redirect of ['http://127.0.0.1:33418/callback', 'http://localhost:6274/oauth/callback']) {
+      const loopback = await json(await request('/oauth2/register', {
+        client_name: `Loopback check ${runId}`, redirect_uris: [redirect],
+        token_endpoint_auth_method: 'none', grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'],
+      }))
+      clients.push(loopback.client_id)
+    }
+    assert(!(await request('/oauth2/register', {
+      client_name: `Insecure check ${runId}`, redirect_uris: ['http://client.example/callback'],
+      token_endpoint_auth_method: 'none', grant_types: ['authorization_code'], response_types: ['code'],
+    })).ok, 'Non-loopback http redirect URIs must be rejected')
+    console.log('PASS loopback http callbacks register; other http callbacks are refused')
 
     for (let i = 0; i < 6; i++) {
       const response = await request('/oauth2/register', {

@@ -62,7 +62,7 @@ describe("WritingDeskPDFDocument", () => {
   it("preserves links and avoids overlapping text", async () => {
     const { pdf } = await render(CV_MARKDOWN, "cv")
     const links = await extractLinks(pdf)
-    expect(links.links.some(link => link.startsWith("https://devonstanton.com"))).toBe(true)
+    expect(links.links.flat().some(link => link.startsWith("https://devonstanton.com"))).toBe(true)
 
     const items = await extractTextItems(pdf)
     for (const page of items.items) {
