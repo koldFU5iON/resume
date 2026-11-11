@@ -22,6 +22,7 @@ export type LLMErrorKind =
   | 'safety'         // policy refusal / empty output
   | 'invalid_output' // structured output didn't match schema
   | 'timeout'        // the caller's timeoutMs elapsed and the call was aborted
+  | 'unsupported'    // the provider can't do what the call asked for (e.g. web search)
   | 'unknown'
 
 export class LLMError extends Error {

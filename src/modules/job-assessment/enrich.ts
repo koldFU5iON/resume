@@ -22,7 +22,7 @@
  */
 
 import { prisma } from '@/lib/db'
-import { resolveFastModel } from '@/modules/llm/client'
+import { assertLLMConfigured } from '@/modules/llm/client'
 import { fetchPageContent } from '@/modules/jobs/extract-fetch'
 import { extractWithLLM } from '@/modules/jobs/extract-llm'
 import { ASSESSMENT_CONFIG } from './schema'
@@ -115,14 +115,13 @@ export async function enrichJob(profileId: string, job: EnrichJob, opts: EnrichO
   const missing = missingFields(job)
   const mayReplaceDescription = Boolean(opts.replaceDescription) && !missing.includes('jobDescription')
 
-  const model = await resolveFastModel(profileId)
+  await assertLLMConfigured(profileId)
 
   const page = await fetchPageContent(job.url)
   if (!page.ok) return { filled: [], job, error: 'Could not fetch the job page' }
 
   const extracted = await extractWithLLM(page.html, profileId, {
     feature: 'job-assessment-enrich',
-    model,
     maxOutputTokens: ENRICH_MAX_OUTPUT_TOKENS,
     timeoutMs: ENRICH_TIMEOUT_MS,
     redactInvalidOutput: true,

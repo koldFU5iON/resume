@@ -35,7 +35,20 @@ vi.mock('@ai-sdk/google', () => ({
 
 vi.mock('next/server', () => ({ after: vi.fn(cb => cb()) }))
 
-import { complete, completeStructured, resolveFastModel, FAST_MODELS } from './client'
+vi.mock('./web-search', async () => {
+  const actual = await vi.importActual<typeof import('./web-search')>('./web-search')
+  return {
+    ...actual,
+    // Plain markers instead of real SDK tool objects; the mapping has its own tests.
+    webSearchTools: vi.fn((provider: string, opts: unknown) => {
+      if (provider === 'mistral') return actual.webSearchTools(provider, opts as never)
+      return { [`${provider}_search`]: { opts } }
+    }),
+  }
+})
+
+import { complete, completeStructured } from './client'
+import { ROLE_RECOMMENDATIONS } from './roles'
 import { prisma } from '@/lib/db'
 import { generateText, NoObjectGeneratedError } from 'ai'
 import type { LanguageModelResponseMetadata, LanguageModelUsage } from 'ai'
@@ -246,38 +259,120 @@ describe('LLM client logging', () => {
   })
 })
 
-describe('resolveFastModel', () => {
+describe('model roles', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockLogCreate.mockResolvedValue({} as never)
   })
 
   const settings = (over: Record<string, unknown>) =>
-    mockFindUnique.mockResolvedValueOnce({ ...fakeSettings, availableModels: null, ...over } as never)
+    mockFindUnique.mockResolvedValueOnce({ ...fakeSettings, availableModels: null, llmModelRoles: null, ...over } as never)
+  const usedModel = () => (mockGenerateText.mock.calls.at(-1)?.[0] as { model: unknown }).model
+  const loggedRow = async () => {
+    await vi.waitFor(() => expect(mockLogCreate).toHaveBeenCalled())
+    return (mockLogCreate.mock.calls.at(-1)?.[0] as { data: Record<string, unknown> }).data
+  }
 
-  it('returns the provider fast model when no model list is cached', async () => {
+  it('uses the default model and logs role default when no role is given', async () => {
     settings({})
-    await expect(resolveFastModel('profile-1')).resolves.toBe(FAST_MODELS.anthropic)
+    const res = await complete('profile-1', 'hi', { feature: 'x' })
+    expect(res.model).toBe('claude-sonnet-4-6')
+    expect(await loggedRow()).toMatchObject({ role: 'default', model: 'claude-sonnet-4-6' })
   })
 
-  it('returns the fast model when the cached list contains it', async () => {
-    settings({ availableModels: [{ id: 'claude-sonnet-4-6', name: 'S' }, { id: 'claude-haiku-5-5', name: 'H' }] })
-    await expect(resolveFastModel('profile-1')).resolves.toBe('claude-haiku-5-5')
+  it("uses the user's choice for a role when their key still has it", async () => {
+    settings({
+      availableModels: [{ id: 'claude-sonnet-4-6', name: 'S' }, { id: 'claude-opus-5-5', name: 'O' }],
+      llmModelRoles: { fast: 'claude-opus-5-5' },
+    })
+    const res = await complete('profile-1', 'hi', { feature: 'x', role: 'fast' })
+    expect(res.model).toBe('claude-opus-5-5')
+    expect(await loggedRow()).toMatchObject({ role: 'fast', model: 'claude-opus-5-5' })
   })
 
-  it('falls back to the default model when the cached list lacks the fast model', async () => {
-    settings({ availableModels: [{ id: 'claude-sonnet-4-6', name: 'S' }] })
-    await expect(resolveFastModel('profile-1')).resolves.toBe('claude-sonnet-4-6')
+  it('falls back to the recommendation when the chosen model is gone', async () => {
+    settings({
+      availableModels: [{ id: 'claude-sonnet-4-6', name: 'S' }, { id: 'claude-haiku-5-5', name: 'H' }],
+      llmModelRoles: { fast: 'claude-retired-1' },
+    })
+    const res = await completeStructured('profile-1', 'hi', z.object({ name: z.string() }), { feature: 'x', role: 'fast' })
+    expect(res.model).toBe(ROLE_RECOMMENDATIONS.anthropic.fast)
   })
 
-  it('falls back to the default model when the provider has no fast model', async () => {
+  it('falls back to the default model when neither choice nor recommendation is available', async () => {
+    settings({ availableModels: [{ id: 'claude-sonnet-4-6', name: 'S' }], llmModelRoles: { fast: 'claude-retired-1' } })
+    const res = await complete('profile-1', 'hi', { feature: 'x', role: 'fast' })
+    expect(res.model).toBe('claude-sonnet-4-6')
+  })
+
+  it('uses the default model for a role with no recommendation (openai)', async () => {
     settings({ llmProvider: 'openai', llmModel: 'gpt-5' })
-    // openai has no verified fast model yet (FAST_MODELS.openai === null)
-    expect(FAST_MODELS.openai).toBeNull()
-    await expect(resolveFastModel('profile-1')).resolves.toBe('gpt-5')
+    const res = await complete('profile-1', 'hi', { feature: 'x', role: 'fast' })
+    expect(res.model).toBe('gpt-5')
   })
 
-  it('throws not_configured when the user has no key', async () => {
-    mockFindUnique.mockResolvedValueOnce(null as never)
-    await expect(resolveFastModel('profile-1')).rejects.toMatchObject({ kind: 'not_configured' })
+  it('lets an explicit model override the role', async () => {
+    settings({ llmModelRoles: { fast: 'claude-opus-5-5' } })
+    const res = await complete('profile-1', 'hi', { feature: 'x', role: 'fast', model: 'claude-test-1' })
+    expect(res.model).toBe('claude-test-1')
+    expect(usedModel()).toBe('mock-model')
+  })
+
+  it('logs the role on a failed call', async () => {
+    settings({})
+    mockGenerateText.mockRejectedValueOnce(new Error('boom'))
+    await expect(complete('profile-1', 'hi', { feature: 'x', role: 'analysis' })).rejects.toMatchObject({ name: 'LLMError' })
+    expect(await loggedRow()).toMatchObject({ role: 'analysis', status: 'error' })
+  })
+})
+
+describe('web search', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockLogCreate.mockResolvedValue({} as never)
+  })
+
+  it('passes the provider search tools and logs server tool calls', async () => {
+    mockFindUnique.mockResolvedValueOnce({ ...fakeSettings } as never)
+    mockGenerateText.mockResolvedValueOnce({
+      text: 'found',
+      finishReason: 'stop',
+      usage,
+      content: [
+        { type: 'tool-call', providerExecuted: true },
+        { type: 'tool-call', providerExecuted: true },
+        { type: 'text' },
+      ],
+    } as never)
+    await complete('profile-1', 'find', { feature: 'x', role: 'research', webSearch: { maxUses: 3, allowedDomains: ['example.com'] } })
+    const args = mockGenerateText.mock.calls.at(-1)?.[0] as { tools?: Record<string, unknown> }
+    expect(args.tools).toEqual({ anthropic_search: { opts: { maxUses: 3, allowedDomains: ['example.com'] } } })
+    await vi.waitFor(() => expect(mockLogCreate).toHaveBeenCalled())
+    expect(mockLogCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ role: 'research', serverToolCalls: 2 }) }),
+    )
+  })
+
+  it('counts Google grounding queries from provider metadata', async () => {
+    mockFindUnique.mockResolvedValueOnce({ ...fakeSettings, llmProvider: 'google', llmModel: 'gemini-3.5-flash' } as never)
+    mockGenerateText.mockResolvedValueOnce({
+      text: 'found',
+      finishReason: 'stop',
+      usage,
+      content: [{ type: 'text' }],
+      providerMetadata: { google: { groundingMetadata: { webSearchQueries: ['a', 'b', 'c'] } } },
+    } as never)
+    await complete('profile-1', 'find', { feature: 'x', webSearch: { maxUses: 3 } })
+    await vi.waitFor(() => expect(mockLogCreate).toHaveBeenCalled())
+    expect(mockLogCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ serverToolCalls: 3 }) }),
+    )
+  })
+
+  it('sends no tools without webSearch', async () => {
+    mockFindUnique.mockResolvedValueOnce({ ...fakeSettings } as never)
+    await complete('profile-1', 'hi', { feature: 'x' })
+    const args = mockGenerateText.mock.calls.at(-1)?.[0] as { tools?: unknown }
+    expect(args.tools).toBeUndefined()
   })
 })

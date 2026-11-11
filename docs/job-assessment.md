@@ -46,7 +46,7 @@ queued → checking → verify ── fail + URL ──► fetching (enrich) ─
    model fill fields that are empty or placeholders (title, company, description, countries, salary band). It never
    overwrites a value the user entered, and writes only if those fields are unchanged since they were read. Then verify
    runs once more (`verifyRetry`).
-3. **Facts** (`facts.ts`). The user's cheap model (`resolveFastModel`, temperature 0) turns the description into
+3. **Facts** (`facts.ts`). The user's `fast` model role (temperature 0) turns the description into
    `JobFacts`: requirements (kind, must/nice, years, parts), location, salary, seniority, employment type. Results are
    cached by `factsHash` (version, title, company, description and hints), so re-running after a profile change costs
    Jev calls only.

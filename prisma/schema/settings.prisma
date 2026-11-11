@@ -14,6 +14,9 @@ model UserSettings {
   availableModels       Json?
   /// When the cached provider model list was last fetched successfully.
   availableModelsUpdatedAt DateTime?
+  /// Per-task model choices. Shape: ModelRoleChoices in src/modules/llm/roles.ts
+  /// ({ fast?, research?, analysis? } model ids). Missing role = recommended or default model.
+  llmModelRoles         Json?
   defaultTemplateId     String?
   theme                 String    @default("system")
   exportFormat          String    @default("pdf")

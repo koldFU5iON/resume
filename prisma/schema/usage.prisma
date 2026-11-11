@@ -8,6 +8,9 @@ model LlmUsageLog {
   provider         String
   model            String
   feature          String?
+  // Model role the call asked for (src/modules/llm/roles.ts). Null for rows
+  // written before roles existed and for app-billed (Jev) calls.
+  role             String?
   promptTokens     Int
   completionTokens Int
   totalTokens      Int

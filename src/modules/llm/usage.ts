@@ -2,6 +2,7 @@ import { prisma } from '@/lib/db'
 import { JEV_FAILED_FEATURE_SUFFIX, JEV_PROVIDER } from '@/modules/jev/client'
 import { IN_PROGRESS_STALE_MS, QUEUED_STALE_MS } from '@/modules/job-assessment/schema'
 import { estimateJevCostUsd, orderStages } from '@/modules/job-assessment/usage-stats'
+import { estimateRowCostUsd } from './pricing'
 
 /**
  * The user's own-key usage (BYOK) plus a count of app-billed calls. Jev
@@ -15,6 +16,8 @@ export type UserUsageSummary = {
   totalCalls: number
   byMonth: { month: string; tokens: number }[]
   byFeature: { feature: string; tokens: number; calls: number }[]
+  /** Own-key usage per model role, most tokens first. `role: null` = rows from before roles existed. */
+  byRole: RoleUsage[]
   recentLogs: {
     id: string
     provider: string
@@ -31,6 +34,54 @@ export type UserUsageSummary = {
     thisMonthCalls: number
     allTimeCalls: number
   }
+}
+
+export type RoleUsage = {
+  role: string | null
+  tokens: number
+  calls: number
+  /** Estimate from list prices; never an actual charge. */
+  estimatedCostUsd: number
+  /** False when some calls used an unpriced model or ran billed server tools (web search). */
+  estimateComplete: boolean
+}
+
+export type RoleModelGroup = {
+  role: string | null
+  provider: string
+  model: string
+  _count: { id: number }
+  _sum: {
+    promptTokens: number | null
+    completionTokens: number | null
+    totalTokens: number | null
+    cacheReadTokens: number | null
+    cacheWriteTokens: number | null
+    serverToolCalls: number | null
+  }
+}
+
+/** Pure: folds (role, provider, model) usage groups into one row per role, pricing each model. */
+export function summarizeByRole(groups: readonly RoleModelGroup[]): RoleUsage[] {
+  const byRole = new Map<string | null, RoleUsage>()
+  for (const g of groups) {
+    const row = byRole.get(g.role) ?? { role: g.role, tokens: 0, calls: 0, estimatedCostUsd: 0, estimateComplete: true }
+    row.tokens += g._sum.totalTokens ?? 0
+    row.calls += g._count.id
+    const cost = estimateRowCostUsd({
+      provider: g.provider,
+      model: g.model,
+      promptTokens: g._sum.promptTokens ?? 0,
+      completionTokens: g._sum.completionTokens ?? 0,
+      cacheReadTokens: g._sum.cacheReadTokens,
+      cacheWriteTokens: g._sum.cacheWriteTokens,
+    })
+    if (cost === null) row.estimateComplete = false
+    else row.estimatedCostUsd += cost
+    if (g._sum.serverToolCalls) row.estimateComplete = false
+    byRole.set(g.role, row)
+  }
+  return [...byRole.values()].sort((a, b) => b.tokens - a.tokens)
 }
 
 export type AdminUsageSummary = {
@@ -60,7 +111,7 @@ export async function getUserUsageSummary(profileId: string): Promise<UserUsageS
   // an assessment the user received.
   const appBilled = { profileId, provider: JEV_PROVIDER, NOT: { feature: { endsWith: JEV_FAILED_FEATURE_SUFFIX } } }
 
-  const [today, thisMonth, allTime, byMonthRaw, byFeatureRaw, recentLogs, appBilledMonth, appBilledAll] = await Promise.all([
+  const [today, thisMonth, allTime, byMonthRaw, byFeatureRaw, recentLogs, appBilledMonth, appBilledAll, byRoleRaw] = await Promise.all([
     prisma.llmUsageLog.aggregate({
       where: { ...ownKey, createdAt: { gte: startOfToday() } },
       _sum: { totalTokens: true },
@@ -106,6 +157,15 @@ export async function getUserUsageSummary(profileId: string): Promise<UserUsageS
     }),
     prisma.llmUsageLog.count({ where: { ...appBilled, createdAt: { gte: startOfMonth() } } }),
     prisma.llmUsageLog.count({ where: appBilled }),
+    prisma.llmUsageLog.groupBy({
+      by: ['role', 'provider', 'model'],
+      where: ownKey,
+      _sum: {
+        promptTokens: true, completionTokens: true, totalTokens: true,
+        cacheReadTokens: true, cacheWriteTokens: true, serverToolCalls: true,
+      },
+      _count: { id: true },
+    }),
   ])
 
   return {
@@ -119,6 +179,7 @@ export async function getUserUsageSummary(profileId: string): Promise<UserUsageS
       tokens: r._sum.totalTokens ?? 0,
       calls: r._count.id,
     })),
+    byRole: summarizeByRole(byRoleRaw as RoleModelGroup[]),
     recentLogs,
     appBilled: { thisMonthCalls: appBilledMonth, allTimeCalls: appBilledAll },
   }
