@@ -2,6 +2,8 @@
 
 import { headers } from 'next/headers'
 import { auth } from '@/lib/auth'
+import { prisma } from '@/lib/db'
+import { requireSession } from '@/lib/session'
 
 export async function updateNameAction(name: string): Promise<{ error?: string }> {
   try {
@@ -36,9 +38,17 @@ export async function changePasswordAction(
 
 export async function unlinkAccountAction(providerId: string): Promise<{ error?: string }> {
   try {
+    // Better Auth 1.7 unlinks by the account row id, and only among the
+    // signed-in user's own accounts. Resolve it from the provider here.
+    const session = await requireSession()
+    const account = await prisma.account.findFirst({
+      where: { userId: session.user.id, providerId },
+      select: { id: true },
+    })
+    if (!account) return { error: 'That sign-in method is not linked.' }
     await auth.api.unlinkAccount({
       headers: await headers(),
-      body: { providerId },
+      body: { accountId: account.id },
     })
     return {}
   } catch (err: unknown) {
