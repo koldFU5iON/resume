@@ -86,7 +86,7 @@ floor is a hard blocker. A range that reaches the floor is fine when its midpoin
 usually land mid-band (€85k–110k against a €90k floor is clear). It is amber ("Most of the pay range is below your
 floor") only when the midpoint is below the floor (€62k–92k). A single stated figure is compared as-is, whichever end
 the extractor filed it under, so "€100k" or "up to €103k" is clear. A lone `min` below the floor ("from €80k") stays
-amber, since the top isn't stated. Separately, a `max` below the user's target takes 0.05 off the composite.
+amber ("Pay starts below your floor"), since the top isn't stated. Separately, a `max` below the user's target takes 0.05 off the composite.
 
 Work-rights lines ("must have the right to work in X", "no visa sponsorship") are never requirements: a CV can't show
 them, so Jev would answer low and cause a false block. The facts prompt files them under `availability`, and

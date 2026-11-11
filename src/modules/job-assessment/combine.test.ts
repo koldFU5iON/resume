@@ -370,14 +370,17 @@ describe('blockers table', () => {
         severity: 'unconfirmed', label: 'Most of the pay range is below your floor',
         detail: 'EUR 62,000–92,000 vs your floor of EUR 90,000. Only the top of the band reaches it.',
       })
+      expect(run({ facts: salary(92000, 62000) }).blockers.find((b) => b.kind === 'pay')?.detail)
+        .toBe('EUR 62,000–92,000 vs your floor of EUR 90,000. Only the top of the band reaches it.')
     })
 
     it('treats a single stated figure as the pay, whichever end it was filed under', () => {
       expect(severities(run({ facts: salary(null, 103000) }), 'pay')).toEqual([])
       expect(severities(run({ facts: salary(100000, 100000) }), 'pay')).toEqual([])
-      expect(run({ facts: salary(null, 80000) }).blockers[0]).toMatchObject({ severity: 'hard', detail: 'EUR up to 80,000 vs your floor of EUR 90,000.' })
+      expect(run({ facts: salary(null, 80000) }).blockers[0]).toMatchObject({ severity: 'hard', detail: 'Up to EUR 80,000 vs your floor of EUR 90,000.' })
+      expect(run({ facts: salary(80000, 80000) }).blockers[0]).toMatchObject({ severity: 'hard', detail: 'EUR 80,000 vs your floor of EUR 90,000.' })
       expect(run({ facts: salary(80000, null) }).blockers.find((b) => b.kind === 'pay')).toMatchObject({
-        severity: 'unconfirmed', detail: "EUR from 80,000 vs your floor of EUR 90,000. The top isn't stated.",
+        severity: 'unconfirmed', label: 'Pay starts below your floor', detail: "From EUR 80,000 vs your floor of EUR 90,000. The top isn't stated.",
       })
     })
 

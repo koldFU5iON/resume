@@ -320,18 +320,20 @@ export function combineAssessment(input: CombineInput): AssessmentResult {
     const cur = facts.salary.currency.toUpperCase()
     const { min, max } = facts.salary
     const fmt = (n: number) => n.toLocaleString('en-US')
-    const range =
-      min !== null && max !== null ? (min === max ? fmt(min) : `${fmt(Math.min(min, max))}–${fmt(Math.max(min, max))}`)
-      : min !== null ? `from ${fmt(min)}`
-      : max !== null ? `up to ${fmt(max)}`
+    const amount =
+      min !== null && max !== null ? (min === max ? `${cur} ${fmt(min)}` : `${cur} ${fmt(Math.min(min, max))}–${fmt(Math.max(min, max))}`)
+      : min !== null ? `from ${cur} ${fmt(min)}`
+      : max !== null ? `up to ${cur} ${fmt(max)}`
       : ''
-    const vsFloor = `${cur} ${range} vs your floor of ${cur} ${fmt(pay.floor)}`
+    const vsFloor = `${amount[0].toUpperCase()}${amount.slice(1)} vs your floor of ${cur} ${fmt(pay.floor)}`
     if (pay.status === 'below_floor') {
       blockers.push({ kind: 'pay', severity: 'hard', label: 'Pay is below your floor', detail: `${vsFloor}.` })
     } else if (pay.status === 'mostly_below_floor') {
+      const bothEnds = min !== null && max !== null
       blockers.push({
-        kind: 'pay', severity: 'unconfirmed', label: 'Most of the pay range is below your floor',
-        detail: min !== null && max !== null ? `${vsFloor}. Only the top of the band reaches it.` : `${vsFloor}. The top isn't stated.`,
+        kind: 'pay', severity: 'unconfirmed',
+        label: bothEnds ? 'Most of the pay range is below your floor' : 'Pay starts below your floor',
+        detail: bothEnds ? `${vsFloor}. Only the top of the band reaches it.` : `${vsFloor}. The top isn't stated.`,
       })
     }
   }

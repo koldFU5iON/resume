@@ -251,6 +251,7 @@ describe('checkPay', () => {
 
   it('compares a single stated figure as-is, whichever end it was filed under', () => {
     expect(checkPay(floors, eur(null, 103000))).toEqual({ status: 'ok', belowTarget: false, floor: 90000, target: 100000 })
+    expect(checkPay(floors, eur(null, 90000)).status).toBe('ok')
     expect(checkPay(floors, eur(null, 80000)).status).toBe('below_floor')
     expect(checkPay(floors, eur(80000, null)).status).toBe('mostly_below_floor')
   })
