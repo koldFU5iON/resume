@@ -12,6 +12,7 @@ import {
   saveDraftContentAction,
 } from "@/modules/writing-desk/draft-actions"
 import type { WritingDeskWithJob } from "@/modules/writing-desk/queries"
+import { CONTACT_PLACEHOLDER, hasContactPlaceholder } from "@/modules/profile-map/contact"
 
 type SaveState = "idle" | "saving" | "saved" | "failed" | "conflict"
 type PendingDraft = NonNullable<WritingDeskWithJob["draft"]>
@@ -242,6 +243,9 @@ function DraftReviewPanel({ desk, draft }: { desk: WritingDeskWithJob; draft: Pe
           {hasLive
             ? "Accepting replaces the live document with this draft. Compare them below."
             : "The live document is empty, so accepting has nothing to replace."}
+          {hasContactPlaceholder(content) && (
+            <> <code className="text-xs">{CONTACT_PLACEHOLDER}</code> becomes your contact details from your profile when you accept.</>
+          )}
         </p>
         <div className="flex items-center gap-2">
           <Button variant="destructive" size="sm" disabled={busy !== null} onClick={() => void discard()}>

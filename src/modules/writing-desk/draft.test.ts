@@ -12,6 +12,7 @@ vi.mock("@/lib/db", () => ({
       findMany: vi.fn(),
     },
     jobApplication: { findFirst: vi.fn() },
+    profile: { findUnique: vi.fn() },
     $transaction: vi.fn(),
   },
 }))
@@ -39,6 +40,7 @@ const mockEventCreate = vi.mocked(prisma.writingDeskDraftEvent.create)
 const mockEventFindMany = vi.mocked(prisma.writingDeskDraftEvent.findMany)
 const mockTransaction = vi.mocked(prisma.$transaction)
 const mockSnapshot = vi.mocked(buildProfileSnapshot)
+const mockProfileFindUnique = vi.mocked(prisma.profile.findUnique)
 
 const PROFILE = "profile-1"
 const TOKEN = "token-abc123"
@@ -528,6 +530,29 @@ describe("acceptDraft", () => {
       },
     })
     expect(mockEventCreate).not.toHaveBeenCalled()
+  })
+
+  it("fills {{contact}} with the profile's contact line in the accepted content only", async () => {
+    const withPlaceholder = ":::header\n# Jane Doe\n{{contact}}\n:::\n"
+    mockDeskFindFirst.mockResolvedValue(deskRow({ draftContent: withPlaceholder }))
+    mockDeskUpdateMany.mockResolvedValue({ count: 1 } as never)
+    mockProfileFindUnique.mockResolvedValue({
+      email: "jane@example.test", phone: null, linkedIn: "linkedin.com/in/jane", github: null, website: null,
+    } as never)
+
+    await expect(acceptDraft(PROFILE, "desk-1", 2, 4)).resolves.toEqual({ ok: true, value: { revision: 3 } })
+    expect(mockProfileFindUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { id: PROFILE } }))
+    expect(mockDeskUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ content: ":::header\n# Jane Doe\njane@example.test | linkedin.com/in/jane\n:::\n" }),
+    }))
+  })
+
+  it("skips the profile lookup when the draft has no placeholder", async () => {
+    mockDeskFindFirst.mockResolvedValue(deskRow())
+    mockDeskUpdateMany.mockResolvedValue({ count: 1 } as never)
+
+    await acceptDraft(PROFILE, "desk-1", 2, 4)
+    expect(mockProfileFindUnique).not.toHaveBeenCalled()
   })
 
   it("returns live_changed when the live revision moved", async () => {

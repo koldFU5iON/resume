@@ -1,6 +1,6 @@
 # Profile Map: the profile as a linked vault of atomic notes
 
-**Date:** 2026-11-11 · **Status:** Approved; step 1 in progress
+**Date:** 2026-11-11 · **Status:** Approved; steps 1–2 shipped
 **Builds on:** `2026-11-11-profile-review-and-profile-map.md` (review, decisions, phasing)
 
 ## 1. The idea
@@ -158,8 +158,21 @@ Shipped in `feat/profile-map`:
 - **Dates format in UTC everywhere**, so they no longer shift a month back west of UTC.
 
 Not yet:
-- Migrating the five `searchProfile` text variants to `formatPreferences`.
-- Internal tools (step 2).
+- Migrating the remaining `searchProfile` text variants to `formatPreferences` (chat is done, in step 2).
 - Writing links (step 3).
 
 Smoke test on local data: no contact values in the prompt markdown, and 54% completeness. All 10 capabilities are "claimed", because no evidence links have been written yet. That makes step 3 (writing links) the biggest quality lever.
+
+## 9. Step 2 status
+
+Shipped in `feat/profile-tools`:
+- **Six profile tools, defined once** (`profile-map/tools.ts`, over the pure `query.ts`): `profile_map`, `profile_get_note`, `profile_list`, `profile_backlinks`, `profile_search`, `profile_gaps`.
+  - **Chat** gets them in place of `get_profile_section`. Its always-on overview is now built from the vault (fixing the capitalised-level filter) and tells the model to call `profile_map` first.
+  - **MCP** mirrors them read-only (`mcp:read`).
+  - `profile_map` returns text, one line per note (`id · title — gist`) with evidence and projects nested under their role, because it is cheaper for a model to read than JSON.
+- **Contact details are out of MCP too.**
+  - `get_job_context` sends the scrubbed profile. The master CV's header contact line becomes `{{contact}}`, and the rest of it is scrubbed.
+  - The writing contract tells agents to write `{{contact}}` in the header.
+  - `acceptDraft` replaces it with the profile's contact line (`profile-map/contact.ts`). Drafts keep the placeholder until then, so agents never read contact details back through `get_draft`.
+  - The review screen explains the placeholder.
+- Every tool scrubs contact details, and search never matches them.
