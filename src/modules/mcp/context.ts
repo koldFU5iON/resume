@@ -1,7 +1,9 @@
 import { prisma } from '@/lib/db'
 import { parseCVContent, type CVDocumentContent } from '@/modules/cv/schema'
 import { toMarkdown } from '@/modules/cv/export'
-import { buildProfileSnapshot, serializeProfileForLLM } from '@/modules/profile/snapshot'
+import { buildProfileSnapshot, serializeProfileForLLM, type ProfileSnapshot } from '@/modules/profile/snapshot'
+import { CONTACT_PLACEHOLDER } from '@/modules/profile-map/contact'
+import { makeContactScrubber } from '@/modules/profile-map/pii'
 import { BLOCK_LIST } from '@/modules/writing-desk/markdown'
 import { buildStructureGuide, type StructureGuide } from '@/modules/writing-desk/structure-guide'
 import { buildWritingContract } from './contract'
@@ -39,6 +41,23 @@ async function loadMasterContent(profileId: string): Promise<CVDocumentContent |
     orderBy: { updatedAt: 'desc' },
   })
   return doc ? parseCVContent(doc.generatedContent) : null
+}
+
+/**
+ * The master CV as Markdown with no contact details: the header's contact
+ * line becomes {{contact}} (which also shows the agent where it goes), and
+ * any contact value left in the body is scrubbed.
+ */
+function masterCvMarkdown(master: CVDocumentContent, profile: ProfileSnapshot): string {
+  const sections = master.sections.map(section =>
+    section.type === 'header'
+      ? { ...section, data: { ...section.data, contact: { email: CONTACT_PLACEHOLDER, phone: null, linkedin: null, website: null } } }
+      : section,
+  )
+  const scrub = makeContactScrubber({
+    email: profile.email, phone: profile.phone, linkedIn: profile.linkedin, github: profile.github, website: profile.website,
+  })
+  return scrub(toMarkdown({ ...master, sections }))
 }
 
 export type JobContext = {
@@ -84,12 +103,10 @@ export async function getJobContext(profileId: string, jobId: string): Promise<J
     },
     untrustedFields: UNTRUSTED_FIELDS,
     untrustedNotice: UNTRUSTED_NOTICE,
-    // Contact details stay in for now: writing-desk drafts carry the CV header
-    // as agent-written markdown, so the agent needs them. The planned fix is a
-    // server-filled {{contact}} placeholder (profile-map design, step 2), after
-    // which this becomes the default scrubbed render.
-    profile: capField(serializeProfileForLLM(snapshot, { pii: 'include' }), MAX_PROFILE_ESCAPED),
-    masterCv: master ? capField(toMarkdown(master), MAX_MASTER_CV_ESCAPED) : null,
+    // No contact details: drafts write {{contact}} in the header and the app
+    // fills it when the owner accepts (writing-desk/draft.ts).
+    profile: capField(serializeProfileForLLM(snapshot), MAX_PROFILE_ESCAPED),
+    masterCv: master ? capField(masterCvMarkdown(master, snapshot), MAX_MASTER_CV_ESCAPED) : null,
     structureGuide,
     blocks: BLOCK_LIST.map(({ id, label, description, example }) => ({
       id,

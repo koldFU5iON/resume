@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react"
 import { Sparkles } from "lucide-react"
 import { Textarea } from "@/components/ui/textarea"
+import { MAX_SUMMARY_LENGTH } from "@/modules/profile/schema"
 import { Button } from "@/components/ui/button"
 import { updateProfileSummary } from "@/modules/profile/actions"
 import { generateProfileSummary } from "@/modules/profile/generate-summary"
@@ -54,6 +55,7 @@ export function ProfileSummaryCard({ initialSummary, hasLLMKey }: ProfileSummary
   return (
     <div className="space-y-3">
       <Textarea
+        maxLength={MAX_SUMMARY_LENGTH}
         value={draft}
         onChange={e => setDraft(e.target.value)}
         placeholder="Write a professional summary, or generate one from your profile…"

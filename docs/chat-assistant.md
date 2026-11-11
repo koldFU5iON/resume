@@ -79,11 +79,18 @@ Tools are defined in `src/modules/chat/tools.ts` and registered per-request via 
 
 | Tool | Fetches |
 |------|---------|
-| `get_profile_section` | Skills, experience, projects, education, or certifications |
+| `profile_map` | Index of the whole profile, completeness and gaps. The system prompt tells the model to call it first |
+| `profile_get_note` | One profile note in full (experience, achievement, project, capability...), with links |
+| `profile_list` | Every note of one type, filterable (capability kind/status, achievement vs responsibility) |
+| `profile_backlinks` | What points at a note, e.g. the evidence behind a capability |
+| `profile_search` | Keyword search across the profile |
+| `profile_gaps` | Missing or weak areas, phrased as questions |
 | `get_job_application` | Full JD, fit score, status, notes for a job |
 | `get_cv_document` | Full CV JSON for a `cvId` |
 | `get_cover_letter` | Cover letter content for a `letterId` |
 | `get_interview_prep` | Prep notes, documents, and interviewer profiles |
+
+The `profile_*` tools are shared with MCP (`src/modules/profile-map/tools.ts`), read the cached vault for the session's profile, and never return contact details.
 
 Each tool verifies ownership before returning data. For single-row fetches the check is inline (`if (!row || row.profileId !== profileId) throw`). For tools where you need an `include`, call `assertOwnership(table, id, profileId)` first.
 

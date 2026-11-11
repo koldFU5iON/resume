@@ -151,5 +151,6 @@ export function renderNote(vault: Vault, id: string, opts: RenderOptions = {}): 
       if (note.type === 'certification') list('Certifies', linkedTitles(vault, note, 'certifies'))
       break
   }
-  return lines.join('\n').trim()
+  // Scrub the whole render too: titles and linked names can hold contact values.
+  return scrub(lines.join('\n')).trim()
 }

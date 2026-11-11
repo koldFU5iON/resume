@@ -1,7 +1,8 @@
 import { tool, zodSchema } from 'ai'
 import { z } from 'zod'
 import { prisma } from '@/lib/db'
-import { parseJsonField } from '@/lib/utils'
+import { loadVault } from '@/modules/profile-map/load'
+import { PROFILE_TOOLS } from '@/modules/profile-map/tools'
 import { normalizeSections } from '@/modules/interview-prep/schema'
 
 type OwnershipTable =
@@ -43,105 +44,27 @@ export async function assertOwnership(
   }
 }
 
+// The shared profile tools (profile_map, profile_get_note, ...), bound to the
+// session's profile. The vault loads once per chat turn however many tools
+// the model calls (React cache() does not apply in a route handler).
+function profileTools(profileId: string) {
+  let vault: ReturnType<typeof loadVault> | undefined
+  const getVault = () => (vault ??= loadVault(profileId))
+  return Object.fromEntries(
+    PROFILE_TOOLS.map(t => [
+      t.name,
+      tool({
+        description: t.description,
+        inputSchema: zodSchema(t.inputSchema),
+        execute: async (args: unknown) => t.run(await getVault(), args as never),
+      }),
+    ]),
+  )
+}
+
 export function createChatTools(profileId: string) {
   return {
-    get_profile_section: tool({
-      description:
-        "Fetch detailed data for a section of the user's profile. Use when you need more depth than the profile overview provides.",
-      inputSchema: zodSchema(
-        z.object({
-          section: z.enum(['skills', 'experience', 'projects', 'education', 'certifications', 'tools']),
-        }),
-      ),
-      execute: async ({ section }) => {
-        switch (section) {
-          case 'skills':
-            return prisma.skill
-              .findMany({ where: { profileId }, orderBy: [{ level: 'asc' }, { name: 'asc' }] })
-              .then(rows =>
-                rows.map(s => ({
-                  name: s.name,
-                  category: s.category,
-                  level: s.level,
-                  yearsOfExperience: s.yearsOfExperience,
-                  notes: s.notes,
-                  tags: parseJsonField<string[]>(s.tags, []),
-                })),
-              )
-          case 'experience':
-            return prisma.experience
-              .findMany({
-                where: { profileId },
-                include: { activities: true },
-                orderBy: { startDate: 'desc' },
-              })
-              .then(rows =>
-                rows.map(e => ({
-                  company: e.company,
-                  role: e.role,
-                  startDate: e.startDate,
-                  endDate: e.endDate,
-                  summary: e.summary,
-                  remote: e.remote,
-                  achievements: e.activities
-                    .filter(a => a.kind === 'achievement')
-                    .sort((a, b) => a.order - b.order)
-                    .map(a => a.description),
-                  responsibilities: e.activities
-                    .filter(a => a.kind === 'responsibility')
-                    .sort((a, b) => a.order - b.order)
-                    .map(a => a.description),
-                  tags: parseJsonField<string[]>(e.tags, []),
-                })),
-              )
-          case 'projects':
-            return prisma.project
-              .findMany({ where: { profileId }, orderBy: { startDate: 'desc' } })
-              .then(rows =>
-                rows.map(p => ({
-                  name: p.name,
-                  description: p.description,
-                  status: p.status,
-                  url: p.url,
-                  highlights: parseJsonField<string[]>(p.highlights, []),
-                  tags: parseJsonField<string[]>(p.tags, []),
-                })),
-              )
-          case 'education':
-            return prisma.education
-              .findMany({ where: { profileId }, orderBy: { startDate: 'desc' } })
-              .then(rows =>
-                rows.map(e => ({
-                  institution: e.institution,
-                  qualification: e.qualification,
-                  field: e.field,
-                  startDate: e.startDate,
-                  endDate: e.endDate,
-                  grade: e.grade,
-                  notes: e.notes,
-                  tags: parseJsonField<string[]>(e.tags, []),
-                })),
-              )
-          case 'certifications':
-            return prisma.certification
-              .findMany({ where: { profileId }, orderBy: { issueDate: 'desc' } })
-              .then(rows =>
-                rows.map(c => ({
-                  name: c.name,
-                  issuer: c.issuer,
-                  issueDate: c.issueDate,
-                  expiryDate: c.expiryDate,
-                  credentialUrl: c.credentialUrl,
-                  tags: parseJsonField<string[]>(c.tags, []),
-                })),
-              )
-          case 'tools':
-            return prisma.tool
-              .findMany({ where: { profileId }, orderBy: [{ category: 'asc' }, { name: 'asc' }] })
-              .then(rows => rows.map(t => ({ name: t.name, category: t.category })))
-        }
-      },
-    }),
+    ...profileTools(profileId),
 
     get_job_application: tool({
       description: 'Fetch a job application including full job description, fit score, and notes.',

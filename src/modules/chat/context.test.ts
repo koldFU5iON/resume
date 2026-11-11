@@ -2,35 +2,18 @@ import { describe, it, expect, vi } from 'vitest'
 
 vi.mock('@/lib/db', () => ({
   prisma: {
-    profile: {
-      findUnique: vi.fn().mockResolvedValue({
-        name: 'Devon Stanton',
-        headline: 'Senior Engineer',
-        location: 'London',
-        skills: [
-          { name: 'TypeScript', level: 'expert' },
-          { name: 'React', level: 'proficient' },
-        ],
-        experiences: [{ role: 'Staff Engineer', company: 'Stripe' }],
-        settings: {
-          searchProfile: {
-            roles: ['Principal Engineer'],
-            careerGoals: 'fintech',
-            preferredName: '',
-            currentRole: '',
-            countries: [],
-            remotePreference: '',
-            salaryBand: null,
-            pivotContext: '',
-            extraContext: '',
-          },
-        },
-      }),
-    },
     jobApplication: { findMany: vi.fn().mockResolvedValue([]) },
     interviewPrepSession: { findMany: vi.fn().mockResolvedValue([]) },
   },
 }))
+
+vi.mock('@/modules/profile-map/load', async () => {
+  const { buildVault } = await import('@/modules/profile-map/build')
+  const { vaultSource } = await import('@/modules/profile-map/__fixtures__/source')
+  return {
+    loadVault: vi.fn().mockResolvedValue(buildVault(vaultSource({ name: 'Devon Stanton', headline: 'Senior Engineer' }))),
+  }
+})
 
 vi.mock('@/modules/chat/memory', () => ({
   loadMemorySummaries: vi.fn().mockResolvedValue(['Past session summary.']),
@@ -49,6 +32,15 @@ describe('buildSystemPrompt', () => {
     const result = await buildSystemPrompt('profile-1', null)
     expect(result).toContain('Devon Stanton')
     expect(result).toContain('Senior Engineer')
+  })
+
+  it('builds the overview from the vault, pointing at the profile tools', async () => {
+    const result = await buildSystemPrompt('profile-1', null)
+    expect(result).toContain('Most recent role: Program Manager at Fictional Freight')
+    expect(result).toContain('Top skills: Release management (expert), Jira (advanced)')
+    expect(result).toContain('- Target roles: Head of Delivery')
+    expect(result).toContain('call profile_map first')
+    expect(result).not.toContain('robin@example.test')
   })
 
   it('includes memory summaries when present', async () => {

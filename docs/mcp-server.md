@@ -73,6 +73,12 @@ ChatGPT's hosted connector uses OAuth rather than these static tokens.
 | --- | --- | --- |
 | `list_jobs` | `mcp:read` | List job applications; active jobs by default |
 | `get_job_context` | `mcp:read` | Job, profile, master CV, supported blocks, and writing guidance |
+| `profile_map` | `mcp:read` | Index of the whole profile (one line per note), completeness and gaps |
+| `profile_get_note` | `mcp:read` | One profile note in full, with links to follow |
+| `profile_list` | `mcp:read` | Every note of one type, e.g. certifications or tools |
+| `profile_backlinks` | `mcp:read` | What points at a note, e.g. the evidence behind a skill |
+| `profile_search` | `mcp:read` | Keyword search across the profile, with snippets |
+| `profile_gaps` | `mcp:read` | Missing or weak areas, phrased as questions |
 | `get_draft` | `mcp:read` | Read sections, hashes, and diagnostics |
 | `validate_draft` | `mcp:read` | Validate the draft and return advisory fact warnings |
 | `create_draft` | `mcp:write` | Create a CV draft for a job |
@@ -83,6 +89,10 @@ ChatGPT's hosted connector uses OAuth rather than these static tokens.
 The read scope also exposes `currnt://writing-contract/cv` as a resource.
 Scope filtering hides unavailable tools and rejects guessed tool names.
 Every call uses the authenticated account's profile.
+
+No tool returns your contact details (email, phone, LinkedIn, GitHub, website).
+Agents write `{{contact}}` in the CV header instead, and the app replaces it
+with your contact line when you accept the draft.
 
 Ask the client to read job context first, draft a CV, and revise its sections.
 Then open that job's **Writing Desk** to compare the draft with the live

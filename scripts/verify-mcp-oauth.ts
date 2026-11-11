@@ -154,7 +154,7 @@ async function main() {
     assert(!(await request('/oauth2/token', { grant_type: 'refresh_token', client_id: clientId,
       refresh_token: replayedTokens.refresh_token, resource }, undefined, true)).ok, 'Code replay must revoke the grant it issued')
     const toolList = await json(await rpc(tokens.access_token, 'tools/list'))
-    assert.equal(toolList.result.tools.length, 8)
+    assert.equal(toolList.result.tools.length, 14)
     const profile = await prisma.profile.findUniqueOrThrow({ where: { userId: owner.id } })
     const otherProfile = await prisma.profile.findUniqueOrThrow({ where: { userId: other.id } })
     const job = await prisma.jobApplication.create({ data: { profileId: profile.id, title: 'OAuth check', countries: [], tags: [] } })
@@ -184,7 +184,8 @@ async function main() {
     const readOnly = await consent(clientId, other.cookie, 'mcp:read offline_access')
     const readTokens = await json(await exchange(clientId, readOnly.code, readOnly.verifier))
     const readList = await json(await rpc(readTokens.access_token, 'tools/list'))
-    assert.equal(readList.result.tools.length, 4)
+    assert.equal(readList.result.tools.length, 10)
+    assert(readList.result.tools.some((t: { name: string }) => t.name === 'profile_map'))
     const deniedWrite = await json(await rpc(readTokens.access_token, 'tools/call', { name: 'create_draft', arguments: { jobId: foreignJob.id, content: '# Denied' } }))
     assert(deniedWrite.error || deniedWrite.result?.isError)
     const refused = await consent(clientId, owner.cookie, 'mcp:read', false)

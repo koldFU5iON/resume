@@ -13,6 +13,8 @@
 
 import { prisma } from "@/lib/db"
 import { buildProfileSnapshot } from "@/modules/profile/snapshot"
+import { fillContactPlaceholder, hasContactPlaceholder } from "@/modules/profile-map/contact"
+import type { Contact } from "@/modules/profile-map/types"
 import { checkFacts, type FactWarning } from "./fact-check"
 import { MAX_WRITING_DESK_CONTENT_LENGTH } from "./schema"
 import { applySectionOp, splitSections, type DraftSection, type SectionOp } from "./sections"
@@ -303,6 +305,17 @@ export async function acceptDraft(
   const failure = classify(desk)
   if (failure || !desk || desk.draftContent === null) return failure ?? fail("no_draft")
 
+  // Agents never see contact details, so they write {{contact}} in the header.
+  // It becomes the real contact line only here, in the owner's accept.
+  const content = hasContactPlaceholder(desk.draftContent)
+    ? fillContactPlaceholder(desk.draftContent, await loadContact(profileId))
+    : desk.draftContent
+  if (content.length > MAX_WRITING_DESK_CONTENT_LENGTH) {
+    return fail("invalid", {
+      message: `Filling in {{contact}} makes the document ${content.length} characters, over the ${MAX_WRITING_DESK_CONTENT_LENGTH} limit. Shorten the draft and accept again.`,
+    })
+  }
+
   // The draftRevision guard makes the copied content exactly the draft read above.
   const updated = await prisma.writingDeskDocument.updateMany({
     where: {
@@ -313,7 +326,7 @@ export async function acceptDraft(
       draftContent: { not: null },
     },
     data: {
-      content: desk.draftContent,
+      content,
       revision: { increment: 1 },
       draftContent: null,
       draftUpdatedAt: null,
@@ -323,6 +336,14 @@ export async function acceptDraft(
   if (updated.count > 0) return { ok: true, value: { revision: expectedLiveRevision + 1 } }
 
   return classify(await findDeskById(profileId, deskId)) ?? fail("conflict")
+}
+
+async function loadContact(profileId: string): Promise<Contact> {
+  const row = await prisma.profile.findUnique({
+    where: { id: profileId },
+    select: { email: true, phone: true, linkedIn: true, github: true, website: true },
+  })
+  return row ?? { email: null, phone: null, linkedIn: null, github: null, website: null }
 }
 
 export async function discardDraft(profileId: string, deskId: string): Promise<DraftResult<Record<string, never>>> {

@@ -1,6 +1,11 @@
 import { prisma } from '@/lib/db'
 import { loadMemorySummaries } from './memory'
-import { normalizeSearchProfile } from '@/modules/search-profile/schema'
+import { notesOf } from '@/modules/profile-map/build'
+import { Prisma } from '@prisma/client'
+import { loadVault } from '@/modules/profile-map/load'
+import type { Vault } from '@/modules/profile-map/types'
+import { profileMap } from '@/modules/profile-map/map'
+import { formatPreferences } from '@/modules/profile-map/render'
 import type { PageContext } from './schema'
 
 const PERSONA_DIRECTIVE = `You are a focused career coach embedded in the user's job search workspace. \
@@ -47,50 +52,44 @@ export async function buildSystemPrompt(
   return parts.join('\n\n')
 }
 
+const TOP_LEVELS = ['expert', 'advanced']
+
+/**
+ * A short overview, always in the prompt. Everything else is one tool call
+ * away (profile_map first), so this stays small however big the profile is.
+ */
 async function buildProfileOverview(profileId: string): Promise<string> {
-  const profile = await prisma.profile.findUnique({
-    where: { id: profileId },
-    include: {
-      skills: {
-        where: { level: { in: ['expert', 'advanced'] } },
-        orderBy: [{ level: 'desc' }],
-        take: 10,
-        select: { name: true, level: true },
-      },
-      experiences: {
-        orderBy: { startDate: 'desc' },
-        take: 1,
-        select: { role: true, company: true },
-      },
-      settings: { select: { searchProfile: true } },
-    },
-  })
-  if (!profile) return 'Profile not found.'
+  let vault: Vault
+  try {
+    vault = await loadVault(profileId)
+  } catch (err) {
+    // Only a missing profile is expected; anything else is a real failure.
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') return 'Profile not found.'
+    throw err
+  }
 
-  const topSkills = profile.skills
-    .filter(s => s.level === 'expert' || s.level === 'advanced')
+  const { name, headline, location } = vault.identity.props
+  const current = notesOf(vault, 'experience')[0]
+  const topSkills = notesOf(vault, 'capability')
+    .filter(c => c.props.level && TOP_LEVELS.includes(c.props.level))
+    .sort((a, b) => TOP_LEVELS.indexOf(a.props.level!) - TOP_LEVELS.indexOf(b.props.level!))
     .slice(0, 5)
-    .map(s => `${s.name} (${s.level})`)
+    .map(c => `${c.props.name} (${c.props.level})`)
     .join(', ')
-
-  const currentRole = profile.experiences[0]
-    ? `${profile.experiences[0].role} at ${profile.experiences[0].company}`
-    : null
-
-  const ctx = normalizeSearchProfile(profile.settings?.searchProfile)
+  const prefs = vault.preferences.props
+  const { completeness } = profileMap(vault)
 
   return [
-    `Name: ${profile.name}`,
-    profile.headline ? `Headline: ${profile.headline}` : null,
-    profile.location ? `Location: ${profile.location}` : null,
-    currentRole ? `Most recent role: ${currentRole}` : null,
+    `Name: ${name}`,
+    headline ? `Headline: ${headline}` : null,
+    location ? `Location: ${location}` : null,
+    current ? `Most recent role: ${current.props.role} at ${current.props.company}` : null,
     topSkills ? `Top skills: ${topSkills}` : null,
-    ctx.roles.length > 0   ? `Target roles: ${ctx.roles.join(', ')}` : null,
-    ctx.countries.length > 0 ? `Countries: ${ctx.countries.join(', ')}` : null,
-    ctx.remotePreference   ? `Remote preference: ${ctx.remotePreference}` : null,
-    ctx.careerGoals        ? `Career goals: ${ctx.careerGoals}` : null,
-    ctx.pivotContext       ? `Career change context: ${ctx.pivotContext}` : null,
-    ctx.extraContext       ? `<user_context>${ctx.extraContext}</user_context>` : null,
+    formatPreferences(prefs, 'brief') || null,
+    prefs.extraContext ? `<user_context>${prefs.extraContext}</user_context>` : null,
+    `Profile completeness: ${completeness}%. ` +
+      'For anything beyond this overview, call profile_map first, then profile_get_note, profile_search or profile_list. ' +
+      'Use profile_gaps when helping the user strengthen their profile.',
   ]
     .filter(Boolean)
     .join('\n')
@@ -159,7 +158,7 @@ function formatPageContext(ctx: PageContext): string {
       return (
         `User is writing a ${ctx.documentType} document for "${ctx.title}"${ctx.company ? ` at ${ctx.company}` : ''}\n` +
         `Writing Desk ID: ${ctx.deskId} — use get_writing_desk to fetch its Markdown, revision, job, and source CV context.\n` +
-        `Use get_profile_section to retrieve relevant profile evidence before making substantive career claims. ` +
+        `Use profile_search and profile_get_note to retrieve relevant profile evidence before making substantive career claims. ` +
         `Do not invent employers, qualifications, achievements, responsibilities, or metrics. Identify uncertainty and ask for clarification when evidence is missing.\n` +
         `Use propose_writing_desk_update for a full Markdown replacement. Include the revision returned by get_writing_desk; the user must review and confirm it before it can be applied.`
       )
@@ -180,7 +179,7 @@ function formatPageContext(ctx: PageContext): string {
       return (
         `User is editing their career profile${ctx.activeExperienceName ? ` — currently on experience: "${ctx.activeExperienceName}"` : ''}\n` +
         `Profile summary: ${ctx.profileSummary}` +
-        (ctx.activeExperienceId ? `\nActive experience ID: ${ctx.activeExperienceId}` : '')
+        (ctx.activeExperienceId ? `\nActive experience ID: ${ctx.activeExperienceId} — open it with profile_get_note` : '')
       )
   }
 }

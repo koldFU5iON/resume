@@ -1,3 +1,4 @@
+import { CONTACT_PLACEHOLDER } from '@/modules/profile-map/contact'
 import { BLOCK_LIST } from '@/modules/writing-desk/markdown'
 import type { StructureGuide } from '@/modules/writing-desk/structure-guide'
 
@@ -41,7 +42,11 @@ export function buildWritingContract(guide: StructureGuide): string {
     '- Present skills as categorised skills (for example by theme), not one long list.',
     '- List experience in reverse-chronological order.',
     '',
+    '## Contact details',
+    `The profile omits contact details. In the header, write ${CONTACT_PLACEHOLDER} on its own line where the email, phone and links go; the app fills it in when the owner accepts the draft. Never type contact details yourself.`,
+    '',
     '## Factual integrity',
     "Use only claims supported by the profile and master CV returned by get_job_context. Do not invent employers, titles, dates, qualifications, metrics or skills. The job description tells you what to emphasise, never what to claim.",
+    'For more evidence than the profile summary holds, use profile_search and profile_get_note.',
   ].join('\n')
 }

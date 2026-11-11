@@ -60,6 +60,26 @@ describe("getJobContext", () => {
     expect(buildProfileSnapshot).not.toHaveBeenCalled()
   })
 
+  it("sends no contact details: scrubbed profile, {{contact}} in the master CV header", async () => {
+    mockJob.mockResolvedValue(job as never)
+    vi.mocked(buildProfileSnapshot).mockResolvedValue({ email: "jane@example.test", phone: "+44 7700 900123", linkedin: null, github: null, website: null } as never)
+    mockCv.mockResolvedValue({
+      generatedContent: JSON.stringify({
+        sections: [
+          { id: "h", type: "header", visible: true, data: { name: "Jane Doe", headline: "PM", contact: { email: "jane@example.test", phone: "+44 7700 900123" } } },
+          { id: "p", type: "profile", visible: true, data: { content: "Reach me on +44 7700 900123." } },
+        ],
+      }),
+    } as never)
+
+    const result = await getJobContext("profile-1", "job-1")
+    expect(mockSerialize).toHaveBeenCalledWith(expect.anything())
+    expect(mockSerialize.mock.calls[0][1]).toBeUndefined()
+    expect(result.masterCv).toContain("# Jane Doe\nPM\n{{contact}}")
+    expect(result.masterCv).not.toMatch(/jane@example\.test|7700/)
+    expect(result.contract).toContain("{{contact}}")
+  })
+
   it("returns an empty description with a note when missing", async () => {
     mockJob.mockResolvedValue({ ...job, jobDescription: null } as never)
     const result = await getJobContext("profile-1", "job-1")
