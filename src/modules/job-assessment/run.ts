@@ -203,7 +203,7 @@ function recordJev(ctx: RunContext, stage: string, res: Pick<JevResult<Questions
 }
 
 /** Code checks, then (only when they pass) the Jev verify request. */
-async function verifyJob(profileId: string, job: EnrichJob, ctx: RunContext, stage: 'verify' | 'verifyRetry'): Promise<VerifyResult> {
+async function verifyJob(profileId: string, job: EnrichJob, ctx: RunContext, stage: 'verify' | 'verifyRetry', runId: string): Promise<VerifyResult> {
   const v = { title: job.title, company: job.company, description: job.jobDescription }
   const issues = codeChecks(v)
   if (issues.length > 0) return { pass: false, reasons: issues }
@@ -213,7 +213,7 @@ async function verifyJob(profileId: string, job: EnrichJob, ctx: RunContext, sta
       state: { ...buildVerifyState({ description: cutAtSentence(job.jobDescription ?? '', DESCRIPTION_MAX_CHARS) }) },
       questions: buildVerifyQuestions(),
     },
-    { feature: 'job-assessment-verify', ...JEV_CALL_BOUNDS },
+    { feature: 'job-assessment-verify', attribution: { jobApplicationId: job.id, runId }, ...JEV_CALL_BOUNDS },
   )
   recordJev(ctx, stage, res)
   return evaluateVerify(v, res.answers)
@@ -313,14 +313,14 @@ export async function runJobAssessment(claim: RunClaim, opts: RunOptions = {}): 
 
     // ── Verify (→ enrich → verify again) ──
     ensureTime('verify')
-    let verify = await timed(ctx.timings, 'verify', () => verifyJob(profileId, job!, ctx, 'verify'))
+    let verify = await timed(ctx.timings, 'verify', () => verifyJob(profileId, job!, ctx, 'verify', assessmentId))
     if (!verify.pass) {
       if (!job.url) throw new RunFailure('verification', verify.reasons)
       ensureTime('enrich')
       await setStatus(assessmentId, 'fetching')
       const failedVerify = verify
       const enriched = await timed(ctx.timings, 'enrich', () =>
-        enrichJob(profileId, job!, { replaceDescription: descriptionIncomplete(failedVerify.reasons) }),
+        enrichJob(profileId, job!, { replaceDescription: descriptionIncomplete(failedVerify.reasons), runId: assessmentId }),
       ).catch((err: unknown) => {
         // Without a key nothing can be fetched; keep the verification reasons visible.
         if (err instanceof LLMError && err.kind === 'not_configured') {
@@ -337,14 +337,14 @@ export async function runJobAssessment(claim: RunClaim, opts: RunOptions = {}): 
       }
       job = enriched.job
       ensureTime('verifyRetry')
-      verify = await timed(ctx.timings, 'verifyRetry', () => verifyJob(profileId, job!, ctx, 'verifyRetry'))
+      verify = await timed(ctx.timings, 'verifyRetry', () => verifyJob(profileId, job!, ctx, 'verifyRetry', assessmentId))
       if (!verify.pass) throw new RunFailure('verification', verify.reasons)
     }
 
     // ── Facts ──
     ensureTime('facts')
     await setStatus(assessmentId, 'assessing')
-    const factsResult = await timed(ctx.timings, 'facts', () => extractJobFacts(profileId, job!))
+    const factsResult = await timed(ctx.timings, 'facts', () => extractJobFacts(profileId, job!, { jobApplicationId: job!.id, runId: assessmentId }))
     ctx.facts = factsResult.facts
     ctx.factsHash = factsResult.factsHash
 
@@ -378,7 +378,7 @@ export async function runJobAssessment(claim: RunClaim, opts: RunOptions = {}): 
       })
       // Plain JSON data; its interfaces just lack the index signature JevState wants.
       const res = await askJev(profileId, { state: state as unknown as JevState, questions }, {
-        feature: 'job-assessment-judge', ...JEV_CALL_BOUNDS,
+        feature: 'job-assessment-judge', attribution: { jobApplicationId: job!.id, runId: assessmentId }, ...JEV_CALL_BOUNDS,
       })
       recordJev(ctx, 'judge', res)
       return { res, timeline, searchProfile }

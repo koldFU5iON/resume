@@ -24,6 +24,27 @@ Each log entry captures:
 
 Log entries are stored in the `LlmUsageLog` table and never deleted — they are the source of truth for cost analysis and user-facing usage reporting.
 
+### Job / CV attribution (#345)
+
+Job-scoped calls also pass an explicit `attribution` so usage can be costed per job application and per CV:
+
+```ts
+await completeStructured(profileId, prompt, schema, {
+  feature: 'cv-generate',
+  attribution: { jobApplicationId, cvDocumentId, runId }, // all optional
+})
+await askJev(profileId, request, { feature: 'job-assessment-judge', attribution: { jobApplicationId, runId } })
+```
+
+- `jobApplicationId` / `cvDocumentId` are validated against the profile before the row is written (`src/modules/llm/attribution.ts`): a job or CV the profile doesn't own, or a CV linked to a different job, is dropped (logged as a warning), never stored. A CV given without a job inherits the CV's own job link.
+- `runId` groups the calls of one multi-call operation. Use `newRunId()`; CV generation and ATS checks make one per attempt, and the early assessment uses its `JobAssessment.id`.
+- Profile-only work (master profile, chat, imports, discovered jobs not yet in the tracker) passes no attribution and stays unattributed. Older rows are never back-filled or matched by timestamp.
+- Deleting a job or CV sets the reference to null (`onDelete: SetNull`); the usage row and its tokens stay.
+
+Extra columns: `cacheReadTokens`, `cacheWriteTokens` and `serverToolCalls` (provider-executed tools such as web search/fetch, billed per call) are `null` when not reported, distinct from a measured `0`. `usageKnown = false` marks rows whose token counts are placeholders: Jev reservations and failed Jev calls, and structured output recovered from an error without usage. Failed calls are logged too: `status = 'error'` with `errorKind` (the `LLMError` / `JevError` kind, e.g. `timeout`, `rate_limit`), zero tokens and `usageKnown = false`, unless the error carried usage (output that failed schema validation was still billed). Calls that never reach the provider (no key configured) are not logged. The user usage page counts `status = 'ok'` rows only; failed Jev rows also keep the `:failed` feature suffix the daily cap and admin stats rely on.
+
+`getJobCostSummary(profileId, jobId)` in `src/modules/llm/job-cost.ts` totals requests, tokens, cache tokens, server tool calls and latency for a job — the full workflow, the `cv-generate` calls alone, by feature and by CV. Money is an **estimate** from the dated rate card in `src/modules/llm/pricing.ts` (source, currency and `PRICING_RATES_AS_OF` are returned with it); unpriced models, unknown usage and web-search fees mark the estimate incomplete. `actualChargesUsd` is always null (BYOK is billed to the user by their provider), and `costPerAcceptedCv` is null until CVs gain an accepted state.
+
 ---
 
 ## The `feature` field is required

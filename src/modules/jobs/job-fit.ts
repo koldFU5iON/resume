@@ -137,6 +137,7 @@ ${job.jobDescription}`
       maxOutputTokens: 700,
       temperature: 0.2,
       feature: 'job-fit',
+      attribution: { jobApplicationId: jobId },
     })
     fit = result.object
     // notesUsed is ground truth, not the model's self-report: the LLM would

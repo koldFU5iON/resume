@@ -33,6 +33,7 @@ import {
   type SystemOneResult,
 } from '@typesafe-ai/sdk'
 import { prisma } from '@/lib/db'
+import { resolveAttribution, type AttributionDb, type LlmAttribution } from '@/modules/llm/attribution'
 import { JEV_FAILED_FEATURE_SUFFIX } from './constants'
 
 /** Pinned model. Upgrading changes answers, so it needs a new PIPELINE_VERSION. */
@@ -194,7 +195,7 @@ export function jevQuotaLockKey(profileId: string): string {
  * Throws JevError 'daily_cap' at the cap, and 'unavailable' when the
  * reservation itself can't be made (then Jev is not called).
  */
-async function reserveCall(profileId: string, feature: string): Promise<string> {
+async function reserveCall(profileId: string, feature: string, attribution: LlmAttribution | undefined): Promise<string> {
   try {
     return await prisma.$transaction(async (tx) => {
       // Serialises reservations per profile until the transaction ends.
@@ -205,6 +206,7 @@ async function reserveCall(profileId: string, feature: string): Promise<string> 
       if (usedToday >= dailyCallLimit()) {
         throw new JevError('daily_cap', 'Daily Jev call limit reached for this profile.')
       }
+      const resolved = await resolveAttribution(profileId, attribution, tx as unknown as AttributionDb)
       const row = await tx.llmUsageLog.create({
         data: {
           profileId,
@@ -215,6 +217,9 @@ async function reserveCall(profileId: string, feature: string): Promise<string> 
           completionTokens: 0,
           totalTokens: 0,
           latencyMs: 0,
+          // Placeholder until settled; stays false if the call fails or the process dies.
+          usageKnown: false,
+          ...resolved,
         },
         select: { id: true },
       })
@@ -229,7 +234,7 @@ async function reserveCall(profileId: string, feature: string): Promise<string> 
 /** Updates the reservation after the call. Never throws: the answer (or the call's error) matters more. */
 async function settleReservation(
   id: string,
-  data: { model?: string; feature?: string; promptTokens?: number; completionTokens?: number; totalTokens?: number; latencyMs: number },
+  data: { model?: string; feature?: string; promptTokens?: number; completionTokens?: number; totalTokens?: number; usageKnown?: boolean; status?: 'ok' | 'error'; errorKind?: string; latencyMs: number },
 ): Promise<void> {
   await prisma.llmUsageLog.update({ where: { id }, data }).catch(() => {})
 }
@@ -244,6 +249,8 @@ export async function askJev<const Q extends Questions>(
   opts: {
     /** Product feature for usage reporting, e.g. 'job-assessment-judge'. Required. */
     feature: string
+    /** Job/CV/run the call is for; validated against profileId (see llm/attribution.ts). */
+    attribution?: LlmAttribution
     /**
      * Per-attempt timeout in ms (SDK default 10s). The SDK has no total budget,
      * so background callers bound the whole call with this plus `maxRetries`.
@@ -263,7 +270,7 @@ export async function askJev<const Q extends Questions>(
   }
 
   // Hard cap: reserve a usage row atomically before sending.
-  const reservationId = await reserveCall(profileId, opts.feature)
+  const reservationId = await reserveCall(profileId, opts.feature, opts.attribution)
 
   const body = { model: JEV_MODEL, state: request.state, questions: request.questions }
 
@@ -281,11 +288,14 @@ export async function askJev<const Q extends Questions>(
     result = await (options ? jev.systemOne(body, options) : jev.systemOne(body))
   } catch (err) {
     // Keep the reservation (it counts towards the cap), marked as failed.
+    const error = normalizeJevError(err)
     await settleReservation(reservationId, {
       feature: `${opts.feature}${JEV_FAILED_FEATURE_SUFFIX}`,
+      status: 'error',
+      errorKind: error.kind,
       latencyMs: Date.now() - startedAt,
     })
-    throw normalizeJevError(err)
+    throw error
   }
   const latencyMs = Date.now() - startedAt
 
@@ -297,6 +307,7 @@ export async function askJev<const Q extends Questions>(
     promptTokens: inputTokens,
     completionTokens: outputTokens,
     totalTokens: inputTokens + outputTokens,
+    usageKnown: result.usage.input_tokens != null || result.usage.output_tokens != null,
     latencyMs,
   })
 

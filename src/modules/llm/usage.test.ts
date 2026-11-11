@@ -22,9 +22,9 @@ beforeEach(() => {
 })
 
 describe('getUserUsageSummary', () => {
-  it('excludes app-billed Jev rows from own-key totals, charts and the log', async () => {
+  it('excludes app-billed Jev rows and failed calls from own-key totals, charts and the log', async () => {
     await getUserUsageSummary('p1')
-    const ownKey = { profileId: 'p1', provider: { not: 'typesafe' } }
+    const ownKey = { profileId: 'p1', provider: { not: 'typesafe' }, status: 'ok' }
     for (const call of log.aggregate.mock.calls) {
       expect(call[0]!.where).toMatchObject(ownKey)
     }
@@ -32,6 +32,7 @@ describe('getUserUsageSummary', () => {
     expect(log.findMany.mock.calls[0][0]).toMatchObject({ where: ownKey })
     const [sql, ...values] = vi.mocked(prisma.$queryRaw).mock.calls[0] as [TemplateStringsArray, ...unknown[]]
     expect(sql.join('?')).toContain('"provider" <> ?')
+    expect(sql.join('?')).toContain(`"status" = 'ok'`)
     expect(values).toContain('typesafe')
   })
 

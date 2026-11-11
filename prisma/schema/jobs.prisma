@@ -39,6 +39,7 @@ model JobApplication {
   writingDesk         WritingDeskDocument?
   interviewPrepSessions InterviewPrepSession[]
   assessments           JobAssessment[]
+  llmUsageLogs          LlmUsageLog[]
 
   @@index([profileId])
   @@index([status])

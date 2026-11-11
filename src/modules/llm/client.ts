@@ -17,6 +17,9 @@ import { prisma } from '@/lib/db'
 import { decrypt } from '@/lib/encryption'
 import { LLMError, normalizeLLMError } from './errors'
 import { extractJSON } from './extract-json'
+import { resolveAttribution, type LlmAttribution } from './attribution'
+
+export type { LlmAttribution } from './attribution'
 
 // Supported providers. Adding a new one is a single entry here — the factory
 // receives the user's decrypted API key and the model id and returns a
@@ -40,6 +43,17 @@ export type UsageLogEntry = {
   completionTokens: number
   totalTokens: number
   latencyMs: number
+  cacheReadTokens?: number | null
+  cacheWriteTokens?: number | null
+  serverToolCalls?: number | null
+  /** False when the token counts are placeholders, not provider-reported. Default true. */
+  usageKnown?: boolean
+  /** Job/CV/run this call belongs to; validated against profileId before writing. */
+  attribution?: LlmAttribution
+  /** 'ok' (default) or 'error' for a provider call that failed. */
+  status?: 'ok' | 'error'
+  /** LLMError kind of a failed call. */
+  errorKind?: string | null
 }
 
 /**
@@ -48,29 +62,110 @@ export type UsageLogEntry = {
  * reserves one before each call to enforce its daily cap.)
  */
 export async function writeUsageLog(entry: UsageLogEntry): Promise<void> {
-  await prisma.llmUsageLog.create({ data: entry }).catch(() => {})
+  try {
+    const { attribution, ...data } = entry
+    const resolved = await resolveAttribution(entry.profileId, attribution)
+    await prisma.llmUsageLog.create({ data: { ...data, ...resolved } })
+  } catch {
+    // Swallowed: see above.
+  }
+}
+
+/** Token columns for a usage row. Missing usage is recorded as unknown, not as a measured zero. */
+export function usageColumns(usage: LanguageModelUsage | undefined): Pick<
+  UsageLogEntry,
+  'promptTokens' | 'completionTokens' | 'totalTokens' | 'cacheReadTokens' | 'cacheWriteTokens' | 'usageKnown'
+> {
+  const known = usage !== undefined && (usage.inputTokens !== undefined || usage.outputTokens !== undefined)
+  return {
+    promptTokens: usage?.inputTokens ?? 0,
+    completionTokens: usage?.outputTokens ?? 0,
+    totalTokens: usage?.totalTokens ?? (usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0),
+    cacheReadTokens: usage?.inputTokenDetails?.cacheReadTokens ?? null,
+    cacheWriteTokens: usage?.inputTokenDetails?.cacheWriteTokens ?? null,
+    usageKnown: known,
+  }
+}
+
+type ContentLike = { type: string; providerExecuted?: boolean }
+
+/**
+ * Provider-executed tool calls (e.g. Anthropic web search/fetch, billed per
+ * call) across all steps of a result, or null when the result carries no
+ * content to count.
+ */
+export function countServerToolCalls(result: {
+  steps?: ReadonlyArray<{ content?: ReadonlyArray<ContentLike> }>
+  content?: ReadonlyArray<ContentLike>
+}): number | null {
+  const contents = result.steps?.length
+    ? result.steps.map((s) => s.content)
+    : [result.content]
+  if (contents.every((c) => c === undefined)) return null
+  let n = 0
+  for (const c of contents) {
+    for (const part of c ?? []) if (part.type === 'tool-call' && part.providerExecuted) n++
+  }
+  return n
 }
 
 function logUsage(
   profileId: string,
   provider: string,
   model: string,
-  feature: string | undefined,
-  usage: LanguageModelUsage,
+  opts: Pick<CompleteOptions, 'feature' | 'attribution'>,
+  usage: LanguageModelUsage | undefined,
   latencyMs: number,
+  serverToolCalls: number | null,
 ): void {
   after(() =>
     writeUsageLog({
       profileId,
       provider,
       model,
-      feature: feature ?? null,
-      promptTokens: usage.inputTokens ?? 0,
-      completionTokens: usage.outputTokens ?? 0,
-      totalTokens: usage.totalTokens ?? 0,
+      feature: opts.feature ?? null,
+      ...usageColumns(usage),
+      serverToolCalls,
       latencyMs,
+      attribution: opts.attribution,
     }),
   )
+}
+
+/**
+ * Logs a provider call that failed, so failures and retries count in per-job
+ * costing. Tokens are recorded as unknown unless the error carries usage
+ * (e.g. structured output the model produced but that didn't match the
+ * schema). Never throws: the caller's original error matters more.
+ */
+function logFailedCall(
+  profileId: string,
+  provider: string,
+  model: string,
+  opts: Pick<CompleteOptions, 'feature' | 'attribution'>,
+  error: LLMError,
+  rawError: unknown,
+  latencyMs: number,
+): void {
+  try {
+    const usage = NoObjectGeneratedError.isInstance(rawError) ? rawError.usage : undefined
+    after(() =>
+      writeUsageLog({
+        profileId,
+        provider,
+        model,
+        feature: opts.feature ?? null,
+        ...usageColumns(usage),
+        serverToolCalls: null,
+        latencyMs,
+        attribution: opts.attribution,
+        status: 'error',
+        errorKind: error.kind,
+      }),
+    )
+  } catch {
+    // Swallowed: see above.
+  }
 }
 
 // Cheap, fast model per provider for high-volume structured steps (e.g. job
@@ -218,6 +313,12 @@ export type CompleteOptions = {
    *  Use a short kebab-case string matching an entry in FEATURE_LABELS in feature-labels.ts.
    *  Example: 'job-fit', 'cv-import', 'profile-summary'. */
   feature: string
+  /**
+   * Job application / CV / run this call is for. Optional: profile-only work
+   * (master profile, chat) passes none and stays unattributed. Validated
+   * against profileId before it is written; see ./attribution.ts.
+   */
+  attribution?: LlmAttribution
 }
 
 type ResponseMeta = {
@@ -253,7 +354,7 @@ export async function complete(
       ...(signal ? { abortSignal: signal } : {}),
     })
     const latencyMs = Date.now() - startedAt
-    logUsage(profileId, cfg.provider, modelId, opts.feature, result.usage, latencyMs)
+    logUsage(profileId, cfg.provider, modelId, opts, result.usage, latencyMs, countServerToolCalls(result))
     return {
       text: result.text,
       finishReason: result.finishReason,
@@ -263,7 +364,9 @@ export async function complete(
       latencyMs,
     }
   } catch (err) {
-    throw callError(err, signal, opts)
+    const error = callError(err, signal, opts)
+    logFailedCall(profileId, cfg.provider, modelId, opts, error, err, Date.now() - startedAt)
+    throw error
   }
 }
 
@@ -322,7 +425,7 @@ export async function completeStructured<T>(
       ...(signal ? { abortSignal: signal } : {}),
     })
     const latencyMs = Date.now() - startedAt
-    logUsage(profileId, cfg.provider, modelId, opts.feature, result.usage, latencyMs)
+    logUsage(profileId, cfg.provider, modelId, opts, result.usage, latencyMs, countServerToolCalls(result))
     return {
       object: result.output as T,
       provider: cfg.provider,
@@ -339,8 +442,9 @@ export async function completeStructured<T>(
       const recovered = extractJSON(err.text, schema)
       if (recovered.ok) {
         const latencyMs = Date.now() - startedAt
+        // err.usage can be missing: log it as unknown rather than a measured zero.
+        logUsage(profileId, cfg.provider, modelId, opts, err.usage, latencyMs, null)
         const usage = err.usage ?? ZERO_USAGE
-        logUsage(profileId, cfg.provider, modelId, opts.feature, usage, latencyMs)
         return {
           object: recovered.value,
           provider: cfg.provider,
@@ -350,7 +454,9 @@ export async function completeStructured<T>(
         }
       }
     }
-    throw callError(err, signal, opts)
+    const error = callError(err, signal, opts)
+    logFailedCall(profileId, cfg.provider, modelId, opts, error, err, Date.now() - startedAt)
+    throw error
   }
 }
 

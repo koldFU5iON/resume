@@ -2,7 +2,8 @@
 
 import { prisma } from '@/lib/db'
 import { requireProfile } from '@/lib/session'
-import { completeStructured } from '@/modules/llm/client'
+import { completeStructured, type LlmAttribution } from '@/modules/llm/client'
+import { newRunId } from '@/modules/llm/attribution'
 import { buildProfileSnapshot, serializeProfileForLLM } from '@/modules/profile/snapshot'
 import { LLMError } from '@/modules/llm/errors'
 import { parseCVContent } from './schema'
@@ -57,6 +58,9 @@ export async function runATSScore(cvDocumentId: string): Promise<RunATSScoreResu
     return { ok: false, error: 'no_cv_content', message: 'CV has no content to score.' }
   }
 
+  // Both model calls of this ATS check share one attribution (the job comes from the CV).
+  const attribution: LlmAttribution = { cvDocumentId, runId: newRunId() }
+
   // Step 1: implied keyword expansion (small LLM call — non-fatal if it fails)
   let impliedKeywords: string[] = []
   try {
@@ -74,6 +78,7 @@ export async function runATSScore(cvDocumentId: string): Promise<RunATSScoreResu
           'Do NOT include keywords already stated in the JD.',
         ].join(' '),
         feature: 'ats-keyword-expand',
+        attribution,
         maxOutputTokens: 300,
         temperature: 0.1,
       },
@@ -128,6 +133,7 @@ export async function runATSScore(cvDocumentId: string): Promise<RunATSScoreResu
         '   == CANDIDATE PROFILE == section. Do not invent skills the candidate lacks.',
       ].join(' '),
       feature: 'ats-interpret',
+      attribution,
       maxOutputTokens: 600,
       temperature: 0.2,
     })
