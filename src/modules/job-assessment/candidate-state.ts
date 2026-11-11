@@ -12,8 +12,9 @@
  *   are removed too, and any exact copy of the contact fields. Phone-like
  *   sequences (8+ digits once spaces, dots, dashes, brackets and a leading +
  *   are ignored) are removed everywhere, except year ranges ("2019-2021") and
- *   thousands-grouped numbers ("10.000.000"). In the summary, the user's first
- *   and last names (3+ characters) are removed as standalone words too.
+ *   thousands-grouped numbers ("10.000.000"). In the summary and in role
+ *   descriptions, the user's first and last names (3+ characters) are removed
+ *   as standalone words too.
  * - `dates` is text for people to read; Jev is never asked to do date maths.
  *
  * Size budget: CANDIDATE_STATE_CHAR_BUDGET (32k chars of JSON ≈ 8k tokens at
@@ -151,14 +152,34 @@ function makeScrubber(snapshot: CandidateSource): (text: string) => string {
 }
 
 /**
- * Scrubber for the summary: also removes the user's first and last names
- * (each 3+ characters) as standalone words, after the full name has become
- * "The candidate".
+ * Scrubber for free narrative text: also removes the user's first and last
+ * names (each 3+ characters) as standalone words, after the full name has
+ * become "The candidate". The summary matches case-insensitively. Role text
+ * (`strict`) matches case-sensitively, drops a possessive "'s" with the name,
+ * and keeps a name part that is also a whole word in a company, role title or
+ * skill name ("Ruby" the language, "Morgan Stanley"), so real content survives.
  */
-function makeSummaryScrubber(snapshot: CandidateSource, scrub: (text: string) => string): (text: string) => string {
+function makeNameScrubber(
+  snapshot: CandidateSource,
+  scrub: (text: string) => string,
+  strict = false,
+): (text: string) => string {
+  const protectedWords = new Set<string>()
+  if (strict) {
+    const sources = [
+      ...snapshot.experiences.flatMap((e) => [e.company, e.role]),
+      ...snapshot.skills.map((k) => k.name),
+      ...snapshot.competencies.map((c) => c.name),
+    ]
+    for (const src of sources) for (const w of src.split(/[^\p{L}\p{N}]+/u)) if (w) protectedWords.add(w.toLowerCase())
+  }
   const parts = [...new Set((snapshot.name ?? '').split(/\s+/).map((p) => p.trim()).filter((p) => p.length >= 3))]
+    .filter((p) => !protectedWords.has(p.toLowerCase()))
   const partsRe = parts.length > 0
-    ? new RegExp(`(?<![\\p{L}\\p{N}])(?:${parts.map(escapeRegExp).join('|')})(?![\\p{L}\\p{N}])`, 'giu')
+    ? new RegExp(
+      `(?<![\\p{L}\\p{N}])(?:${parts.map(escapeRegExp).join('|')})${strict ? "(?:['\u2019]s)?" : ''}(?![\\p{L}\\p{N}])`,
+      strict ? 'gu' : 'giu',
+    )
     : null
   return (text: string) => {
     let out = scrub(text)
@@ -214,10 +235,11 @@ interface Built {
 
 function build(snapshot: CandidateSource, roleCap: number, skillsPerCategory: number | null): Built {
   const scrub = makeScrubber(snapshot)
-  const scrubSummary = makeSummaryScrubber(snapshot, scrub)
+  const scrubNarrative = makeNameScrubber(snapshot, scrub)
+  const scrubRole = makeNameScrubber(snapshot, scrub, true)
 
   const summary = cutAtSentence(
-    [snapshot.headline, snapshot.summary].map((s) => (s ? scrubSummary(s) : '')).filter(Boolean).map(sentence).join(' '),
+    [snapshot.headline, snapshot.summary].map((s) => (s ? scrubNarrative(s) : '')).filter(Boolean).map(sentence).join(' '),
     SUMMARY_MAX_CHARS,
   )
 
@@ -237,7 +259,7 @@ function build(snapshot: CandidateSource, roleCap: number, skillsPerCategory: nu
       title: scrub(exp.role),
       company: scrub(exp.company),
       dates: `${formatYearMonth(start)} – ${end === 'present' ? 'present' : formatYearMonth(end)}`,
-      description: cutAtSentence(roleText(exp, scrub), roleCap),
+      description: cutAtSentence(roleText(exp, scrubRole), roleCap),
     }
     timeline.push({ key, label: scrub(exp.role), start, end })
   })

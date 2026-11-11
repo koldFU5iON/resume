@@ -36,20 +36,29 @@ Requirements
 - One requirement per distinct line item. Keep the description's own wording, trimmed to one sentence.
 - importance = "must" for required / minimum / essential items. Use "nice" for preferred, ideally, a plus,
   bonus, nice to have, or "we also consider candidates with fewer…".
+- Visa, sponsorship, work-permit and right-to-work lines are not requirements a CV can show: use kind
+  "availability" (they are checked separately). "clearance" is only for security clearance. Split a line
+  that combines a work-rights clause with another requirement into two requirements.
 - Skip personality traits and generic attitudes that no CV can show (e.g. "positive energy",
   "can-do attitude", "attention to detail", "passion for our mission").
 - kind:
   education      degree or diploma requirements
   certification  named certifications (PMP, CISSP, Six Sigma…)
   licence        legal licences (driving, medical, bar…)
-  clearance      security clearance
+  clearance      security clearance only
   language       a spoken or written language level
   experience     years or type of past work, track records, domain background
   skill          tools, methods, abilities
-  availability   travel, on-call, shifts, start date, hours: things a CV can't show
+  availability   travel, on-call, shifts, start date, hours, visa sponsorship / right to work: things a CV can't show
 - years: when a requirement names a number of years, set min to the lowest number accepted and area to the
   kind of work, without the number. Example: "5 to 8 years in business operations or chief of staff roles"
   → { min: 5, area: "business operations or chief of staff roles" }. Otherwise null.
+  area names the kind of work only: leave out industry, sector, company-type and environment qualifiers
+  ("in a SaaS environment", "at a high-growth technology company", "for Enterprise Technology & AI
+  programs"), because industry fit is judged separately. The requirement text keeps the full wording.
+  Example: "6+ years of program management in a fast-paced technology or SaaS environment"
+  → text keeps all of it, years = { min: 6, area: "program management" }. If the line names only an
+  industry or sector, keep it as the area (e.g. "5+ years in healthcare" → area: "healthcare").
 - If one line has two year clauses ("8+ years in X, including 3+ years leading Y"), write two requirements,
   one per clause. If a line gives a total plus a specific ("8+ years of relevant experience, including 6+ in
   strategy…"), keep only the specific clause.

@@ -24,7 +24,7 @@
 | **Split bundled requirements** | "Hands-on across performance marketing, influencers, community, partnerships and brand/PR" scored 0.22 as one question. Split: brand/PR 0.96, partnerships 0.50, influencers 0.44, community 0.38, performance 0.16. | Facts lists `parts` for "all of these" lines. One question per part; code takes the mean. "Or" alternatives are **not** split. |
 | **Split the sponsorship option that covered two statements** | `not_offered` and `right_to_work_required` are now separate options. All 4 synthetic cases were classified correctly in both option orders, and real "with the right to work there" lines → `right_to_work_required`. | Both options are hard blockers when the user isn't covered |
 | Jev's confidence figure isn't a correctness gate | Per the TypeSafe skill: confidence measures how concentrated the answer is, not whether it's correct | The "low confidence" badge is dropped. Instead, **unsettled** = must-haves with `0.3 ≤ p < 0.7`, listed as "check these". |
-| Credential checks work as intended | "BSc in Computer Science" vs a diploma: 0.06 → blocked. "…or equivalent practical experience": 0.73 → met | None |
+| Credential checks work as intended (**Changed in early-v2:** education no longer hard-blocks; it is an amber "Education asked for" blocker plus a penalty item) | "BSc in Computer Science" vs a diploma: 0.06 → blocked. "…or equivalent practical experience": 0.73 → met | None |
 | Relocation is a separate case from work rights | 3 of 12 roles must be *based in* IE or UK, or on-site in Dublin; the candidate lives in FR with full EU work rights | New check, `relocation`: **unconfirmed** unless the job's country is one of the user's target countries. Needs `eligibility.currentCountry`. |
 | Availability lines can't be judged from a profile | "Availability to travel" can't be shown or disproved by a CV | Requirement kind `availability`: never asked as a requirement question, only matched against dealbreakers |
 | The description often has no location | 6 of 12 gave no location | Facts falls back to the job row's `countries`. If still unknown, skip the work-rights and relocation checks and show "Location unknown". |
@@ -333,7 +333,7 @@ A **stretch** is amber, counts toward the penalty like a warn, and reads: "Short
 
 | Kind | Hard (→ Blocked) | Unconfirmed / warn (amber) | Major gap (red, −0.5 each, at most −2) |
 |---|---|---|---|
-| Credential must-have (education, certification, licence, clearance, language) | `p < 0.3` | — | — |
+| Credential must-have (education, certification, licence, clearance, language) | `p < 0.3` (**Changed in early-v2:** not for education, which is amber and counts toward the penalty; work-rights lines are skipped) | — | — |
 | Years must-have | years rule = **block** | years rule = **warn** or **stretch** (both count toward the penalty) | — |
 | Other experience or skill must-have | — | — | `p < 0.3` |
 | Work rights | Not covered and `sponsorship ∈ {not_offered, right_to_work_required}` | Not covered and `not_mentioned` | — |

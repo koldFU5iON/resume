@@ -9,6 +9,8 @@ import {
   buildJudgeState,
   buildVerifyQuestions,
   buildVerifyState,
+  isWorkRightsRequirement,
+  requirementMode,
   MAX_SHARE_QUESTIONS,
   seniorityFitQuestion,
   shareRoleLimit,
@@ -284,5 +286,72 @@ describe('shareRoleLimit', () => {
     const shares = Object.keys(q).filter((id) => /_role_\d+_[ab]$/.test(id))
     expect(shares.length).toBeLessThanOrEqual(MAX_SHARE_QUESTIONS)
     expect(shares.some((id) => id.includes('role_11_'))).toBe(false)
+  })
+})
+
+describe('work rights requirements', () => {
+  it.each([
+    'Candidates must have the correct visa to live and work in Ireland; no sponsorship available',
+    'Only candidates with the right to work in their location will be considered',
+    'Right-to-work in the UK is required',
+    'Valid work permit required',
+    'Visa sponsorship is not available for this role',
+    'Sponsorship is not offered',
+    'We cannot sponsor candidates who need sponsorship',
+    'Must be authorised to work in the EU',
+    'Must be authorized to work in the US',
+    'Eligible to work in Canada',
+    'Must hold a valid visa',
+  ])('is skipped: %s', (text) => {
+    expect(isWorkRightsRequirement(text)).toBe(true)
+    expect(requirementMode(req(text, { kind: 'clearance' }))).toBe('skip')
+  })
+
+  it.each([
+    'Experience with immigration and visa case management',
+    'Experience working with visa processing teams',
+    'Sponsor-level stakeholder management',
+    'Own the executive sponsorship program for key accounts',
+    'Requires executive sponsorship for cross-functional programs',
+    'Security clearance (SC level)',
+  ])('is still asked: %s', (text) => {
+    expect(isWorkRightsRequirement(text)).toBe(false)
+    expect(requirementMode(req(text))).toBe('single')
+  })
+
+  it.each([
+    'Full Australian working rights required',
+    'Sponsorship is not available',
+    'Sponsorship is unavailable for this position',
+    'We are unable to provide visa sponsorship',
+    'Unable to offer sponsorship',
+    'Must hold a valid Skilled Worker visa',
+    'EU citizenship required',
+    'Must be a citizen of Canada',
+    'Permanent residency required',
+    'Permanent resident of the US',
+    'Must hold a green card',
+    'Passport holder of an EU country',
+  ])('also matches: %s', (text) => {
+    expect(isWorkRightsRequirement(text)).toBe(true)
+    expect(requirementMode(req(text, { kind: 'education' }))).toBe('skip')
+  })
+
+  it.each([
+    ['Experience managing work permit and visa applications', 'experience'],
+    ['Knowledge of UK right to work checks', 'experience'],
+    ['Experience with work authorization compliance (I-9)', 'experience'],
+    ['Knowledge of hot work permits and lockout/tagout procedures', 'skill'],
+    ['Experience securing corporate sponsorship is essential', 'experience'],
+  ] as const)('only credential kinds are skipped: %s (%s)', (text, kind) => {
+    expect(requirementMode(req(text, { kind }))).toBe('single')
+  })
+
+  it('does not match "piano sponsorship"', () => {
+    expect(isWorkRightsRequirement('Played piano sponsorship')).toBe(false)
+  })
+
+  it('never skips a language requirement', () => {
+    expect(requirementMode(req('Fluent German; must be eligible to work in Germany', { kind: 'language' }))).toBe('single')
   })
 })

@@ -26,7 +26,7 @@
 import type { ChoiceQuestion, NoulQuestion, Questions, ScoreQuestion } from '@typesafe-ai/sdk'
 import type { SearchProfile } from '@/modules/search-profile/schema'
 import type { CandidateState } from './candidate-state'
-import type { JobFacts, JobRequirement } from './schema'
+import { CREDENTIAL_KINDS, SOFT_CREDENTIAL_KINDS, type JobFacts, type JobRequirement } from './schema'
 
 // ── Ids ─────────────────────────────────────────────────────────────────────
 
@@ -46,11 +46,59 @@ export const questionIds = {
   remoteMatch: 'remote_match',
 } as const
 
-/** How a requirement is asked. `skip` = availability (never asked). */
+/** How a requirement is asked. `skip` = availability or work rights (never asked). */
 export type RequirementMode = 'skip' | 'years' | 'parts' | 'single'
+
+/**
+ * True for a line whose subject is the candidate's own right to work
+ * ("must have the correct visa", "no visa sponsorship", "right to work in X").
+ * A CV never states work rights, so asking Jev gives a low p and a false hard
+ * block; work rights are handled by eligibility.ts + the sponsorship question.
+ * Model output and old cached facts can't be trusted to use kind
+ * "availability", so this guard runs in code. Deliberately phrase-level (no bare
+ * "visa" or "sponsor") so "experience with visa case management" or
+ * "sponsor-level stakeholder management" are still asked. requirementMode only
+ * applies it to credential kinds (the ones the model mislabels work rights as),
+ * never to experience or skill: a CV can show "experience managing work permit
+ * applications" (HR, mobility roles).
+ */
+const WORK_RIGHTS_RE = new RegExp(
+  [
+    'right[- ]to[- ]work',
+    'work[- ](?:permit|authori[sz]ation)',
+    'authori[sz]ed to work',
+    'eligible to work',
+    'legally (?:entitled|permitted|allowed) to work',
+    'working rights',
+    'visa sponsorship',
+    'sponsorship (?:is|are|will|can|cannot|can\'t)\\b',
+    'sponsorship (?:is )?(?:not|un)available',
+    '\\b(?:no|not|without|cannot|unable to offer|don\'t offer|do not offer|does not offer|will not offer|won\'t offer) (?:\\w+ ){0,3}sponsorship',
+    'unable to (?:provide|offer) (?:\\w+ ){0,2}sponsorship',
+    '(?:cannot|can\'t|unable to|do not|don\'t|will not|won\'t) sponsor\\b',
+    'must (?:already )?(?:have|hold|possess) (?:an? |the )?(?:(?:valid|correct|appropriate|relevant|current|existing) )*(?:work(?:ing)? )?(?:visa|permit)',
+    '(?:valid|correct|appropriate) (?:\\w+ ){0,3}visa',
+    'to (?:live|work|reside) (?:and|or) (?:work|live) in',
+    '\\bcitizen(?:ship)?\\b',
+    'permanent residen(?:t|cy)',
+    'green card',
+    'passport (?:holder|required)',
+  ].join('|'),
+  'i',
+)
+
+/** Kinds the work-rights guard applies to: credential kinds except language (which can be a real requirement). */
+const WORK_RIGHTS_KINDS: ReadonlySet<string> = new Set(
+  [...CREDENTIAL_KINDS, ...SOFT_CREDENTIAL_KINDS].filter((k) => k !== 'language'),
+)
+
+export function isWorkRightsRequirement(text: string): boolean {
+  return WORK_RIGHTS_RE.test(text)
+}
 
 export function requirementMode(req: JobRequirement): RequirementMode {
   if (req.kind === 'availability') return 'skip'
+  if (WORK_RIGHTS_KINDS.has(req.kind) && isWorkRightsRequirement(req.text)) return 'skip'
   if (req.years) return 'years'
   if (req.parts && req.parts.length > 0) return 'parts'
   return 'single'
