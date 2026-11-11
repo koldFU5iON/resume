@@ -65,6 +65,10 @@ The Server Action `startDeepDiveAction(jobId)` (`actions.ts`) calls the same `st
 
 `deep-dive:research:company`, `deep-dive:research:pay`, `deep-dive:research:practicalities`, `deep-dive:structure`, `deep-dive:synthesis`. Every call carries `attribution: { jobApplicationId, runId: deepDive.id }`.
 
+## Providers
+
+**Anthropic is the supported provider for now.** OpenAI and Google are out of scope: the LLM layer already maps their web search tools (`src/modules/llm/web-search.ts`) and the schemas avoid optional fields and unions, so adding them later is a matter of testing, not rework. Until then they aren't tested with the deep dive.
+
 ## Not yet measured
 
-No provider was tested live when this was built (no keys in the build environment). `ROLE_RECOMMENDATIONS` for `research` and `analysis` stay `null` (they fall back to the user's default model), and spec §9's cost table is still an estimate. Both get filled in from real runs: the GET response's `usage` gives tokens, searches and an estimated cost per run.
+No Anthropic run has been made live yet (no key in the build environment). `ROLE_RECOMMENDATIONS.anthropic` for `research` and `analysis` stay `null` (they fall back to the user's default model), and spec §9's cost table is still an estimate. Both get filled in from real runs: the GET response's `usage` gives tokens, searches and an estimated cost per run.

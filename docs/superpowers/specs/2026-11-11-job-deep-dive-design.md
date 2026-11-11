@@ -394,7 +394,7 @@ Cost depends on which models the user puts in each role. As one example, with An
 | Synthesis | ~40k in / ~12k out incl. reasoning | ~$0.40 |
 | **Total** | | **~$0.65–$1.00** before searches |
 
-These are guesses until real runs are measured. **Step 4 (#360) could not measure them:** no provider key was available in the build environment, so this table and the `research` / `analysis` columns of `ROLE_RECOMMENDATIONS` are still open. The GET route returns each run's `usage` (tokens, searches, estimated cost) to fill them in. With #345 in place, the page shows each run's actual tokens and searches, and this table gets replaced with measured numbers after the first 20 runs. Company research is cached, so a second job at the same company skips the `company` researcher.
+These are guesses until real runs are measured. **Step 4 (#360) could not measure them:** no provider key was available in the build environment, so this table and the Anthropic `research` / `analysis` entries of `ROLE_RECOMMENDATIONS` are still open. OpenAI and Google are out of scope for the deep dive for now: their search mappings exist in the LLM layer, ready to test later. The GET route returns each run's `usage` (tokens, searches, estimated cost) to fill them in. With #345 in place, the page shows each run's actual tokens and searches, and this table gets replaced with measured numbers after the first 20 runs. Company research is cached, so a second job at the same company skips the `company` researcher.
 
 **Before starting:** the button shows "Uses your own API key" with an estimate. The estimate comes from the per-role models and a pricing table. With no known pricing for a model, it shows "cost unknown" rather than a guess.
 
