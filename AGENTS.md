@@ -208,7 +208,7 @@ Update the Vercel `DATABASE_URL` env var (Production scope) via dashboard or `ve
 
 - `POST /api/jobs/capture` — bearer-token-authed endpoint for agents/scripts/bookmarklets to submit a job URL. Tokens minted at `/dashboard/settings/api-tokens`. See `docs/api-jobs-capture.md` for the full spec, and `docs/api-integrations.md` for copy-pasteable recipes (curl shell function, Claude Code skill, Hermes skill, browser bookmarklet).
 - `GET /api/integrations/skills/<agent>` — public endpoint that returns a templated SKILL.md for the given agent (`claude-code` or `hermes`). `{{RESUME_URL}}` placeholder in `src/lib/integrations/skills/<agent>.md` is substituted with `BETTER_AUTH_URL` (or the request origin as fallback) at request time. Whitelist + dashboard download UI live in `src/app/api/integrations/skills/[agent]/route.ts` and `src/app/dashboard/settings/api-tokens/_components/integrations-list.tsx`. Sources are kept in the function bundle via `outputFileTracingIncludes` in `next.config.ts`.
-- `GET /api/internal/sponsor-register/import` — daily Vercel Cron (`vercel.json`), `CRON_SECRET` bearer. Imports the UK register of licensed sponsors and links unlinked jobs to companies. Matching is exact only; see `docs/companies.md`.
+- `GET /api/internal/sponsor-register/import` — daily Vercel Cron (`vercel.json`), `CRON_SECRET` bearer. Reads the UK register of licensed sponsors, stores entries only for companies named in jobs, and links jobs to companies. Matching is exact only; see `docs/companies.md`.
 - `GET /api/llm/ping` — session-authed sanity check that runs a tiny `pong` round-trip using the signed-in user's saved LLM key. Useful right after wiring up their key in `/dashboard/settings/llm`.
 
 ## Jev (TypeSafe) — app-billed
