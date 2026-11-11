@@ -225,7 +225,7 @@ describe('askJev', () => {
     await expect(askJev('p2', { state, questions }, { feature: 'x', attribution: { jobApplicationId: 'job-1', runId: 'a2' } })).rejects.toThrow(JevError)
     expect((mockCreate.mock.calls[1][0] as { data: Record<string, unknown> }).data).toMatchObject({ jobApplicationId: null, runId: 'a2' })
     const failedUpdate = mockUpdate.mock.calls.at(-1)![0] as { data: Record<string, unknown> }
-    expect(failedUpdate.data).toMatchObject({ feature: 'x:failed' })
+    expect(failedUpdate.data).toMatchObject({ feature: 'x:failed', status: 'error', errorKind: 'unavailable' })
     expect(failedUpdate.data).not.toHaveProperty('usageKnown')
   })
 
@@ -249,7 +249,7 @@ describe('askJev', () => {
     expect(mockCreate).toHaveBeenCalledTimes(1)
     expect(mockUpdate).toHaveBeenCalledWith({
       where: { id: 'res-1' },
-      data: { feature: 'test:failed', latencyMs: expect.any(Number) },
+      data: { feature: 'test:failed', status: 'error', errorKind: 'overloaded', latencyMs: expect.any(Number) },
     })
   })
 

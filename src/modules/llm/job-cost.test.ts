@@ -16,7 +16,7 @@ const row = (over: Partial<UsageRow>): UsageRow => ({
   provider: 'anthropic', model: 'claude-sonnet-5-5', feature: 'job-fit',
   promptTokens: 1_000, completionTokens: 100,
   cacheReadTokens: null, cacheWriteTokens: null, serverToolCalls: 0,
-  usageKnown: true, latencyMs: 1_000, cvDocumentId: null, runId: null,
+  usageKnown: true, status: 'ok', errorKind: null, latencyMs: 1_000, cvDocumentId: null, runId: null,
   ...over,
 })
 
@@ -96,6 +96,18 @@ describe('summarizeRows', () => {
     expect(b.serverToolCalls).toBe(3)
     expect(b.unpricedModels).toEqual(['openai/gpt-x'])
     expect(b.estimateComplete).toBe(false)
+  })
+})
+
+describe('failed calls in the summary', () => {
+  it('counts BYOK error rows and legacy Jev :failed rows, grouped by kind', () => {
+    const b = summarizeRows([
+      row({ status: 'error', errorKind: 'timeout', usageKnown: false, promptTokens: 0, completionTokens: 0 }),
+      row({ status: 'error', errorKind: 'timeout', usageKnown: false, promptTokens: 0, completionTokens: 0 }),
+      row({ provider: 'typesafe', model: 'jev-1.14.0', feature: 'job-assessment-judge:failed', usageKnown: false }),
+      row({}),
+    ])
+    expect(b).toMatchObject({ requests: 4, failedRequests: 3, unknownUsageRequests: 3, failuresByKind: { timeout: 2, unknown: 1 } })
   })
 })
 

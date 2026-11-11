@@ -234,7 +234,7 @@ async function reserveCall(profileId: string, feature: string, attribution: LlmA
 /** Updates the reservation after the call. Never throws: the answer (or the call's error) matters more. */
 async function settleReservation(
   id: string,
-  data: { model?: string; feature?: string; promptTokens?: number; completionTokens?: number; totalTokens?: number; usageKnown?: boolean; latencyMs: number },
+  data: { model?: string; feature?: string; promptTokens?: number; completionTokens?: number; totalTokens?: number; usageKnown?: boolean; status?: 'ok' | 'error'; errorKind?: string; latencyMs: number },
 ): Promise<void> {
   await prisma.llmUsageLog.update({ where: { id }, data }).catch(() => {})
 }
@@ -288,11 +288,14 @@ export async function askJev<const Q extends Questions>(
     result = await (options ? jev.systemOne(body, options) : jev.systemOne(body))
   } catch (err) {
     // Keep the reservation (it counts towards the cap), marked as failed.
+    const error = normalizeJevError(err)
     await settleReservation(reservationId, {
       feature: `${opts.feature}${JEV_FAILED_FEATURE_SUFFIX}`,
+      status: 'error',
+      errorKind: error.kind,
       latencyMs: Date.now() - startedAt,
     })
-    throw normalizeJevError(err)
+    throw error
   }
   const latencyMs = Date.now() - startedAt
 

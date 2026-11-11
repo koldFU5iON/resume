@@ -22,6 +22,11 @@ model LlmUsageLog {
   // False when the token columns are placeholders (failed call, reservation,
   // or a provider that returned no usage) rather than measured values.
   usageKnown       Boolean  @default(true)
+  // 'ok' | 'error'. A failed provider call is still logged (tokens 0,
+  // usageKnown false) so failures and retries show up in per-job costing.
+  status           String   @default("ok")
+  // Normalised error kind for failed calls (LLMError / JevError kind).
+  errorKind        String?
 
   // Explicit job/CV attribution, validated against profileId at write time
   // (see src/modules/llm/attribution.ts). Never inferred from timestamps, so

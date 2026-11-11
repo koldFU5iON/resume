@@ -26,6 +26,9 @@ export type UsageRow = {
   cacheWriteTokens: number | null
   serverToolCalls: number | null
   usageKnown: boolean
+  /** 'ok' | 'error'. */
+  status: string
+  errorKind: string | null
   latencyMs: number
   cvDocumentId: string | null
   runId: string | null
@@ -33,8 +36,10 @@ export type UsageRow = {
 
 export type UsageBucket = {
   requests: number
-  /** Calls that failed (app-billed rows marked `:failed`); usage unknown. */
+  /** Calls that failed (status 'error'; older Jev rows marked `:failed`). */
   failedRequests: number
+  /** Failed calls by error kind, e.g. { timeout: 2 }. */
+  failuresByKind: Record<string, number>
   /** Rows whose token counts are placeholders, not provider-reported. */
   unknownUsageRequests: number
   inputTokens: number
@@ -89,7 +94,7 @@ export function summarizeRows(rows: readonly UsageRow[]): UsageBucket {
   let cost = 0
   let complete = true
   const b: UsageBucket = {
-    requests: 0, failedRequests: 0, unknownUsageRequests: 0,
+    requests: 0, failedRequests: 0, failuresByKind: {}, unknownUsageRequests: 0,
     inputTokens: 0, outputTokens: 0,
     cacheReadTokens: null, cacheWriteTokens: null, serverToolCalls: null,
     runs: 0, latencyMs: { total: 0, avg: 0 },
@@ -97,7 +102,11 @@ export function summarizeRows(rows: readonly UsageRow[]): UsageBucket {
   }
   for (const r of rows) {
     b.requests++
-    if (r.feature?.endsWith(JEV_FAILED_FEATURE_SUFFIX)) b.failedRequests++
+    if (r.status === 'error' || r.feature?.endsWith(JEV_FAILED_FEATURE_SUFFIX)) {
+      b.failedRequests++
+      const kind = r.errorKind ?? 'unknown'
+      b.failuresByKind[kind] = (b.failuresByKind[kind] ?? 0) + 1
+    }
     if (!r.usageKnown) { b.unknownUsageRequests++; complete = false }
     b.inputTokens += r.promptTokens
     b.outputTokens += r.completionTokens
@@ -186,7 +195,7 @@ export async function getJobCostSummary(profileId: string, jobId: string): Promi
         provider: true, model: true, feature: true,
         promptTokens: true, completionTokens: true,
         cacheReadTokens: true, cacheWriteTokens: true, serverToolCalls: true,
-        usageKnown: true, latencyMs: true, cvDocumentId: true, runId: true,
+        usageKnown: true, status: true, errorKind: true, latencyMs: true, cvDocumentId: true, runId: true,
       },
     }),
     prisma.cVDocument.findMany({ where: { profileId, jobApplicationId: jobId }, select: { id: true, status: true } }),

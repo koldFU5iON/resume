@@ -50,6 +50,10 @@ export type UsageLogEntry = {
   usageKnown?: boolean
   /** Job/CV/run this call belongs to; validated against profileId before writing. */
   attribution?: LlmAttribution
+  /** 'ok' (default) or 'error' for a provider call that failed. */
+  status?: 'ok' | 'error'
+  /** LLMError kind of a failed call. */
+  errorKind?: string | null
 }
 
 /**
@@ -126,6 +130,42 @@ function logUsage(
       attribution: opts.attribution,
     }),
   )
+}
+
+/**
+ * Logs a provider call that failed, so failures and retries count in per-job
+ * costing. Tokens are recorded as unknown unless the error carries usage
+ * (e.g. structured output the model produced but that didn't match the
+ * schema). Never throws: the caller's original error matters more.
+ */
+function logFailedCall(
+  profileId: string,
+  provider: string,
+  model: string,
+  opts: Pick<CompleteOptions, 'feature' | 'attribution'>,
+  error: LLMError,
+  rawError: unknown,
+  latencyMs: number,
+): void {
+  try {
+    const usage = NoObjectGeneratedError.isInstance(rawError) ? rawError.usage : undefined
+    after(() =>
+      writeUsageLog({
+        profileId,
+        provider,
+        model,
+        feature: opts.feature ?? null,
+        ...usageColumns(usage),
+        serverToolCalls: null,
+        latencyMs,
+        attribution: opts.attribution,
+        status: 'error',
+        errorKind: error.kind,
+      }),
+    )
+  } catch {
+    // Swallowed: see above.
+  }
 }
 
 // Cheap, fast model per provider for high-volume structured steps (e.g. job
@@ -324,7 +364,9 @@ export async function complete(
       latencyMs,
     }
   } catch (err) {
-    throw callError(err, signal, opts)
+    const error = callError(err, signal, opts)
+    logFailedCall(profileId, cfg.provider, modelId, opts, error, err, Date.now() - startedAt)
+    throw error
   }
 }
 
@@ -412,7 +454,9 @@ export async function completeStructured<T>(
         }
       }
     }
-    throw callError(err, signal, opts)
+    const error = callError(err, signal, opts)
+    logFailedCall(profileId, cfg.provider, modelId, opts, error, err, Date.now() - startedAt)
+    throw error
   }
 }
 

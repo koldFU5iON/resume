@@ -18,7 +18,7 @@ vi.mock('@ai-sdk/openai', () => ({ createOpenAI: vi.fn().mockReturnValue(() => '
 vi.mock('@ai-sdk/google', () => ({ createGoogleGenerativeAI: vi.fn().mockReturnValue(() => 'mock-model') }))
 vi.mock('next/server', () => ({ after: vi.fn((cb: () => unknown) => cb()) }))
 
-import { generateText, NoObjectGeneratedError } from 'ai'
+import { APICallError, generateText, NoObjectGeneratedError } from 'ai'
 import type { LanguageModelResponseMetadata } from 'ai'
 import * as z from 'zod'
 import { prisma } from '@/lib/db'
@@ -126,6 +126,40 @@ describe('usage attribution in the BYOK client', () => {
     await completeStructured('p1', 'x', z.object({ name: z.string() }), { feature: 'job-fit', attribution: { jobApplicationId: 'job-a' } })
     await vi.waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1))
     expect(rows()[0]).toMatchObject({ usageKnown: false, promptTokens: 0, serverToolCalls: null, jobApplicationId: 'job-a' })
+  })
+})
+
+describe('failed calls', () => {
+  it('logs a failed provider call as an error row with its kind, keeps attribution, and rethrows', async () => {
+    mockGenerate.mockRejectedValueOnce(new APICallError({
+      message: 'rate limited', url: 'https://x', requestBodyValues: {}, statusCode: 429,
+    }))
+    await expect(complete('p1', 'hi', { feature: 'cv-generate', attribution: { cvDocumentId: 'cv-a1', runId: 'run-9' } }))
+      .rejects.toMatchObject({ name: 'LLMError', kind: 'rate_limit' })
+    await vi.waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1))
+    expect(rows()[0]).toMatchObject({
+      status: 'error', errorKind: 'rate_limit', usageKnown: false,
+      promptTokens: 0, completionTokens: 0, serverToolCalls: null,
+      feature: 'cv-generate', jobApplicationId: 'job-a', cvDocumentId: 'cv-a1', runId: 'run-9',
+    })
+  })
+
+  it('keeps the usage of output that failed validation (it was billed)', async () => {
+    mockGenerate.mockRejectedValueOnce(new NoObjectGeneratedError({
+      message: 'no object', text: 'not json at all',
+      response: { id: 'r', timestamp: new Date(0), modelId: 'm' } satisfies LanguageModelResponseMetadata,
+      usage: { inputTokens: 50, outputTokens: 7, totalTokens: 57 } as never, finishReason: 'stop',
+    }))
+    await expect(completeStructured('p1', 'x', z.object({ name: z.string() }), { feature: 'job-fit', attribution: { jobApplicationId: 'job-b' } }))
+      .rejects.toMatchObject({ kind: 'invalid_output' })
+    await vi.waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1))
+    expect(rows()[0]).toMatchObject({ status: 'error', errorKind: 'invalid_output', usageKnown: true, promptTokens: 50, completionTokens: 7, jobApplicationId: 'job-b' })
+  })
+
+  it('logs successful calls as status ok', async () => {
+    await complete('p1', 'hi', { feature: 'job-fit' })
+    await vi.waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1))
+    expect(rows()[0]).not.toHaveProperty('status', 'error')
   })
 })
 

@@ -52,7 +52,9 @@ function startOfMonth(): Date {
 
 export async function getUserUsageSummary(profileId: string): Promise<UserUsageSummary> {
   // Own-key rows only: app-billed providers are counted separately below.
-  const ownKey = { profileId, provider: { not: JEV_PROVIDER } }
+  // Failed calls (status 'error', zero tokens) are left out so call counts
+  // keep meaning "calls that returned an answer".
+  const ownKey = { profileId, provider: { not: JEV_PROVIDER }, status: 'ok' }
   // Successful app-billed calls only: failed Jev calls keep a zero-token row
   // (feature '<feature>:failed') that counts towards the daily cap but isn't
   // an assessment the user received.
@@ -79,6 +81,7 @@ export async function getUserUsageSummary(profileId: string): Promise<UserUsageS
       FROM "LlmUsageLog"
       WHERE "profileId" = ${profileId}
         AND "provider" <> ${JEV_PROVIDER}
+        AND "status" = 'ok'
         AND "createdAt" >= DATE_TRUNC('month', NOW()) - INTERVAL '5 months'
       GROUP BY DATE_TRUNC('month', "createdAt")
       ORDER BY month ASC
