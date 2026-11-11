@@ -53,14 +53,18 @@ export async function getFullProfile(): Promise<FullProfile> {
         orderBy: { startDate: "desc" },
         include: { activities: { orderBy: { order: "asc" } } },
       },
-      skills: { orderBy: { name: "asc" } },
+      // Skills, tools and competencies, told apart by kind.
+      skills: { orderBy: [{ order: "asc" }, { name: "asc" }] },
       educations: { orderBy: { startDate: "desc" } },
       certifications: { orderBy: { issueDate: "desc" } },
-      competencies: { orderBy: { order: "asc" } },
       languages: { orderBy: { order: "asc" } },
-      tools: { orderBy: { order: "asc" } },
       projects: { orderBy: { startDate: "desc" } },
     },
+  })
+
+  const ofKind = (kind: string) => row.skills.filter((s) => s.kind === kind)
+  const capabilityBase = (s: (typeof row.skills)[number]) => ({
+    id: s.id, profileId: s.profileId, name: s.name, order: s.order, createdAt: s.createdAt, updatedAt: s.updatedAt,
   })
 
   return {
@@ -74,18 +78,20 @@ export async function getFullProfile(): Promise<FullProfile> {
         tags: parseJsonField<string[]>(act.tags, []),
       })),
     })),
-    skills: row.skills.map((s) => ({ ...s, tags: parseJsonField<string[]>(s.tags, []) })),
+    skills: ofKind("skill")
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((s) => ({ ...s, tags: parseJsonField<string[]>(s.tags, []) })),
     educations: row.educations.map((e) => ({ ...e, tags: parseJsonField<string[]>(e.tags, []) })),
     certifications: row.certifications.map((c) => ({
       ...c,
       tags: parseJsonField<string[]>(c.tags, []),
     })),
-    competencies: row.competencies.map((c) => ({
-      ...c,
-      origin: c.origin as CompetencyOriginType,
+    competencies: ofKind("competency").map((c) => ({
+      ...capabilityBase(c),
+      origin: (c.origin ?? "manual") as CompetencyOriginType,
     })),
     languages: row.languages,
-    tools: row.tools,
+    tools: ofKind("tool").map((t) => ({ ...capabilityBase(t), category: t.category })),
     projects: row.projects.map(p => ({
       ...p,
       highlights: parseJsonField<string[]>(p.highlights, []),

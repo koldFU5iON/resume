@@ -44,12 +44,17 @@ model Profile {
   jobAssessments JobAssessment[]
 }
 
+// One table for every capability: skills, tools and competencies (kind).
+// Tools and competencies have no level; competencies record their origin.
 model Skill {
   id                String   @id @default(cuid())
   profileId         String
   name              String
-  category          String
-  level             String
+  kind              String   @default("skill") // "skill" | "tool" | "competency"
+  category          String?
+  level             String?
+  order             Int      @default(0)
+  origin            String? // competencies: "manual" | "derived"
   yearsOfExperience Float?
   tags              String   @default("[]")
   notes             String?
@@ -63,6 +68,7 @@ model Skill {
   certificationSkills CertificationSkill[]
 
   @@index([profileId])
+  @@index([profileId, kind])
 }
 
 model Experience {
@@ -171,6 +177,8 @@ model Certification {
   @@index([profileId])
 }
 
+// Legacy: rows were copied into Skill (kind "competency") by the
+// 20261111140000_merge_capabilities migration. Not read or written; drop later.
 model Competency {
   id        String   @id @default(cuid())
   profileId String
@@ -199,6 +207,7 @@ model Language {
   @@index([profileId])
 }
 
+// Legacy: rows were copied into Skill (kind "tool"); see Competency. Drop later.
 model Tool {
   id        String   @id @default(cuid())
   profileId String

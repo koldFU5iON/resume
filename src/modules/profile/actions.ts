@@ -287,55 +287,77 @@ export async function deleteLanguage(id: string) {
   revalidatePath('/dashboard/profile')
 }
 
-// ── Tools ──────────────────────────────────────────────────────────────────
+// ── Tools and competencies ───────────────────────────────────────────────────
+// Stored in Skill with a kind, so evidence can link to them like any skill.
+// Returned in the legacy Tool / Competency shapes the profile UI uses.
 
 type ToolData = { name: string; category?: string }
+type CompetencyData = { name: string }
+
+type CapabilityRow = { id: string; profileId: string; name: string; category: string | null; order: number; origin: string | null; createdAt: Date; updatedAt: Date }
+
+function asTool(row: CapabilityRow) {
+  const { id, profileId, name, category, order, createdAt, updatedAt } = row
+  return { id, profileId, name, category, order, createdAt, updatedAt }
+}
+
+function asCompetency(row: CapabilityRow) {
+  const { id, profileId, name, order, origin, createdAt, updatedAt } = row
+  return { id, profileId, name, order, origin: origin ?? 'manual', createdAt, updatedAt }
+}
+
+async function nextOrder(profileId: string, kind: 'tool' | 'competency'): Promise<number> {
+  const last = await prisma.skill.findFirst({ where: { profileId, kind }, orderBy: { order: 'desc' }, select: { order: true } })
+  return (last?.order ?? -1) + 1
+}
 
 export async function createTool(data: ToolData) {
   const { profile } = await requireProfile()
-  const tool = await prisma.tool.create({
-    data: { ...data, profileId: profile.id },
+  const tool = await prisma.skill.create({
+    data: { profileId: profile.id, kind: 'tool', name: data.name, category: data.category ?? null, order: await nextOrder(profile.id, 'tool') },
   })
   revalidatePath('/dashboard/profile')
-  return tool
+  return asTool(tool)
 }
 
 export async function updateTool(id: string, data: ToolData) {
   const { profile } = await requireProfile()
-  const tool = await prisma.tool.update({ where: { id, profileId: profile.id }, data })
+  const tool = await prisma.skill.update({
+    where: { id, profileId: profile.id, kind: 'tool' },
+    data: { name: data.name, category: data.category ?? null },
+  })
   revalidatePath('/dashboard/profile')
-  return tool
+  return asTool(tool)
 }
 
 export async function deleteTool(id: string) {
   const { profile } = await requireProfile()
-  await prisma.tool.deleteMany({ where: { id, profileId: profile.id } })
+  await prisma.skill.deleteMany({ where: { id, profileId: profile.id, kind: 'tool' } })
   revalidatePath('/dashboard/profile')
 }
 
-// ── Competencies ────────────────────────────────────────────────────────────
-
-type CompetencyData = { name: string }
-
 export async function createCompetency(data: CompetencyData) {
   const { profile } = await requireProfile()
-  const competency = await prisma.competency.create({
-    data: { ...data, profileId: profile.id, origin: 'manual' },
+  const competency = await prisma.skill.create({
+    data: { profileId: profile.id, kind: 'competency', name: data.name, origin: 'manual', order: await nextOrder(profile.id, 'competency') },
   })
   revalidatePath('/dashboard/profile')
-  return competency
+  return asCompetency(competency)
 }
 
 export async function updateCompetency(id: string, data: CompetencyData) {
   const { profile } = await requireProfile()
-  const competency = await prisma.competency.update({ where: { id, profileId: profile.id }, data })
+  const competency = await prisma.skill.update({
+    where: { id, profileId: profile.id, kind: 'competency' },
+    data: { name: data.name },
+  })
   revalidatePath('/dashboard/profile')
-  return competency
+  return asCompetency(competency)
 }
 
 export async function deleteCompetency(id: string) {
   const { profile } = await requireProfile()
-  await prisma.competency.deleteMany({ where: { id, profileId: profile.id } })
+  await prisma.skill.deleteMany({ where: { id, profileId: profile.id, kind: 'competency' } })
   revalidatePath('/dashboard/profile')
 }
 

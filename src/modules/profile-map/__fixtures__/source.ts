@@ -28,15 +28,14 @@ export function vaultSource(over: Partial<VaultSource> = {}): VaultSource {
       status: 'active', highlights: '["Shipped 4 releases"]', tags: '[]', createdAt: t, updatedAt: t, skills: [],
     }],
     skills: [
-      { id: 's1', profileId: 'p1', name: 'Release management', category: 'Delivery', level: 'expert', yearsOfExperience: 5, tags: '[]', notes: null, createdAt: t, updatedAt: t },
-      { id: 's2', profileId: 'p1', name: 'Jira', category: 'General', level: 'advanced', yearsOfExperience: null, tags: '[]', notes: null, createdAt: t, updatedAt: t },
-      { id: 's3', profileId: 'p1', name: 'Agile', category: 'Delivery', level: 'intermediate', yearsOfExperience: null, tags: '[]', notes: null, createdAt: t, updatedAt: t },
+      // Listed before the skills on purpose: the skill still wins the "Jira" clash.
+      { id: 't1', profileId: 'p1', name: 'jira ', kind: 'tool', category: 'PM', level: null, order: 0, origin: null, yearsOfExperience: null, tags: '[]', notes: null, createdAt: t, updatedAt: t },
+      { id: 's1', profileId: 'p1', name: 'Release management', kind: 'skill', category: 'Delivery', level: 'expert', order: 0, origin: null, yearsOfExperience: 5, tags: '[]', notes: null, createdAt: t, updatedAt: t },
+      { id: 's2', profileId: 'p1', name: 'Jira', kind: 'skill', category: 'General', level: 'advanced', order: 0, origin: null, yearsOfExperience: null, tags: '[]', notes: null, createdAt: t, updatedAt: t },
+      { id: 's3', profileId: 'p1', name: 'Agile', kind: 'skill', category: 'Delivery', level: 'intermediate', order: 0, origin: null, yearsOfExperience: null, tags: '[]', notes: null, createdAt: t, updatedAt: t },
+      { id: 't2', profileId: 'p1', name: 'Confluence', kind: 'tool', category: null, level: null, order: 1, origin: null, yearsOfExperience: null, tags: '[]', notes: null, createdAt: t, updatedAt: t },
+      { id: 'c1', profileId: 'p1', name: 'Stakeholder management', kind: 'competency', category: null, level: null, order: 0, origin: 'manual', yearsOfExperience: null, tags: '[]', notes: null, createdAt: t, updatedAt: t },
     ],
-    tools: [
-      { id: 't1', profileId: 'p1', name: 'jira ', category: 'PM', order: 0, createdAt: t, updatedAt: t },
-      { id: 't2', profileId: 'p1', name: 'Confluence', category: null, order: 1, createdAt: t, updatedAt: t },
-    ],
-    competencies: [{ id: 'c1', profileId: 'p1', name: 'Stakeholder management', origin: 'manual', order: 0, createdAt: t, updatedAt: t }],
     educations: [{ id: 'ed1', profileId: 'p1', institution: 'Example University', qualification: 'MSc', field: 'Supply chain', startDate: d('2012-09'), endDate: d('2014-06'), grade: null, notes: null, tags: '[]', createdAt: t, updatedAt: t }],
     certifications: [{ id: 'ce1', profileId: 'p1', name: 'PMP', issuer: 'PMI', issueDate: d('2018-05'), expiryDate: d('2020-05'), credentialUrl: null, tags: '[]', createdAt: t, updatedAt: t, skills: [{ skillId: 's3' }] }],
     languages: [{ id: 'l1', profileId: 'p1', name: 'French', proficiency: 'Native', order: 0, createdAt: t, updatedAt: t }],
