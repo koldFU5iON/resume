@@ -5,6 +5,7 @@
 
 import { prisma } from '@/lib/db'
 import { JEV_FAILED_FEATURE_SUFFIX } from '@/modules/jev/constants'
+import { CV_STATUS } from '@/modules/cv/acceptance'
 import {
   estimateRowCostUsd,
   PRICING_CURRENCY,
@@ -68,13 +69,22 @@ export type JobCostSummary = {
   generationCalls: UsageBucket
   byFeature: (UsageBucket & { feature: string })[]
   /** Per CV; `cvDocumentId: null` holds job-level calls not tied to a CV. */
-  byCv: (UsageBucket & { cvDocumentId: string | null; status: string | null })[]
+  byCv: (UsageBucket & {
+    cvDocumentId: string | null
+    status: string | null
+    acceptedAt: Date | null
+    /** 'manual' | 'applied'; null when not accepted. */
+    acceptedVia: string | null
+  })[]
+  /** CVs of this job with status 'accepted'. */
+  acceptedCvCount: number
   /**
-   * Cost per accepted CV. CVs have no "accepted" state yet (statuses are
-   * generating / draft / failed), so this stays null rather than counting
-   * drafts as accepted.
+   * Estimated full workflow cost divided by the number of accepted CVs. Null
+   * when the job has no accepted CV: drafts and failed CVs never count. The
+   * cost of CVs that weren't accepted stays in the numerator, since it was
+   * spent getting to the accepted one. Inherits `workflow.estimateComplete`.
    */
-  costPerAcceptedCv: null
+  costPerAcceptedCv: { estimatedCostUsd: number; estimateComplete: boolean } | null
   /** Actual charges are not known: BYOK calls are billed by the provider to the user. */
   actualChargesUsd: null
   pricing: { kind: 'estimate'; source: string; currency: typeof PRICING_CURRENCY; ratesAsOf: string; notes: string[] }
@@ -143,13 +153,15 @@ function groupBy<K>(rows: readonly UsageRow[], key: (r: UsageRow) => K): Map<K, 
   return m
 }
 
+export type JobCv = { id: string; status: string; acceptedAt: Date | null; acceptedVia: string | null }
+
 /** Pure: builds the summary from a job's rows and its CVs. */
 export function buildJobCostSummary(
   jobApplicationId: string,
   rows: readonly UsageRow[],
-  cvs: readonly { id: string; status: string }[],
+  cvs: readonly JobCv[],
 ): JobCostSummary {
-  const statusById = new Map(cvs.map((c) => [c.id, c.status]))
+  const cvById = new Map(cvs.map((c) => [c.id, c]))
   const byCvRows = groupBy(rows, (r) => r.cvDocumentId)
   // Every CV of the job appears, even ones with no attributed usage yet.
   for (const c of cvs) if (!byCvRows.has(c.id)) byCvRows.set(c.id, [])
@@ -160,21 +172,32 @@ export function buildJobCostSummary(
     ...new Set(rows.map((r) => rateFor(r.provider, r.model)?.note).filter((n): n is string => Boolean(n))),
   ]
 
+  const workflow = summarizeRows(rows)
+  const acceptedCvCount = cvs.filter((c) => c.status === CV_STATUS.Accepted).length
+
   return {
     jobApplicationId,
-    workflow: summarizeRows(rows),
+    workflow,
     generationCalls: summarizeRows(rows.filter((r) => baseFeature(r.feature) === CV_GENERATION_FEATURE)),
     byFeature: [...groupBy(rows, (r) => baseFeature(r.feature))]
       .map(([feature, list]) => ({ feature, ...summarizeRows(list) }))
       .sort((a, b) => b.estimatedCostUsd - a.estimatedCostUsd || a.feature.localeCompare(b.feature)),
     byCv: [...byCvRows]
-      .map(([cvDocumentId, list]) => ({
-        cvDocumentId,
-        status: cvDocumentId ? statusById.get(cvDocumentId) ?? null : null,
-        ...summarizeRows(list),
-      }))
+      .map(([cvDocumentId, list]) => {
+        const cv = cvDocumentId ? cvById.get(cvDocumentId) : undefined
+        return {
+          cvDocumentId,
+          status: cv?.status ?? null,
+          acceptedAt: cv?.acceptedAt ?? null,
+          acceptedVia: cv?.acceptedVia ?? null,
+          ...summarizeRows(list),
+        }
+      })
       .sort((a, b) => (a.cvDocumentId === null ? 1 : b.cvDocumentId === null ? -1 : a.cvDocumentId.localeCompare(b.cvDocumentId))),
-    costPerAcceptedCv: null,
+    acceptedCvCount,
+    costPerAcceptedCv: acceptedCvCount
+      ? { estimatedCostUsd: workflow.estimatedCostUsd / acceptedCvCount, estimateComplete: workflow.estimateComplete }
+      : null,
     actualChargesUsd: null,
     pricing: { kind: 'estimate', source: PRICING_SOURCE, currency: PRICING_CURRENCY, ratesAsOf: PRICING_RATES_AS_OF, notes },
   }
@@ -198,7 +221,7 @@ export async function getJobCostSummary(profileId: string, jobId: string): Promi
         usageKnown: true, status: true, errorKind: true, latencyMs: true, cvDocumentId: true, runId: true,
       },
     }),
-    prisma.cVDocument.findMany({ where: { profileId, jobApplicationId: jobId }, select: { id: true, status: true } }),
+    prisma.cVDocument.findMany({ where: { profileId, jobApplicationId: jobId }, select: { id: true, status: true, acceptedAt: true, acceptedVia: true } }),
   ])
   return buildJobCostSummary(jobId, rows, cvs)
 }

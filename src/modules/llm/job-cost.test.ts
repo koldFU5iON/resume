@@ -9,7 +9,7 @@ vi.mock('@/lib/db', () => ({
 }))
 
 import { prisma } from '@/lib/db'
-import { buildJobCostSummary, getJobCostSummary, summarizeRows, type UsageRow } from './job-cost'
+import { buildJobCostSummary, getJobCostSummary, summarizeRows, type JobCv, type UsageRow } from './job-cost'
 import { estimateRowCostUsd, PRICING_RATES_AS_OF } from './pricing'
 
 const row = (over: Partial<UsageRow>): UsageRow => ({
@@ -34,7 +34,10 @@ const rows: UsageRow[] = [
   row({ feature: 'ats-interpret', cvDocumentId: 'cv-1', runId: 'ats1' }),
   row({ feature: 'cv-generate', cvDocumentId: 'cv-2', runId: 'g3', promptTokens: 10_000, completionTokens: 2_000 }),
 ]
-const cvs = [{ id: 'cv-1', status: 'draft' }, { id: 'cv-2', status: 'failed' }, { id: 'cv-3', status: 'draft' }]
+const cv = (id: string, status: string, acceptedVia: string | null = null): JobCv => ({
+  id, status, acceptedVia, acceptedAt: acceptedVia ? new Date('2026-11-11T12:00:00Z') : null,
+})
+const cvs = [cv('cv-1', 'draft'), cv('cv-2', 'failed'), cv('cv-3', 'draft')]
 
 describe('estimateRowCostUsd', () => {
   it('prices cache reads and writes at their own rates out of the total input', () => {
@@ -85,7 +88,32 @@ describe('buildJobCostSummary', () => {
     expect(s.pricing).toMatchObject({ kind: 'estimate', currency: 'USD', ratesAsOf: PRICING_RATES_AS_OF })
     expect(s.pricing.notes.join(' ')).toMatch(/100K tokens/)
     expect(s.actualChargesUsd).toBeNull()
+  })
+
+  it('has no cost per accepted CV while no CV is accepted (drafts and failed CVs never count)', () => {
+    expect(s.acceptedCvCount).toBe(0)
     expect(s.costPerAcceptedCv).toBeNull()
+  })
+})
+
+describe('cost per accepted CV', () => {
+  it('divides the full workflow cost (unaccepted CVs included) by the accepted CVs', () => {
+    const one = buildJobCostSummary('job-1', rows, [cv('cv-1', 'accepted', 'applied'), cv('cv-2', 'failed'), cv('cv-3', 'draft')])
+    expect(one.acceptedCvCount).toBe(1)
+    expect(one.costPerAcceptedCv!.estimatedCostUsd).toBeCloseTo(one.workflow.estimatedCostUsd, 10)
+    expect(one.costPerAcceptedCv!.estimateComplete).toBe(false) // the workflow has an unknown-usage row
+    expect(one.byCv.find((b) => b.cvDocumentId === 'cv-1')).toMatchObject({ status: 'accepted', acceptedVia: 'applied' })
+    expect(one.byCv.find((b) => b.cvDocumentId === 'cv-3')).toMatchObject({ acceptedAt: null, acceptedVia: null })
+
+    const two = buildJobCostSummary('job-1', rows, [cv('cv-1', 'accepted', 'manual'), cv('cv-2', 'failed'), cv('cv-3', 'accepted', 'applied')])
+    expect(two.acceptedCvCount).toBe(2)
+    expect(two.costPerAcceptedCv!.estimatedCostUsd).toBeCloseTo(two.workflow.estimatedCostUsd / 2, 10)
+  })
+
+  it('carries a complete estimate through when every row is priced and known', () => {
+    const priced = rows.filter((r) => r.usageKnown && r.provider === 'anthropic')
+    const s = buildJobCostSummary('job-1', priced, [cv('cv-1', 'accepted', 'manual')])
+    expect(s.costPerAcceptedCv).toEqual({ estimatedCostUsd: s.workflow.estimatedCostUsd, estimateComplete: true })
   })
 })
 
@@ -128,5 +156,9 @@ describe('getJobCostSummary', () => {
     const s = await getJobCostSummary('p1', 'job-1')
     expect(s?.workflow.requests).toBe(10)
     expect(vi.mocked(prisma.llmUsageLog.findMany).mock.calls[0][0]).toMatchObject({ where: { profileId: 'p1', jobApplicationId: 'job-1' } })
+    expect(vi.mocked(prisma.cVDocument.findMany).mock.calls[0][0]).toMatchObject({
+      where: { profileId: 'p1', jobApplicationId: 'job-1' },
+      select: { status: true, acceptedAt: true, acceptedVia: true },
+    })
   })
 })
