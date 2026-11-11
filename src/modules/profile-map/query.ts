@@ -2,6 +2,7 @@
 // functions over a loaded vault. Every text field that leaves here goes
 // through the contact scrubber unless the caller opts in with pii: 'include'.
 
+import { capLines } from './format'
 import { profileMap, type Gap } from './map'
 import { makeContactScrubber, type PiiMode } from './pii'
 import { contextOf, renderNote } from './render'
@@ -35,16 +36,24 @@ function ref(vault: Vault, note: Note, scrub: (s: string) => string): NoteRef {
     type: note.type,
     title: scrub(note.title),
     gist: scrub(note.gist),
-    ...(context ? { context } : {}),
+    ...(context ? { context: scrub(context) } : {}),
   }
 }
 
-function linkRefs(vault: Vault, links: Note['links']): LinkRef[] {
+function linkRefs(vault: Vault, links: Note['links'], scrub: (s: string) => string): LinkRef[] {
   return links.flatMap((l) => {
     const target = vault.notes.get(l.id)
-    return target ? [{ type: l.type, id: l.id, noteType: target.type, title: target.title }] : []
+    return target ? [{ type: l.type, id: l.id, noteType: target.type, title: scrub(target.title) }] : []
   })
 }
+
+function scrubGaps(gaps: Gap[], scrub: (s: string) => string): Gap[] {
+  return gaps.map((g) => ({ ...g, message: scrub(g.message) }))
+}
+
+/** Bounds for one tool result, well under MCP's 60k response cap once JSON-escaped. */
+export const MAX_MAP_CHARS = 30_000
+export const MAX_NOTE_CHARS = 30_000
 
 /**
  * The map as compact text: one line per note (`id · title — gist`), evidence
@@ -56,7 +65,7 @@ export function renderMapText(vault: Vault, opts: QueryOptions = {}): string {
   const line = (note: Note, indent = '') => {
     const tag = note.type === 'evidence' ? `[${note.props.kind}] ` : note.type === 'project' && indent ? '[project] ' : ''
     // An experience gist opens with "Role at Company", which the title already says.
-    const raw = note.type === 'experience' ? note.gist.replace(`${note.props.role} at ${note.props.company} · `, '') : note.gist
+    const raw = note.type === 'experience' ? note.gist.replace(`${note.props.role} at ${note.props.company}`, '').replace(/^ · /, '') : note.gist
     const gist = raw && raw !== note.title ? ` — ${scrub(raw)}` : ''
     return `${indent}- ${note.id} · ${tag}${scrub(note.title)}${gist}`
   }
@@ -67,7 +76,7 @@ export function renderMapText(vault: Vault, opts: QueryOptions = {}): string {
       .filter((l) => l.type === 'has' || l.type === 'contains')
       .map((l) => vault.notes.get(l.id))
       .filter((n): n is Note => Boolean(n))
-      .flatMap((n) => [line(n, '  '), ...(n.type === 'project' ? children(n.id).map((c) => `  ${c}`) : [])])
+      .map((n) => line(n, '  '))
   }
 
   const out: string[] = []
@@ -84,24 +93,24 @@ export function renderMapText(vault: Vault, opts: QueryOptions = {}): string {
     }
     out.push('')
   }
-  return out.join('\n').trim()
+  return capLines(out.join('\n').trim(), MAX_MAP_CHARS, 'use profile_list or profile_search for the rest')
 }
 
 export type MapResult = {
   completeness: number
   counts: Record<NoteType, number>
-  map: string
   gaps: Gap[]
+  map: string
 }
 
 export function getMap(vault: Vault, opts: QueryOptions = {}): MapResult {
   const { counts, gaps, completeness } = profileMap(vault)
-  return { completeness, counts, map: renderMapText(vault, opts), gaps }
+  return { completeness, counts, gaps: scrubGaps(gaps, scrubberFor(vault, opts)), map: renderMapText(vault, opts) }
 }
 
-export function getGaps(vault: Vault): { completeness: number; gaps: Gap[] } {
+export function getGaps(vault: Vault, opts: QueryOptions = {}): { completeness: number; gaps: Gap[] } {
   const { gaps, completeness } = profileMap(vault)
-  return { completeness, gaps }
+  return { completeness, gaps: scrubGaps(gaps, scrubberFor(vault, opts)) }
 }
 
 export type NoteResult = {
@@ -123,9 +132,9 @@ export function getNote(vault: Vault, id: string, opts: QueryOptions = {}): Note
     id: note.id,
     type: note.type,
     title: scrub(note.title),
-    markdown,
-    links: linkRefs(vault, note.links),
-    backlinks: linkRefs(vault, note.backlinks),
+    markdown: capLines(markdown, MAX_NOTE_CHARS),
+    links: linkRefs(vault, note.links, scrub),
+    backlinks: linkRefs(vault, note.backlinks, scrub),
   }
 }
 
@@ -139,9 +148,12 @@ export type ListFilter = {
   evidenceKind?: 'achievement' | 'responsibility'
 }
 
-export function listNotes(vault: Vault, filter: ListFilter, opts: QueryOptions = {}): NoteRef[] {
+export const MAX_LIST = 100
+
+export function listNotes(vault: Vault, filter: ListFilter, opts: QueryOptions & { limit?: number; offset?: number } = {}): { total: number; notes: NoteRef[] } {
   const scrub = scrubberFor(vault, opts)
-  return vault.byType[filter.type]
+  const offset = opts.offset ?? 0
+  const all = vault.byType[filter.type]
     .map((id) => vault.notes.get(id)!)
     .filter((n) => {
       if (n.type === 'capability') {
@@ -151,7 +163,7 @@ export function listNotes(vault: Vault, filter: ListFilter, opts: QueryOptions =
       if (n.type === 'evidence' && filter.evidenceKind && n.props.kind !== filter.evidenceKind) return false
       return true
     })
-    .map((n) => ref(vault, n, scrub))
+  return { total: all.length, notes: all.slice(offset, offset + Math.min(opts.limit ?? MAX_LIST, MAX_LIST)).map((n) => ref(vault, n, scrub)) }
 }
 
 /** What points at a note: the evidence behind a capability, the role behind an achievement. */
@@ -161,7 +173,7 @@ export function getBacklinks(vault: Vault, id: string, opts: QueryOptions = {}):
   const scrub = scrubberFor(vault, opts)
   return {
     note: ref(vault, note, scrub),
-    backlinks: note.backlinks.flatMap((b) => {
+    backlinks: note.backlinks.slice(0, MAX_LIST).flatMap((b) => {
       const from = vault.notes.get(b.id)
       return from ? [{ link: b.type, ...ref(vault, from, scrub) }] : []
     }),

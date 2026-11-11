@@ -1,7 +1,9 @@
 import { prisma } from '@/lib/db'
 import { loadMemorySummaries } from './memory'
 import { notesOf } from '@/modules/profile-map/build'
+import { Prisma } from '@prisma/client'
 import { loadVault } from '@/modules/profile-map/load'
+import type { Vault } from '@/modules/profile-map/types'
 import { profileMap } from '@/modules/profile-map/map'
 import { formatPreferences } from '@/modules/profile-map/render'
 import type { PageContext } from './schema'
@@ -57,8 +59,14 @@ const TOP_LEVELS = ['expert', 'advanced']
  * away (profile_map first), so this stays small however big the profile is.
  */
 async function buildProfileOverview(profileId: string): Promise<string> {
-  const vault = await loadVault(profileId).catch(() => null)
-  if (!vault) return 'Profile not found.'
+  let vault: Vault
+  try {
+    vault = await loadVault(profileId)
+  } catch (err) {
+    // Only a missing profile is expected; anything else is a real failure.
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') return 'Profile not found.'
+    throw err
+  }
 
   const { name, headline, location } = vault.identity.props
   const current = notesOf(vault, 'experience')[0]

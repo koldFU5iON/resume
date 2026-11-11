@@ -45,15 +45,18 @@ export async function assertOwnership(
 }
 
 // The shared profile tools (profile_map, profile_get_note, ...), bound to the
-// session's profile. The vault loads once per request however many are called.
+// session's profile. The vault loads once per chat turn however many tools
+// the model calls (React cache() does not apply in a route handler).
 function profileTools(profileId: string) {
+  let vault: ReturnType<typeof loadVault> | undefined
+  const getVault = () => (vault ??= loadVault(profileId))
   return Object.fromEntries(
     PROFILE_TOOLS.map(t => [
       t.name,
       tool({
         description: t.description,
         inputSchema: zodSchema(t.inputSchema),
-        execute: async (args: unknown) => t.run(await loadVault(profileId), args as never),
+        execute: async (args: unknown) => t.run(await getVault(), args as never),
       }),
     ]),
   )

@@ -310,6 +310,11 @@ export async function acceptDraft(
   const content = hasContactPlaceholder(desk.draftContent)
     ? fillContactPlaceholder(desk.draftContent, await loadContact(profileId))
     : desk.draftContent
+  if (content.length > MAX_WRITING_DESK_CONTENT_LENGTH) {
+    return fail("invalid", {
+      message: `Filling in {{contact}} makes the document ${content.length} characters, over the ${MAX_WRITING_DESK_CONTENT_LENGTH} limit. Shorten the draft and accept again.`,
+    })
+  }
 
   // The draftRevision guard makes the copied content exactly the draft read above.
   const updated = await prisma.writingDeskDocument.updateMany({

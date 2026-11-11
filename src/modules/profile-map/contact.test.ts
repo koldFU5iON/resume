@@ -25,4 +25,12 @@ describe('contact placeholder', () => {
   it('drops a line that would be left empty', () => {
     expect(fillContactPlaceholder('# Robin\n{{contact}}\n## Profile', none)).toBe('# Robin\n## Profile')
   })
+
+  it('removes an inline placeholder with its separator when there is nothing to fill', () => {
+    expect(fillContactPlaceholder('Lyon · {{contact}}', none)).toBe('Lyon')
+  })
+
+  it('keeps $ in contact values literal', () => {
+    expect(fillContactPlaceholder('{{contact}}', { ...none, website: "x.test/?a=$'&b=$&" })).toBe("x.test/?a=$'&b=$&")
+  })
 })

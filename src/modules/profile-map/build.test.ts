@@ -124,3 +124,19 @@ describe('snapshot adapter', () => {
     expect(serializeProfileForLLM(snapshot, { pii: 'include' })).toContain('robin@example.test')
   })
 })
+
+describe('contact scrubber', () => {
+  it('removes contact values without collapsing other whitespace', async () => {
+    const { makeContactScrubber } = await import('./pii')
+    const scrub = makeContactScrubber({ email: 'robin@example.test', phone: null, linkedIn: null, github: null, website: null })
+    expect(scrub('Line one  \n  - nested item\nMail: robin@example.test today')).toBe('Line one  \n  - nested item\nMail: today')
+  })
+})
+
+describe('capLines', () => {
+  it('keeps whole lines and says how many were dropped', async () => {
+    const { capLines } = await import('./format')
+    expect(capLines('aaaa\nbbbb\ncccc', 10, 'narrow it')).toBe('aaaa\nbbbb\n[1 more lines omitted; narrow it]')
+    expect(capLines('short', 10)).toBe('short')
+  })
+})

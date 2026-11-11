@@ -547,6 +547,15 @@ describe("acceptDraft", () => {
     }))
   })
 
+  it("refuses an accept that filling {{contact}} would push over the length limit", async () => {
+    const big = "{{contact}}\n" + "x".repeat(MAX_WRITING_DESK_CONTENT_LENGTH - 12)
+    mockDeskFindFirst.mockResolvedValue(deskRow({ draftContent: big }))
+    mockProfileFindUnique.mockResolvedValue({ email: "jane@example.test", phone: null, linkedIn: null, github: null, website: null } as never)
+
+    await expect(acceptDraft(PROFILE, "desk-1", 2, 4)).resolves.toMatchObject({ ok: false, reason: "invalid" })
+    expect(mockDeskUpdateMany).not.toHaveBeenCalled()
+  })
+
   it("skips the profile lookup when the draft has no placeholder", async () => {
     mockDeskFindFirst.mockResolvedValue(deskRow())
     mockDeskUpdateMany.mockResolvedValue({ count: 1 } as never)

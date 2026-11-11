@@ -5,7 +5,7 @@
 // tool arguments. Contact details are always scrubbed.
 
 import * as z from 'zod'
-import { getBacklinks, getGaps, getMap, getNote, listNotes, searchVault } from './query'
+import { getBacklinks, getGaps, getMap, getNote, listNotes, MAX_LIST, searchVault } from './query'
 import type { NoteType, Vault } from './types'
 
 const NOTE_TYPES = [
@@ -49,15 +49,17 @@ export const PROFILE_TOOLS: ProfileTool[] = [
   define({
     name: 'profile_list',
     description:
-      'List every note of one type, e.g. all certifications, all achievements, or capabilities of kind "tool". ' +
+      `List the notes of one type (up to ${MAX_LIST} per call, with the total), ` +
+      'e.g. all certifications, all achievements, or capabilities of kind "tool". ' +
       'Capability status: proven (backed by evidence), certified, or claimed (listed only).',
     inputSchema: z.object({
       type: z.enum(NOTE_TYPES),
       kind: z.enum(['skill', 'tool', 'competency']).optional().describe('Capabilities only.'),
       status: z.enum(['proven', 'certified', 'claimed']).optional().describe('Capabilities only.'),
       evidenceKind: z.enum(['achievement', 'responsibility']).optional().describe('Evidence only.'),
+      offset: z.number().int().min(0).optional().describe(`Skip this many; results come ${MAX_LIST} at a time.`),
     }),
-    run: (vault, filter) => listNotes(vault, filter),
+    run: (vault, { offset, ...filter }) => listNotes(vault, filter, { offset }),
   }),
   define({
     name: 'profile_backlinks',

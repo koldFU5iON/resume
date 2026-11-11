@@ -8,6 +8,9 @@ import type { Contact } from './types'
 export const CONTACT_PLACEHOLDER = '{{contact}}'
 
 const PLACEHOLDER_RE = /\{\{\s*contact\s*\}\}/gi
+const HAS_PLACEHOLDER_RE = /\{\{\s*contact\s*\}\}/i
+/** A placeholder with the separator before it, removed when there is no contact line. */
+const PLACEHOLDER_WITH_SEPARATOR_RE = /[ \t]*[·|•,–-]?[ \t]*\{\{\s*contact\s*\}\}/gi
 
 /** "robin@example.test | +33 6 … | linkedin.com/in/robin", skipping empty fields. */
 export function contactLine(contact: Contact): string {
@@ -18,12 +21,13 @@ export function contactLine(contact: Contact): string {
 }
 
 export function hasContactPlaceholder(markdown: string): boolean {
-  return new RegExp(PLACEHOLDER_RE.source, 'i').test(markdown)
+  return HAS_PLACEHOLDER_RE.test(markdown)
 }
 
 /**
- * Replaces every placeholder with the contact line. A line left empty (the
- * profile has no contact details) is dropped rather than kept blank.
+ * Replaces every placeholder with the contact line. With no contact details,
+ * the placeholder goes along with the separator before it, and a line left
+ * empty is dropped rather than kept blank.
  */
 export function fillContactPlaceholder(markdown: string, contact: Contact): string {
   const line = contactLine(contact)
@@ -31,7 +35,8 @@ export function fillContactPlaceholder(markdown: string, contact: Contact): stri
     .split('\n')
     .flatMap((row) => {
       if (!hasContactPlaceholder(row)) return [row]
-      const filled = row.replace(PLACEHOLDER_RE, line)
+      // A function replacement: `$` in a contact value must stay literal.
+      const filled = line ? row.replace(PLACEHOLDER_RE, () => line) : row.replace(PLACEHOLDER_WITH_SEPARATOR_RE, '').trimEnd()
       return filled.trim() ? [filled] : []
     })
     .join('\n')

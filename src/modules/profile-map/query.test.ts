@@ -51,13 +51,35 @@ describe('getNote', () => {
 
 describe('listNotes', () => {
   it('filters capabilities by kind and status', () => {
-    expect(listNotes(vault, { type: 'capability', kind: 'tool' }).map((n) => n.title)).toEqual(['Confluence'])
-    expect(listNotes(vault, { type: 'capability', status: 'proven' }).map((n) => n.id)).toEqual(['s1', 's2'])
+    expect(listNotes(vault, { type: 'capability', kind: 'tool' }).notes.map((n) => n.title)).toEqual(['Confluence'])
+    expect(listNotes(vault, { type: 'capability', status: 'proven' }).notes.map((n) => n.id)).toEqual(['s1', 's2'])
   })
 
   it('filters evidence by kind and gives each its context', () => {
-    const achievements = listNotes(vault, { type: 'evidence', evidenceKind: 'achievement' })
+    const achievements = listNotes(vault, { type: 'evidence', evidenceKind: 'achievement' }).notes
     expect(achievements).toEqual([expect.objectContaining({ id: 'a1', context: 'Program Manager at Fictional Freight, Mar 2021 – present' })])
+  })
+
+  it('pages results, reporting the total', () => {
+    const page = listNotes(vault, { type: 'capability' }, { offset: 1, limit: 2 })
+    expect(page.total).toBe(5)
+    expect(page.notes.map((n) => n.id)).toEqual(['s2', 's3'])
+  })
+})
+
+describe('contact details in titles', () => {
+  // Names that hold a contact value (here the LinkedIn URL) must not leak
+  // through link titles, evidence context, rendered notes or gaps.
+  const leaky = buildVault(vaultSource({
+    projects: [{ ...vaultSource().projects[0], name: 'linkedin.com/in/robin' }],
+    experiences: [{ ...vaultSource().experiences[0], company: 'linkedin.com/in/robin' }],
+  }))
+  const site = /linkedin\.com\/in\/robin/
+
+  it('scrubs link titles, context and gap messages', () => {
+    expect(JSON.stringify(getNote(leaky, 'e1'))).not.toMatch(site)
+    expect(JSON.stringify(listNotes(leaky, { type: 'evidence' }))).not.toMatch(site)
+    expect(JSON.stringify(getMap(leaky))).not.toMatch(site)
   })
 })
 

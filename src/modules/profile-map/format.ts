@@ -26,3 +26,16 @@ export function oneLine(text: string, max = 140): string {
 export function normalizeName(name: string): string {
   return name.trim().toLowerCase().replace(/\s+/g, ' ')
 }
+
+/**
+ * Keeps whole lines up to `max` characters and says how many were dropped, so
+ * a tool result stays bounded without cutting mid-line (or mid-JSON later).
+ */
+export function capLines(text: string, max: number, hint = ''): string {
+  if (text.length <= max) return text
+  const lines = text.split('\n')
+  let used = 0
+  let kept = 0
+  while (kept < lines.length && used + lines[kept].length + 1 <= max) used += lines[kept++].length + 1
+  return `${lines.slice(0, kept).join('\n')}\n[${lines.length - kept} more lines omitted${hint ? `; ${hint}` : ''}]`
+}
