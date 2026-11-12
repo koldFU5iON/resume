@@ -1,21 +1,20 @@
 import { Skeleton } from "@/components/ui/skeleton"
 
+// Job Description placeholder; the workspace header and navigation stay
+// in place from the layout while it loads.
 export default function Loading() {
   return (
-    <div className="p-8">
-      <div className="max-w-4xl mx-auto space-y-6">
-        <div className="space-y-2">
-          <Skeleton className="h-4 w-32" />
-          <Skeleton className="h-10 w-2/3" />
-          <Skeleton className="h-6 w-1/3" />
-        </div>
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-24 rounded-xl" />
-          ))}
-        </div>
-        <Skeleton className="h-48 rounded-xl" />
-        <Skeleton className="h-32 rounded-xl" />
+    <div className="mx-auto w-full max-w-5xl space-y-6 px-4 py-6 md:px-8 md:py-8">
+      <Skeleton className="h-8 w-56" />
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <Skeleton key={i} className="h-10 rounded-md" />
+        ))}
+      </div>
+      <div className="max-w-[72ch] space-y-3">
+        {Array.from({ length: 8 }).map((_, i) => (
+          <Skeleton key={i} className="h-4" style={{ width: `${90 - (i % 3) * 12}%` }} />
+        ))}
       </div>
     </div>
   )

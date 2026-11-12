@@ -23,6 +23,10 @@ import { Loader2 } from "lucide-react"
 type StatusDropdownProps = {
   jobId: string
   status: ApplicationStatusType
+  /** Called after the status is saved (e.g. to refresh a view the mutation doesn't revalidate). */
+  onChanged?: () => void
+  className?: string
+  triggerId?: string
 }
 
 function statusDotColor(status: ApplicationStatusType): string {
@@ -37,13 +41,14 @@ function statusDotColor(status: ApplicationStatusType): string {
   }
 }
 
-export function StatusDropdown({ jobId, status }: StatusDropdownProps) {
+export function StatusDropdown({ jobId, status, onChanged, className, triggerId }: StatusDropdownProps) {
   const [isPending, startTransition] = useTransition()
 
   const handleSelect = (next: ApplicationStatusType) => {
     if (next === status) return
     startTransition(async () => {
       await updateJobStatus(jobId, next)
+      onChanged?.()
     })
   }
 
@@ -62,8 +67,10 @@ export function StatusDropdown({ jobId, status }: StatusDropdownProps) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
+        id={triggerId}
         disabled={isPending}
-        className={cn(buttonVariants({ variant: "outline", size: "sm" }), "gap-1.5")}
+        aria-label={`Application status: ${APPLICATION_STATUS_LABEL[status]}`}
+        className={cn(buttonVariants({ variant: "outline", size: "sm" }), "gap-1.5", className)}
       >
         {isPending
           ? <Loader2 className="size-3 animate-spin" />
