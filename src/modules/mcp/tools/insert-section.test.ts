@@ -23,12 +23,12 @@ describe('insert_section tool', () => {
   it('passes an insert op with profileId and the token actor', async () => {
     vi.mocked(editDraftSection).mockResolvedValue({
       ok: true,
-      value: { jobId: 'j1', draftRevision: 2, sections: [], issues: [], warnings: [] },
+      value: { jobId: 'j1', deskId: 'd1', documentName: 'CV', draftRevision: 2, sections: [], issues: [], warnings: [] },
     } as never)
     await insertSectionTool.handler(ctx, { jobId: 'j1', afterSectionId: 'a', content: '## New' })
     expect(editDraftSection).toHaveBeenCalledWith(
       'p1',
-      'j1',
+      { jobId: 'j1' },
       { type: 'insert', afterSectionId: 'a', position: undefined, content: '## New' },
       { tokenId: 't1' },
     )

@@ -30,6 +30,8 @@ describe('create_draft tool', () => {
       ok: true,
       value: {
         jobId: 'j1',
+        deskId: 'd1',
+        documentName: 'CV',
         draftRevision: 1,
         sections: [{ id: 'a', hash: 'h', text: '# A' }],
         warnings: [{ kind: 'employer', message: 'Unknown employer', excerpt: 'Acme' }],
@@ -37,7 +39,7 @@ describe('create_draft tool', () => {
       },
     } as never)
     const result = (await createDraftTool.handler(ctx, { jobId: 'j1', content: '# A' })) as Record<string, unknown>
-    expect(createDraft).toHaveBeenCalledWith('p1', 'j1', '# A', { tokenId: 't1' })
+    expect(createDraft).toHaveBeenCalledWith('p1', { jobId: 'j1' }, '# A', { tokenId: 't1' })
     expect(result.ok).toBe(true)
     expect(result.warnings).toHaveLength(1)
   })
@@ -83,5 +85,34 @@ describe('create_draft input validation', () => {
     expect(err.message).toMatch(/no specific error was reported/)
     expect(err.message).toMatch(/arguments/)
     expect(err.message).not.toMatch(/Fix the listed errors/)
+  })
+})
+
+describe('create_draft document targeting (#370)', () => {
+  it('passes an explicit documentId through to the draft service', async () => {
+    vi.mocked(createDraft).mockResolvedValue({
+      ok: true,
+      value: { jobId: 'j1', deskId: 'd2', documentName: 'CV short', draftRevision: 1, sections: [], warnings: [], issues: [] },
+    } as never)
+    const result = (await createDraftTool.handler(ctx, { jobId: 'j1', documentId: 'd2', content: '# A' })) as Record<string, unknown>
+    expect(createDraft).toHaveBeenCalledWith('p1', { jobId: 'j1', documentId: 'd2' }, '# A', { tokenId: 't1' })
+    expect(result).toMatchObject({ ok: true, documentId: 'd2', documentName: 'CV short' })
+  })
+
+  it('refuses with the job\'s document list when the job has several and no documentId was given', async () => {
+    vi.mocked(createDraft).mockResolvedValue({
+      ok: false,
+      reason: 'document_required',
+      message: 'This job has several Writing Desk documents. Nothing was chosen or written. Pass documentId to choose one:\n- d1: "CV" (CV)\n- d2: "Notes" (Other)',
+    } as never)
+    const err = (await createDraftTool.handler(ctx, { jobId: 'j1', content: 'c' }).catch((e: unknown) => e)) as Error
+    expect(err.message).toMatch(/Pass documentId/)
+    expect(err.message).toContain('d2: "Notes"')
+  })
+
+  it('accepts documentId as optional and bounds it', () => {
+    expect(createDraftTool.inputSchema.safeParse({ jobId: 'j', content: 'c' }).success).toBe(true)
+    expect(createDraftTool.inputSchema.safeParse({ jobId: 'j', documentId: '', content: 'c' }).success).toBe(false)
+    expect(createDraftTool.inputSchema.safeParse({ jobId: 'j', documentId: 'x'.repeat(101), content: 'c' }).success).toBe(false)
   })
 })

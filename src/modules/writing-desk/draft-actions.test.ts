@@ -21,7 +21,7 @@ const mockSaveDraftContent = vi.mocked(saveDraftContent)
 const mockAcceptDraft = vi.mocked(acceptDraft)
 const mockDiscardDraft = vi.mocked(discardDraft)
 
-const WRITING_PAGE = "/dashboard/job-applications/view/[id]/writing"
+const WRITING_PAGE = "/dashboard/job-applications/view/[id]/writing/[documentId]"
 
 beforeEach(() => {
   vi.clearAllMocks()

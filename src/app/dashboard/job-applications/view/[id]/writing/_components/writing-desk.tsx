@@ -13,6 +13,7 @@ import {
   setWritingDeskSource,
   updateWritingDeskContent,
 } from "@/modules/writing-desk/actions"
+import { writingDeskPdfHref } from "@/modules/jobs/workspace-nav"
 import { writingDeskMarkdownToText } from "@/modules/writing-desk/markdown"
 import type { WritingDeskDocumentType } from "@/modules/writing-desk/schema"
 import type { WritingDeskSourceOption, WritingDeskWithJob } from "@/modules/writing-desk/queries"
@@ -230,7 +231,7 @@ export function WritingDesk({
       toast.error("Save the document before exporting")
       return
     }
-    window.open(`/api/writing-desk/${desk.jobApplication.id}/pdf`, "_blank")
+    window.open(writingDeskPdfHref(desk.jobApplication.id, desk.id), "_blank")
   }
 
   function retrySave() {
@@ -287,7 +288,7 @@ export function WritingDesk({
     <div className="flex h-full flex-col">
       <div className="flex flex-wrap items-center gap-3 border-b px-4 py-2">
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold">{desk.jobApplication.title}{desk.jobApplication.company ? ` · ${desk.jobApplication.company}` : ""}</p>
+          <p className="truncate text-sm font-semibold" title={desk.name}>{desk.name}</p>
           <p className="text-xs text-muted-foreground">{documentTypeLabel(documentType)}{sourceLabel ? ` · ${sourceLabel}` : ""}</p>
         </div>
         <select
@@ -334,7 +335,7 @@ export function WritingDesk({
             <FileCheck2 className="mt-0.5 size-4 shrink-0 text-amber-700 dark:text-amber-400" />
             <div className="min-w-0">
               <p className="text-sm font-medium text-amber-700 dark:text-amber-400">Draft ready for review</p>
-              <p className="text-xs text-amber-700/80 dark:text-amber-400/80">An agent prepared a draft for this job. Your live document stays unchanged until you accept it.</p>
+              <p className="text-xs text-amber-700/80 dark:text-amber-400/80">An agent prepared a draft for this document. Your live document stays unchanged until you accept it.</p>
             </div>
           </div>
           <Button variant="outline" size="sm" className="h-7 text-xs" onClick={toggleReview}>

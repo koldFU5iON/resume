@@ -3,7 +3,13 @@ import type { ApplicationStatusType } from "@/app/types/job-application"
 import { buildProfileSnapshot } from "@/modules/profile/snapshot"
 import { listDraftEvents } from "./draft"
 import { checkFacts, type FactWarning } from "./fact-check"
-import type { WritingDeskDocumentType } from "./schema"
+import { getWritingDeskSourceLabel } from "./documents"
+import {
+  WRITING_DESK_DOCUMENT_ORDER,
+  parseWritingDeskDocumentType,
+  type WritingDeskDocumentSummary,
+  type WritingDeskDocumentType,
+} from "./schema"
 import { validateDraftMarkdown, type DraftIssue } from "./validate"
 
 /** How many agent draft events the review screen lists. */
@@ -17,6 +23,7 @@ export type WritingDeskSourceOption = {
 
 export type WritingDeskWithJob = {
   id: string
+  name: string
   content: string
   revision: number
   documentType: WritingDeskDocumentType | null
@@ -40,22 +47,8 @@ export type WritingDeskWithJob = {
   } | null
 }
 
-function sourceLabel(cv: {
-  jobApplicationId: string | null
-  careerVerticalId: string | null
-  jobTitle: string | null
-  company: string | null
-  updatedAt: Date
-}): string {
-  if (cv.jobApplicationId === null && cv.careerVerticalId !== null) return "Master CV"
-  if (cv.jobTitle && cv.company) return `CV - ${cv.jobTitle} at ${cv.company}`
-  if (cv.jobTitle) return `CV - ${cv.jobTitle}`
-  return `CV - ${cv.updatedAt.toLocaleDateString("en-GB")}`
-}
-
-export function getWritingDeskSourceLabel(cv: Parameters<typeof sourceLabel>[0]): string {
-  return sourceLabel(cv)
-}
+/** Re-exported for existing callers; defined beside the source loader. */
+export { getWritingDeskSourceLabel }
 
 /**
  * Events are logged per desk, so earlier (accepted or discarded) drafts share
@@ -68,14 +61,20 @@ function currentDraftEvents(events: Array<{ tool: string; createdAt: Date }>) {
   return current.map(event => ({ tool: event.tool, createdAt: event.createdAt }))
 }
 
-export async function getWritingDesk(
+/**
+ * One document, addressed by id. It must belong to the profile AND to the
+ * given job, so a document id can't be read through another job's URL.
+ */
+export async function getWritingDeskDocument(
   profileId: string,
   jobApplicationId: string,
+  documentId: string,
 ): Promise<WritingDeskWithJob | null> {
   const desk = await prisma.writingDeskDocument.findFirst({
-    where: { profileId, jobApplicationId },
+    where: { id: documentId, profileId, jobApplicationId },
     select: {
       id: true,
+      name: true,
       content: true,
       revision: true,
       documentType: true,
@@ -112,9 +111,26 @@ export async function getWritingDesk(
 
   return {
     ...live,
-    documentType: live.documentType as WritingDeskDocumentType | null,
+    documentType: parseWritingDeskDocumentType(live.documentType),
     draft,
   }
+}
+
+/** The job's documents, primary (oldest) first. Empty when the job has none or isn't the profile's. */
+export async function listWritingDeskDocuments(
+  profileId: string,
+  jobApplicationId: string,
+): Promise<WritingDeskDocumentSummary[]> {
+  const docs = await prisma.writingDeskDocument.findMany({
+    where: { profileId, jobApplicationId },
+    orderBy: WRITING_DESK_DOCUMENT_ORDER,
+    select: { id: true, name: true, documentType: true, draftContent: true, createdAt: true, updatedAt: true },
+  })
+  return docs.map(({ draftContent, documentType, ...doc }) => ({
+    ...doc,
+    documentType: parseWritingDeskDocumentType(documentType),
+    hasDraft: draftContent !== null,
+  }))
 }
 
 export async function listWritingDeskSourceCVs(profileId: string): Promise<WritingDeskSourceOption[]> {
@@ -133,7 +149,7 @@ export async function listWritingDeskSourceCVs(profileId: string): Promise<Writi
 
   return cvs.map(cv => ({
     id: cv.id,
-    label: sourceLabel(cv),
+    label: getWritingDeskSourceLabel(cv),
     sourceType: cv.jobApplicationId === null && cv.careerVerticalId !== null
       ? "master-cv"
       : "previous-cv",
@@ -145,7 +161,10 @@ export type WritingDeskJobOption = {
   title: string
   company: string | null
   status: ApplicationStatusType
+  /** The primary document's type. */
   documentType: WritingDeskDocumentType | null
+  documentCount: number
+  /** When any of the job's documents last changed. */
   deskUpdatedAt: Date | null
 }
 
@@ -160,8 +179,9 @@ export async function listWritingDeskJobs(profileId: string): Promise<WritingDes
       company: true,
       status: true,
       lastUpdated: true,
-      writingDesk: {
+      writingDesks: {
         select: { documentType: true, updatedAt: true },
+        orderBy: WRITING_DESK_DOCUMENT_ORDER,
       },
     },
   })
@@ -171,7 +191,11 @@ export async function listWritingDeskJobs(profileId: string): Promise<WritingDes
     title: job.title,
     company: job.company,
     status: job.status as ApplicationStatusType,
-    documentType: (job.writingDesk?.documentType as WritingDeskDocumentType | null) ?? null,
-    deskUpdatedAt: job.writingDesk?.updatedAt ?? null,
+    documentType: parseWritingDeskDocumentType(job.writingDesks[0]?.documentType ?? null),
+    documentCount: job.writingDesks.length,
+    deskUpdatedAt: job.writingDesks.reduce<Date | null>(
+      (latest, doc) => (latest === null || doc.updatedAt > latest ? doc.updatedAt : latest),
+      null,
+    ),
   }))
 }

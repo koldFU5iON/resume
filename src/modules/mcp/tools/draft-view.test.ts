@@ -10,6 +10,7 @@ function state(over: Partial<DraftState>): DraftState {
   return {
     deskId: 'd',
     jobId: 'j',
+    documentName: 'CV',
     content: '',
     draftRevision: 1,
     liveRevision: 1,

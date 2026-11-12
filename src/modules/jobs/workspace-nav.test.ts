@@ -4,8 +4,11 @@ import {
   isJobDeepDivePath,
   jobDocumentCreateLinks,
   jobDocumentLinks,
+  jobWritingDeskHref,
   nextCompactState,
   withCurrentDocument,
+  writingDeskDocumentHref,
+  writingDeskPdfHref,
   type JobDocumentAssets,
 } from "./workspace-nav"
 
@@ -14,19 +17,51 @@ const none: JobDocumentAssets = {
   cvDocumentId: null,
   coverLetterDocumentId: null,
   interviewPrepSessionId: null,
-  writingDeskType: null,
+  writingDesks: [],
 }
 const all: JobDocumentAssets = {
   ...none,
   cvDocumentId: "cv1",
   coverLetterDocumentId: "cl1",
   interviewPrepSessionId: "prep1",
-  writingDeskType: "cv",
+  writingDesks: [{ id: "desk1", name: "CV", documentType: "cv" }],
+}
+const several: JobDocumentAssets = {
+  ...none,
+  writingDesks: [
+    { id: "deskA", name: "CV for recruiters", documentType: "cv" },
+    { id: "deskB", name: "CV", documentType: "cv" },
+    { id: "deskN", name: "Interview notes", documentType: "other" },
+    { id: "deskU", name: "Untitled document", documentType: null },
+  ],
 }
 
 describe("jobDocumentLinks", () => {
-  it("always starts with the Job Description and the Writing Desk", () => {
+  it("always starts with the Job Description and a Writing Desk entry", () => {
     expect(jobDocumentLinks(none).map((l) => l.kind)).toEqual(["description", "writing-desk"])
+  })
+
+  it("points a job with no document at the job-scoped URL, which creates its first", () => {
+    const desk = jobDocumentLinks(none)[1]
+    expect(desk).toMatchObject({ key: "writing-desk", label: "Writing Desk", href: jobWritingDeskHref("job1") })
+    expect(desk.href).toBe("/dashboard/job-applications/view/job1/writing")
+  })
+
+  it("gives each named document its own tab, in the given (oldest-first) order, at its stable URL", () => {
+    const desks = jobDocumentLinks(several).filter((l) => l.kind === "writing-desk")
+    expect(desks.map((l) => l.label)).toEqual(["CV for recruiters", "CV", "Interview notes", "Untitled document"])
+    expect(desks.map((l) => l.href)).toEqual([
+      "/dashboard/job-applications/view/job1/writing/deskA",
+      "/dashboard/job-applications/view/job1/writing/deskB",
+      "/dashboard/job-applications/view/job1/writing/deskN",
+      "/dashboard/job-applications/view/job1/writing/deskU",
+    ])
+    expect(new Set(jobDocumentLinks(several).map((l) => l.key)).size).toBe(5)
+  })
+
+  it("adds the type as detail only when the name doesn't already say it", () => {
+    const desks = jobDocumentLinks(several).filter((l) => l.kind === "writing-desk")
+    expect(desks.map((l) => l.detail)).toEqual(["CV", undefined, "Other", undefined])
   })
 
   it("keeps the agreed order and the existing editor routes", () => {
@@ -34,12 +69,13 @@ describe("jobDocumentLinks", () => {
     expect(links.map((l) => l.kind)).toEqual(["description", "writing-desk", "cv", "cover-letter", "interview-prep"])
     expect(links.map((l) => l.href)).toEqual([
       "/dashboard/job-applications/view/job1",
-      "/dashboard/job-applications/view/job1/writing",
+      "/dashboard/job-applications/view/job1/writing/desk1",
       "/dashboard/cv-builder/cv1",
       "/dashboard/cover-letters/cl1",
       "/dashboard/interview-prep/prep1",
     ])
-    expect(links[1].detail).toBe("CV")
+    expect(links[1].label).toBe("CV")
+    expect(links[1].detail).toBeUndefined()
   })
 })
 
@@ -64,13 +100,24 @@ describe("activeJobDocument", () => {
   })
 
   it("matches documents and their sub-routes", () => {
-    expect(activeJobDocument("/dashboard/job-applications/view/job1/writing", links)).toBe("writing-desk")
+    expect(activeJobDocument("/dashboard/job-applications/view/job1/writing/desk1", links)).toBe("writing-desk:desk1")
     expect(activeJobDocument("/dashboard/cover-letters/cl1/guide", links)).toBe("cover-letter")
     expect(activeJobDocument("/dashboard/cv-builder/cv1", links)).toBe("cv")
   })
 
   it("does not match a different document with a shared id prefix", () => {
     expect(activeJobDocument("/dashboard/cv-builder/cv10", links)).toBeNull()
+    expect(activeJobDocument("/dashboard/job-applications/view/job1/writing/desk10", links)).toBeNull()
+  })
+
+  it("marks exactly the open document when the job has several", () => {
+    const many = jobDocumentLinks(several)
+    expect(activeJobDocument("/dashboard/job-applications/view/job1/writing/deskB", many)).toBe("writing-desk:deskB")
+    expect(activeJobDocument("/dashboard/job-applications/view/job1/writing/deskN/", many)).toBe("writing-desk:deskN")
+  })
+
+  it("marks the Writing Desk entry on the job-scoped URL of a job with no document", () => {
+    expect(activeJobDocument("/dashboard/job-applications/view/job1/writing", jobDocumentLinks(none))).toBe("writing-desk")
   })
 })
 
@@ -114,5 +161,12 @@ describe("withCurrentDocument", () => {
   })
   it("is a no-op without a current document", () => {
     expect(withCurrentDocument(all)).toBe(all)
+  })
+})
+
+describe("Writing Desk document URLs", () => {
+  it("address documents by id, under their job", () => {
+    expect(writingDeskDocumentHref("job1", "deskA")).toBe("/dashboard/job-applications/view/job1/writing/deskA")
+    expect(writingDeskPdfHref("job1", "deskA")).toBe("/api/writing-desk/job1/documents/deskA/pdf")
   })
 })

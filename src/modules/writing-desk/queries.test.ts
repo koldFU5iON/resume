@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("@/lib/db", () => ({
   prisma: {
-    writingDeskDocument: { findFirst: vi.fn() },
+    writingDeskDocument: { findFirst: vi.fn(), findMany: vi.fn() },
     cVDocument: { findMany: vi.fn() },
     jobApplication: { findMany: vi.fn() },
   },
@@ -17,9 +17,10 @@ import { buildProfileSnapshot } from "@/modules/profile/snapshot"
 import { listDraftEvents } from "./draft"
 import { checkFacts } from "./fact-check"
 import { validateDraftMarkdown } from "./validate"
-import { getWritingDesk, listWritingDeskJobs, listWritingDeskSourceCVs } from "./queries"
+import { getWritingDeskDocument, listWritingDeskDocuments, listWritingDeskJobs, listWritingDeskSourceCVs } from "./queries"
 
 const mockDeskFindFirst = vi.mocked(prisma.writingDeskDocument.findFirst)
+const mockDeskFindMany = vi.mocked(prisma.writingDeskDocument.findMany)
 const mockCVFindMany = vi.mocked(prisma.cVDocument.findMany)
 const mockJobFindMany = vi.mocked(prisma.jobApplication.findMany)
 const mockBuildProfileSnapshot = vi.mocked(buildProfileSnapshot)
@@ -29,6 +30,7 @@ const mockValidateDraftMarkdown = vi.mocked(validateDraftMarkdown)
 
 const DESK_ROW = {
   id: "desk-1",
+  name: "CV",
   content: "# Live",
   revision: 3,
   documentType: "cv",
@@ -42,26 +44,27 @@ const DESK_ROW = {
   jobApplication: { id: "job-1", title: "Engineer", company: "Acme", jobDescription: null },
 }
 
-describe("getWritingDesk", () => {
+describe("getWritingDeskDocument", () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it("looks up a desk by both profile and job application", async () => {
+  it("looks up a document by its id, the profile and the job together", async () => {
     mockDeskFindFirst.mockResolvedValue(null)
 
-    await expect(getWritingDesk("profile-1", "job-1")).resolves.toBeNull()
+    await expect(getWritingDeskDocument("profile-1", "job-1", "desk-1")).resolves.toBeNull()
 
     expect(mockDeskFindFirst).toHaveBeenCalledWith(expect.objectContaining({
-      where: { profileId: "profile-1", jobApplicationId: "job-1" },
+      where: { id: "desk-1", profileId: "profile-1", jobApplicationId: "job-1" },
     }))
   })
 
   it("returns a null draft and skips fact-checking when the desk has no draft", async () => {
     mockDeskFindFirst.mockResolvedValue(DESK_ROW as never)
 
-    const desk = await getWritingDesk("profile-1", "job-1")
+    const desk = await getWritingDeskDocument("profile-1", "job-1", "desk-1")
 
     expect(desk).toEqual({
       id: "desk-1",
+      name: "CV",
       content: "# Live",
       revision: 3,
       documentType: "cv",
@@ -92,7 +95,7 @@ describe("getWritingDesk", () => {
     mockValidateDraftMarkdown.mockReturnValue({ ok: true, issues } as never)
     mockListDraftEvents.mockResolvedValue([{ tool: "replace_section", createdAt: eventAt, apiTokenId: "token-1" }])
 
-    const desk = await getWritingDesk("profile-1", "job-1")
+    const desk = await getWritingDeskDocument("profile-1", "job-1", "desk-1")
 
     expect(desk?.draft).toEqual({
       content: "# Draft",
@@ -121,7 +124,7 @@ describe("getWritingDesk", () => {
       { tool: "create_draft", createdAt: at(5), apiTokenId: "token-1" },
     ])
 
-    const desk = await getWritingDesk("profile-1", "job-1")
+    const desk = await getWritingDeskDocument("profile-1", "job-1", "desk-1")
 
     expect(desk?.draft?.events).toEqual([
       { tool: "remove_section", createdAt: at(30) },
@@ -176,7 +179,7 @@ describe("listWritingDeskSourceCVs", () => {
 describe("listWritingDeskJobs", () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it("lists non-archived jobs, treating a typed desk as started even before content is written", async () => {
+  it("lists non-archived jobs with their primary document's type, document count and latest change", async () => {
     mockJobFindMany.mockResolvedValue([
       {
         id: "job-1",
@@ -184,11 +187,10 @@ describe("listWritingDeskJobs", () => {
         company: "Acme",
         status: "in-progress",
         lastUpdated: new Date("2026-03-04T00:00:00Z"),
-        writingDesk: {
-          documentType: "cv",
-          content: "# Jane Doe",
-          updatedAt: new Date("2026-03-05T00:00:00Z"),
-        },
+        writingDesks: [
+          { documentType: "cv", updatedAt: new Date("2026-03-04T00:00:00Z") },
+          { documentType: "other", updatedAt: new Date("2026-03-05T00:00:00Z") },
+        ],
       },
       {
         id: "job-2",
@@ -196,7 +198,7 @@ describe("listWritingDeskJobs", () => {
         company: null,
         status: "applied",
         lastUpdated: new Date("2026-03-03T00:00:00Z"),
-        writingDesk: { documentType: "cover-letter", content: "", updatedAt: new Date("2026-03-03T00:00:00Z") },
+        writingDesks: [{ documentType: "cover-letter", updatedAt: new Date("2026-03-03T00:00:00Z") }],
       },
       {
         id: "job-3",
@@ -204,7 +206,7 @@ describe("listWritingDeskJobs", () => {
         company: "Globex",
         status: "not started",
         lastUpdated: new Date("2026-03-02T00:00:00Z"),
-        writingDesk: null,
+        writingDesks: [],
       },
     ] as never)
 
@@ -215,6 +217,7 @@ describe("listWritingDeskJobs", () => {
         company: "Acme",
         status: "in-progress",
         documentType: "cv",
+        documentCount: 2,
         deskUpdatedAt: new Date("2026-03-05T00:00:00Z"),
       },
       {
@@ -223,6 +226,7 @@ describe("listWritingDeskJobs", () => {
         company: null,
         status: "applied",
         documentType: "cover-letter",
+        documentCount: 1,
         deskUpdatedAt: new Date("2026-03-03T00:00:00Z"),
       },
       {
@@ -231,6 +235,7 @@ describe("listWritingDeskJobs", () => {
         company: "Globex",
         status: "not started",
         documentType: null,
+        documentCount: 0,
         deskUpdatedAt: null,
       },
     ])
@@ -238,6 +243,27 @@ describe("listWritingDeskJobs", () => {
     expect(mockJobFindMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { profileId: "profile-1", archivedAt: null },
       orderBy: { lastUpdated: "desc" },
+    }))
+  })
+})
+
+describe("listWritingDeskDocuments", () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it("lists one job's documents oldest first, scoped to the profile, flagging pending drafts", async () => {
+    const at = new Date("2026-03-01T00:00:00Z")
+    mockDeskFindMany.mockResolvedValue([
+      { id: "a", name: "CV", documentType: "cv", draftContent: "# Draft", createdAt: at, updatedAt: at },
+      { id: "b", name: "Notes", documentType: "nonsense", draftContent: null, createdAt: at, updatedAt: at },
+    ] as never)
+
+    await expect(listWritingDeskDocuments("profile-1", "job-1")).resolves.toEqual([
+      { id: "a", name: "CV", documentType: "cv", hasDraft: true, createdAt: at, updatedAt: at },
+      { id: "b", name: "Notes", documentType: null, hasDraft: false, createdAt: at, updatedAt: at },
+    ])
+    expect(mockDeskFindMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { profileId: "profile-1", jobApplicationId: "job-1" },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     }))
   })
 })

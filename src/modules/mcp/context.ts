@@ -1,3 +1,4 @@
+import { MAX_WRITING_DESK_DOCUMENTS_PER_JOB } from '@/modules/writing-desk/schema'
 import { prisma } from '@/lib/db'
 import { parseCVContent, type CVDocumentContent } from '@/modules/cv/schema'
 import { toMarkdown } from '@/modules/cv/export'
@@ -5,6 +6,8 @@ import { buildProfileSnapshot, serializeProfileForLLM, type ProfileSnapshot } fr
 import { CONTACT_PLACEHOLDER } from '@/modules/profile-map/contact'
 import { makeContactScrubber } from '@/modules/profile-map/pii'
 import { BLOCK_LIST } from '@/modules/writing-desk/markdown'
+import { listWritingDeskDocuments } from '@/modules/writing-desk/queries'
+import type { WritingDeskDocumentType } from '@/modules/writing-desk/schema'
 import { buildStructureGuide, type StructureGuide } from '@/modules/writing-desk/structure-guide'
 import { buildWritingContract } from './contract'
 import { McpToolError } from './errors'
@@ -22,10 +25,14 @@ const MAX_TITLE_CHARS = 300
 const MAX_TITLE_ESCAPED = 600
 const MAX_COMPANY_CHARS = 300
 const MAX_COMPANY_ESCAPED = 600
+const MAX_LISTED_DOCUMENTS = MAX_WRITING_DESK_DOCUMENTS_PER_JOB
+const MAX_DOCUMENT_NAME_CHARS = 80
+const MAX_DOCUMENT_NAME_ESCAPED = 160
 // Worst-case budget (escaped chars): 600 + 600 + 26,000 + 12,000 + 12,000 = 51,200
-// for capped fields, plus about 3.4k fixed overhead (contract, blocks, guide,
-// keys), about 54.6k in total, under MAX_TOOL_RESPONSE_CHARS (60,000). The
-// worst-case test in context.test.ts enforces this.
+// for capped fields, plus up to 10 documents at about 290 each (2.9k), plus
+// about 3.6k fixed overhead (contract, blocks, guide, keys), about 57.7k in
+// total, under MAX_TOOL_RESPONSE_CHARS (60,000). The worst-case test in
+// context.test.ts enforces this.
 
 const UNTRUSTED_FIELDS = ['job.title', 'job.company', 'job.jobDescription']
 
@@ -71,11 +78,26 @@ export type JobContext = {
   }
   untrustedFields: string[]
   untrustedNotice: string
+  /**
+   * The job's Writing Desk documents, primary (oldest) first. Draft tools need
+   * one of these ids as documentId when there are several.
+   */
+  documents: Array<{ id: string; name: string; documentType: WritingDeskDocumentType | null; hasDraft: boolean }>
+  documentsNote?: string
   profile: string
   masterCv: string | null
   structureGuide: StructureGuide
   blocks: Array<{ id: string; label: string; description: string; example: string }>
   contract: string
+}
+
+function documentsNote(count: number): { documentsNote?: string } {
+  if (count === 0) return { documentsNote: 'This job has no Writing Desk document yet; create_draft creates one named "CV".' }
+  if (count > MAX_LISTED_DOCUMENTS) {
+    return { documentsNote: `Showing the first ${MAX_LISTED_DOCUMENTS} of ${count} documents. Draft tools need documentId.` }
+  }
+  if (count > 1) return { documentsNote: 'This job has several documents: pass documentId to every draft tool.' }
+  return {}
 }
 
 export async function getJobContext(profileId: string, jobId: string): Promise<JobContext> {
@@ -85,9 +107,10 @@ export async function getJobContext(profileId: string, jobId: string): Promise<J
   })
   if (!job) throw new McpToolError('Job not found')
 
-  const [snapshot, master] = await Promise.all([
+  const [snapshot, master, documents] = await Promise.all([
     buildProfileSnapshot(profileId),
     loadMasterContent(profileId),
+    listWritingDeskDocuments(profileId, job.id),
   ])
   const structureGuide = buildStructureGuide(master)
   const description = job.jobDescription?.trim() ?? ''
@@ -103,6 +126,13 @@ export async function getJobContext(profileId: string, jobId: string): Promise<J
     },
     untrustedFields: UNTRUSTED_FIELDS,
     untrustedNotice: UNTRUSTED_NOTICE,
+    documents: documents.slice(0, MAX_LISTED_DOCUMENTS).map(doc => ({
+      id: doc.id,
+      name: capField(doc.name, MAX_DOCUMENT_NAME_ESCAPED, MAX_DOCUMENT_NAME_CHARS),
+      documentType: doc.documentType,
+      hasDraft: doc.hasDraft,
+    })),
+    ...documentsNote(documents.length),
     // No contact details: drafts write {{contact}} in the header and the app
     // fills it when the owner accepts (writing-desk/draft.ts).
     profile: capField(serializeProfileForLLM(snapshot), MAX_PROFILE_ESCAPED),

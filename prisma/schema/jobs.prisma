@@ -39,7 +39,7 @@ model JobApplication {
   events              ApplicationEvent[]
   cvDocuments         CVDocument[]
   coverLetters        CoverLetterDocument[]
-  writingDesk         WritingDeskDocument?
+  writingDesks        WritingDeskDocument[]
   interviewPrepSessions InterviewPrepSession[]
   assessments           JobAssessment[]
   deepDives             JobDeepDive[]

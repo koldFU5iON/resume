@@ -3,9 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 vi.mock("@/lib/db", () => ({
   prisma: {
     writingDeskDocument: {
-      upsert: vi.fn(),
+      create: vi.fn(),
       updateMany: vi.fn(),
       findFirst: vi.fn(),
+      findMany: vi.fn(),
     },
     writingDeskDraftEvent: {
       create: vi.fn(),
@@ -14,6 +15,7 @@ vi.mock("@/lib/db", () => ({
     jobApplication: { findFirst: vi.fn() },
     profile: { findUnique: vi.fn() },
     $transaction: vi.fn(),
+    $executeRaw: vi.fn(),
   },
 }))
 vi.mock("@/modules/profile/snapshot", () => ({ buildProfileSnapshot: vi.fn() }))
@@ -30,10 +32,13 @@ import {
   getDraft,
   listDraftEvents,
   saveDraftContent,
+  isImplicitDraftTarget,
 } from "./draft"
 
 const mockJobFindFirst = vi.mocked(prisma.jobApplication.findFirst)
-const mockDeskUpsert = vi.mocked(prisma.writingDeskDocument.upsert)
+const mockDeskCreate = vi.mocked(prisma.writingDeskDocument.create)
+const mockDeskFindMany = vi.mocked(prisma.writingDeskDocument.findMany)
+const mockExecuteRaw = vi.mocked(prisma.$executeRaw)
 const mockDeskUpdateMany = vi.mocked(prisma.writingDeskDocument.updateMany)
 const mockDeskFindFirst = vi.mocked(prisma.writingDeskDocument.findFirst)
 const mockEventCreate = vi.mocked(prisma.writingDeskDraftEvent.create)
@@ -76,6 +81,7 @@ function section(id: string, markdown = DRAFT) {
 function deskRow(overrides: Record<string, unknown> = {}) {
   return {
     id: "desk-1",
+    name: "CV",
     jobApplicationId: "job-1",
     documentType: "cv",
     draftContent: DRAFT,
@@ -97,6 +103,13 @@ beforeEach(() => {
   mockSnapshot.mockResolvedValue(EMPTY_SNAPSHOT)
   mockJobFindFirst.mockResolvedValue({ id: "job-1" } as never)
   mockEventCreate.mockResolvedValue({} as never)
+  // Unless a test says otherwise, a job-scoped lookup (no documentId) sees
+  // whatever findFirst returns as the job's only document, so the same row
+  // serves the first resolution and any retry re-read by id.
+  mockDeskFindMany.mockImplementation((async (args: unknown) => {
+    const row = await (mockDeskFindFirst as unknown as (a: unknown) => Promise<unknown>)(args)
+    return row ? [row] : []
+  }) as never)
 })
 
 function expectJobLookup(jobId = "job-1") {
@@ -110,29 +123,39 @@ describe("createDraft", () => {
   it("returns job_not_found for another profile's job and writes nothing", async () => {
     mockJobFindFirst.mockResolvedValue(null)
 
-    const result = await createDraft(PROFILE, "job-other", DRAFT, { tokenId: TOKEN })
+    const result = await createDraft(PROFILE, { jobId: "job-other" }, DRAFT, { tokenId: TOKEN })
 
     expect(result).toMatchObject({ ok: false, reason: "job_not_found" })
     expectJobLookup("job-other")
-    expect(mockDeskUpsert).not.toHaveBeenCalled()
+    expect(mockDeskFindMany).not.toHaveBeenCalled()
     expect(mockDeskUpdateMany).not.toHaveBeenCalled()
     expect(mockEventCreate).not.toHaveBeenCalled()
   })
 
-  it("returns wrong_document_type for a desk typed cover-letter", async () => {
-    mockDeskUpsert.mockResolvedValue(deskRow({ documentType: "cover-letter", draftContent: null }))
+  it("won't implicitly pick a job's only document when it isn't a CV", async () => {
+    mockDeskFindMany.mockResolvedValue([deskRow({ name: "Interview notes", documentType: null, draftContent: null })])
 
-    const result = await createDraft(PROFILE, "job-1", DRAFT, { tokenId: TOKEN })
+    const result = await createDraft(PROFILE, { jobId: "job-1" }, DRAFT, { tokenId: TOKEN })
 
-    expect(result).toMatchObject({ ok: false, reason: "wrong_document_type" })
+    expect(result).toMatchObject({ ok: false, reason: "document_required" })
+    expect(mockDeskUpdateMany).not.toHaveBeenCalled()
+    expect(mockEventCreate).not.toHaveBeenCalled()
+  })
+
+  it("returns document_required for a job's only desk typed cover-letter", async () => {
+    mockDeskFindMany.mockResolvedValue([deskRow({ documentType: "cover-letter", draftContent: null })])
+
+    const result = await createDraft(PROFILE, { jobId: "job-1" }, DRAFT, { tokenId: TOKEN })
+
+    expect(result).toMatchObject({ ok: false, reason: "document_required" })
     expect(mockDeskUpdateMany).not.toHaveBeenCalled()
     expect(mockEventCreate).not.toHaveBeenCalled()
   })
 
   it("returns draft_exists when the desk already has a draft", async () => {
-    mockDeskUpsert.mockResolvedValue(deskRow({ draftContent: "Existing draft" }))
+    mockDeskFindMany.mockResolvedValue([deskRow({ draftContent: "Existing draft" })])
 
-    const result = await createDraft(PROFILE, "job-1", DRAFT, { tokenId: TOKEN })
+    const result = await createDraft(PROFILE, { jobId: "job-1" }, DRAFT, { tokenId: TOKEN })
 
     expect(result).toMatchObject({ ok: false, reason: "draft_exists" })
     expect(mockDeskUpdateMany).not.toHaveBeenCalled()
@@ -140,7 +163,7 @@ describe("createDraft", () => {
   })
 
   it("returns invalid with the issues for an unknown block and writes nothing", async () => {
-    const result = await createDraft(PROFILE, "job-1", "# Jane\n\n:::fancy-grid\n- a\n:::\n", { tokenId: TOKEN })
+    const result = await createDraft(PROFILE, { jobId: "job-1" }, "# Jane\n\n:::fancy-grid\n- a\n:::\n", { tokenId: TOKEN })
 
     expect(result.ok).toBe(false)
     if (result.ok) return
@@ -148,31 +171,31 @@ describe("createDraft", () => {
     expect(result.issues).toEqual(
       expect.arrayContaining([expect.objectContaining({ severity: "error", message: expect.stringContaining("fancy-grid") })]),
     )
-    expect(mockDeskUpsert).not.toHaveBeenCalled()
+    expect(mockDeskFindMany).not.toHaveBeenCalled()
     expect(mockDeskUpdateMany).not.toHaveBeenCalled()
     expect(mockEventCreate).not.toHaveBeenCalled()
   })
 
   it("rejects an unclosed ::: fence as invalid", async () => {
-    const result = await createDraft(PROFILE, "job-1", "# Jane\n\n:::skills\n- a\n", { tokenId: TOKEN })
+    const result = await createDraft(PROFILE, { jobId: "job-1" }, "# Jane\n\n:::skills\n- a\n", { tokenId: TOKEN })
 
     expect(result).toMatchObject({ ok: false, reason: "invalid" })
-    expect(mockDeskUpsert).not.toHaveBeenCalled()
+    expect(mockDeskFindMany).not.toHaveBeenCalled()
   })
 
   it("on success sets documentType cv when null, guards the write and logs an event with the token id", async () => {
-    mockDeskUpsert.mockResolvedValue(deskRow({ documentType: null, draftContent: null, draftRevision: 2, revision: 3 }))
+    mockDeskFindMany.mockResolvedValue([deskRow({ documentType: null, draftContent: null, draftRevision: 2, revision: 3 })])
     mockDeskUpdateMany.mockResolvedValue({ count: 1 } as never)
 
-    const result = await createDraft(PROFILE, "job-1", DRAFT, { tokenId: TOKEN })
+    const result = await createDraft(PROFILE, { jobId: "job-1" }, DRAFT, { tokenId: TOKEN })
 
     expectJobLookup()
-    expect(mockDeskUpsert).toHaveBeenCalledWith({
-      where: { jobApplicationId: "job-1" },
-      update: {},
-      create: { profileId: PROFILE, jobApplicationId: "job-1" },
-      select: { id: true, documentType: true, draftContent: true, draftRevision: true, revision: true },
-    })
+    expect(mockExecuteRaw).toHaveBeenCalledTimes(1)
+    expect(mockDeskFindMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { profileId: PROFILE, jobApplicationId: "job-1" },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    }))
+    expect(mockDeskCreate).not.toHaveBeenCalled()
     expect(mockDeskUpdateMany).toHaveBeenCalledWith({
       where: {
         id: "desk-1",
@@ -196,6 +219,7 @@ describe("createDraft", () => {
       ok: true,
       value: {
         deskId: "desk-1",
+        documentName: "CV",
         jobId: "job-1",
         content: DRAFT,
         draftRevision: 3,
@@ -211,10 +235,10 @@ describe("createDraft", () => {
   })
 
   it("logs a null token id when no actor is given", async () => {
-    mockDeskUpsert.mockResolvedValue(deskRow({ draftContent: null }))
+    mockDeskFindMany.mockResolvedValue([deskRow({ draftContent: null })])
     mockDeskUpdateMany.mockResolvedValue({ count: 1 } as never)
 
-    await createDraft(PROFILE, "job-1", DRAFT)
+    await createDraft(PROFILE, { jobId: "job-1" }, DRAFT)
 
     expect(mockEventCreate).toHaveBeenCalledWith({
       data: { writingDeskId: "desk-1", apiTokenId: null, tool: "create_draft" },
@@ -222,11 +246,11 @@ describe("createDraft", () => {
   })
 
   it("returns draft_exists without logging when a draft appears between read and write", async () => {
-    mockDeskUpsert.mockResolvedValue(deskRow({ draftContent: null }))
+    mockDeskFindMany.mockResolvedValue([deskRow({ draftContent: null })])
     mockDeskUpdateMany.mockResolvedValue({ count: 0 } as never)
     mockDeskFindFirst.mockResolvedValue(deskRow({ draftContent: "Owner draft" }))
 
-    const result = await createDraft(PROFILE, "job-1", DRAFT, { tokenId: TOKEN })
+    const result = await createDraft(PROFILE, { jobId: "job-1" }, DRAFT, { tokenId: TOKEN })
 
     expect(result).toMatchObject({ ok: false, reason: "draft_exists" })
     expect(mockDeskFindFirst).toHaveBeenCalledWith(
@@ -240,7 +264,7 @@ describe("getDraft", () => {
   it("returns job_not_found for another profile's job", async () => {
     mockJobFindFirst.mockResolvedValue(null)
 
-    await expect(getDraft(PROFILE, "job-other")).resolves.toMatchObject({ ok: false, reason: "job_not_found" })
+    await expect(getDraft(PROFILE, { jobId: "job-other" })).resolves.toMatchObject({ ok: false, reason: "job_not_found" })
     expectJobLookup("job-other")
     expect(mockDeskFindFirst).not.toHaveBeenCalled()
   })
@@ -248,14 +272,14 @@ describe("getDraft", () => {
   it("returns no_draft when there is no desk or no draft", async () => {
     mockDeskFindFirst.mockResolvedValueOnce(null).mockResolvedValueOnce(deskRow({ draftContent: null }))
 
-    await expect(getDraft(PROFILE, "job-1")).resolves.toMatchObject({ ok: false, reason: "no_draft" })
-    await expect(getDraft(PROFILE, "job-1")).resolves.toMatchObject({ ok: false, reason: "no_draft" })
+    await expect(getDraft(PROFILE, { jobId: "job-1" })).resolves.toMatchObject({ ok: false, reason: "no_draft" })
+    await expect(getDraft(PROFILE, { jobId: "job-1" })).resolves.toMatchObject({ ok: false, reason: "no_draft" })
   })
 
   it("returns the draft state filtered by profile", async () => {
     mockDeskFindFirst.mockResolvedValue(deskRow())
 
-    const result = await getDraft(PROFILE, "job-1")
+    const result = await getDraft(PROFILE, { jobId: "job-1" })
 
     expect(mockDeskFindFirst).toHaveBeenCalledWith(
       expect.objectContaining({ where: { jobApplicationId: "job-1", profileId: PROFILE } }),
@@ -264,6 +288,7 @@ describe("getDraft", () => {
       ok: true,
       value: {
         deskId: "desk-1",
+        documentName: "CV",
         jobId: "job-1",
         content: DRAFT,
         draftRevision: 4,
@@ -288,7 +313,7 @@ describe("editDraftSection", () => {
   it("returns job_not_found for another profile's job", async () => {
     mockJobFindFirst.mockResolvedValue(null)
 
-    await expect(editDraftSection(PROFILE, "job-other", replaceProfile)).resolves.toMatchObject({
+    await expect(editDraftSection(PROFILE, { jobId: "job-other" }, replaceProfile)).resolves.toMatchObject({
       ok: false,
       reason: "job_not_found",
     })
@@ -299,7 +324,7 @@ describe("editDraftSection", () => {
   it("returns no_draft when the desk has no draft", async () => {
     mockDeskFindFirst.mockResolvedValue(deskRow({ draftContent: null }))
 
-    await expect(editDraftSection(PROFILE, "job-1", replaceProfile)).resolves.toMatchObject({
+    await expect(editDraftSection(PROFILE, { jobId: "job-1" }, replaceProfile)).resolves.toMatchObject({
       ok: false,
       reason: "no_draft",
     })
@@ -312,7 +337,7 @@ describe("editDraftSection", () => {
   it("returns hash_mismatch with the current section for a stale hash", async () => {
     mockDeskFindFirst.mockResolvedValue(deskRow())
 
-    const result = await editDraftSection(PROFILE, "job-1", { ...replaceProfile, expectedHash: "stalehash000" })
+    const result = await editDraftSection(PROFILE, { jobId: "job-1" }, { ...replaceProfile, expectedHash: "stalehash000" })
 
     expect(result).toMatchObject({ ok: false, reason: "hash_mismatch", current: profile })
     expect(mockDeskUpdateMany).not.toHaveBeenCalled()
@@ -322,7 +347,7 @@ describe("editDraftSection", () => {
   it("returns section_not_found with the section list for an unknown section", async () => {
     mockDeskFindFirst.mockResolvedValue(deskRow())
 
-    const result = await editDraftSection(PROFILE, "job-1", { ...replaceProfile, sectionId: "experience" })
+    const result = await editDraftSection(PROFILE, { jobId: "job-1" }, { ...replaceProfile, sectionId: "experience" })
 
     expect(result).toMatchObject({ ok: false, reason: "section_not_found", sections: splitSections(DRAFT) })
     expect(mockDeskUpdateMany).not.toHaveBeenCalled()
@@ -332,7 +357,7 @@ describe("editDraftSection", () => {
     const withPreamble = "Intro line.\n\n## Profile\n\nText.\n"
     mockDeskFindFirst.mockResolvedValue(deskRow({ draftContent: withPreamble }))
 
-    const result = await editDraftSection(PROFILE, "job-1", {
+    const result = await editDraftSection(PROFILE, { jobId: "job-1" }, {
       type: "insert",
       position: "start",
       content: "## Summary\n\nNew.",
@@ -348,7 +373,7 @@ describe("editDraftSection", () => {
   it("rejects an edit whose result has an unknown block, with the issues", async () => {
     mockDeskFindFirst.mockResolvedValue(deskRow())
 
-    const result = await editDraftSection(PROFILE, "job-1", {
+    const result = await editDraftSection(PROFILE, { jobId: "job-1" }, {
       ...replaceProfile,
       content: "## Profile\n\n:::fancy-grid\n- a\n:::",
     })
@@ -367,7 +392,7 @@ describe("editDraftSection", () => {
     const expected = applySectionOp(DRAFT, replaceProfile)
     if (!expected.ok) throw new Error("fixture op failed")
 
-    const result = await editDraftSection(PROFILE, "job-1", replaceProfile, { tokenId: TOKEN })
+    const result = await editDraftSection(PROFILE, { jobId: "job-1" }, replaceProfile, { tokenId: TOKEN })
 
     expect(mockDeskUpdateMany).toHaveBeenCalledTimes(1)
     expect(mockDeskUpdateMany).toHaveBeenCalledWith({
@@ -405,7 +430,7 @@ describe("editDraftSection", () => {
     mockDeskFindFirst.mockResolvedValue(deskRow())
     mockDeskUpdateMany.mockResolvedValue({ count: 1 } as never)
 
-    const result = await editDraftSection(PROFILE, "job-1", op, { tokenId: TOKEN })
+    const result = await editDraftSection(PROFILE, { jobId: "job-1" }, op, { tokenId: TOKEN })
 
     expect(result.ok).toBe(true)
     expect(mockEventCreate).toHaveBeenCalledWith({
@@ -426,7 +451,7 @@ describe("editDraftSection", () => {
       .mockResolvedValueOnce({ count: 0 } as never)
       .mockResolvedValueOnce({ count: 1 } as never)
 
-    const result = await editDraftSection(PROFILE, "job-1", replaceProfile, { tokenId: TOKEN })
+    const result = await editDraftSection(PROFILE, { jobId: "job-1" }, replaceProfile, { tokenId: TOKEN })
 
     expect(result).toMatchObject({ ok: true, value: { draftRevision: 7 } })
     expect(mockDeskFindFirst).toHaveBeenCalledTimes(3)
@@ -443,7 +468,7 @@ describe("editDraftSection", () => {
     mockDeskFindFirst.mockResolvedValue(deskRow())
     mockDeskUpdateMany.mockResolvedValue({ count: 0 } as never)
 
-    const result = await editDraftSection(PROFILE, "job-1", replaceProfile, { tokenId: TOKEN })
+    const result = await editDraftSection(PROFILE, { jobId: "job-1" }, replaceProfile, { tokenId: TOKEN })
 
     expect(result).toMatchObject({ ok: false, reason: "conflict" })
     expect(mockDeskUpdateMany).toHaveBeenCalledTimes(3)
@@ -636,5 +661,127 @@ describe("listDraftEvents", () => {
     await listDraftEvents(PROFILE, "desk-1", 5)
 
     expect(mockEventFindMany).toHaveBeenCalledWith(expect.objectContaining({ take: 5 }))
+  })
+})
+
+describe("agent document resolution (#370)", () => {
+  const replaceProfile = {
+    type: "replace" as const,
+    sectionId: "profile",
+    expectedHash: section("profile").hash,
+    content: "## Profile\n\nNew profile text.",
+  }
+  const cvA = () => deskRow({ id: "desk-a", name: "CV for recruiters", draftContent: null })
+  const cvB = () => deskRow({ id: "desk-b", name: "CV short", draftContent: DRAFT })
+  const note = () => deskRow({ id: "desk-n", name: "Notes", documentType: "other", draftContent: null })
+
+  it("refuses every agent call without documentId when the job has several documents, and writes nothing", async () => {
+    mockDeskFindMany.mockResolvedValue([cvA(), cvB(), note()])
+
+    for (const result of [
+      await createDraft(PROFILE, { jobId: "job-1" }, DRAFT, { tokenId: TOKEN }),
+      await getDraft(PROFILE, { jobId: "job-1" }),
+      await editDraftSection(PROFILE, { jobId: "job-1" }, replaceProfile, { tokenId: TOKEN }),
+    ]) {
+      expect(result).toMatchObject({ ok: false, reason: "document_required" })
+      if (result.ok) continue
+      expect(result.message).toContain('desk-a: "CV for recruiters" (CV)')
+      expect(result.message).toContain('desk-b: "CV short" (CV, has a draft)')
+      expect(result.message).toContain('desk-n: "Notes" (Other)')
+    }
+    expect(mockDeskCreate).not.toHaveBeenCalled()
+    expect(mockDeskUpdateMany).not.toHaveBeenCalled()
+    expect(mockEventCreate).not.toHaveBeenCalled()
+  })
+
+  it("writes to exactly the document given by documentId, scoped to the profile and the job", async () => {
+    mockDeskFindFirst.mockResolvedValue(cvA())
+    mockDeskUpdateMany.mockResolvedValue({ count: 1 } as never)
+
+    const result = await createDraft(PROFILE, { jobId: "job-1", documentId: "desk-a" }, DRAFT, { tokenId: TOKEN })
+
+    expect(result).toMatchObject({ ok: true, value: { deskId: "desk-a", documentName: "CV for recruiters" } })
+    expect(mockDeskFindFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: "desk-a", profileId: PROFILE, jobApplicationId: "job-1" },
+    }))
+    expect(mockDeskFindMany).not.toHaveBeenCalled()
+    expect(mockDeskUpdateMany.mock.calls[0][0].where).toMatchObject({ id: "desk-a", profileId: PROFILE })
+    expect(mockEventCreate).toHaveBeenCalledWith({
+      data: { writingDeskId: "desk-a", apiTokenId: TOKEN, tool: "create_draft" },
+    })
+  })
+
+  it("edits only the chosen document, even when the job has several", async () => {
+    mockDeskFindFirst.mockResolvedValue(cvB())
+    mockDeskUpdateMany.mockResolvedValue({ count: 1 } as never)
+
+    const result = await editDraftSection(PROFILE, { jobId: "job-1", documentId: "desk-b" }, replaceProfile, { tokenId: TOKEN })
+
+    expect(result).toMatchObject({ ok: true, value: { deskId: "desk-b" } })
+    expect(mockDeskUpdateMany.mock.calls[0][0].where).toMatchObject({ id: "desk-b", profileId: PROFILE })
+  })
+
+  it("re-reads the same document by id on a lost race, never re-resolving to another", async () => {
+    mockDeskFindMany.mockResolvedValue([cvB()])
+    mockDeskFindFirst.mockResolvedValue(cvB())
+    mockDeskUpdateMany.mockResolvedValueOnce({ count: 0 } as never).mockResolvedValueOnce({ count: 1 } as never)
+
+    const result = await editDraftSection(PROFILE, { jobId: "job-1" }, replaceProfile, { tokenId: TOKEN })
+
+    expect(result).toMatchObject({ ok: true, value: { deskId: "desk-b" } })
+    expect(mockDeskFindMany).toHaveBeenCalledTimes(1)
+    expect(mockDeskFindFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "desk-b", profileId: PROFILE } }))
+  })
+
+  it("returns document_not_found for another job's or another profile's document id", async () => {
+    mockDeskFindFirst.mockResolvedValue(null)
+
+    for (const result of [
+      await createDraft(PROFILE, { jobId: "job-1", documentId: "foreign" }, DRAFT, { tokenId: TOKEN }),
+      await getDraft(PROFILE, { jobId: "job-1", documentId: "foreign" }),
+      await editDraftSection(PROFILE, { jobId: "job-1", documentId: "foreign" }, replaceProfile),
+    ]) {
+      expect(result).toMatchObject({ ok: false, reason: "document_not_found" })
+    }
+    expect(mockDeskFindFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: "foreign", profileId: PROFILE, jobApplicationId: "job-1" },
+    }))
+    expect(mockDeskCreate).not.toHaveBeenCalled()
+    expect(mockDeskUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it("creates the job's first document, named CV, under the job's lock when it has none", async () => {
+    mockDeskFindMany.mockResolvedValue([])
+    mockDeskCreate.mockResolvedValue(deskRow({ id: "desk-new", documentType: null, draftContent: null, draftRevision: 0, revision: 1 }))
+    mockDeskUpdateMany.mockResolvedValue({ count: 1 } as never)
+
+    const result = await createDraft(PROFILE, { jobId: "job-1" }, DRAFT, { tokenId: TOKEN })
+
+    expect(result).toMatchObject({ ok: true, value: { deskId: "desk-new" } })
+    expect(mockExecuteRaw).toHaveBeenCalledTimes(1)
+    expect(mockExecuteRaw.mock.invocationCallOrder[0]).toBeLessThan(mockDeskFindMany.mock.invocationCallOrder[0])
+    expect(mockDeskCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: { profileId: PROFILE, jobApplicationId: "job-1", name: "CV" },
+    }))
+  })
+
+  it("never creates a document for a read", async () => {
+    mockDeskFindMany.mockResolvedValue([])
+
+    await expect(getDraft(PROFILE, { jobId: "job-1" })).resolves.toMatchObject({ ok: false, reason: "no_draft" })
+    expect(mockDeskCreate).not.toHaveBeenCalled()
+    expect(mockExecuteRaw).not.toHaveBeenCalled()
+  })
+})
+
+describe("isImplicitDraftTarget", () => {
+  it("accepts a CV, or an untyped document on a default name", () => {
+    expect(isImplicitDraftTarget({ name: "CV for recruiters", documentType: "cv" })).toBe(true)
+    expect(isImplicitDraftTarget({ name: "CV", documentType: null })).toBe(true)
+    expect(isImplicitDraftTarget({ name: "Untitled document", documentType: null })).toBe(true)
+  })
+  it("refuses a document the user named or typed for something else", () => {
+    expect(isImplicitDraftTarget({ name: "Interview notes", documentType: null })).toBe(false)
+    expect(isImplicitDraftTarget({ name: "Cover letter", documentType: "cover-letter" })).toBe(false)
   })
 })

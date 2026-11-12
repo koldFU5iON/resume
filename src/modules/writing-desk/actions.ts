@@ -3,20 +3,22 @@
 import { revalidatePath } from "next/cache"
 import { prisma } from "@/lib/db"
 import { requireProfile } from "@/lib/session"
-import { parseCVContent } from "@/modules/cv/schema"
-import { toMarkdown } from "@/modules/cv/export"
+import { createWritingDeskDocument, loadSourceCv } from "./documents"
 import {
   WritingDeskContentSchema,
   WritingDeskDocumentTypeSchema,
+  type CreateWritingDeskDocumentResult,
   type WritingDeskDocumentType,
   type WritingDeskSaveResult,
 } from "./schema"
-import { getWritingDeskSourceLabel } from "./queries"
+
+/** The job workspace layout: its document tabs show each document's name and type. */
+const JOB_WORKSPACE_LAYOUT = "/dashboard/job-applications/view/[id]"
 
 async function getOwnedDesk(id: string, profileId: string) {
   const desk = await prisma.writingDeskDocument.findFirst({
     where: { id, profileId },
-    select: { id: true, jobApplicationId: true, revision: true, content: true },
+    select: { id: true, revision: true, content: true },
   })
   if (!desk) throw new Error("Writing desk not found")
   return desk
@@ -27,21 +29,16 @@ async function conflictResult(id: string, profileId: string): Promise<WritingDes
   return { ok: false, reason: "conflict", revision: desk.revision, content: desk.content }
 }
 
-export async function getOrCreateWritingDesk(jobApplicationId: string): Promise<{ id: string }> {
+/**
+ * Adds a named document to one of the signed-in user's jobs (blank, or from
+ * one of their CVs). Never replaces an existing document. The creation UI is
+ * Phase 3 (#371).
+ */
+export async function createWritingDeskDocumentAction(input: unknown): Promise<CreateWritingDeskDocumentResult> {
   const { profile } = await requireProfile()
-  const job = await prisma.jobApplication.findFirst({
-    where: { id: jobApplicationId, profileId: profile.id },
-    select: { id: true },
-  })
-  if (!job) throw new Error("Job not found")
-
-  const desk = await prisma.writingDeskDocument.upsert({
-    where: { jobApplicationId: job.id },
-    update: {},
-    create: { profileId: profile.id, jobApplicationId: job.id },
-    select: { id: true },
-  })
-  return desk
+  const result = await createWritingDeskDocument(profile.id, input)
+  if (result.ok) revalidatePath(JOB_WORKSPACE_LAYOUT, "layout")
+  return result
 }
 
 export async function setWritingDeskDocumentType(
@@ -56,8 +53,7 @@ export async function setWritingDeskDocumentType(
     data: { documentType: parsedType, revision: { increment: 1 } },
   })
   if (updated.count === 0) return conflictResult(id, profile.id)
-  const desk = await getOwnedDesk(id, profile.id)
-  revalidatePath(`/dashboard/job-applications/view/${desk.jobApplicationId}/writing`)
+  revalidatePath(JOB_WORKSPACE_LAYOUT, "layout")
   return { ok: true, revision: expectedRevision + 1 }
 }
 
@@ -98,26 +94,9 @@ export async function setWritingDeskSource(
       revision: { increment: 1 },
     }
   } else {
-    const cv = await prisma.cVDocument.findFirst({
-      where: { id: cvId, profileId: profile.id },
-      select: {
-        id: true,
-        generatedContent: true,
-        jobApplicationId: true,
-        careerVerticalId: true,
-        jobTitle: true,
-        company: true,
-        updatedAt: true,
-      },
-    })
-    if (!cv) throw new Error("Source CV not found")
-    data = {
-      content: toMarkdown(parseCVContent(cv.generatedContent)),
-      sourceType: cv.jobApplicationId === null && cv.careerVerticalId !== null ? "master-cv" : "previous-cv",
-      sourceCvDocumentId: cv.id,
-      sourceLabel: getWritingDeskSourceLabel(cv),
-      revision: { increment: 1 },
-    }
+    const source = await loadSourceCv(profile.id, cvId)
+    if (!source) throw new Error("Source CV not found")
+    data = { ...source, revision: { increment: 1 } }
   }
 
   const updated = await prisma.writingDeskDocument.updateMany({

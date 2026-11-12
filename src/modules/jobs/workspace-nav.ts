@@ -4,15 +4,18 @@
  * React, no server imports, so the client nav and unit tests share it.
  *
  * Order (design #365): Job Description first, then the job's documents —
- * the Writing Desk, then the legacy CV, Cover Letter and Interview Prep
- * editors. Deep Dive is opened from the header, not a document tab.
+ * its named Writing Desk documents (oldest first, #370), then the legacy CV,
+ * Cover Letter and Interview Prep editors. Deep Dive is opened from the
+ * header, not a document tab.
  */
 
-import type { WritingDeskDocumentType } from "@/modules/writing-desk/schema"
+import { WRITING_DESK_DOCUMENT_TYPE_LABEL, type WritingDeskDocumentType } from "@/modules/writing-desk/schema"
 
 export type JobDocumentKind = "description" | "writing-desk" | "cv" | "cover-letter" | "interview-prep"
 
 export type JobDocumentLink = {
+  /** Unique within the job's links: the kind, or `writing-desk:<documentId>` for a named document. */
+  key: string
   kind: JobDocumentKind
   label: string
   /** Extra context for the tab's title/accessible name, e.g. the desk's document type. */
@@ -32,16 +35,11 @@ export type JobDocumentAssets = {
   cvDocumentId: string | null
   coverLetterDocumentId: string | null
   interviewPrepSessionId: string | null
-  /** The job's Writing Desk document type, `null` when it has none or no type yet. */
-  writingDeskType: WritingDeskDocumentType | null
+  /** The job's Writing Desk documents, primary (oldest) first. */
+  writingDesks: JobWritingDeskTab[]
 }
 
-const DESK_TYPE_LABEL: Record<WritingDeskDocumentType, string> = {
-  cv: "CV",
-  "cover-letter": "Cover letter",
-  "interview-prep": "Interview prep",
-  other: "Other",
-}
+export type JobWritingDeskTab = { id: string; name: string; documentType: WritingDeskDocumentType | null }
 
 /** A legacy document the current page shows; its tab points at it rather than the job's newest one. */
 export type CurrentJobDocument = { kind: "cv" | "cover-letter" | "interview-prep"; id: string }
@@ -64,26 +62,57 @@ export function jobDeepDiveHref(jobId: string): string {
   return `${jobHubHref(jobId)}/deep-dive`
 }
 
-/** The job's destinations, in navigation order. Legacy assets appear only when they exist. */
+/**
+ * The job-scoped Writing Desk URL. Kept for old links: it opens the job's
+ * primary (oldest) document, creating a blank one when there is none.
+ */
+export function jobWritingDeskHref(jobId: string): string {
+  return `${jobHubHref(jobId)}/writing`
+}
+
+/** One Writing Desk document's stable URL. */
+export function writingDeskDocumentHref(jobId: string, documentId: string): string {
+  return `${jobWritingDeskHref(jobId)}/${documentId}`
+}
+
+/** One Writing Desk document's PDF export. */
+export function writingDeskPdfHref(jobId: string, documentId: string): string {
+  return `/api/writing-desk/${encodeURIComponent(jobId)}/documents/${encodeURIComponent(documentId)}/pdf`
+}
+
+function deskTab(jobId: string, desk: JobWritingDeskTab): JobDocumentLink {
+  const type = desk.documentType ? WRITING_DESK_DOCUMENT_TYPE_LABEL[desk.documentType] : undefined
+  return {
+    key: `writing-desk:${desk.id}`,
+    kind: "writing-desk",
+    label: desk.name,
+    detail: type && type !== desk.name ? type : undefined,
+    href: writingDeskDocumentHref(jobId, desk.id),
+  }
+}
+
+/**
+ * The job's destinations, in navigation order. Each Writing Desk document is
+ * its own tab, named for the document; a job with none shows one "Writing
+ * Desk" tab on the job-scoped URL, which creates its first. Legacy assets
+ * appear only when they exist.
+ */
 export function jobDocumentLinks(assets: JobDocumentAssets): JobDocumentLink[] {
   const hub = jobHubHref(assets.jobId)
-  const links: JobDocumentLink[] = [
-    { kind: "description", label: "Job Description", href: hub },
-    {
-      kind: "writing-desk",
-      label: "Writing Desk",
-      detail: assets.writingDeskType ? DESK_TYPE_LABEL[assets.writingDeskType] : undefined,
-      href: `${hub}/writing`,
-    },
-  ]
+  const links: JobDocumentLink[] = [{ key: "description", kind: "description", label: "Job Description", href: hub }]
+  if (assets.writingDesks.length === 0) {
+    links.push({ key: "writing-desk", kind: "writing-desk", label: "Writing Desk", href: jobWritingDeskHref(assets.jobId) })
+  } else {
+    links.push(...assets.writingDesks.map(desk => deskTab(assets.jobId, desk)))
+  }
   if (assets.cvDocumentId) {
-    links.push({ kind: "cv", label: "CV", href: `/dashboard/cv-builder/${assets.cvDocumentId}` })
+    links.push({ key: "cv", kind: "cv", label: "CV", href: `/dashboard/cv-builder/${assets.cvDocumentId}` })
   }
   if (assets.coverLetterDocumentId) {
-    links.push({ kind: "cover-letter", label: "Cover Letter", href: `/dashboard/cover-letters/${assets.coverLetterDocumentId}` })
+    links.push({ key: "cover-letter", kind: "cover-letter", label: "Cover Letter", href: `/dashboard/cover-letters/${assets.coverLetterDocumentId}` })
   }
   if (assets.interviewPrepSessionId) {
-    links.push({ kind: "interview-prep", label: "Interview Prep", href: `/dashboard/interview-prep/${assets.interviewPrepSessionId}` })
+    links.push({ key: "interview-prep", kind: "interview-prep", label: "Interview Prep", href: `/dashboard/interview-prep/${assets.interviewPrepSessionId}` })
   }
   return links
 }
@@ -107,14 +136,14 @@ function isAt(pathname: string, href: string): boolean {
 }
 
 /**
- * The document a pathname shows, or null (e.g. the Deep Dive, which the
- * header marks instead). Job Description matches the hub path exactly so its
- * sub-routes don't light it up.
+ * The key of the link a pathname shows, or null (e.g. the Deep Dive, which
+ * the header marks instead). Job Description matches the hub path exactly so
+ * its sub-routes don't light it up.
  */
-export function activeJobDocument(pathname: string, links: readonly JobDocumentLink[]): JobDocumentKind | null {
+export function activeJobDocument(pathname: string, links: readonly JobDocumentLink[]): string | null {
   const path = pathname.replace(/\/+$/, "")
   for (const link of links) {
-    if (link.kind === "description" ? path === link.href : isAt(path, link.href)) return link.kind
+    if (link.kind === "description" ? path === link.href : isAt(path, link.href)) return link.key
   }
   return null
 }

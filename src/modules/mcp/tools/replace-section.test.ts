@@ -10,7 +10,7 @@ import { replaceSectionTool } from './replace-section'
 const ctx = { profileId: 'p1', tokenId: 't1' }
 const okState = {
   ok: true,
-  value: { jobId: 'j1', draftRevision: 2, sections: [], issues: [], warnings: [{ kind: 'dates', message: 'Dates differ', excerpt: '2019' }] },
+  value: { jobId: 'j1', deskId: 'd1', documentName: 'CV', draftRevision: 2, sections: [], issues: [], warnings: [{ kind: 'dates', message: 'Dates differ', excerpt: '2019' }] },
 }
 beforeEach(() => vi.clearAllMocks())
 
@@ -28,7 +28,7 @@ describe('replace_section tool', () => {
     const result = (await replaceSectionTool.handler(ctx, args)) as Record<string, unknown>
     expect(editDraftSection).toHaveBeenCalledWith(
       'p1',
-      'j1',
+      { jobId: 'j1' },
       { type: 'replace', sectionId: 's', expectedHash: 'h', content: 'new' },
       { tokenId: 't1' },
     )

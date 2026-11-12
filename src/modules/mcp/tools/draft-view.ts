@@ -1,4 +1,5 @@
-import type { DraftFailure, DraftResult, DraftState } from '@/modules/writing-desk/draft'
+import * as z from 'zod'
+import type { DeskRef, DraftFailure, DraftResult, DraftState } from '@/modules/writing-desk/draft'
 import { McpToolError } from '../errors'
 import { capField, capText, escapedLength } from '../limits'
 
@@ -24,6 +25,23 @@ const LEVELS = [
   { total: 0, per: 0, sections: 10, warnings: 0, issues: 0 },
   { total: 0, per: 0, sections: 3, warnings: 0, issues: 0 },
 ]
+
+// Every draft tool addresses a job and, when it has several Writing Desk
+// documents, one of them (#370). Without documentId a job with several
+// documents is refused (document_required), never guessed.
+export const documentIdInput = z
+  .string()
+  .min(1)
+  .max(100)
+  .optional()
+  .describe(
+    'The Writing Desk document id, from get_job_context documents. Optional when the job has at most one ' +
+      'document; required when it has several (the call is refused otherwise).',
+  )
+
+export function deskRef(args: { jobId: string; documentId?: string }): DeskRef {
+  return args.documentId === undefined ? { jobId: args.jobId } : { jobId: args.jobId, documentId: args.documentId }
+}
 
 const clip = (s: string) => capField(s, MAX_FIELD_ESCAPED, MAX_FIELD_CHARS)
 const clipId = (id: string) => (id.length > MAX_ID_IN_MESSAGE ? `${id.slice(0, MAX_ID_IN_MESSAGE)}...` : id)
@@ -61,6 +79,8 @@ function buildView(state: DraftState, level: Level) {
     issues.length < state.issues.length
   return {
     jobId: state.jobId,
+    documentId: state.deskId,
+    documentName: clip(state.documentName),
     draftRevision: state.draftRevision,
     sections,
     warnings,
@@ -126,7 +146,7 @@ function describeFailure(failure: DraftFailure): McpToolError {
     }
     case 'draft_exists':
       return new McpToolError(
-        'A draft already exists for this job. Read it with get_draft and edit it with replace_section, ' +
+        'A draft already exists for this document. Read it with get_draft and edit it with replace_section, ' +
           'insert_section or remove_section, or ask the owner to discard the existing draft in the app first.',
       )
     case 'conflict':

@@ -4,6 +4,7 @@ vi.mock("@/lib/db", () => ({
   prisma: {
     jobApplication: { findFirst: vi.fn() },
     cVDocument: { findFirst: vi.fn() },
+    writingDeskDocument: { findMany: vi.fn() },
   },
 }))
 vi.mock("@/modules/profile/snapshot", () => ({
@@ -20,6 +21,18 @@ import { MAX_TOOL_RESPONSE_CHARS } from "./limits"
 
 const mockJob = vi.mocked(prisma.jobApplication.findFirst)
 const mockCv = vi.mocked(prisma.cVDocument.findFirst)
+const mockDocs = vi.mocked(prisma.writingDeskDocument.findMany)
+
+function docRow(i: number, name = `Doc ${i}`) {
+  return {
+    id: `c${String(i).padStart(24, "0")}`,
+    name,
+    documentType: "cv",
+    draftContent: i % 2 ? "draft" : null,
+    createdAt: new Date(2026, 0, 1, 0, i),
+    updatedAt: new Date(2026, 0, 2),
+  }
+}
 const mockSerialize = vi.mocked(serializeProfileForLLM)
 
 const job = {
@@ -48,6 +61,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(buildProfileSnapshot).mockResolvedValue({} as never)
   mockSerialize.mockReturnValue("# Jane Doe")
+  mockDocs.mockResolvedValue([] as never)
   mockCv.mockResolvedValue(null)
 })
 
@@ -150,14 +164,52 @@ describe("getJobContext", () => {
     mockJob.mockResolvedValue({ ...job, title: huge, company: huge, jobDescription: nasty } as never)
     mockSerialize.mockReturnValue(nasty)
     mockCv.mockResolvedValue({ generatedContent: masterContent(["header"], nasty) } as never)
+    mockDocs.mockResolvedValue(Array.from({ length: 50 }, (_, i) => docRow(i, '"\\'.repeat(200))) as never)
     const result = await getJobContext("profile-1", "job-1")
     const text = JSON.stringify(result)
+    expect(result.documents).toHaveLength(10)
+    expect(result.documentsNote).toMatch(/first 10 of 50/)
     expect(text.length).toBeLessThan(MAX_TOOL_RESPONSE_CHARS)
     expect(text.length).toBeLessThan(MAX_TOOL_RESPONSE_CHARS - 2_000)
     expect(() => JSON.parse(text)).not.toThrow()
     expect(result.job.jobDescription).toContain("[truncated")
     expect(result.profile).toContain("[truncated")
     expect(result.masterCv).toContain("[truncated")
+  })
+})
+
+describe("getJobContext documents (#370)", () => {
+  beforeEach(() => {
+    mockJob.mockResolvedValue(job as never)
+    mockCv.mockResolvedValue(null)
+    mockSerialize.mockReturnValue("profile")
+  })
+
+  it("lists the job's documents, primary first, scoped to the profile and job", async () => {
+    mockDocs.mockResolvedValue([docRow(1, "CV"), docRow(2, "Notes")] as never)
+    const result = await getJobContext("profile-1", "job-1")
+    expect(mockDocs.mock.calls[0][0]).toMatchObject({
+      where: { profileId: "profile-1", jobApplicationId: "job-1" },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    })
+    expect(result.documents).toEqual([
+      { id: docRow(1).id, name: "CV", documentType: "cv", hasDraft: true },
+      { id: docRow(2).id, name: "Notes", documentType: "cv", hasDraft: false },
+    ])
+    expect(result.documentsNote).toMatch(/pass documentId/)
+  })
+
+  it("says create_draft makes the first document when there is none", async () => {
+    mockDocs.mockResolvedValue([] as never)
+    const result = await getJobContext("profile-1", "job-1")
+    expect(result.documents).toEqual([])
+    expect(result.documentsNote).toMatch(/create_draft creates one/)
+  })
+
+  it("adds no note for a single document", async () => {
+    mockDocs.mockResolvedValue([docRow(1, "CV")] as never)
+    const result = await getJobContext("profile-1", "job-1")
+    expect(result.documentsNote).toBeUndefined()
   })
 })
 
