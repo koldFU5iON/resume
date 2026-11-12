@@ -1,7 +1,8 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { Settings, KeyRound, Sparkles, UserCog } from "lucide-react"
+import { useTheme } from "next-themes"
+import { Settings, KeyRound, Plus, Sparkles, SunMoon, UserCog } from "lucide-react"
 
 import {
   CommandDialog,
@@ -34,7 +35,8 @@ type CommandPaletteProps = {
 
 export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const router = useRouter()
-  const { togglePanel } = usePageContext()
+  const { togglePanel, setAddJobOpen } = usePageContext()
+  const { resolvedTheme, setTheme } = useTheme()
 
   const go = (href: string) => {
     onOpenChange(false)
@@ -53,6 +55,20 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
           >
             <Sparkles />
             <span>AI Coach</span>
+          </CommandItem>
+          <CommandItem
+            value="Add job capture URL"
+            onSelect={() => { onOpenChange(false); setAddJobOpen(true) }}
+          >
+            <Plus />
+            <span>Add job</span>
+          </CommandItem>
+          <CommandItem
+            value="Switch theme light dark"
+            onSelect={() => { onOpenChange(false); setTheme(resolvedTheme === "dark" ? "light" : "dark") }}
+          >
+            <SunMoon />
+            <span>Switch theme</span>
           </CommandItem>
         </CommandGroup>
         <CommandGroup heading="Navigation">

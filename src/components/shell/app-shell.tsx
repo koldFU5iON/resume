@@ -1,7 +1,9 @@
 "use client"
 
 import React from "react"
-import { CommandBar } from "./command-bar"
+import { MobileTopBar } from "./mobile-top-bar"
+import { ShellCommands } from "./shell-commands"
+import { COACH_PANEL_CLASSES } from "./coach-panel"
 import { AppFooter } from "./app-footer"
 import { AlphaBanner } from "./alpha-banner"
 import { ChatPanel } from "./chat-panel"
@@ -25,7 +27,7 @@ class ChatErrorBoundary extends React.Component<
   render() {
     if (this.state.error) {
       return (
-        <aside className="flex h-full w-full flex-col border-l bg-background fixed inset-y-0 right-0 z-40 max-w-sm shadow-lg md:static md:z-auto md:w-[28rem] md:max-w-none md:shadow-none lg:w-[36rem] xl:w-[44rem]">
+        <aside className={COACH_PANEL_CLASSES}>
           <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
             <p className="text-sm text-muted-foreground">The assistant encountered an error.</p>
             <button
@@ -43,16 +45,17 @@ class ChatErrorBoundary extends React.Component<
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const { chatOpen, togglePanel, closePanel } = usePageContext()
+  const { chatOpen, closePanel } = usePageContext()
 
   return (
-    <div className="flex h-svh w-full overflow-hidden print:h-auto print:overflow-visible print:block">
-      {/* Center column: command bar / main content / footer */}
+    // group/shell: the job workspace (data-job-workspace) brings its own
+    // navigation trigger, so the phone top bar hides while one is on screen.
+    <div className="group/shell flex h-svh w-full overflow-hidden print:h-auto print:overflow-visible print:block">
+      {/* Center column: phone bar / main content / footer */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <CommandBar
-          chatOpen={chatOpen}
-          onToggleChat={togglePanel}
-        />
+        <div className="contents group-has-[[data-job-workspace]]/shell:hidden">
+          <MobileTopBar />
+        </div>
         <AlphaBanner />
         <div className="flex min-h-0 flex-1 flex-col overflow-auto print:overflow-visible print:h-auto">{children}</div>
         <AppFooter />
@@ -62,6 +65,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <ChatErrorBoundary>
         <ChatPanel open={chatOpen} onClose={closePanel} />
       </ChatErrorBoundary>
+      <ShellCommands />
     </div>
   )
 }

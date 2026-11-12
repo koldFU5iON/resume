@@ -11,7 +11,8 @@ const Toaster = ({ ...props }: ToasterProps) => {
     <Sonner
       theme={theme as ToasterProps["theme"]}
       className="toaster group"
-      position="top-right"
+      // Bottom: the top edge holds persistent controls (job header, sidebar).
+      position="bottom-center"
       icons={{
         success: (
           <CircleCheckIcon className="size-4" />
