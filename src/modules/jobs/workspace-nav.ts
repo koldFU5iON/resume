@@ -22,7 +22,7 @@ export type JobDocumentLink = {
   key: string
   kind: JobDocumentKind
   label: string
-  /** Extra context for the tab's title/accessible name, e.g. the desk's document type. */
+  /** Extra context shown beside the label: a desk's document type, or a legacy asset's editor. */
   detail?: string
   href: string
 }
@@ -109,13 +109,13 @@ export function jobDocumentLinks(assets: JobDocumentAssets): JobDocumentLink[] {
   const links: JobDocumentLink[] = [{ key: "description", kind: "description", label: "Job Description", href: hub }]
   links.push(...assets.writingDesks.map(desk => deskTab(assets.jobId, desk)))
   if (assets.cvDocumentId) {
-    links.push({ key: "cv", kind: "cv", label: "CV", href: `/dashboard/cv-builder/${assets.cvDocumentId}` })
+    links.push({ key: "cv", kind: "cv", label: "CV", detail: "CV Builder", href: `/dashboard/cv-builder/${assets.cvDocumentId}` })
   }
   if (assets.coverLetterDocumentId) {
-    links.push({ key: "cover-letter", kind: "cover-letter", label: "Cover Letter", href: `/dashboard/cover-letters/${assets.coverLetterDocumentId}` })
+    links.push({ key: "cover-letter", kind: "cover-letter", label: "Cover Letter", detail: "Cover letter editor", href: `/dashboard/cover-letters/${assets.coverLetterDocumentId}` })
   }
   if (assets.interviewPrepSessionId) {
-    links.push({ key: "interview-prep", kind: "interview-prep", label: "Interview Prep", href: `/dashboard/interview-prep/${assets.interviewPrepSessionId}` })
+    links.push({ key: "interview-prep", kind: "interview-prep", label: "Interview Prep", detail: "Prep session", href: `/dashboard/interview-prep/${assets.interviewPrepSessionId}` })
   }
   return links
 }

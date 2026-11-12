@@ -78,6 +78,10 @@ describe("jobDocumentLinks", () => {
     expect(links[1].label).toBe("CV")
     expect(links[1].detail).toBeUndefined()
   })
+
+  it("names the legacy editors beside their tabs, so they aren't mistaken for Writing Desk documents", () => {
+    expect(jobDocumentLinks(all).slice(2).map((l) => l.detail)).toEqual(["CV Builder", "Cover letter editor", "Prep session"])
+  })
 })
 
 describe("jobDocumentCreateLinks", () => {

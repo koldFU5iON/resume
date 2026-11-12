@@ -10,6 +10,13 @@ import { cn } from "@/lib/utils"
 import type { JobDocumentCreateLink, JobDocumentKind, JobDocumentLink } from "@/modules/jobs/workspace-nav"
 import { guardedNavigate } from "./navigation-guard"
 
+/** Plain substring match on the names (cmdk's default fuzzy match finds "recruit" in "Panel round"). */
+function matchesName(_value: string, search: string, keywords?: string[]): number {
+  const query = search.trim().toLocaleLowerCase()
+  if (!query) return 1
+  return (keywords ?? []).some(keyword => keyword.toLocaleLowerCase().includes(query)) ? 1 : 0
+}
+
 /** Where the switcher can take you: the nav's links plus Deep Dive. */
 export type SwitcherEntry = Pick<JobDocumentLink, "key" | "label" | "detail" | "href"> & { kind: JobDocumentKind | "deep-dive" }
 
@@ -78,7 +85,7 @@ export function DocumentSwitcher({
         </PopoverTrigger>
       )}
       <PopoverContent align="end" className="w-[min(22rem,calc(100vw-1.5rem))] p-0">
-        <Command loop>
+        <Command loop filter={matchesName}>
           <CommandInput placeholder="Find a document…" aria-label="Find a document" />
           <CommandList className="max-h-[min(24rem,60vh)]">
             <CommandEmpty>No matching documents.</CommandEmpty>

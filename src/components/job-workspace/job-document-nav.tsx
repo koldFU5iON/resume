@@ -43,6 +43,7 @@ export function JobDocumentNav({ workspace }: { workspace: JobWorkspace }) {
   const pathname = usePathname()
   const router = useRouter()
   const [creating, setCreating] = useState(false)
+  const stripRef = useRef<HTMLUListElement>(null)
   const activeTabRef = useRef<HTMLLIElement>(null)
   const refreshedFor = useRef<string | null>(null)
 
@@ -64,14 +65,21 @@ export function JobDocumentNav({ workspace }: { workspace: JobWorkspace }) {
     router.refresh()
   }, [unlisted, router])
 
-  // Keep the open document's tab in view when the strip overflows.
+  // Keep the open document's tab in view when the strip overflows. Scrolls
+  // the strip only: scrollIntoView would also move the page.
   useEffect(() => {
-    activeTabRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" })
+    const strip = stripRef.current
+    const tab = activeTabRef.current
+    if (!strip || !tab) return
+    const left = tab.offsetLeft - strip.offsetLeft
+    const right = left + tab.offsetWidth
+    if (left < strip.scrollLeft) strip.scrollLeft = left
+    else if (right > strip.scrollLeft + strip.clientWidth) strip.scrollLeft = right - strip.clientWidth
   }, [active])
 
   return (
     <nav aria-label="Job documents" className="flex h-12 shrink-0 items-center gap-2 border-b bg-background px-2 md:h-11 md:px-4 print:hidden">
-      <ul className="hidden h-full min-w-0 flex-1 items-stretch gap-1 overflow-x-auto [scrollbar-width:thin] md:flex">
+      <ul ref={stripRef} className="hidden h-full w-0 min-w-0 max-w-fit flex-1 items-stretch gap-1 overflow-x-auto [scrollbar-width:thin] md:flex">
         {links.map((link) => {
           const Icon = DOCUMENT_ICON[link.kind]
           const current = active === link.key
@@ -126,7 +134,7 @@ export function JobDocumentNav({ workspace }: { workspace: JobWorkspace }) {
         activeKey={active}
         legacyCreateLinks={legacyCreateLinks}
         icons={DOCUMENT_ICON}
-        className="hidden md:inline-flex"
+        className="hidden md:ml-auto md:inline-flex"
       />
 
       {creating && (
