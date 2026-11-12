@@ -15,6 +15,7 @@ import { StatusDropdown } from "@/app/dashboard/job-applications/_components/sta
 import { EarlyAssessment } from "@/app/dashboard/job-applications/_components/early-assessment"
 import { VerdictChip } from "@/app/dashboard/job-applications/_components/deep-dive-button"
 import { DEEP_DIVE_STATUS_LABEL, isDeepDiveActive } from "@/app/dashboard/job-applications/_components/deep-dive-view"
+import { ApplyButton } from "./apply-button"
 
 const CONTROLS_ID = "job-workspace-controls" // also read by JobWorkspaceFrame
 
@@ -51,16 +52,20 @@ export function JobWorkspaceHeader({ workspace, compact, onExpand, statusTrigger
         <ArrowLeft className="size-4" aria-hidden="true" />
       </Link>
 
-      <div className="min-w-0 flex-1">
-        {workspace.company && (
-          <p className={cn("truncate text-xs text-muted-foreground", compact && "max-md:hidden")}>{workspace.company}</p>
-        )}
-        <h1
-          className={cn("truncate text-[15px] leading-snug font-semibold md:text-base", compact && "max-md:text-sm")}
-          title={workspace.company ? `${workspace.title} — ${workspace.company}` : workspace.title}
-        >
-          {workspace.title}
-        </h1>
+      {/* Apply sits right after the title (#383), and stays in the compact phone row. */}
+      <div className="flex min-w-0 flex-1 items-center gap-2 md:gap-3">
+        <div className="min-w-0">
+          {workspace.company && (
+            <p className={cn("truncate text-xs text-muted-foreground", compact && "max-md:hidden")}>{workspace.company}</p>
+          )}
+          <h1
+            className={cn("truncate text-[15px] leading-snug font-semibold md:text-base", compact && "max-md:text-sm")}
+            title={workspace.company ? `${workspace.title} — ${workspace.company}` : workspace.title}
+          >
+            {workspace.title}
+          </h1>
+        </div>
+        <ApplyButton jobId={workspace.jobId} url={workspace.url} status={workspace.status} />
       </div>
 
       {compact && (
