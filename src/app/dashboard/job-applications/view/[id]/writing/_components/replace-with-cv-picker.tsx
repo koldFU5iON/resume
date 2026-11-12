@@ -8,15 +8,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { cn } from "@/lib/utils"
 import type { WritingDeskSourceOption } from "@/modules/writing-desk/queries"
 
-/** cmdk values must be unique, so each carries its id after this separator; only the label is searched. */
-const ID_SEPARATOR = "\u0000"
-
-/** Every word typed must appear in the CV's label (cmdk's default fuzzy match is too loose for titles). */
-function matchLabel(value: string, search: string): number {
-  const label = value.split(ID_SEPARATOR)[0].toLowerCase()
-  const words = search.toLowerCase().split(/\s+/).filter(Boolean)
-  return words.every(word => label.includes(word)) ? 1 : 0
-}
+import { matchSourceLabel as matchLabel, SOURCE_ID_SEPARATOR as ID_SEPARATOR } from "@/modules/writing-desk/source-search"
 
 /**
  * "Replace with a CV…" as a searchable picker (#383). Choosing a CV hands its

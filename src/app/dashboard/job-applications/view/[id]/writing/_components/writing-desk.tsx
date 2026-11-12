@@ -111,6 +111,7 @@ export function WritingDesk({
   const [renaming, setRenaming] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [documentType, setDocumentType] = useState(desk.documentType)
+  const [typePending, setTypePending] = useState(false)
   const [content, setContent] = useState(desk.content)
   const [revision, setRevision] = useState(desk.revision)
   const [sourceLabel] = useState(desk.sourceLabel)
@@ -408,9 +409,18 @@ export function WritingDesk({
    * otherwise chosen once, in the "+" dialog, so typed documents can't change it.
    */
   async function chooseType(type: WritingDeskDocumentType) {
-    if (documentType) return
-    await settleSaves()
-    if (conflictRef.current) return
+    if (documentType || typePending) return
+    setTypePending(true)
+    try {
+      await settleSaves()
+      if (conflictRef.current) return
+      await applyType(type)
+    } finally {
+      setTypePending(false)
+    }
+  }
+
+  async function applyType(type: WritingDeskDocumentType) {
     try {
       const result = await setWritingDeskDocumentType(desk.id, type, revisionRef.current)
       if (!result.ok) {
@@ -592,6 +602,7 @@ export function WritingDesk({
                 <select
                   aria-label="Document type (not set yet)"
                   value=""
+                  disabled={typePending}
                   onChange={event => { if (event.target.value) void chooseType(event.target.value as WritingDeskDocumentType) }}
                   className="h-5 max-w-32 shrink-0 cursor-pointer rounded border border-dashed bg-background px-1 text-xs text-foreground"
                 >

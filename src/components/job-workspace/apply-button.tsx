@@ -57,9 +57,8 @@ export function ApplyButton({ jobId, url, status }: {
     <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger
         className={cn(
-          buttonVariants({ variant: "default", size: "sm" }),
+          buttonVariants({ variant: href ? "default" : "outline", size: "sm" }),
           "h-8 shrink-0 gap-1.5",
-          !href && "opacity-60",
         )}
         aria-describedby={href ? undefined : `${jobId}-apply-missing`}
         title={href ? "Open the job posting in a new tab" : "No posting link saved for this job"}

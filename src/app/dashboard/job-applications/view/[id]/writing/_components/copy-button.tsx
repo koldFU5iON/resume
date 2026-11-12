@@ -90,7 +90,6 @@ export function CopyButton({ onCopy }: { onCopy: (format: CopyFormat) => void })
           size="sm"
           className="h-7 gap-1 rounded-r-none border-r-0 text-xs"
           onClick={() => choose("markdown")}
-          title="Copy as Markdown"
         >
           <Copy className="size-3" aria-hidden="true" />
           Copy
