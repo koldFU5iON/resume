@@ -34,8 +34,8 @@ async function conflictResult(id: string, profileId: string): Promise<WritingDes
 
 /**
  * Adds a named document to one of the signed-in user's jobs (blank, or from
- * one of their CVs). Never replaces an existing document. The creation UI is
- * Phase 3 (#371).
+ * one of their CVs). Never replaces an existing document. Called by the job
+ * nav's "+" dialog.
  */
 export async function createWritingDeskDocumentAction(input: unknown): Promise<CreateWritingDeskDocumentResult> {
   const { profile } = await requireProfile()
