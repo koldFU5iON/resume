@@ -12,7 +12,7 @@ export default async function CoverLetterPage({ params }: Props) {
   if (!letter) notFound()
 
   return (
-    <JobWorkspace jobId={letter.jobApplicationId}>
+    <JobWorkspace jobId={letter.jobApplicationId} current={{ kind: "cover-letter", id: letter.id }}>
       <CoverLetterWorkspace letter={letter} />
     </JobWorkspace>
   )

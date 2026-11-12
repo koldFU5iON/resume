@@ -1,3 +1,4 @@
+import { cache } from "react"
 // Server-only LLM façade — bring-your-own-key. Each user supplies their own
 // provider API key via /dashboard/settings/llm; this module fetches their
 // settings, decrypts the key, and runs the call against the provider they
@@ -530,7 +531,7 @@ export async function completeStructured<T>(
 // Lightweight read-only check for UIs that want to render "key configured"
 // state without paying for a full ping. Returns the provider/model the user
 // has saved (no key material).
-export async function getLLMConfigStatus(profileId: string): Promise<{
+async function getLLMConfigStatusUncached(profileId: string): Promise<{
   configured: boolean
   provider: string | null
   model: string | null
@@ -558,3 +559,7 @@ export async function getLLMConfigStatus(profileId: string): Promise<{
     modelRoles: normalizeModelRoleChoices(settings?.llmModelRoles),
   }
 }
+
+
+/** Deduplicated per request: the job workspace layout and its pages both call this. */
+export const getLLMConfigStatus = cache(getLLMConfigStatusUncached)

@@ -16,7 +16,7 @@ import { EarlyAssessment } from "@/app/dashboard/job-applications/_components/ea
 import { VerdictChip } from "@/app/dashboard/job-applications/_components/deep-dive-button"
 import { DEEP_DIVE_STATUS_LABEL, isDeepDiveActive } from "@/app/dashboard/job-applications/_components/deep-dive-view"
 
-const CONTROLS_ID = "job-workspace-controls"
+const CONTROLS_ID = "job-workspace-controls" // also read by JobWorkspaceFrame
 
 export function JobWorkspaceHeader({ workspace, compact, onExpand, statusTriggerId }: {
   workspace: JobWorkspace

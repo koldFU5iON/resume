@@ -13,7 +13,7 @@ export default async function InterviewPrepWorkspacePage({ params }: Props) {
   if (!session) notFound()
 
   return (
-    <JobWorkspace jobId={session.jobApplicationId}>
+    <JobWorkspace jobId={session.jobApplicationId} current={{ kind: "interview-prep", id: session.id }}>
       <PrepWorkspace session={session} />
     </JobWorkspace>
   )

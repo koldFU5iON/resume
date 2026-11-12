@@ -43,6 +43,19 @@ const DESK_TYPE_LABEL: Record<WritingDeskDocumentType, string> = {
   other: "Other",
 }
 
+/** A legacy document the current page shows; its tab points at it rather than the job's newest one. */
+export type CurrentJobDocument = { kind: "cv" | "cover-letter" | "interview-prep"; id: string }
+
+const ASSET_FIELD = {
+  cv: "cvDocumentId",
+  "cover-letter": "coverLetterDocumentId",
+  "interview-prep": "interviewPrepSessionId",
+} as const satisfies Record<CurrentJobDocument["kind"], keyof JobDocumentAssets>
+
+export function withCurrentDocument(assets: JobDocumentAssets, current?: CurrentJobDocument): JobDocumentAssets {
+  return current ? { ...assets, [ASSET_FIELD[current.kind]]: current.id } : assets
+}
+
 export function jobHubHref(jobId: string): string {
   return `/dashboard/job-applications/view/${jobId}`
 }

@@ -5,6 +5,7 @@ import {
   jobDocumentCreateLinks,
   jobDocumentLinks,
   nextCompactState,
+  withCurrentDocument,
   type JobDocumentAssets,
 } from "./workspace-nav"
 
@@ -99,5 +100,19 @@ describe("nextCompactState", () => {
 
   it("keeps the controls open after an explicit expand", () => {
     expect(nextCompactState(false, { scrollTop: 400, maxScroll: room, pinned: true })).toBe(false)
+  })
+})
+
+describe("withCurrentDocument", () => {
+  it("points the current kind's tab at the document on screen, not the newest", () => {
+    const assets = withCurrentDocument(all, { kind: "cv", id: "old-cv" })
+    const links = jobDocumentLinks(assets)
+    const cv = links.find((l) => l.kind === "cv")
+    expect(cv?.href).toBe("/dashboard/cv-builder/old-cv")
+    expect(activeJobDocument("/dashboard/cv-builder/old-cv", links)).toBe("cv")
+    expect(assets.coverLetterDocumentId).toBe(all.coverLetterDocumentId)
+  })
+  it("is a no-op without a current document", () => {
+    expect(withCurrentDocument(all)).toBe(all)
   })
 })

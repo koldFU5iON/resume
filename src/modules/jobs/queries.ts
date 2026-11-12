@@ -1,3 +1,4 @@
+import { cache } from "react"
 import type { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db"
 import { ApplicationStatus, type ApplicationStatusType, type Job } from "@/app/types/job-application"
@@ -246,7 +247,7 @@ export type JobWorkspace = {
  * (#369): identity, status, archive state, fit/Deep Dive access and the job's
  * documents. Scoped to the profile; null when the job isn't theirs.
  */
-export async function getJobWorkspace(profileId: string, jobId: string): Promise<JobWorkspace | null> {
+async function getJobWorkspaceUncached(profileId: string, jobId: string): Promise<JobWorkspace | null> {
   const job = await prisma.jobApplication.findFirst({
     where: { id: jobId, profileId },
     select: {
@@ -412,3 +413,7 @@ export async function getArchivedJobs(): Promise<Job[]> {
     interviewPrepSessionId: j.interviewPrepSessions[0]?.id ?? null,
   })) as Job[]
 }
+
+
+/** Deduplicated per request: the job workspace layout and its pages both call this. */
+export const getJobWorkspace = cache(getJobWorkspaceUncached)

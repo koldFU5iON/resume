@@ -19,7 +19,7 @@ export default async function GuidePage({ params }: Props) {
   if (!letter) notFound()
 
   return (
-    <JobWorkspace jobId={letter.jobApplicationId}>
+    <JobWorkspace jobId={letter.jobApplicationId} current={{ kind: "cover-letter", id: letter.id }}>
       <div className="flex items-center gap-3 border-b px-4 py-2 text-sm">
         <Link
           href={`/dashboard/cover-letters/${id}`}

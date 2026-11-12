@@ -1,6 +1,7 @@
 import type { ReactNode } from "react"
 import { requireProfile } from "@/lib/session"
 import { getJobWorkspace } from "@/modules/jobs/queries"
+import { withCurrentDocument, type CurrentJobDocument } from "@/modules/jobs/workspace-nav"
 import { JobWorkspaceFrame } from "./job-workspace-frame"
 
 /**
@@ -11,9 +12,19 @@ import { JobWorkspaceFrame } from "./job-workspace-frame"
  * access. With no job (or one the user doesn't own) the children render in a
  * plain column, as the standalone editors always have.
  */
-export async function JobWorkspace({ jobId, children }: { jobId: string | null; children: ReactNode }) {
+export async function JobWorkspace({
+  jobId,
+  current,
+  children,
+}: {
+  jobId: string | null
+  /** The legacy document this page shows, so its tab stays active even when it isn't the job's newest. */
+  current?: CurrentJobDocument
+  children: ReactNode
+}) {
   const { profile } = await requireProfile()
-  const workspace = jobId ? await getJobWorkspace(profile.id, jobId) : null
-  if (!workspace) return <div className="flex h-full min-h-0 flex-col">{children}</div>
+  const found = jobId ? await getJobWorkspace(profile.id, jobId) : null
+  if (!found) return <div className="flex h-full min-h-0 flex-col">{children}</div>
+  const workspace = { ...found, assets: withCurrentDocument(found.assets, current) }
   return <JobWorkspaceFrame workspace={workspace}>{children}</JobWorkspaceFrame>
 }

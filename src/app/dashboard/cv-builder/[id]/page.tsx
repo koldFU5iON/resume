@@ -21,7 +21,7 @@ export default async function CVEditorPage({ params }: Props) {
     cv.masterCvUpdatedAt < masterCV.updatedAt
 
   return (
-    <JobWorkspace jobId={cv.jobApplicationId}>
+    <JobWorkspace jobId={cv.jobApplicationId} current={{ kind: "cv", id: cv.id }}>
       <CvEditor key={cv.id} cv={{ ...cv, profileName: cv.profile.name }} stale={stale} />
     </JobWorkspace>
   )
