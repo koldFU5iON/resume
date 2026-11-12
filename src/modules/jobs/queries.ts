@@ -3,7 +3,16 @@ import { prisma } from "@/lib/db"
 import { ApplicationStatus, type ApplicationStatusType, type Job } from "@/app/types/job-application"
 import { requireProfile } from "@/lib/session"
 import { getEarlyAssessmentForJob, getEarlyAssessmentsForJobs } from "@/modules/job-assessment/queries"
-import { getDeepDiveSummaries, getDeepDiveSummary } from "@/modules/deep-dive/queries"
+import { getDeepDiveSummaries, getDeepDiveSummary, type DeepDiveSummary } from "@/modules/deep-dive/queries"
+
+/**
+ * The legacy JobFit as the UI shows it: hidden (null) once the job has a
+ * complete deep dive, which replaces it (spec §10). Done here once so rows,
+ * filters, sorts and the sidebar all agree.
+ */
+function visibleJobFit<T>(jobFit: T, deepDive: DeepDiveSummary | null | undefined): T | null {
+  return deepDive?.hasReport ? null : jobFit
+}
 
 export type DashboardJobSlim = {
   id: string
@@ -110,6 +119,7 @@ export async function getActiveJobs(): Promise<Job[]> {
     interviewPrepSessionId: j.interviewPrepSessions[0]?.id ?? null,
     earlyAssessment: early[j.id] ?? null,
     deepDive: deepDives[j.id] ?? null,
+    jobFit: visibleJobFit(j.jobFit, deepDives[j.id]),
   })) as Job[]
 }
 
@@ -160,6 +170,7 @@ export async function getJobApplicationById(id: string): Promise<Job | null> {
     interviewPrepSessionId: job.interviewPrepSessions[0]?.id ?? null,
     earlyAssessment,
     deepDive,
+    jobFit: visibleJobFit(job.jobFit, deepDive),
   } as Job
 }
 

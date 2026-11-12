@@ -42,7 +42,8 @@ export default async function DeepDivePage({
   ])
   if (!assets) notFound()
 
-  const requested = typeof run === 'string' && runs.some((r) => r.id === run) ? run : null
+  // The newest run is read without a runId so its "out of date" check runs (getDeepDive).
+  const requested = typeof run === 'string' && runs.some((r) => r.id === run) && run !== runs[0]?.id ? run : null
   const view = runs.length > 0 ? await getDeepDive(profile.id, id, requested) : null
   const latest = runs[0] ?? null
   const latestActive = !!latest && isDeepDiveActive(latest.status)

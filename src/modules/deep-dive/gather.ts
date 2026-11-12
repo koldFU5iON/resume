@@ -281,16 +281,21 @@ export type SuggestionDraft = Omit<SearchSuggestion, 'id' | 'createdAt'>
 /** Smallest figure read as an annual salary: keeps "less than 30 minutes" or "minimum 10 years" out. */
 const MIN_SALARY_FLOOR = 10_000
 
+const CURRENCY_SIGNS: Record<string, string> = { '£': 'GBP', '$': 'USD', '€': 'EUR' }
+
 /**
  * A salary floor written in the notes ("not worth it below £85k", "minimum
- * 90,000"), or null. The figure must directly follow the phrase (allowing a
- * currency sign) and read as an annual salary.
+ * salary 90,000", "Minimum expected: $150k"), or null. The figure must come
+ * within a few words of the phrase, on the same line, and read as an annual
+ * salary. The currency comes from its sign; GBP without one.
  */
-export function salaryFloorFromNotes(notes: string): number | null {
-  const re = /(?:not worth(?: it)?|minimum(?: of)?|at least|below|less than|under)\s*(?:[£$€]\s*)?(\d[\d,]*(?:\.\d+)?)\s*(k\b)?/gi
+export function salaryFloorFromNotes(notes: string): { amount: number; currency: string } | null {
+  const re = /(?:not worth|minimum|at least|below|less than|under)[^\d£$€\n]{0,25}?([£$€])?\s*(\d[\d,]*(?:\.\d+)?)\s*(k\b)?/gi
   for (const m of notes.matchAll(re)) {
-    const n = Number(m[1].replace(/,/g, '')) * (m[2] ? 1000 : 1)
-    if (Number.isFinite(n) && n >= MIN_SALARY_FLOOR) return Math.round(n)
+    const amount = Number(m[2].replace(/,/g, '')) * (m[3] ? 1000 : 1)
+    if (Number.isFinite(amount) && amount >= MIN_SALARY_FLOOR) {
+      return { amount: Math.round(amount), currency: m[1] ? CURRENCY_SIGNS[m[1]] : 'GBP' }
+    }
   }
   return null
 }
@@ -310,8 +315,8 @@ export function searchProfileSuggestions(g: Pick<GatherResult, 'brief' | 'search
     if (floor !== null) {
       out.push({
         field: 'salaryBand',
-        suggestedValue: { min: floor, max: null, currency: 'GBP' },
-        reason: `You noted a salary floor around ${floor.toLocaleString('en-GB')} while reviewing ${brief.company ?? 'this role'}.`,
+        suggestedValue: { min: floor.amount, max: null, currency: floor.currency },
+        reason: `You noted a salary floor around ${floor.amount.toLocaleString('en-GB')} ${floor.currency} while reviewing ${brief.company ?? 'this role'}.`,
         source: 'deep-dive',
       })
     }

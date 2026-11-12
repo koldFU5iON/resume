@@ -11,6 +11,7 @@ import { StatusDropdown } from "@/app/dashboard/job-applications/_components/sta
 import { formatDate, cn } from "@/lib/utils"
 import type { DeepDiveAccess } from "@/modules/deep-dive/access"
 import { DeepDiveEntry } from "./deep-dive-entry"
+import { deepDiveSignature } from "@/app/dashboard/job-applications/_components/deep-dive-view"
 import { FileText, Mail, ClipboardList, NotebookPen } from "lucide-react"
 
 interface Props {
@@ -40,7 +41,7 @@ function LegacyJobFit({ job, hasLLMKey }: { job: Job; hasLLMKey: boolean }) {
         company={job.company ?? undefined}
         jdSnippet={job.jobDescription ? job.jobDescription.slice(0, 800) : undefined}
       />
-      {job.jobFit && !job.deepDive?.hasReport && (
+      {job.jobFit && (
         <p className="text-xs text-muted-foreground">
           {fitStrengthLabel(job.jobFit.rating)}
         </p>
@@ -51,9 +52,12 @@ function LegacyJobFit({ job, hasLLMKey }: { job: Job; hasLLMKey: boolean }) {
 
 export function JobSidebar({ job, hasLLMKey, earlyEnabled = false, deepDiveAccess }: Props) {
   const early = job.earlyAssessment ?? null
+  // One poller for the page: the early assessment and the deep dive, while either runs.
+  const pending = [pendingSignature([early]), deepDiveSignature(job.deepDive)].filter(Boolean).join(',')
 
   return (
     <div className="flex flex-col gap-4 overflow-y-auto border-r p-4 [&>*]:shrink-0">
+      <AssessmentPoller signature={pending} />
       {/* Stats card */}
       <Card>
         <CardContent className="flex flex-col gap-3 pt-4">
@@ -95,7 +99,6 @@ export function JobSidebar({ job, hasLLMKey, earlyEnabled = false, deepDiveAcces
           {earlyEnabled ? (
             <>
               <EarlyAssessment jobId={job.id} assessment={early} enabled deepDive={job.deepDive} deepDiveAccess={deepDiveAccess} />
-              <AssessmentPoller signature={pendingSignature([early])} />
               {/* JobFit is deprecated: kept here for reference until it's removed. */}
               <details className="mt-1 border-t pt-3 text-xs">
                 <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
@@ -113,8 +116,7 @@ export function JobSidebar({ job, hasLLMKey, earlyEnabled = false, deepDiveAcces
                 <div className="mt-1 space-y-1 border-t pt-3">
                   <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Early assessment</p>
                   <EarlyAssessment jobId={job.id} assessment={early} enabled={false} deepDive={job.deepDive} deepDiveAccess={deepDiveAccess} />
-                  <AssessmentPoller signature={pendingSignature([early])} />
-                </div>
+                    </div>
               )}
             </>
           )}

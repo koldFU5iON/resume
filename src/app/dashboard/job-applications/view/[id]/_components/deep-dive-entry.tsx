@@ -6,16 +6,17 @@ import { buttonVariants } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import type { DeepDiveAccess } from "@/modules/deep-dive/access"
 import type { DeepDiveSummary } from "@/modules/deep-dive/queries"
-import { AssessmentPoller } from "@/app/dashboard/job-applications/_components/assessment-poller"
 import { DeepDiveButton, VerdictChip } from "@/app/dashboard/job-applications/_components/deep-dive-button"
 import {
   DEEP_DIVE_STATUS_LABEL,
   deepDiveHref,
-  deepDiveSignature,
   isDeepDiveActive,
 } from "@/app/dashboard/job-applications/_components/deep-dive-view"
 
-/** The job page sidebar's Deep dive entry (spec §7): the verdict chip and a way into the report. */
+/**
+ * The job page sidebar's Deep dive entry (spec §7): the verdict chip and a way
+ * into the report. The sidebar's one AssessmentPoller covers a running deep dive.
+ */
 export function DeepDiveEntry({ jobId, deepDive, access }: {
   jobId: string
   deepDive: DeepDiveSummary | null
@@ -28,7 +29,6 @@ export function DeepDiveEntry({ jobId, deepDive, access }: {
   const active = isDeepDiveActive(deepDive.status)
   return (
     <div className="flex flex-col gap-2">
-      <AssessmentPoller signature={deepDiveSignature(deepDive)} />
       {deepDive.verdict && <VerdictChip verdict={deepDive.verdict} />}
       {active && (
         <p className="flex items-center gap-1.5 text-xs text-muted-foreground">

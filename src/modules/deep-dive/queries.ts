@@ -70,6 +70,11 @@ export function isStaleRun(row: Pick<Row, 'status' | 'createdAt'>, now: Date): b
   return (ACTIVE_STATUSES as readonly string[]).includes(row.status) && now.getTime() - row.createdAt.getTime() > DEEP_DIVE_STALE_MS
 }
 
+/** A row's status as readers see it: a stale active run reads as failed. */
+export function effectiveStatus(row: Pick<Row, 'status' | 'createdAt'>, now: Date): DeepDiveStatus {
+  return (isStaleRun(row, now) ? 'failed' : row.status) as DeepDiveStatus
+}
+
 /**
  * A stored report, or null when absent or unreadable. Stored reports are
  * already-transformed schema output (evidence as a union), so they can't be
@@ -77,14 +82,13 @@ export function isStaleRun(row: Pick<Row, 'status' | 'createdAt'>, now: Date): b
  */
 export function parseReport(value: unknown): DeepDiveReport | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-  const verdict = (value as { verdict?: unknown }).verdict
-  return typeof verdict === 'string' && (VERDICTS as readonly string[]).includes(verdict) ? (value as DeepDiveReport) : null
+  return asVerdict((value as { verdict?: unknown }).verdict) ? (value as DeepDiveReport) : null
 }
 
 /** Pure: view of a row. `currentHash` is the inputs hash a run would get now (complete runs only). */
 export function toDeepDiveView(row: Row, usage: UsageBucket, currentHash: string | null | undefined, now: Date = new Date()): DeepDiveView {
   const stale = isStaleRun(row, now)
-  const status = (stale ? 'failed' : row.status) as DeepDiveStatus
+  const status = effectiveStatus(row, now)
   return {
     id: row.id,
     jobId: row.jobApplicationId,
@@ -137,9 +141,9 @@ export async function getLatestDeepDive(profileId: string, jobId: string): Promi
 
 /**
  * One run of one of the profile's jobs: `runId`, or the newest when null.
- * Null when the job has no such run. `outOfDate` is only checked for the
- * newest run (runId null): it costs a profile snapshot, and an older run is
- * out of date by definition once a newer one exists.
+ * Null when the job has no such run. `outOfDate` is only checked when
+ * runId is null (the newest run): it costs a profile snapshot, and an older
+ * run is superseded anyway. Callers pass null, not the id, for the newest.
  */
 export async function getDeepDive(profileId: string, jobId: string, runId: string | null): Promise<DeepDiveView | null> {
   const row = await prisma.jobDeepDive.findFirst({
@@ -170,15 +174,16 @@ export type DeepDiveSummary = {
 
 type SummaryRow = { id: string; jobApplicationId: string; status: string; verdict: string | null; createdAt: Date }
 
-function asVerdict(v: string | null): Verdict | null {
-  return v && (VERDICTS as readonly string[]).includes(v) ? (v as Verdict) : null
+/** A stored verdict, or null when absent or unknown. */
+export function asVerdict(v: unknown): Verdict | null {
+  return typeof v === 'string' && (VERDICTS as readonly string[]).includes(v) ? (v as Verdict) : null
 }
 
 /** Pure: a summary from a job's newest run and its newest complete run. */
 export function toDeepDiveSummary(newest: SummaryRow, newestComplete: Pick<SummaryRow, 'verdict'> | null, now: Date = new Date()): DeepDiveSummary {
   return {
     id: newest.id,
-    status: (isStaleRun(newest, now) ? 'failed' : newest.status) as DeepDiveStatus,
+    status: effectiveStatus(newest, now),
     verdict: asVerdict(newestComplete?.verdict ?? null),
     hasReport: newestComplete !== null,
   }
@@ -226,7 +231,7 @@ export async function listDeepDiveRuns(profileId: string, jobId: string): Promis
   const now = new Date()
   return rows.map((r) => ({
     id: r.id,
-    status: (isStaleRun(r, now) ? 'failed' : r.status) as DeepDiveStatus,
+    status: effectiveStatus(r, now),
     verdict: asVerdict(r.verdict),
     createdAt: r.createdAt,
   }))

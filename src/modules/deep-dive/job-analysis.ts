@@ -48,8 +48,7 @@ const SEVERITY_ORDER: Record<JobAnalysisRisk['severity'], number> = { high: 0, m
  * `existing` jobAnalysis (an earlier analyseJob run). With neither, it returns
  * null and the caller keeps what's there, so CV generation still runs
  * analyseJob for the full requirements instead of reading a thin list.
- * Open blockers and gaps are added to must-haves; risks and positioning
- * always come from the report.
+ * Risks (open blockers and gaps) and positioning always come from the report.
  */
 export function reportToJobAnalysis(report: DeepDiveReport, facts: unknown, existing: JobAnalysis | null): JobAnalysis | null {
   const requirements = factRequirements(facts)
@@ -63,11 +62,10 @@ export function reportToJobAnalysis(report: DeepDiveReport, facts: unknown, exis
 
   const openBlockers = report.blockers.filter((b) => b.status !== 'cleared')
 
-  const mustHave = unique([
-    ...baseMust,
-    ...openBlockers.map((b) => b.label),
-    ...report.gaps.map((g) => g.requirement),
-  ]).slice(0, JOB_ANALYSIS_CAPS.mustHave)
+  // The job's requirements only. Blockers and gaps are about this candidate and
+  // this run, so they go to risks: putting them here would carry them into the
+  // next run's `existing` and pile up after they're resolved.
+  const mustHave = unique(baseMust).slice(0, JOB_ANALYSIS_CAPS.mustHave)
 
   const niceToHave = unique(baseNice)
     .filter((n) => !mustHave.some((m) => m.toLowerCase() === n.toLowerCase()))

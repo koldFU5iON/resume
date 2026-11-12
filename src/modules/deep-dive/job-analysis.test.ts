@@ -29,7 +29,7 @@ describe('reportToJobAnalysis', () => {
     expect(JobAnalysisSchema.parse(a)).toEqual(a)
   })
 
-  it('without facts, keeps the existing analysis requirements and adds open blockers and gaps', () => {
+  it('without facts, keeps the existing analysis requirements; blockers and gaps go to risks only', () => {
     const existing = { mustHave: ['Pricing strategy'], niceToHave: ['Marketplaces'], risks: [], positioningStrategy: 'Old.' }
     const a = reportToJobAnalysis(report({
       blockers: [
@@ -38,9 +38,28 @@ describe('reportToJobAnalysis', () => {
       ],
       gaps: [{ requirement: 'Go experience', closability: 'closable_later', action: 'Ship a Go service.', weeksToClose: 6, evidence: [] }],
     }), null, existing)!
-    expect(a.mustHave).toEqual(['Pricing strategy', 'Right to work in the UK', 'Go experience'])
+    expect(a.mustHave).toEqual(['Pricing strategy'])
     expect(a.niceToHave).toEqual(['Marketplaces'])
+    expect(a.risks.map((r) => r.risk)).toEqual(['Right to work in the UK', 'Go experience'])
     expect(a.positioningStrategy).toBe('Lead with delivery.')
+  })
+
+  it('does not carry resolved blockers or gaps into the next run', () => {
+    const first = reportToJobAnalysis(report({
+      blockers: [{ label: 'Security clearance', status: 'hard', fromEarlyAssessment: false, reason: 'Required.', evidence: [] }],
+      gaps: [{ requirement: 'Kubernetes', closability: 'closable_later', action: 'Learn it.', weeksToClose: 8, evidence: [] }],
+    }), null, { mustHave: ['Pricing strategy'], niceToHave: [], risks: [], positioningStrategy: '' })!
+    const second = reportToJobAnalysis(report(), null, first)!
+    expect(second.mustHave).toEqual(['Pricing strategy'])
+    expect(second.risks).toEqual([])
+  })
+
+  it('keeps hard blockers in risks even with a long requirement list', () => {
+    const many = Array.from({ length: 14 }, (_, i) => ({ text: `Req ${i}`, importance: 'must' }))
+    const a = reportToJobAnalysis(report({
+      blockers: [{ label: 'UK security clearance', status: 'hard', fromEarlyAssessment: false, reason: 'Required.', evidence: [] }],
+    }), { requirements: many }, null)!
+    expect(a.risks[0]).toMatchObject({ risk: 'UK security clearance', severity: 'high' })
   })
 
   it('returns null with neither facts nor an existing analysis, so CV generation runs analyseJob', () => {

@@ -336,7 +336,7 @@ function PracticalitiesSection({ p }: { p: DeepDiveReport['practicalities'] }) {
 
 function CvStrategySection({ s }: { s: DeepDiveReport['cvStrategy'] }) {
   return (
-    <Section id="cv-strategy" title="CV strategy" hint="Saved to the job's analysis, so CV generation and cover letters use it.">
+    <Section id="cv-strategy" title="CV strategy">
       <p className="max-w-[68ch] text-base leading-relaxed text-pretty">{s.positioning}</p>
       <div className="mt-6 grid gap-x-10 gap-y-6 md:grid-cols-2">
         {s.leadWith.length > 0 && (

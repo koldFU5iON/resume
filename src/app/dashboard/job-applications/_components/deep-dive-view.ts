@@ -4,12 +4,10 @@
  */
 
 import type { DeepDiveAccess } from "@/modules/deep-dive/access"
-import type { DeepDiveStatus, Verdict } from "@/modules/deep-dive/schema"
-
-export const ACTIVE_DEEP_DIVE_STATUSES: readonly DeepDiveStatus[] = ['queued', 'gathering', 'researching', 'synthesising']
+import { ACTIVE_STATUSES, type DeepDiveStatus, type Verdict } from "@/modules/deep-dive/schema"
 
 export function isDeepDiveActive(status: DeepDiveStatus | null | undefined): boolean {
-  return !!status && ACTIVE_DEEP_DIVE_STATUSES.includes(status)
+  return !!status && (ACTIVE_STATUSES as readonly DeepDiveStatus[]).includes(status)
 }
 
 export function deepDiveHref(jobId: string, runId?: string | null): string {

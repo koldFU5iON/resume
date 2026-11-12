@@ -53,11 +53,6 @@ const OPEN_PRIORITY: ApplicationStatusType[] = [
 
 const CLOSED_SET: ReadonlySet<string> = new Set(ClosedStatuses)
 
-/** The legacy JobFit as the row shows it: hidden (null) once the job has a complete deep dive. */
-function legacyFit(job: Job): Job['jobFit'] {
-  return job.deepDive?.hasReport ? null : job.jobFit
-}
-
 export function JobList({ jobs, hasLLMKey, deepDiveAccess, earlyEnabled = false, openCreate, initialCreateUrl }: {
   jobs: Job[]
   hasLLMKey: boolean
@@ -182,7 +177,7 @@ export function JobList({ jobs, hasLLMKey, deepDiveAccess, earlyEnabled = false,
     // The deprecated JobFit filter applies only while the early assessment is off.
     if (!earlyEnabled && filter.fit.size > 0) {
       result = result.filter(j => {
-        const label = legacyFit(j)?.label ?? 'none'
+        const label = j.jobFit?.label ?? 'none'
         return filter.fit.has(label as JobFit['label'] | 'none')
       })
     }
@@ -215,7 +210,7 @@ export function JobList({ jobs, hasLLMKey, deepDiveAccess, earlyEnabled = false,
           cmp = (a.company ?? '').localeCompare(b.company ?? '')
           break
         case 'fitRating':
-          cmp = (legacyFit(a)?.rating ?? -1) - (legacyFit(b)?.rating ?? -1)
+          cmp = (a.jobFit?.rating ?? -1) - (b.jobFit?.rating ?? -1)
           break
         case 'earlyScore': {
           const aVal = earlySortValue(a.earlyAssessment)

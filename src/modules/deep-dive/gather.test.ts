@@ -83,9 +83,12 @@ describe('searchProfileSuggestions', () => {
 
 describe('salaryFloorFromNotes', () => {
   it('reads salary figures after a floor phrase', () => {
-    expect(salaryFloorFromNotes('Not worth it below 85,000')).toBe(85000)
-    expect(salaryFloorFromNotes('minimum £90k')).toBe(90000)
-    expect(salaryFloorFromNotes('less than $120,000 is a no')).toBe(120000)
+    expect(salaryFloorFromNotes('Not worth it below 85,000')).toEqual({ amount: 85000, currency: 'GBP' })
+    expect(salaryFloorFromNotes('minimum £90k')).toEqual({ amount: 90000, currency: 'GBP' })
+    expect(salaryFloorFromNotes('less than $120,000 is a no')).toEqual({ amount: 120000, currency: 'USD' })
+    expect(salaryFloorFromNotes('minimum salary £90k')).toEqual({ amount: 90000, currency: 'GBP' })
+    expect(salaryFloorFromNotes('Minimum expected: 85,000')).toEqual({ amount: 85000, currency: 'GBP' })
+    expect(salaryFloorFromNotes('not worth it below €95k')).toEqual({ amount: 95000, currency: 'EUR' })
   })
 
   it('ignores numbers that are not salaries', () => {

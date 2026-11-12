@@ -105,16 +105,16 @@ Not covered: the early-assessment path (no Jev assessments on the local test job
 
 ## `jobAnalysis` from the report
 
-A complete run writes `JobApplication.jobAnalysis` and `jobAnalysedAt` (`reportToJobAnalysis`, `job-analysis.ts`), so CV generation, cover letters, the writing guide and career-vertical use it without another call:
+A complete run writes `JobApplication.jobAnalysis` and `jobAnalysedAt` (`reportToJobAnalysis`, `job-analysis.ts`) when it has requirements to base it on, so CV generation, cover letters, the writing guide and career-vertical use it without another call:
 
 | Field | From | Cap |
 |---|---|---|
-| `mustHave` | The early assessment's must requirements, then open blockers, then gap requirements (de-duplicated) | 10 |
-| `niceToHave` | The early assessment's nice requirements | 8 |
+| `mustHave` | The early assessment's must requirements, else the job's existing `jobAnalysis.mustHave` | 10 |
+| `niceToHave` | The early assessment's nice requirements, else the existing `niceToHave` | 8 |
 | `risks` | Open blockers (hard → high, confirm with recruiter → medium) and gaps (not closable → high, later → medium, now → low), most serious first | 6 |
 | `positioningStrategy` | `cvStrategy.positioning`, plus "Lead with" and "Play down" | |
 
-The caps match the `JobAnalysisSchema` descriptions (#362).
+The caps match the `JobAnalysisSchema` descriptions (#362). Blockers and gaps go to `risks` only, never `mustHave`: they're about this run, and putting them in the requirement lists would carry resolved ones into the next run. With no facts and no existing analysis nothing is written, so CV generation still runs `analyseJob` for the full requirements.
 
 ## Retired: `assessJobFit`
 
