@@ -1,6 +1,6 @@
 # Job Deep Dive — Design Spec
 
-**Status:** Design agreed in discussion on 2026-11-11, not yet built.
+**Status:** Design agreed in discussion on 2026-11-11. Steps 2–3 merged; step 4 (backend) built in #360, see `docs/deep-dive.md`. Step 5 (UI) not built.
 **Depends on:** #345 (LLM usage → job attribution), merged in #347: `attribution: { jobApplicationId, cvDocumentId, runId }` on LLM calls, plus `serverToolCalls`, cache tokens and failed-call rows on `LlmUsageLog`.
 **Related:** `2026-11-10-jev-early-assessment-design.md` (the early assessment this builds on), `2026-11-11-profile-map-design.md` (the evidence links the report cites).
 
@@ -96,7 +96,7 @@ Feature code declares **what kind of work** a call is. The LLM layer picks the m
 
 | Provider | Mapping | Live test |
 |---|---|---|
-| Anthropic | `webSearch_20260209` + `webFetch_20260209`, `maxUses` and `allowedDomains` on both | Not yet: no key in the build environment |
+| Anthropic | `webSearch_20260209` + `webFetch_20260209`, `maxUses` and `allowedDomains` on both | Yes, with the deep dive (#360, 2026-11-11): Sonnet 5.5 and Haiku 5.5 |
 | OpenAI | `webSearch` with `filters.allowedDomains`; no per-call use limit, so `maxUses` isn't enforced | Not yet: no key |
 | Google | `googleSearch`; no use limit or domain filter; searches counted from `groundingMetadata.webSearchQueries` | Not yet: no key |
 
@@ -349,7 +349,7 @@ Each array has a maximum length so the report stays readable: blockers 8, gaps 1
   - With no LLM key, the button shows the reason and a link to settings, the same as today's `disabledReason`
   - With a key whose provider has no supported web search, the button still runs, and says "No web research with your provider"
 - **On the job page** (`view/[id]`): a **Deep dive** entry in the sidebar showing the verdict chip, next to the early assessment.
-- **Usage page.** `deep-dive:research:company`, `deep-dive:research:pay`, `deep-dive:research:practicalities`, `deep-dive:structure` and `deep-dive:synthesis` are added to `FEATURE_LABELS`. Each run's total cost appears on the deep-dive page, using #345's `runId` summary.
+- **Usage page.** `deep-dive-research-company`, `deep-dive-research-pay`, `deep-dive-research-practicalities`, `deep-dive-structure` and `deep-dive-synthesis` are added to `FEATURE_LABELS`. Each run's total cost appears on the deep-dive page, using #345's `runId` summary.
 
 ## 8. Routes and execution
 
@@ -366,7 +366,9 @@ Each array has a maximum length so the report stays readable: blockers 8, gaps 1
 - **Time budget:** gather < 2s, research (parallel) ≤ 120s, synthesis ≤ 120s.
   - A researcher over budget is cut and marked `timeout`, and the run continues.
   - A synthesis over budget fails the run with `timeout`.
+  - As built: the whole run also has one 280s deadline (under the route's 300s) capping research and both synthesis attempts, so a run always ends on its row.
   - If real runs often go past ~240s, move the pipeline to Vercel Workflow, one step per stage. The module boundary allows it.
+- **As built (#360):** a start past the per-profile limit is refused (`429`), not queued. `inputsHash` is nullable and set by the gather stage. `wrong_provider` isn't used: a provider without web search runs with research skipped.
 - **Rows left behind:** a row stuck in a running status for over 10 minutes is shown as failed (`timeout`), using the same stale rule as `IN_PROGRESS_STALE_MS`.
 
 **Module layout:** `src/modules/deep-dive/`
@@ -382,18 +384,18 @@ No model ids appear in this module.
 
 Separately, `src/modules/companies/` holds `match.ts`, `sponsor-register.ts` and `queries.ts`.
 
-## 9. Cost (estimate, user's key)
+## 9. Cost (measured on Anthropic, user's key)
 
-Cost depends on which models the user puts in each role. As one example, with Anthropic's mid-tier model for `research`/`fast` ($2/$10 per M) and its top model for `analysis` ($4/$20 per M):
+Measured on 2026-11-11 (#360) on real job postings, with `research` = Sonnet 5.5, `fast` = Haiku 5.5, `analysis` = Opus 5.5. Token costs are estimates from list prices; web search is billed per search by Anthropic on top.
 
-| Stage | Rough tokens | Rough cost (example) |
-|---|---|---|
-| Research ×3 (search + structure) | 3 × ~25k in / ~3k out | ~$0.25 |
-| Web searches | ≤ 13 searches | billed per search by the provider |
-| Synthesis | ~40k in / ~12k out incl. reasoning | ~$0.40 |
-| **Total** | | **~$0.65–$1.00** before searches |
+| Stage | Measured tokens | Time | Cost (tokens) |
+|---|---|---|---|
+| Research ×3 (search + structure) | ~200–260k in / ~15–24k out | 35–60s per researcher, in parallel | ~$0.46–0.60 |
+| Web search + fetch | 23–27 tool calls | | Anthropic's per-search fee |
+| Synthesis | ~10–15k in / ~7–9k out | 58–84s | ~$0.18–0.25 |
+| **Total** | | **~1.5–2.5 min** | **~$0.70–0.85** plus searches |
 
-These are guesses until real runs are measured. With #345 in place, the page shows each run's actual tokens and searches, and this table gets replaced with measured numbers after the first 20 runs. Company research is cached, so a second job at the same company skips the `company` researcher.
+A second job at the same company reuses cached company research and costs about a third less. With Haiku as the research model a run cost about $0.22 in tokens, but its research was much thinner (one pay researcher searched 45 pages and wrote nothing), so Sonnet is the recommended `research` model. OpenAI and Google are out of scope for now.
 
 **Before starting:** the button shows "Uses your own API key" with an estimate. The estimate comes from the per-role models and a pricing table. With no known pricing for a model, it shows "cost unknown" rather than a guess.
 

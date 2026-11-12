@@ -42,6 +42,7 @@ model JobApplication {
   writingDesk         WritingDeskDocument?
   interviewPrepSessions InterviewPrepSession[]
   assessments           JobAssessment[]
+  deepDives             JobDeepDive[]
   llmUsageLogs          LlmUsageLog[]
 
   @@index([profileId])

@@ -50,6 +50,7 @@ model JobAssessment {
 
   profile        Profile        @relation(fields: [profileId], references: [id], onDelete: Cascade)
   jobApplication JobApplication @relation(fields: [jobApplicationId], references: [id], onDelete: Cascade)
+  deepDives      JobDeepDive[]
 
   @@index([jobApplicationId, createdAt])
   @@index([profileId, status])

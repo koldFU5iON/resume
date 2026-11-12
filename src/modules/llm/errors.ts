@@ -95,10 +95,12 @@ export function normalizeLLMError(err: unknown, opts: NormalizeLLMErrorOptions =
     const issues = cause && typeof cause === 'object' && 'issues' in cause
       ? (cause as { issues: unknown }).issues
       : cause
+    // finishReason 'length' means the output was cut off by maxOutputTokens (#359).
+    const finishReason = err instanceof NoObjectGeneratedError ? err.finishReason : undefined
     if (opts.redactInvalidOutput) {
-      console.error('[LLM invalid_output]', { issuePaths: issuePaths(issues) })
+      console.error('[LLM invalid_output]', { finishReason, issuePaths: issuePaths(issues) })
     } else {
-      console.error('[LLM invalid_output]', { rawText: raw, issues })
+      console.error('[LLM invalid_output]', { finishReason, rawText: raw, issues })
     }
     return new LLMError('LLM output did not match the expected schema.', 'invalid_output', err)
   }

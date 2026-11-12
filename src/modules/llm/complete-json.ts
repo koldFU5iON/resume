@@ -15,30 +15,49 @@ export type CompleteJSONResult<T> = {
   finishReason: string
   /** Raw text of the last attempt, for diagnostics on failure. */
   rawText: string
+  /** Model that answered the last attempt. */
+  model: string
 }
 
 export async function completeJSON<T>(
   profileId: string,
   prompt: string,
   schema: z.ZodType<T>,
-  opts: CompleteOptions & { retryMaxOutputTokens?: number },
+  opts: CompleteOptions & {
+    retryMaxOutputTokens?: number
+    /**
+     * Epoch ms both attempts must finish by. Each call's timeout is capped at
+     * the time left, and the retry is skipped with less than
+     * `minRetryMs` (default 30s) left.
+     */
+    deadline?: number
+    minRetryMs?: number
+  },
 ): Promise<CompleteJSONResult<T>> {
-  const budget = opts.maxOutputTokens ?? 8000
-  const retryBudget = opts.retryMaxOutputTokens ?? 16000
+  const { retryMaxOutputTokens, deadline, minRetryMs = 30_000, ...callOpts } = opts
+  const budget = callOpts.maxOutputTokens ?? 8000
+  const retryBudget = retryMaxOutputTokens ?? 16000
+  const timeLeft = () => (deadline === undefined ? Infinity : deadline - Date.now())
+  const timeoutFor = () => {
+    const left = timeLeft()
+    if (left === Infinity) return callOpts.timeoutMs
+    return Math.max(1_000, Math.min(callOpts.timeoutMs ?? left, left))
+  }
 
   const call = (maxOutputTokens: number, retryHint: boolean) =>
     complete(profileId, retryHint ? `${prompt}\n\n== NOTE ==\nYour previous response was cut off before the JSON document was complete. Output the COMPLETE JSON document this time, in one \`\`\`json code block, with nothing truncated.` : prompt, {
-      ...opts,
+      ...callOpts,
       maxOutputTokens,
+      timeoutMs: timeoutFor(),
     })
 
   let result = await call(budget, false)
   let extracted = extractJSON(result.text, schema)
 
-  if (!extracted.ok && result.finishReason === 'length') {
+  if (!extracted.ok && result.finishReason === 'length' && timeLeft() >= minRetryMs) {
     result = await call(retryBudget, true)
     extracted = extractJSON(result.text, schema)
   }
 
-  return { extracted, finishReason: result.finishReason, rawText: result.text }
+  return { extracted, finishReason: result.finishReason, rawText: result.text, model: result.model }
 }

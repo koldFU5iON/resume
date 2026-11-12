@@ -242,6 +242,23 @@ describe('LLM client logging', () => {
     err.mockRestore()
   })
 
+  it('logs finishReason on invalid output, so truncation shows up (#359)', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockGenerateText.mockRejectedValueOnce(new NoObjectGeneratedError({
+      message: 'No object generated: could not parse the response.',
+      cause: new Error('JSON parsing failed'),
+      text: '{"name": "cut',
+      response,
+      usage,
+      finishReason: 'length',
+    }))
+    await expect(completeStructured('profile-1', 'hello', z.object({ n: z.number() }), {
+      feature: 'deep-dive-synthesis', redactInvalidOutput: true,
+    })).rejects.toMatchObject({ kind: 'invalid_output' })
+    expect(err.mock.calls[0]?.[1]).toMatchObject({ finishReason: 'length' })
+    err.mockRestore()
+  })
+
   it('passes an abort signal when timeoutMs is set, and none otherwise', async () => {
     await completeStructured('profile-1', 'hello', z.object({ name: z.string() }), { feature: 'x', timeoutMs: 30_000 })
     expect(mockGenerateText.mock.calls[0][0].abortSignal).toBeInstanceOf(AbortSignal)
@@ -357,6 +374,30 @@ describe('web search', () => {
     expect(mockLogCreate).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ role: 'research', serverToolCalls: 2 }) }),
     )
+  })
+
+  it('returns URL sources, deduplicated, and an empty list without any', async () => {
+    mockFindUnique.mockResolvedValueOnce({ ...fakeSettings } as never)
+    mockGenerateText.mockResolvedValueOnce({
+      text: 'found',
+      finishReason: 'stop',
+      usage,
+      sources: [
+        { type: 'source', sourceType: 'url', id: '1', url: 'https://a.example/x', title: 'A' },
+        { type: 'source', sourceType: 'url', id: '2', url: 'https://a.example/x' },
+        { type: 'source', sourceType: 'document', id: '3', mediaType: 'application/pdf', title: 'Doc' },
+        { type: 'source', sourceType: 'url', id: '4', url: 'https://b.example/' },
+      ],
+    } as never)
+    const res = await complete('profile-1', 'find', { feature: 'x', role: 'research', webSearch: { maxUses: 1 } })
+    expect(res.sources).toEqual([
+      { url: 'https://a.example/x', title: 'A' },
+      { url: 'https://b.example/', title: null },
+    ])
+
+    mockFindUnique.mockResolvedValueOnce({ ...fakeSettings } as never)
+    const plain = await complete('profile-1', 'hi', { feature: 'x' })
+    expect(plain.sources).toEqual([])
   })
 
   it('counts Google grounding queries from provider metadata', async () => {
