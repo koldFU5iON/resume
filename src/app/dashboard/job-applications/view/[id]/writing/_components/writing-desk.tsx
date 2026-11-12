@@ -532,11 +532,15 @@ export function WritingDesk({
     try {
       const result = await deleteWritingDeskDocumentAction({ jobId: desk.jobApplication.id, documentId: desk.id }, { openNext: true })
       if (result.ok) return null
-      deletingRef.current = false
       if (result.reason === "not_found") {
-        // Already gone (another tab): the page reloads to its not-found state.
+        // Already gone (another tab): stop saving to a document that no longer
+        // exists, drop its recovery copy, and reload to the not-found state.
+        pendingValueRef.current = null
+        clearRecovery(recoveryKey)
         router.refresh()
+        return result.message
       }
+      deletingRef.current = false
       resumeSaving()
       return result.message
     } catch (error) {

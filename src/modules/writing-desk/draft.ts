@@ -274,8 +274,9 @@ export async function createDraft(
 
   if (!written) {
     const fresh = await findDeskById(profileId, desk.id)
-    if (fresh?.documentType && fresh.documentType !== DRAFT_DOCUMENT_TYPE) return fail("wrong_document_type")
-    if (fresh?.draftContent != null) return fail("draft_exists")
+    if (!fresh) return fail("document_not_found") // deleted since it was resolved
+    if (fresh.documentType && fresh.documentType !== DRAFT_DOCUMENT_TYPE) return fail("wrong_document_type")
+    if (fresh.draftContent != null) return fail("draft_exists")
     return fail("conflict")
   }
 

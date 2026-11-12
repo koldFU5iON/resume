@@ -389,7 +389,7 @@ function OldSystemMenuItem({ items }: { items: NavItem[] }) {
       <SidebarMenuButton
         isActive={activeItem !== null && !open}
         aria-expanded={open}
-        aria-controls={listId}
+        aria-controls={open ? listId : undefined}
         onClick={() => setOpen(value => !value)}
       >
         <History />
