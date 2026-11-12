@@ -1,3 +1,4 @@
+import { cache } from "react"
 /**
  * Read side of the deep dive: the newest run of a job as a view model.
  * A run stuck in an active status past DEEP_DIVE_STALE_MS reads as failed /
@@ -224,7 +225,7 @@ export async function getDeepDiveSummaries(profileId: string, jobIds: readonly s
 }
 
 /** Summary for one of the profile's jobs, or null when it has no run. */
-export async function getDeepDiveSummary(profileId: string, jobId: string): Promise<DeepDiveSummary | null> {
+async function getDeepDiveSummaryUncached(profileId: string, jobId: string): Promise<DeepDiveSummary | null> {
   return (await getDeepDiveSummaries(profileId, [jobId]))[jobId] ?? null
 }
 
@@ -246,3 +247,7 @@ export async function listDeepDiveRuns(profileId: string, jobId: string): Promis
     createdAt: r.createdAt,
   }))
 }
+
+
+/** Deduplicated per request: the job workspace layout and its pages both call this. */
+export const getDeepDiveSummary = cache(getDeepDiveSummaryUncached)

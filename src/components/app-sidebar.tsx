@@ -13,6 +13,7 @@ import {
   SidebarMenuItem,
   SidebarRail,
   SidebarSeparator,
+  useSidebar,
 } from "@/components/ui/sidebar"
 import {
   DropdownMenu,
@@ -28,9 +29,17 @@ import {
   Coins,
   LogOut,
   MessageSquareWarning,
+  Moon,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Plus,
+  Search,
   Settings,
+  Sparkles,
+  Sun,
   User,
 } from "lucide-react"
+import { useTheme } from "next-themes"
 import Link from "next/link"
 import { useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
@@ -50,26 +59,14 @@ export function AppSidebar({ activeJobs, suggestionCount }: { activeJobs: Active
   return (
     <Sidebar collapsible="icon" variant="sidebar">
       <SidebarHeader>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <Link href="/dashboard">
-              {/* tooltip={brand.name} is the accessible label when the sidebar is collapsed — keep it */}
-              <SidebarMenuButton size="lg" tooltip={brand.name}>
-                <div className="flex aspect-square size-8 items-center justify-center">
-                  <CurrntIcon size={22} />
-                </div>
-                <div className="flex flex-col text-left">
-                  <Wordmark size="sm" />
-                </div>
-              </SidebarMenuButton>
-            </Link>
-          </SidebarMenuItem>
-        </SidebarMenu>
+        <SidebarBrand />
       </SidebarHeader>
 
       <SidebarSeparator />
 
       <SidebarContent>
+        <SidebarUtilities />
+
         {navGroups.map((group) => (
           <SidebarGroup key={group.label}>
             <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
@@ -105,6 +102,8 @@ export function AppSidebar({ activeJobs, suggestionCount }: { activeJobs: Active
 
       <SidebarFooter>
         <SidebarMenu>
+          <CoachButton />
+          <ThemeButton />
           <FeedbackButton />
           <SidebarMenuItem>
             <UserMenu />
@@ -117,8 +116,126 @@ export function AppSidebar({ activeJobs, suggestionCount }: { activeJobs: Active
   )
 }
 
+/** Closes the phone drawer; a no-op on desktop. */
+function useCloseMobileSidebar() {
+  const { isMobile, setOpenMobile } = useSidebar()
+  return () => { if (isMobile) setOpenMobile(false) }
+}
+
+/**
+ * currnt home link and the sidebar toggle, as two separate targets (#369).
+ * Collapsed (icon mode) they stack vertically so neither covers the other.
+ * In the phone drawer the toggle closes the drawer.
+ */
+function SidebarBrand() {
+  const { isMobile, state, toggleSidebar } = useSidebar()
+  const closeMobile = useCloseMobileSidebar()
+  const expanded = state === "expanded"
+  const toggleLabel = isMobile ? "Close navigation" : expanded ? "Collapse sidebar" : "Expand sidebar"
+  const ToggleIcon = isMobile || expanded ? PanelLeftClose : PanelLeftOpen
+
+  return (
+    <div className="flex items-center gap-1 group-data-[collapsible=icon]:flex-col">
+      <Link
+        href="/dashboard"
+        onClick={closeMobile}
+        aria-label={`${brand.name} home`}
+        title={`${brand.name} home`}
+        className="flex h-10 min-w-0 flex-1 items-center gap-1.5 rounded-md pr-2 text-sidebar-foreground outline-hidden ring-sidebar-ring transition-colors hover:bg-sidebar-accent focus-visible:ring-2 group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:flex-none group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:pr-0"
+      >
+        <span className="flex size-8 shrink-0 items-center justify-center">
+          <CurrntIcon size={22} />
+        </span>
+        <Wordmark size="sm" className="group-data-[collapsible=icon]:hidden" />
+      </Link>
+      <button
+        type="button"
+        onClick={toggleSidebar}
+        aria-label={toggleLabel}
+        aria-expanded={isMobile ? true : expanded}
+        title={isMobile ? toggleLabel : `${toggleLabel} (Ctrl+B)`}
+        className="flex size-8 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/70 outline-hidden ring-sidebar-ring transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 [&_svg]:size-4"
+      >
+        <ToggleIcon aria-hidden="true" />
+      </button>
+    </div>
+  )
+}
+
+/** Search and Add job: global utilities that used to live in the top bar. */
+function SidebarUtilities() {
+  const { setPaletteOpen, setAddJobOpen } = usePageContext()
+  const closeMobile = useCloseMobileSidebar()
+
+  return (
+    <SidebarGroup className="pb-0">
+      <SidebarGroupContent>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              tooltip="Search or jump to (Ctrl+K)"
+              onClick={() => { closeMobile(); setPaletteOpen(true) }}
+              className="border border-sidebar-border text-sidebar-foreground/70 group-data-[collapsible=icon]:border-transparent"
+            >
+              <Search />
+              <span className="flex-1">Search or jump to…</span>
+              <kbd className="pointer-events-none hidden shrink-0 items-center rounded border border-sidebar-border bg-sidebar px-1 font-mono text-[10px] font-medium md:inline-flex">
+                ⌘K
+              </kbd>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton tooltip="Add job" onClick={() => { closeMobile(); setAddJobOpen(true) }}>
+              <Plus />
+              <span>Add job</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarGroupContent>
+    </SidebarGroup>
+  )
+}
+
+function CoachButton() {
+  const { chatOpen, togglePanel } = usePageContext()
+  const closeMobile = useCloseMobileSidebar()
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        isActive={chatOpen}
+        aria-pressed={chatOpen}
+        tooltip="Career Coach (Ctrl+L)"
+        onClick={() => { closeMobile(); togglePanel() }}
+      >
+        <Sparkles />
+        <span>Career Coach</span>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  )
+}
+
+function ThemeButton() {
+  const { resolvedTheme, setTheme } = useTheme()
+  // Both labels and icons render; CSS shows the right pair, so server and
+  // client markup match without a mounted guard.
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        tooltip="Switch theme"
+        onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+      >
+        <Moon className="dark:hidden" />
+        <Sun className="hidden dark:block" />
+        <span className="dark:hidden">Switch to dark</span>
+        <span className="hidden dark:inline">Switch to light</span>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  )
+}
+
 function ActiveJobMenuItem({ job }: { job: ActiveJobForNav }) {
   const pathname = usePathname()
+  const closeMobile = useCloseMobileSidebar()
   const { context } = usePageContext()
   // highlight if on this job's hub page OR if the page context has this job's ID
   const contextJobId = context && 'jobId' in context ? context.jobId : undefined
@@ -132,16 +249,18 @@ function ActiveJobMenuItem({ job }: { job: ActiveJobForNav }) {
 
   return (
     <SidebarMenuItem>
-      <Link href={`/dashboard/job-applications/view/${job.id}`}>
-        <SidebarMenuButton isActive={isActive} tooltip={job.company ? `${job.company} — ${job.title}` : job.title}>
-          <span className="min-w-0 flex-1 truncate text-xs">
-            {job.company ? `${job.company} · ` : ''}{job.title}
-          </span>
-          <span className={cn('shrink-0 rounded px-1 py-0.5 text-[10px] font-medium', statusColour)}>
-            {job.status === 'interviewing' ? 'interview' : 'progress'}
-          </span>
-        </SidebarMenuButton>
-      </Link>
+      <SidebarMenuButton
+        isActive={isActive}
+        tooltip={job.company ? `${job.company} — ${job.title}` : job.title}
+        render={<Link href={`/dashboard/job-applications/view/${job.id}`} onClick={closeMobile} />}
+      >
+        <span className="min-w-0 flex-1 truncate text-xs">
+          {job.company ? `${job.company} · ` : ''}{job.title}
+        </span>
+        <span className={cn('shrink-0 rounded px-1 py-0.5 text-[10px] font-medium', statusColour)}>
+          {job.status === 'interviewing' ? 'interview' : 'progress'}
+        </span>
+      </SidebarMenuButton>
     </SidebarMenuItem>
   )
 }
@@ -181,6 +300,7 @@ function FeedbackButton() {
 
 function NavMenuItem({ destination, label, Icon, badge }: NavItem & { badge?: number }) {
   const pathname = usePathname()
+  const closeMobile = useCloseMobileSidebar()
   const isActive =
     destination === "/dashboard"
       ? pathname === destination
@@ -188,17 +308,15 @@ function NavMenuItem({ destination, label, Icon, badge }: NavItem & { badge?: nu
 
   return (
     <SidebarMenuItem>
-      <Link href={destination}>
-        <SidebarMenuButton isActive={isActive} tooltip={label}>
-          <Icon />
-          <span>{label}</span>
-          {badge && badge > 0 && (
-            <span className="ml-auto flex h-4 w-4 items-center justify-center rounded-full bg-violet-500 text-[9px] font-bold text-white">
-              {badge}
-            </span>
-          )}
-        </SidebarMenuButton>
-      </Link>
+      <SidebarMenuButton isActive={isActive} tooltip={label} render={<Link href={destination} onClick={closeMobile} />}>
+        <Icon />
+        <span>{label}</span>
+        {badge && badge > 0 && (
+          <span className="ml-auto flex h-4 w-4 items-center justify-center rounded-full bg-violet-500 text-[9px] font-bold text-white">
+            {badge}
+          </span>
+        )}
+      </SidebarMenuButton>
     </SidebarMenuItem>
   )
 }

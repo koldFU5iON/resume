@@ -5,8 +5,14 @@ import { Loader2, Link as LinkIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Input } from '@/components/ui/input'
 import { quickCaptureJob } from '@/modules/jobs/quick-capture'
+import { cn } from '@/lib/utils'
 
-export function QuickCaptureInput() {
+export function QuickCaptureInput({ className, autoFocus, onCaptured }: {
+  className?: string
+  autoFocus?: boolean
+  /** Called after a capture attempt finishes (e.g. to close the Add job dialog). */
+  onCaptured?: (ok: boolean) => void
+}) {
   const [value, setValue] = useState('')
   const [isPending, startTransition] = useTransition()
 
@@ -16,6 +22,7 @@ export function QuickCaptureInput() {
     startTransition(async () => {
       const result = await quickCaptureJob(trimmed)
       setValue('')
+      onCaptured?.(result.ok)
       if (result.ok) {
         const href = `/dashboard/job-applications/view/${result.jobId}`
         const fn   = result.duplicate ? toast.info : toast.success
@@ -32,7 +39,7 @@ export function QuickCaptureInput() {
   }
 
   return (
-    <div className="relative hidden sm:flex items-center w-56 lg:w-72">
+    <div className={cn('relative flex w-full items-center', className)}>
       {isPending
         ? <Loader2 className="absolute left-2.5 size-4 shrink-0 text-muted-foreground animate-spin" />
         : <LinkIcon className="absolute left-2.5 size-4 shrink-0 text-muted-foreground" />}
@@ -40,8 +47,9 @@ export function QuickCaptureInput() {
         type="url"
         placeholder="Paste job URL…"
         disabled={isPending}
-        aria-label="Quick-capture job URL"
-        className="pl-8 h-8 text-sm"
+        aria-label="Job URL"
+        autoFocus={autoFocus}
+        className="h-9 pl-8 text-sm"
         value={value}
         onChange={e => setValue(e.target.value)}
         onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); submit(e.currentTarget.value) } }}

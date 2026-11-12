@@ -18,6 +18,12 @@ type PageContextValue = {
   openPanel: () => void
   closePanel: () => void
   togglePanel: () => void
+  /** Command palette (Search or jump to…, Cmd/Ctrl+K). */
+  paletteOpen: boolean
+  setPaletteOpen: (open: boolean | ((open: boolean) => boolean)) => void
+  /** Quick add job dialog. */
+  addJobOpen: boolean
+  setAddJobOpen: (open: boolean) => void
 }
 
 const PageContextCtx = createContext<PageContextValue | null>(null)
@@ -25,6 +31,8 @@ const PageContextCtx = createContext<PageContextValue | null>(null)
 export function PageContextProvider({ children }: { children: ReactNode }) {
   const [context, setContextState] = useState<PageContext | null>(null)
   const [chatOpen, setChatOpen] = useState(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const [addJobOpen, setAddJobOpen] = useState(false)
 
   const setContext = useCallback((ctx: PageContext | null) => setContextState(ctx), [])
   const clearContext = useCallback(() => setContextState(null), [])
@@ -34,7 +42,10 @@ export function PageContextProvider({ children }: { children: ReactNode }) {
 
   return (
     <PageContextCtx.Provider
-      value={{ context, chatOpen, setContext, clearContext, openPanel, closePanel, togglePanel }}
+      value={{
+        context, chatOpen, setContext, clearContext, openPanel, closePanel, togglePanel,
+        paletteOpen, setPaletteOpen, addJobOpen, setAddJobOpen,
+      }}
     >
       {children}
     </PageContextCtx.Provider>

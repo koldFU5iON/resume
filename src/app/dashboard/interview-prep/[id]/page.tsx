@@ -2,8 +2,7 @@
 import { notFound } from 'next/navigation'
 import { requireProfile } from '@/lib/session'
 import { getSession } from '@/modules/interview-prep/queries'
-import { getJobAssets } from '@/modules/jobs/queries'
-import { JobContextNav } from '@/components/job-context-nav'
+import { JobWorkspace } from '@/components/job-workspace/job-workspace'
 import { PrepWorkspace } from './_components/prep-workspace'
 
 type Props = { params: Promise<{ id: string }> }
@@ -13,24 +12,9 @@ export default async function InterviewPrepWorkspacePage({ params }: Props) {
   const session = await getSession(profile.id, id)
   if (!session) notFound()
 
-  const jobAssets = session.jobApplicationId
-    ? await getJobAssets(session.jobApplicationId, profile.id)
-    : null
-
   return (
-    <div className="flex h-full flex-col">
-      {jobAssets && (
-        <JobContextNav
-          jobId={jobAssets.jobId}
-          company={jobAssets.company}
-          title={jobAssets.title}
-          cvDocumentId={jobAssets.cvDocumentId}
-          coverLetterDocumentId={jobAssets.coverLetterDocumentId}
-          interviewPrepSessionId={jobAssets.interviewPrepSessionId}
-          current="prep"
-        />
-      )}
+    <JobWorkspace jobId={session.jobApplicationId} current={{ kind: "interview-prep", id: session.id }}>
       <PrepWorkspace session={session} />
-    </div>
+    </JobWorkspace>
   )
 }

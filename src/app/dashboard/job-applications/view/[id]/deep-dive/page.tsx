@@ -3,7 +3,6 @@ import { notFound } from "next/navigation"
 import { Check, Circle, CircleAlert, Info, Loader2, TriangleAlert } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { requireProfile } from "@/lib/session"
-import { JobContextNav } from "@/components/job-context-nav"
 import { getJobAssets, type JobAssets } from "@/modules/jobs/queries"
 import { getDeepDiveAccess, type DeepDiveAccess } from "@/modules/deep-dive/access"
 import { getDeepDive, listDeepDiveRuns, type DeepDiveRunItem, type DeepDiveView } from "@/modules/deep-dive/queries"
@@ -51,15 +50,6 @@ export default async function DeepDivePage({
 
   return (
     <div>
-      <JobContextNav
-        jobId={assets.jobId}
-        company={assets.company}
-        title={assets.title}
-        cvDocumentId={assets.cvDocumentId}
-        coverLetterDocumentId={assets.coverLetterDocumentId}
-        interviewPrepSessionId={assets.interviewPrepSessionId}
-        current="deep-dive"
-      />
       <AssessmentPoller signature={deepDiveSignature(latest)} />
 
       <div>

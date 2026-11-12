@@ -300,6 +300,7 @@ export async function restoreJobApplication(id: string): Promise<void> {
     data: { archivedAt: null },
   })
   revalidatePath('/dashboard/job-applications')
+  revalidatePath(`/dashboard/job-applications/view/${id}`)
 }
 
 export async function getArchivedJobsAction(): Promise<Job[]> {

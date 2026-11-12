@@ -19,6 +19,7 @@ import type { PageContext } from '@/modules/chat/schema'
 import { getChatSettings, saveChatModel } from '@/modules/llm/actions'
 import { splitThinkingContent } from '@/modules/chat/thinking'
 import { ChatMessage } from './chat-message'
+import { COACH_PANEL_CLASSES } from './coach-panel'
 import { toast } from 'sonner'
 
 type ChatSettings = {
@@ -321,10 +322,7 @@ export function ChatPanel({ open, onClose }: ChatPanelProps) {
 
   return (
     <aside
-      className={cn(
-        'flex h-full w-full flex-col border-l bg-background',
-        'fixed inset-y-0 right-0 z-40 max-w-sm shadow-lg md:static md:z-auto md:w-[28rem] md:max-w-none md:shadow-none lg:w-[36rem] xl:w-[44rem]',
-      )}
+      className={COACH_PANEL_CLASSES}
       aria-label="Career coach assistant"
     >
       <header className="flex h-14 shrink-0 items-center justify-between border-b px-4">
@@ -389,7 +387,7 @@ export function ChatPanel({ open, onClose }: ChatPanelProps) {
         )
       })()}
 
-      <div className="flex flex-1 flex-col overflow-y-auto">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden">
         {messages.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
             <div className="flex size-10 items-center justify-center rounded-full bg-muted">

@@ -1,9 +1,13 @@
+import { cache } from "react"
 import type { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db"
 import { ApplicationStatus, type ApplicationStatusType, type Job } from "@/app/types/job-application"
 import { requireProfile } from "@/lib/session"
-import { getEarlyAssessmentForJob, getEarlyAssessmentsForJobs } from "@/modules/job-assessment/queries"
+import { getEarlyAssessmentForJob, getEarlyAssessmentsForJobs, isEarlyAssessmentEnabled, type AssessmentView } from "@/modules/job-assessment/queries"
 import { getDeepDiveSummaries, getDeepDiveSummary, type DeepDiveSummary } from "@/modules/deep-dive/queries"
+import { getDeepDiveAccess, type DeepDiveAccess } from "@/modules/deep-dive/access"
+import { WritingDeskDocumentTypeSchema } from "@/modules/writing-desk/schema"
+import type { JobDocumentAssets } from "@/modules/jobs/workspace-nav"
 
 /**
  * The legacy JobFit as the UI shows it: hidden (null) once the job has a
@@ -223,6 +227,94 @@ export async function getJobAssets(jobId: string, profileId: string): Promise<Jo
   }
 }
 
+export type JobWorkspace = {
+  jobId: string
+  title: string
+  company: string | null
+  url: string | null
+  status: ApplicationStatusType
+  archivedAt: Date | null
+  /** Newest early assessment; null when there is none or the feature is off for the user. */
+  earlyAssessment: AssessmentView | null
+  earlyEnabled: boolean
+  deepDive: DeepDiveSummary | null
+  deepDiveAccess: DeepDiveAccess
+  assets: JobDocumentAssets
+}
+
+/**
+ * What the persistent job workspace header and document navigation need
+ * (#369): identity, status, archive state, fit/Deep Dive access and the job's
+ * documents. Scoped to the profile; null when the job isn't theirs.
+ */
+async function getJobWorkspaceUncached(profileId: string, jobId: string): Promise<JobWorkspace | null> {
+  const job = await prisma.jobApplication.findFirst({
+    where: { id: jobId, profileId },
+    select: {
+      id: true,
+      title: true,
+      company: true,
+      url: true,
+      status: true,
+      archivedAt: true,
+      cvDocuments: { select: { id: true }, take: 1, orderBy: { createdAt: 'desc' } },
+      coverLetters: { select: { id: true }, take: 1, orderBy: { updatedAt: 'desc' } },
+      interviewPrepSessions: { select: { id: true }, take: 1, orderBy: { createdAt: 'desc' } },
+      writingDesk: { select: { documentType: true } },
+    },
+  })
+  if (!job) return null
+
+  const [earlyAssessment, earlyEnabled, deepDive, deepDiveAccess] = await Promise.all([
+    getEarlyAssessmentForJob(profileId, jobId),
+    isEarlyAssessmentEnabled(profileId),
+    getDeepDiveSummary(profileId, jobId),
+    getDeepDiveAccess(profileId),
+  ])
+  const deskType = WritingDeskDocumentTypeSchema.safeParse(job.writingDesk?.documentType)
+
+  return {
+    jobId: job.id,
+    title: job.title,
+    company: job.company,
+    url: job.url,
+    status: job.status as ApplicationStatusType,
+    archivedAt: job.archivedAt,
+    earlyAssessment,
+    earlyEnabled,
+    deepDive,
+    deepDiveAccess,
+    assets: {
+      jobId: job.id,
+      cvDocumentId: job.cvDocuments[0]?.id ?? null,
+      coverLetterDocumentId: job.coverLetters[0]?.id ?? null,
+      interviewPrepSessionId: job.interviewPrepSessions[0]?.id ?? null,
+      writingDeskType: deskType.success ? deskType.data : null,
+    },
+  }
+}
+
+export type JobContactItem = { id: string; name: string; role: string | null; email: string | null; linkedIn: string | null; notes: string | null }
+export type JobEventItem = { id: string; type: string; title: string; description: string | null; scheduledAt: Date | null; completedAt: Date | null; createdAt: Date }
+
+/** The job's contacts and events (newest first), for the Job Description's history section. Scoped to the profile. */
+export async function getJobContactsAndEvents(profileId: string, jobId: string): Promise<{ contacts: JobContactItem[]; events: JobEventItem[] }> {
+  const where = { applicationId: jobId, application: { profileId } }
+  const [contacts, events] = await Promise.all([
+    prisma.applicationContact.findMany({
+      where,
+      select: { id: true, name: true, role: true, email: true, linkedIn: true, notes: true },
+      orderBy: { name: 'asc' },
+    }),
+    prisma.applicationEvent.findMany({
+      where,
+      select: { id: true, type: true, title: true, description: true, scheduledAt: true, completedAt: true, createdAt: true },
+      orderBy: { createdAt: 'desc' },
+    }),
+  ])
+  return { contacts, events }
+}
+
 export type AgentJobInclude = 'active' | 'rejected' | 'archived' | 'all'
 
 export type AgentJobSummary = {
@@ -321,3 +413,7 @@ export async function getArchivedJobs(): Promise<Job[]> {
     interviewPrepSessionId: j.interviewPrepSessions[0]?.id ?? null,
   })) as Job[]
 }
+
+
+/** Deduplicated per request: the job workspace layout and its pages both call this. */
+export const getJobWorkspace = cache(getJobWorkspaceUncached)
