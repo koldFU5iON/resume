@@ -42,7 +42,7 @@ export function AppControls({ id, cvDocumentId, coverLetterDocumentId, onEdit, o
       >
         <MoreHorizontal size={16} />
       </DropdownMenuTrigger>
-      <DropdownMenuContent className="w-72 max-w-[calc(100vw-1rem)]">
+      <DropdownMenuContent className="w-80 max-w-[calc(100vw-1rem)]">
         <DropdownMenuGroup>
           <DropdownMenuLabel className="text-xs text-muted-foreground">Quick Actions</DropdownMenuLabel>
           <AppControlsItem
@@ -148,7 +148,7 @@ function AppControlsItem({ Icon, color, label, deprecated, action, onSelect, dis
   const content = (
     <>
       {Icon && <Icon color={color} className="size-4" />}
-      <span className="flex-1">{label}</span>
+      <span className="flex-1 whitespace-nowrap">{label}</span>
       {deprecated && <DeprecatingSoonBadge />}
       {shortcut && <DropdownMenuShortcut>{shortcut}</DropdownMenuShortcut>}
     </>
