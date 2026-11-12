@@ -181,12 +181,17 @@ export function UsageLog({ stats }: { stats: UserUsageSummary }) {
                         className="py-1.5 text-right tabular-nums text-xs text-muted-foreground"
                         title={r.estimateComplete ? undefined : 'Partial: some models have no known price, or web searches were billed per call'}
                       >
-                        {r.estimateComplete ? formatUsd(r.estimatedCostUsd) : `${formatUsd(r.estimatedCostUsd)}+`}
+                        {r.estimateComplete
+                          ? formatUsd(r.estimatedCostUsd)
+                          : r.estimatedCostUsd === 0 && r.unpricedModels.length > 0
+                            ? 'Not priced'
+                            : `${formatUsd(r.estimatedCostUsd)}+`}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+              <UnpricedNote models={stats.byRole.flatMap(r => r.unpricedModels)} />
             </div>
           )}
 
@@ -236,5 +241,20 @@ export function UsageLog({ stats }: { stats: UserUsageSummary }) {
         </>
       )}
     </div>
+  )
+}
+
+/** Names the models the estimate leaves out, so "Not priced" and "+" are explained. */
+function UnpricedNote({ models }: { models: string[] }) {
+  const unpriced = [...new Set(models)].sort()
+  if (unpriced.length === 0) return null
+  return (
+    <p className="mt-3 text-xs text-muted-foreground">
+      No list price yet for{' '}
+      {unpriced.map((m, i) => (
+        <span key={m}>{i > 0 && ', '}<code className="font-mono">{m}</code></span>
+      ))}
+      , so those calls aren&apos;t in the estimate. A &ldquo;+&rdquo; means the real cost is higher.
+    </p>
   )
 }

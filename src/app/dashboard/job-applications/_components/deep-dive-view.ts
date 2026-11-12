@@ -6,6 +6,9 @@
 import type { DeepDiveAccess } from "@/modules/deep-dive/access"
 import { ACTIVE_STATUSES, type DeepDiveStatus, type Verdict } from "@/modules/deep-dive/schema"
 
+// Shared with the Markdown report (the coach and Copy as Markdown use it too).
+export { VERDICT_LABEL, formatMoney, hostOf } from "@/modules/deep-dive/report-text"
+
 export function isDeepDiveActive(status: DeepDiveStatus | null | undefined): boolean {
   return !!status && (ACTIVE_STATUSES as readonly DeepDiveStatus[]).includes(status)
 }
@@ -18,13 +21,6 @@ export function deepDiveHref(jobId: string, runId?: string | null): string {
 /** Poller signature: '' when nothing is running (AssessmentPoller stops). */
 export function deepDiveSignature(run: { id: string; status: DeepDiveStatus } | null | undefined): string {
   return run && isDeepDiveActive(run.status) ? `${run.id}:${run.status}` : ''
-}
-
-export const VERDICT_LABEL: Record<Verdict, string> = {
-  apply: 'Apply',
-  apply_with_caveats: 'Apply, with caveats',
-  long_shot: 'Long shot',
-  dont_apply: "Don't apply",
 }
 
 /** Tinted status colours (DESIGN.md): meaning, not brand. Always paired with a label. */
@@ -84,29 +80,4 @@ export function researchNote(access: Pick<DeepDiveAccess, 'research' | 'provider
 export function formatRunCost(usd: number, complete: boolean): string {
   const amount = usd > 0 && usd < 0.01 ? 'under $0.01' : `$${usd.toFixed(2)}`
   return complete ? amount : `${amount} + web searches`
-}
-
-/**
- * Host of an http(s) URL ("monzo.com"), or null when unreadable or another
- * scheme. Source URLs are model output from web content, so only http(s)
- * links are rendered (callers link only when this is non-null).
- */
-export function hostOf(url: string | null | undefined): string | null {
-  if (!url) return null
-  try {
-    const u = new URL(url)
-    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null
-    return u.hostname.replace(/^www\./, '') || null
-  } catch {
-    return null
-  }
-}
-
-/** Money with its currency, no decimals: "£85,000". Unknown currency codes fall back to "85,000 XYZ". */
-export function formatMoney(amount: number, currency: string): string {
-  try {
-    return new Intl.NumberFormat('en-GB', { style: 'currency', currency, maximumFractionDigits: 0 }).format(amount)
-  } catch {
-    return `${Math.round(amount).toLocaleString('en-GB')} ${currency}`
-  }
 }

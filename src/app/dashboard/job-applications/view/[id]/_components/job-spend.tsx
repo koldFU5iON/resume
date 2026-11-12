@@ -21,7 +21,11 @@ export function JobSpendCard({ spend }: { spend: JobSpend }) {
           <p className="text-xs font-medium">AI spend on this job</p>
         </div>
         <p className="text-sm font-medium tabular-nums">
-          {yourKey.requests > 0 ? formatRunCost(yourKey.estimatedCostUsd, yourKey.estimateComplete) : '$0.00'}
+          {yourKey.requests === 0
+            ? '$0.00'
+            : yourKey.estimatedCostUsd === 0 && yourKey.unpricedModels.length > 0
+              ? 'Not priced'
+              : formatRunCost(yourKey.estimatedCostUsd, yourKey.estimateComplete)}
         </p>
         <p className="text-xs text-muted-foreground tabular-nums">
           On your API key · {yourKey.requests} call{yourKey.requests === 1 ? '' : 's'}
@@ -38,12 +42,18 @@ export function JobSpendCard({ spend }: { spend: JobSpend }) {
                   <span className="tabular-nums"> ×{f.requests}</span>
                 </span>
                 <span className="shrink-0 tabular-nums">
-                  {f.estimatedCostUsd > 0 && f.estimatedCostUsd < 0.01 ? '<$0.01' : `$${f.estimatedCostUsd.toFixed(2)}`}
-                  {!f.estimateComplete && '+'}
+                  {f.estimatedCostUsd === 0 && !f.estimateComplete
+                    ? '—'
+                    : <>{f.estimatedCostUsd > 0 && f.estimatedCostUsd < 0.01 ? '<$0.01' : `$${f.estimatedCostUsd.toFixed(2)}`}{!f.estimateComplete && '+'}</>}
                 </span>
               </li>
             ))}
           </ul>
+          {yourKey.unpricedModels.length > 0 && (
+            <p className="mt-2 text-muted-foreground">
+              No list price yet for <span className="font-mono">{yourKey.unpricedModels.join(', ')}</span>.
+            </p>
+          )}
           <p className="mt-2 text-muted-foreground">
             Estimated from list prices; &ldquo;+&rdquo; means web searches or unknown usage aren&apos;t priced.{' '}
             <Link href="/dashboard/settings/usage" className="underline underline-offset-2 hover:text-foreground">All usage</Link>
