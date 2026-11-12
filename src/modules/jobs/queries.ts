@@ -178,6 +178,8 @@ export type JobAssets = {
   jobId: string
   company: string | null
   title: string
+  /** The job ad's URL, when known. */
+  url: string | null
   cvDocumentId: string | null
   coverLetterDocumentId: string | null
   interviewPrepSessionId: string | null
@@ -191,6 +193,7 @@ export async function getJobAssets(jobId: string, profileId: string): Promise<Jo
       id: true,
       company: true,
       title: true,
+      url: true,
       cvDocuments: {
         select: { id: true },
         take: 1,
@@ -213,6 +216,7 @@ export async function getJobAssets(jobId: string, profileId: string): Promise<Jo
     jobId: job.id,
     company: job.company,
     title: job.title,
+    url: job.url,
     cvDocumentId: job.cvDocuments[0]?.id ?? null,
     coverLetterDocumentId: job.coverLetters[0]?.id ?? null,
     interviewPrepSessionId: job.interviewPrepSessions[0]?.id ?? null,

@@ -4,7 +4,7 @@
 // from timestamps.
 
 import { prisma } from '@/lib/db'
-import { JEV_FAILED_FEATURE_SUFFIX } from '@/modules/jev/constants'
+import { JEV_FAILED_FEATURE_SUFFIX, JEV_PROVIDER } from '@/modules/jev/constants'
 import { CV_STATUS } from '@/modules/cv/acceptance'
 import {
   estimateRowCostUsd,
@@ -224,4 +224,62 @@ export async function getJobCostSummary(profileId: string, jobId: string): Promi
     prisma.cVDocument.findMany({ where: { profileId, jobApplicationId: jobId }, select: { id: true, status: true, acceptedAt: true, acceptedVia: true } }),
   ])
   return buildJobCostSummary(jobId, rows, cvs)
+}
+
+// ── Spend on one job (job page sidebar) ─────────────────────────────────────
+
+export type JobSpendFeature = {
+  feature: string
+  /** Paid by the app (Jev), not the user's own key. */
+  appBilled: boolean
+  requests: number
+  estimatedCostUsd: number
+  estimateComplete: boolean
+}
+
+export type JobSpend = {
+  /** Calls billed to the user's own LLM key. */
+  yourKey: UsageBucket
+  /** Calls the app pays for (Jev, early assessment). */
+  appBilled: UsageBucket
+  /** Most expensive first. */
+  byFeature: JobSpendFeature[]
+}
+
+/** Pure: a job's attributed rows split by who pays, and by feature. */
+export function buildJobSpend(rows: readonly UsageRow[]): JobSpend {
+  const isApp = (r: UsageRow) => r.provider === JEV_PROVIDER
+  const byFeature = [...groupBy(rows, (r) => `${isApp(r) ? 'app' : 'key'}\u0000${baseFeature(r.feature)}`)]
+    .map(([key, list]): JobSpendFeature => {
+      const b = summarizeRows(list)
+      return {
+        feature: key.slice(key.indexOf('\u0000') + 1),
+        appBilled: key.startsWith('app'),
+        requests: b.requests,
+        estimatedCostUsd: b.estimatedCostUsd,
+        estimateComplete: b.estimateComplete,
+      }
+    })
+    .sort((a, b) => b.estimatedCostUsd - a.estimatedCostUsd || a.feature.localeCompare(b.feature))
+  return {
+    yourKey: summarizeRows(rows.filter((r) => !isApp(r))),
+    appBilled: summarizeRows(rows.filter(isApp)),
+    byFeature,
+  }
+}
+
+/** Estimated spend on one job, across every feature. Null when the job isn't the profile's. */
+export async function getJobSpend(profileId: string, jobId: string): Promise<JobSpend | null> {
+  const job = await prisma.jobApplication.findFirst({ where: { id: jobId, profileId }, select: { id: true } })
+  if (!job) return null
+  const rows = await prisma.llmUsageLog.findMany({
+    where: { profileId, jobApplicationId: jobId },
+    select: {
+      provider: true, model: true, feature: true,
+      promptTokens: true, completionTokens: true,
+      cacheReadTokens: true, cacheWriteTokens: true, serverToolCalls: true,
+      usageKnown: true, status: true, errorKind: true, latencyMs: true, cvDocumentId: true, runId: true,
+    },
+  })
+  return buildJobSpend(rows)
 }

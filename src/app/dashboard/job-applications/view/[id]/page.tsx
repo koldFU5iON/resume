@@ -5,6 +5,7 @@ import { getLLMConfigStatus } from "@/modules/llm/client"
 import { toDeepDiveAccess } from "@/modules/deep-dive/access"
 import { isEarlyAssessmentEnabled } from "@/modules/job-assessment/queries"
 import { getJobSponsorStatus } from "@/modules/companies/queries"
+import { getJobSpend } from "@/modules/llm/job-cost"
 import { JobDetailHeader } from "./_components/job-detail-header"
 import { JobSidebar } from "./_components/job-sidebar"
 import { JobDescriptionPane } from "./_components/job-description-pane"
@@ -32,11 +33,12 @@ export default async function ViewJobPage({
     notFound()
   }
 
-  const [llmConfig, earlyEnabled, sponsor] = await Promise.all([
+  const [llmConfig, earlyEnabled, sponsor, spend] = await Promise.all([
     getLLMConfigStatus(profile.id),
     isEarlyAssessmentEnabled(profile.id),
     // The chip is a nice-to-have: a failed lookup must not break the page.
     getJobSponsorStatus(profile.id, job.id).catch(() => null),
+    getJobSpend(profile.id, job.id).catch(() => null),
   ])
   const hasLLMKey = llmConfig.configured
 
@@ -49,7 +51,7 @@ export default async function ViewJobPage({
 
       {/* Three-column workspace */}
       <div className="grid flex-1 grid-cols-[200px_1fr_1fr] overflow-hidden">
-        <JobSidebar job={job} hasLLMKey={hasLLMKey} earlyEnabled={earlyEnabled} deepDiveAccess={toDeepDiveAccess(llmConfig)} />
+        <JobSidebar job={job} hasLLMKey={hasLLMKey} earlyEnabled={earlyEnabled} deepDiveAccess={toDeepDiveAccess(llmConfig)} spend={spend} />
         <JobDescriptionPane jobDescription={job.jobDescription} />
         <JobNotesPane jobId={job.id} notes={job.notes} notesIncludeInFit={job.notesIncludeInFit} />
       </div>

@@ -20,6 +20,21 @@ import {
   hostOf,
 } from "@/app/dashboard/job-applications/_components/deep-dive-view"
 import { PayScale } from "./pay-scale"
+import {
+  AD_WORDING,
+  BLOCKER_LABEL,
+  CLOSABILITY_LABEL,
+  LIKELIHOOD_LABEL,
+  OUTCOME_LABEL,
+  REGISTER,
+  RESEARCHER_LABEL,
+  SIGNAL_LABEL,
+  WORK_MODE,
+  moneyRange as range,
+  outcomeReason,
+  timeToClose,
+  yesNo,
+} from "./report-text"
 
 /**
  * The deep dive report (spec §6) as a document: one column, sections split by
@@ -197,8 +212,6 @@ export function DeepDiveReportView({ report, research }: { report: DeepDiveRepor
 
 // ── Verdict ─────────────────────────────────────────────────────────────────
 
-const LIKELIHOOD_LABEL = { low: 'Low', medium: 'Medium', high: 'High' } as const
-
 function VerdictSection({ report }: { report: DeepDiveReport }) {
   return (
     <section id="verdict" aria-labelledby="verdict-heading" className="scroll-mt-6 pb-10">
@@ -228,12 +241,6 @@ function VerdictSection({ report }: { report: DeepDiveReport }) {
 }
 
 // ── Pay ─────────────────────────────────────────────────────────────────────
-
-function range(min: number | null, max: number | null, currency: string): string {
-  if (min !== null && max !== null && min !== max) return `${formatMoney(min, currency)} – ${formatMoney(max, currency)}`
-  const one = min ?? max
-  return one !== null ? formatMoney(one, currency) : 'Not stated'
-}
 
 function PaySection({ pay, findingCount }: { pay: DeepDiveReport['pay']; findingCount: number }) {
   return (
@@ -278,25 +285,6 @@ function AskFigure({ label, value, emphasis }: { label: string; value: string; e
 }
 
 // ── Practicalities ──────────────────────────────────────────────────────────
-
-const WORK_MODE = { remote: 'Remote', hybrid: 'Hybrid', onsite: 'On site', unknown: 'Not clear' } as const
-const REGISTER = {
-  licensed: 'Licensed sponsor (Skilled Worker)',
-  licensed_other_route: 'Licensed, but not for Skilled Worker',
-  not_listed: 'Not on the register',
-  unknown: 'Not matched to the register',
-  not_applicable: 'Not a UK job',
-} as const
-const AD_WORDING = {
-  offers: 'Offers sponsorship',
-  not_offered: 'Says no sponsorship',
-  right_to_work_required: 'Asks for existing right to work',
-  silent: "Doesn't say",
-} as const
-
-function yesNo(v: boolean | null): string {
-  return v === null ? 'Not clear' : v ? 'Yes' : 'No'
-}
 
 function PracticalitiesSection({ p }: { p: DeepDiveReport['practicalities'] }) {
   const s = p.sponsorship
@@ -379,25 +367,6 @@ function CvStrategySection({ s }: { s: DeepDiveReport['cvStrategy'] }) {
 }
 
 // ── Sources ─────────────────────────────────────────────────────────────────
-
-const RESEARCHER_LABEL: Record<Researcher, string> = { company: 'Company', pay: 'Pay', practicalities: 'Practicalities' }
-
-const OUTCOME_LABEL = {
-  ok: 'Researched',
-  cached: 'From recent research on this company',
-  skipped: 'Skipped',
-  failed: 'Failed',
-  timeout: 'Ran out of time',
-} as const
-
-/** Plain words for a researcher's skip or failure reason. */
-function outcomeReason(reason: string | null): string | null {
-  if (!reason) return null
-  if (reason === 'no_web_search') return 'your provider has no web search'
-  if (reason.startsWith('no_notes')) return 'the search found nothing it could use'
-  if (reason === 'timeout') return null
-  return reason.replace(/_/g, ' ')
-}
 
 function SourcesSection({ research }: { research: DeepDiveResearch }) {
   return (
@@ -511,28 +480,22 @@ function EvidenceList({ evidence, findingCount }: { evidence: Evidence[]; findin
 
 // ── Shared pieces ───────────────────────────────────────────────────────────
 
-/** "about 6 weeks", or months past 12 weeks ("about 18 months"). */
-export function timeToClose(weeks: number): string {
-  if (weeks <= 12) return `about ${Math.round(weeks)} week${Math.round(weeks) === 1 ? '' : 's'}`
-  return `about ${Math.round(weeks / 4.345)} months`
-}
-
 const BLOCKER_STATUS = {
-  hard: { label: 'Rules you out', Icon: Ban, tone: 'text-destructive' },
-  confirm_with_recruiter: { label: 'Confirm with the recruiter', Icon: CircleAlert, tone: 'text-amber-700 dark:text-amber-400' },
-  cleared: { label: 'Cleared', Icon: CircleCheck, tone: 'text-emerald-700 dark:text-emerald-400' },
+  hard: { label: BLOCKER_LABEL.hard, Icon: Ban, tone: 'text-destructive' },
+  confirm_with_recruiter: { label: BLOCKER_LABEL.confirm_with_recruiter, Icon: CircleAlert, tone: 'text-amber-700 dark:text-amber-400' },
+  cleared: { label: BLOCKER_LABEL.cleared, Icon: CircleCheck, tone: 'text-emerald-700 dark:text-emerald-400' },
 } as const
 
 const CLOSABILITY = {
-  closable_now: { label: 'Closable now: add it to your profile or CV', Icon: CirclePlus, tone: 'text-emerald-700 dark:text-emerald-400' },
-  closable_later: { label: 'Closable with work', Icon: TriangleAlert, tone: 'text-amber-700 dark:text-amber-400' },
-  not_closable: { label: "Can't be closed for this application", Icon: Ban, tone: 'text-destructive' },
+  closable_now: { label: CLOSABILITY_LABEL.closable_now, Icon: CirclePlus, tone: 'text-emerald-700 dark:text-emerald-400' },
+  closable_later: { label: CLOSABILITY_LABEL.closable_later, Icon: TriangleAlert, tone: 'text-amber-700 dark:text-amber-400' },
+  not_closable: { label: CLOSABILITY_LABEL.not_closable, Icon: Ban, tone: 'text-destructive' },
 } as const
 
 const SIGNAL_TONE = {
-  positive: { label: 'Positive', Icon: CirclePlus, className: 'text-emerald-700 dark:text-emerald-400' },
-  neutral: { label: 'Neutral', Icon: CircleMinus, className: 'text-muted-foreground' },
-  negative: { label: 'Negative', Icon: TriangleAlert, className: 'text-amber-700 dark:text-amber-400' },
+  positive: { label: SIGNAL_LABEL.positive, Icon: CirclePlus, className: 'text-emerald-700 dark:text-emerald-400' },
+  neutral: { label: SIGNAL_LABEL.neutral, Icon: CircleMinus, className: 'text-muted-foreground' },
+  negative: { label: SIGNAL_LABEL.negative, Icon: TriangleAlert, className: 'text-amber-700 dark:text-amber-400' },
 } as const
 
 function Section({ id, title, hint, children }: { id: ReportSectionId; title: string; hint?: string; children: ReactNode }) {
