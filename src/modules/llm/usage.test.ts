@@ -65,9 +65,19 @@ describe('summarizeByRole', () => {
 
   it('marks the estimate incomplete for unpriced models and server tool calls', () => {
     const [openai] = summarizeByRole([group('research', 'openai', 'gpt-5', 100)])
-    expect(openai).toMatchObject({ estimateComplete: false, estimatedCostUsd: 0 })
+    expect(openai).toMatchObject({ estimateComplete: false, estimatedCostUsd: 0, unpricedModels: ['openai/gpt-5'] })
     const [search] = summarizeByRole([group('research', 'anthropic', 'claude-sonnet-5-5', 100, { serverToolCalls: 3 })])
     expect(search.estimateComplete).toBe(false)
+    expect(search.unpricedModels).toEqual([])
+  })
+
+  it('prices dated snapshots and -latest aliases as their base model', () => {
+    const [dated] = summarizeByRole([group('fast', 'anthropic', 'claude-haiku-5-5-20261015', 2_000_000)])
+    const [base] = summarizeByRole([group('fast', 'anthropic', 'claude-haiku-5-5', 2_000_000)])
+    expect(dated.estimateComplete).toBe(true)
+    expect(dated.estimatedCostUsd).toBeCloseTo(base.estimatedCostUsd, 10)
+    const [latest] = summarizeByRole([group('fast', 'anthropic', 'claude-opus-5-5-latest', 100)])
+    expect(latest.unpricedModels).toEqual([])
   })
 
   it('keeps pre-role rows under null', () => {

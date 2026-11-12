@@ -44,6 +44,8 @@ export type RoleUsage = {
   estimatedCostUsd: number
   /** False when some calls used an unpriced model or ran billed server tools (web search). */
   estimateComplete: boolean
+  /** "provider/model" with no list price; their calls count as $0 in the estimate. */
+  unpricedModels: string[]
 }
 
 export type RoleModelGroup = {
@@ -65,7 +67,7 @@ export type RoleModelGroup = {
 export function summarizeByRole(groups: readonly RoleModelGroup[]): RoleUsage[] {
   const byRole = new Map<string | null, RoleUsage>()
   for (const g of groups) {
-    const row = byRole.get(g.role) ?? { role: g.role, tokens: 0, calls: 0, estimatedCostUsd: 0, estimateComplete: true }
+    const row = byRole.get(g.role) ?? { role: g.role, tokens: 0, calls: 0, estimatedCostUsd: 0, estimateComplete: true, unpricedModels: [] as string[] }
     row.tokens += g._sum.totalTokens ?? 0
     row.calls += g._count.id
     const cost = estimateRowCostUsd({
@@ -76,8 +78,13 @@ export function summarizeByRole(groups: readonly RoleModelGroup[]): RoleUsage[] 
       cacheReadTokens: g._sum.cacheReadTokens,
       cacheWriteTokens: g._sum.cacheWriteTokens,
     })
-    if (cost === null) row.estimateComplete = false
-    else row.estimatedCostUsd += cost
+    if (cost === null) {
+      row.estimateComplete = false
+      const id = `${g.provider}/${g.model}`
+      if (!row.unpricedModels.includes(id)) row.unpricedModels.push(id)
+    } else {
+      row.estimatedCostUsd += cost
+    }
     if (g._sum.serverToolCalls) row.estimateComplete = false
     byRole.set(g.role, row)
   }

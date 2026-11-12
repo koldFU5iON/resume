@@ -34,8 +34,16 @@ const RATES: Record<string, ModelRate> = {
   'typesafe/*': { input: JEV_USD_PER_MILLION_INPUT_TOKENS, output: 0, cacheRead: null, cacheWrite: null },
 }
 
+/**
+ * The listed id a model is priced as: dated snapshots ("claude-sonnet-5-5-20261015")
+ * and "-latest" aliases cost the same as their base model.
+ */
+export function pricedModelId(model: string): string {
+  return model.trim().replace(/^models\//, '').replace(/-(?:\d{8}|latest)$/, '')
+}
+
 export function rateFor(provider: string, model: string): ModelRate | null {
-  return RATES[`${provider}/${model}`] ?? RATES[`${provider}/*`] ?? null
+  return RATES[`${provider}/${model}`] ?? RATES[`${provider}/${pricedModelId(model)}`] ?? RATES[`${provider}/*`] ?? null
 }
 
 export type CostInput = {
