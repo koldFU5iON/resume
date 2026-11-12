@@ -4,8 +4,39 @@
  * Pure: no React, no server imports.
  */
 
-import type { DeepDiveReport, DeepDiveResearch, Evidence, Researcher } from "@/modules/deep-dive/schema"
-import { VERDICT_LABEL, formatMoney, hostOf } from "@/app/dashboard/job-applications/_components/deep-dive-view"
+import type { DeepDiveReport, DeepDiveResearch, Evidence, Researcher, Verdict } from "./schema"
+
+export const VERDICT_LABEL: Record<Verdict, string> = {
+  apply: 'Apply',
+  apply_with_caveats: 'Apply, with caveats',
+  long_shot: 'Long shot',
+  dont_apply: "Don't apply",
+}
+
+/**
+ * Host of an http(s) URL ("monzo.com"), or null when unreadable or another
+ * scheme. Source URLs are model output from web content, so only http(s)
+ * links are rendered (callers link only when this is non-null).
+ */
+export function hostOf(url: string | null | undefined): string | null {
+  if (!url) return null
+  try {
+    const u = new URL(url)
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null
+    return u.hostname.replace(/^www\./, '') || null
+  } catch {
+    return null
+  }
+}
+
+/** Money with its currency, no decimals: "£85,000". Unknown currency codes fall back to "85,000 XYZ". */
+export function formatMoney(amount: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat('en-GB', { style: 'currency', currency, maximumFractionDigits: 0 }).format(amount)
+  } catch {
+    return `${Math.round(amount).toLocaleString('en-GB')} ${currency}`
+  }
+}
 
 export const LIKELIHOOD_LABEL = { low: 'Low', medium: 'Medium', high: 'High' } as const
 

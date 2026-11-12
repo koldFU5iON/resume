@@ -21,7 +21,7 @@ import {
   stageIndex,
 } from "@/app/dashboard/job-applications/_components/deep-dive-view"
 import { DeepDiveReportView, REPORT_SECTIONS, presentSections } from "./_components/report"
-import { reportToMarkdown } from "./_components/report-text"
+import { reportToMarkdown } from "@/modules/deep-dive/report-text"
 import { CopyMarkdownButton, Elapsed, LocalDateTime, RunAgainButton } from "./_components/run-controls"
 
 // Run again starts a deep dive, which runs in after() within this limit; keep

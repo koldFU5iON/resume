@@ -4,6 +4,8 @@ import { prisma } from '@/lib/db'
 import { loadVault } from '@/modules/profile-map/load'
 import { PROFILE_TOOLS } from '@/modules/profile-map/tools'
 import { normalizeSections } from '@/modules/interview-prep/schema'
+import { getDeepDiveForCoach } from '@/modules/deep-dive/coach'
+import { getDeepDiveSummary } from '@/modules/deep-dive/queries'
 
 type OwnershipTable =
   | 'cVDocument'
@@ -67,12 +69,16 @@ export function createChatTools(profileId: string) {
     ...profileTools(profileId),
 
     get_job_application: tool({
-      description: 'Fetch a job application including full job description, fit score, and notes.',
+      description: 'Fetch a job application including full job description, fit score, notes, and whether it has a deep dive report.',
       inputSchema: zodSchema(z.object({ jobId: z.string() })),
       execute: async ({ jobId }) => {
         const job = await prisma.jobApplication.findUnique({ where: { id: jobId } })
         if (!job || job.profileId !== profileId) throw new Error('Resource not found or access denied')
+        const deepDive = await getDeepDiveSummary(profileId, jobId).catch(() => null)
         return {
+          deepDive: deepDive?.hasReport
+            ? { hasReport: true, verdict: deepDive.verdict, note: 'Call get_deep_dive for the full report.' }
+            : { hasReport: false },
           company: job.company,
           jobTitle: job.title,
           status: job.status,
@@ -91,7 +97,14 @@ export function createChatTools(profileId: string) {
       execute: async ({ cvId }) => {
         const cv = await prisma.cVDocument.findUnique({ where: { id: cvId } })
         if (!cv || cv.profileId !== profileId) throw new Error('Resource not found or access denied')
-        return { id: cv.id, jobTitle: cv.jobTitle, company: cv.company, content: cv.generatedContent }
+        return {
+          id: cv.id,
+          jobTitle: cv.jobTitle,
+          company: cv.company,
+          // The job this CV targets: pass to get_deep_dive / get_job_application.
+          jobId: cv.jobApplicationId,
+          content: cv.generatedContent,
+        }
       },
     }),
 
@@ -113,6 +126,19 @@ export function createChatTools(profileId: string) {
           dateApplied: j.dateApplied ?? null,
         }))
       },
+    }),
+
+    get_deep_dive: tool({
+      description:
+        "Fetch the job's latest deep dive report as Markdown: verdict, blockers, gaps (and how to close them), " +
+        'strengths, pay and suggested ask, sponsorship and practicalities, company signals, CV strategy ' +
+        '(lead with, emphasise, play down, positioning), questions for the recruiter, and numbered sources. ' +
+        'Use it whenever the user asks you to write, tailor or review a CV, cover letter or application for a job, ' +
+        'or asks about the job, the company, pay or their chances. It reflects the user\'s profile as it was when the ' +
+        'report ran; when outOfDate is true, say so. Profile evidence in it is real, but never add claims the profile ' +
+        "doesn't support, even when the report suggests closing a gap.",
+      inputSchema: zodSchema(z.object({ jobId: z.string() })),
+      execute: async ({ jobId }) => getDeepDiveForCoach(profileId, jobId),
     }),
 
     list_cv_documents: tool({
@@ -232,6 +258,8 @@ export function createChatTools(profileId: string) {
           id: letter.id,
           company: letter.company,
           jobTitle: letter.jobTitle,
+          // The job this letter is for: pass to get_deep_dive / get_job_application.
+          jobId: letter.jobApplicationId,
           content: letter.content,
           sections,
         }

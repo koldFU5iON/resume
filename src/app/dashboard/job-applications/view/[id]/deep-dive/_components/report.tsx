@@ -34,7 +34,7 @@ import {
   outcomeReason,
   timeToClose,
   yesNo,
-} from "./report-text"
+} from "@/modules/deep-dive/report-text"
 
 /**
  * The deep dive report (spec §6) as a document: one column, sections split by
