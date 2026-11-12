@@ -7,7 +7,6 @@ import { getEarlyAssessmentForJob, getEarlyAssessmentsForJobs, isEarlyAssessment
 import { getDeepDiveSummaries, getDeepDiveSummary, type DeepDiveSummary } from "@/modules/deep-dive/queries"
 import { getDeepDiveAccess, type DeepDiveAccess } from "@/modules/deep-dive/access"
 import {
-  MAX_WRITING_DESK_DOCUMENTS_PER_JOB,
   WRITING_DESK_DOCUMENT_ORDER,
   parseWritingDeskDocumentType,
 } from "@/modules/writing-desk/schema"
@@ -267,7 +266,6 @@ async function getJobWorkspaceUncached(profileId: string, jobId: string): Promis
       writingDesks: {
         select: { id: true, name: true, documentType: true },
         orderBy: WRITING_DESK_DOCUMENT_ORDER,
-        take: MAX_WRITING_DESK_DOCUMENTS_PER_JOB,
       },
     },
   })

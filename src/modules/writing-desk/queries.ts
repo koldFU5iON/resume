@@ -116,6 +116,21 @@ export async function getWritingDeskDocument(
   }
 }
 
+/**
+ * A document's saved content and revision, for an editor checking whether
+ * what it shows is current (a page restored from the client router cache can
+ * be older than the database). Null when it isn't the profile's.
+ */
+export async function getWritingDeskLiveState(
+  profileId: string,
+  documentId: string,
+): Promise<{ content: string; revision: number } | null> {
+  return prisma.writingDeskDocument.findFirst({
+    where: { id: documentId, profileId },
+    select: { content: true, revision: true },
+  })
+}
+
 /** The job's documents, primary (oldest) first. Empty when the job has none or isn't the profile's. */
 export async function listWritingDeskDocuments(
   profileId: string,

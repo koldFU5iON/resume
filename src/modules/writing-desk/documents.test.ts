@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("@/lib/db", () => ({
   prisma: {
-    writingDeskDocument: { create: vi.fn(), count: vi.fn(), findFirst: vi.fn() },
+    writingDeskDocument: { create: vi.fn(), count: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn() },
     jobApplication: { findFirst: vi.fn() },
     cVDocument: { findFirst: vi.fn() },
     $transaction: vi.fn(),
@@ -19,6 +19,7 @@ import {
   ensurePrimaryWritingDesk,
   getPrimaryWritingDeskId,
   jobDocumentsLockKey,
+  renameWritingDeskDocument,
 } from "./documents"
 import { MAX_WRITING_DESK_DOCUMENTS_PER_JOB } from "./schema"
 
@@ -27,6 +28,7 @@ const mockCv = vi.mocked(prisma.cVDocument.findFirst)
 const mockCreate = vi.mocked(prisma.writingDeskDocument.create)
 const mockCount = vi.mocked(prisma.writingDeskDocument.count)
 const mockFindFirst = vi.mocked(prisma.writingDeskDocument.findFirst)
+const mockUpdateMany = vi.mocked(prisma.writingDeskDocument.updateMany)
 const mockExecuteRaw = vi.mocked(prisma.$executeRaw)
 const mockTransaction = vi.mocked(prisma.$transaction)
 
@@ -177,6 +179,87 @@ describe("primary document (job-scoped URL compatibility)", () => {
 
     await expect(ensurePrimaryWritingDesk(PROFILE, "job-other")).resolves.toBeNull()
     expect(mockFindFirst).not.toHaveBeenCalled()
+    expect(mockCreate).not.toHaveBeenCalled()
+  })
+})
+
+describe("renameWritingDeskDocument", () => {
+  it("stores the trimmed name on the profile's own document without bumping its revision", async () => {
+    mockUpdateMany.mockResolvedValue({ count: 1 })
+
+    await expect(renameWritingDeskDocument(PROFILE, { documentId: "desk-1", name: "  CV for recruiters  " }))
+      .resolves.toEqual({ ok: true, name: "CV for recruiters" })
+
+    expect(mockUpdateMany).toHaveBeenCalledWith({
+      where: { id: "desk-1", profileId: PROFILE },
+      data: { name: "CV for recruiters" },
+    })
+  })
+
+  it("refuses another profile's document (or a missing one) without changing anything", async () => {
+    mockUpdateMany.mockResolvedValue({ count: 0 })
+
+    await expect(renameWritingDeskDocument(PROFILE, { documentId: "someone-elses", name: "Mine now" }))
+      .resolves.toMatchObject({ ok: false, reason: "not_found" })
+    expect(mockUpdateMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "someone-elses", profileId: PROFILE } }))
+  })
+
+  it.each([
+    ["an empty name", "   "],
+    ["a name over 80 characters", "x".repeat(81)],
+    ["control characters", "CV\u0007"],
+    ["a non-string name", 42],
+  ])("rejects %s without writing", async (_label, name) => {
+    await expect(renameWritingDeskDocument(PROFILE, { documentId: "desk-1", name }))
+      .resolves.toMatchObject({ ok: false, reason: "invalid" })
+    expect(mockUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it("accepts exactly 80 characters", async () => {
+    mockUpdateMany.mockResolvedValue({ count: 1 })
+    await expect(renameWritingDeskDocument(PROFILE, { documentId: "desk-1", name: "x".repeat(80) }))
+      .resolves.toEqual({ ok: true, name: "x".repeat(80) })
+  })
+})
+
+describe("createWritingDeskDocument from the + dialog", () => {
+  it("refuses an empty or over-long name without touching the job or creating", async () => {
+    for (const name of ["", "   ", "y".repeat(81)]) {
+      await expect(createWritingDeskDocument(PROFILE, { jobId: "job-1", name, documentType: "cv" }))
+        .resolves.toMatchObject({ ok: false, reason: "invalid" })
+    }
+    expect(mockJob).not.toHaveBeenCalled()
+    expect(mockCreate).not.toHaveBeenCalled()
+  })
+
+  it("only reads the source CV (scoped to the profile), so importing leaves it unchanged", async () => {
+    mockCv.mockResolvedValue({
+      id: "cv-1",
+      generatedContent: "{}",
+      jobApplicationId: null,
+      careerVerticalId: "v-1",
+      jobTitle: null,
+      company: null,
+      updatedAt: new Date("2026-03-01T00:00:00Z"),
+    } as never)
+    vi.mocked(toMarkdown).mockReturnValue("# Me")
+
+    await expect(createWritingDeskDocument(PROFILE, { jobId: "job-1", name: "CV 2", documentType: "cv", sourceCvId: "cv-1" }))
+      .resolves.toEqual({ ok: true, id: "desk-new" })
+
+    expect(mockCv).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "cv-1", profileId: PROFILE } }))
+    // The prisma mock exposes no CV writes at all; the copy lands only on the new document.
+    expect(Object.keys(prisma.cVDocument)).toEqual(["findFirst"])
+    expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ name: "CV 2", content: "# Me", sourceType: "master-cv", sourceCvDocumentId: "cv-1" }),
+    }))
+  })
+
+  it("refuses the eleventh document on a job", async () => {
+    mockCount.mockResolvedValue(MAX_WRITING_DESK_DOCUMENTS_PER_JOB)
+    expect(MAX_WRITING_DESK_DOCUMENTS_PER_JOB).toBe(10)
+    await expect(createWritingDeskDocument(PROFILE, { jobId: "job-1", name: "One more", documentType: "other" }))
+      .resolves.toMatchObject({ ok: false, reason: "limit" })
     expect(mockCreate).not.toHaveBeenCalled()
   })
 })
