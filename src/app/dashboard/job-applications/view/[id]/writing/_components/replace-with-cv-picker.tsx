@@ -8,6 +8,16 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { cn } from "@/lib/utils"
 import type { WritingDeskSourceOption } from "@/modules/writing-desk/queries"
 
+/** cmdk values must be unique, so each carries its id after this separator; only the label is searched. */
+const ID_SEPARATOR = "\u0000"
+
+/** Every word typed must appear in the CV's label (cmdk's default fuzzy match is too loose for titles). */
+function matchLabel(value: string, search: string): number {
+  const label = value.split(ID_SEPARATOR)[0].toLowerCase()
+  const words = search.toLowerCase().split(/\s+/).filter(Boolean)
+  return words.every(word => label.includes(word)) ? 1 : 0
+}
+
 /**
  * "Replace with a CV…" as a searchable picker (#383). Choosing a CV hands its
  * id to `onChoose`, which keeps the existing confirmation and the server's
@@ -30,7 +40,7 @@ export function ReplaceWithCvPicker({ sources, onChoose }: {
         <ChevronsUpDown className="size-3 text-muted-foreground" aria-hidden="true" />
       </PopoverTrigger>
       <PopoverContent align="start" initialFocus={searchRef} className="w-72 gap-0 p-0">
-        <Command>
+        <Command filter={matchLabel}>
           <CommandInput ref={searchRef} placeholder="Search your CVs…" aria-label="Search your CVs" />
           <CommandList className="max-h-64">
             <CommandEmpty>{sources.length === 0 ? "You don't have any CVs yet." : "No CV matches that."}</CommandEmpty>
@@ -39,7 +49,7 @@ export function ReplaceWithCvPicker({ sources, onChoose }: {
                 {sources.map(source => (
                   <CommandItem
                     key={source.id}
-                    value={`${source.label} ${source.id}`}
+                    value={`${source.label}${ID_SEPARATOR}${source.id}`}
                     onSelect={() => {
                       setOpen(false)
                       onChoose(source.id)
