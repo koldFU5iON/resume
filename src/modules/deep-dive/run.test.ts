@@ -26,7 +26,7 @@ import { LLMError } from '@/modules/llm/errors'
 import { finding, gatherFixture, modelReport, outcome } from './__fixtures__/inputs'
 import { gatherDeepDiveInputs } from './gather'
 import { runResearch } from './research'
-import { DeepDiveReportSchema, DEEP_DIVE_CONCURRENCY_PER_PROFILE } from './schema'
+import { DeepDiveReportSchema, DEEP_DIVE_CONCURRENCY_PER_PROFILE, DEEP_DIVE_ROUTE_MAX_DURATION_S } from './schema'
 import { synthesise } from './synthesise'
 import { failureKindFor, runDeepDive, startDeepDive } from './run'
 
@@ -110,6 +110,7 @@ describe('runDeepDive', () => {
         practicalities: outcome(),
       },
       timings: { company: 10, pay: 0, practicalities: 5 },
+      shareableCompanyFindings: [finding('200 staff')],
     })
     mockSynth.mockResolvedValue({ report, model: 'analysis-model' })
   })
@@ -126,6 +127,10 @@ describe('runDeepDive', () => {
       data: expect.objectContaining({ companyId: 'co-1', topic: 'company', model: 'research-model' }),
     })
     expect(mockSynth.mock.calls[0][2]).toMatchObject({ runId: 'dd-1', jobApplicationId: 'job-1' })
+    // One deadline for the whole run, under the route's 300s, shared by research and synthesis.
+    const { deadline } = mockSynth.mock.calls[0][2]
+    expect(deadline - Date.now()).toBeLessThanOrEqual(DEEP_DIVE_ROUTE_MAX_DURATION_S * 1000 - 10_000)
+    expect(research[1].deadline).toBeLessThanOrEqual(deadline)
 
     const done = db.jobDeepDive.updateMany.mock.calls.at(-1)![0]
     expect(done.where).toMatchObject({ id: 'dd-1', status: { in: ['queued', 'gathering', 'researching', 'synthesising'] } })
@@ -146,13 +151,14 @@ describe('runDeepDive', () => {
     expect(statuses().at(-1)).toBe('complete')
   })
 
-  it('shares only web-sourced company findings, and nothing from an agency ad', async () => {
+  it('shares only the shareable company findings, and nothing from an agency ad', async () => {
     mockResearch.mockResolvedValue({
       researchers: {
         company: outcome({ findings: [finding('web fact'), finding('ad quote', { sourceUrl: null, quote: 'q' })] }),
         pay: outcome(), practicalities: outcome(),
       },
       timings: { company: 0, pay: 0, practicalities: 0 },
+      shareableCompanyFindings: [finding('web fact')],
     })
     await runDeepDive('p1', 'job-1', 'dd-1')
     const cached = db.companyResearch.create.mock.calls[0][0].data.findings as { claim: string }[]
@@ -171,6 +177,7 @@ describe('runDeepDive', () => {
     mockResearch.mockResolvedValue({
       researchers: { company: outcome({ status: 'cached', findings: [finding('x')] }), pay: outcome(), practicalities: outcome() },
       timings: { company: 0, pay: 0, practicalities: 0 },
+      shareableCompanyFindings: [],
     })
     await runDeepDive('p1', 'job-1', 'dd-1')
     expect(db.companyResearch.create).not.toHaveBeenCalled()

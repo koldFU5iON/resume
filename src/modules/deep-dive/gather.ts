@@ -12,7 +12,7 @@
 
 import { createHash } from 'node:crypto'
 import { prisma } from '@/lib/db'
-import { getSponsorStatus, isUkOrUnknownJob, type SponsorStatus } from '@/modules/companies/queries'
+import { getSponsorStatus, type SponsorStatus } from '@/modules/companies/queries'
 import { coveredCountries } from '@/modules/job-assessment/eligibility'
 import { countryFromLocation, toCountryCode } from '@/modules/job-assessment/countries'
 import { DESCRIPTION_MAX_CHARS, type Blocker } from '@/modules/job-assessment/schema'
@@ -111,6 +111,11 @@ export function sponsorshipNeeded(eligibility: Eligibility, jobCountries: readon
 }
 
 /** sha256 of the inputs that change the report (spec §4.1); drives the "out of date" banner. */
+/** The job description as the deep dive reads it (and hashes it). */
+function normaliseDescription(text: string | null | undefined): string {
+  return text?.trim().slice(0, DESCRIPTION_MAX_CHARS) ?? ''
+}
+
 export function computeInputsHash(parts: {
   profileText: string
   searchProfile: SearchProfile
@@ -167,7 +172,7 @@ export async function gatherDeepDiveInputs(
     },
   })
   if (!job) return { ok: false, kind: 'not_found', message: 'Job not found' }
-  const jobDescription = job.jobDescription?.trim().slice(0, DESCRIPTION_MAX_CHARS) ?? ''
+  const jobDescription = normaliseDescription(job.jobDescription)
   if (!jobDescription) {
     return { ok: false, kind: 'no_description', message: 'Add a job description first: the deep dive needs it.' }
   }
@@ -184,14 +189,17 @@ export async function gatherDeepDiveInputs(
         strengths: true, gaps: true, unsettled: true, facts: true, signals: true,
       },
     }),
-    job.companyId ? findFreshCompanyResearch(job.companyId, now) : Promise.resolve(null),
+    // An agency ad is researched with its own prompt (find the real employer), so it never reuses cached company research.
+    job.companyId && !job.isRecruitmentAgency ? findFreshCompanyResearch(job.companyId, now) : Promise.resolve(null),
   ])
 
   const searchProfile = normalizeSearchProfile(settings?.searchProfile)
   const profileText = serializeProfileForLLM(snapshot)
+  const salaryBand = job.salaryBand?.trim() || null
 
   const jobCountries = resolveJobCountries(job.countries, assessment?.facts ?? null)
-  const ukJob = jobCountries.length === 0 ? isUkOrUnknownJob(job.countries) : jobCountries.includes('GB')
+  // No resolvable country: treat it as possibly UK, so the register is still checked.
+  const ukJob = jobCountries.length === 0 || jobCountries.includes('GB')
   const sponsorStatus = ukJob ? await getSponsorStatus(job.companyId) : null
 
   const earlyAssessment: EarlyAssessmentInput | null = assessment
@@ -219,7 +227,7 @@ export async function gatherDeepDiveInputs(
       url: job.url?.trim() || null,
       countries: job.countries,
       jobDescription,
-      salaryBand: job.salaryBand?.trim() || null,
+      salaryBand,
       isRecruitmentAgency: job.isRecruitmentAgency,
       ukJob,
     },
@@ -238,13 +246,7 @@ export async function gatherDeepDiveInputs(
       sponsorStatus,
     },
     cachedCompanyResearch,
-    inputsHash: computeInputsHash({
-      profileText,
-      searchProfile,
-      jobDescription,
-      salaryBand: job.salaryBand?.trim() || null,
-      sourceAssessmentId: assessment?.id ?? null,
-    }),
+    inputsHash: computeInputsHash({ profileText, searchProfile, jobDescription, salaryBand, sourceAssessmentId: assessment?.id ?? null }),
   }
 }
 
@@ -260,7 +262,7 @@ export async function currentInputsHash(profileId: string, jobId: string): Promi
       select: { id: true },
     }),
   ])
-  const jobDescription = job?.jobDescription?.trim().slice(0, DESCRIPTION_MAX_CHARS) ?? ''
+  const jobDescription = normaliseDescription(job?.jobDescription)
   if (!job || !jobDescription) return null
   return computeInputsHash({
     profileText: serializeProfileForLLM(snapshot),

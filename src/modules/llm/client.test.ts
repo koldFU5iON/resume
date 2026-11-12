@@ -253,7 +253,7 @@ describe('LLM client logging', () => {
       finishReason: 'length',
     }))
     await expect(completeStructured('profile-1', 'hello', z.object({ n: z.number() }), {
-      feature: 'deep-dive:synthesis', redactInvalidOutput: true,
+      feature: 'deep-dive-synthesis', redactInvalidOutput: true,
     })).rejects.toMatchObject({ kind: 'invalid_output' })
     expect(err.mock.calls[0]?.[1]).toMatchObject({ finishReason: 'length' })
     err.mockRestore()

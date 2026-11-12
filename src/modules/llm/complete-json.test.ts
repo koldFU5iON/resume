@@ -79,4 +79,21 @@ describe('completeJSON', () => {
     expect(res.finishReason).toBe('length')
     expect(mockComplete).toHaveBeenCalledTimes(2)
   })
+  it('caps each call at the time left before the deadline, and skips the retry when too little is left', async () => {
+    const cut = { text: '```json\n{"name":', finishReason: 'length' } as never
+    mockComplete.mockResolvedValueOnce(cut)
+    const res = await completeJSON('p', 'prompt', SCHEMA, {
+      feature: 'cv-generate', timeoutMs: 120_000, deadline: Date.now() + 20_000,
+    })
+    expect(mockComplete).toHaveBeenCalledTimes(1)
+    expect(mockComplete.mock.calls[0][2].timeoutMs).toBeLessThanOrEqual(20_000)
+    expect(res.finishReason).toBe('length')
+  })
+
+  it('keeps the per-call timeout when the deadline is further away', async () => {
+    mockComplete.mockResolvedValueOnce({ text: JSON.stringify(FIXTURE), finishReason: 'stop' } as never)
+    await completeJSON('p', 'prompt', SCHEMA, { feature: 'cv-generate', timeoutMs: 60_000, deadline: Date.now() + 200_000 })
+    expect(mockComplete.mock.calls[0][2].timeoutMs).toBe(60_000)
+    expect(mockComplete.mock.calls[0][2]).not.toHaveProperty('deadline')
+  })
 })

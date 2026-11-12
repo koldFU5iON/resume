@@ -42,6 +42,11 @@ export const TIME_BUDGET_MS = {
   /** The search call's share of the research budget; the rest is left for structuring. */
   researchSearch: 90_000,
   synthesis: 120_000,
+  /**
+   * The whole run, from the start of gather. Under the route's maxDuration so
+   * a run ends on its row (failed/timeout) before the platform kills it.
+   */
+  run: (DEEP_DIVE_ROUTE_MAX_DURATION_S - 20) * 1_000,
 } as const
 
 /**
@@ -63,12 +68,12 @@ export const COMPANY_RESEARCH_TTL_MS = 30 * 24 * 60 * 60_000
 /** Feature tags (spec §7). Every LLM call of a run carries one, plus attribution { jobApplicationId, runId }. */
 export const DEEP_DIVE_FEATURES = {
   research: {
-    company: 'deep-dive:research:company',
-    pay: 'deep-dive:research:pay',
-    practicalities: 'deep-dive:research:practicalities',
+    company: 'deep-dive-research-company',
+    pay: 'deep-dive-research-pay',
+    practicalities: 'deep-dive-research-practicalities',
   },
-  structure: 'deep-dive:structure',
-  synthesis: 'deep-dive:synthesis',
+  structure: 'deep-dive-structure',
+  synthesis: 'deep-dive-synthesis',
 } as const
 
 // ── Helpers ─────────────────────────────────────────────────────────────────

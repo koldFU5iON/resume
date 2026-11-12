@@ -4,12 +4,16 @@ vi.mock('@/modules/llm/complete-json', () => ({ completeJSON: vi.fn() }))
 
 import { completeJSON } from '@/modules/llm/complete-json'
 import { finding, gatherFixture, modelReport, researchFixture } from './__fixtures__/inputs'
+import type { DeepDiveResearch } from './schema'
 import { DEEP_DIVE_FEATURES, DeepDiveReportSchema } from './schema'
 import { enforceReportFacts, synthesise, synthesisPrompt } from './synthesise'
 
 const mockJSON = vi.mocked(completeJSON)
 
 beforeEach(() => vi.clearAllMocks())
+
+const found = (...researchers: ('company' | 'pay' | 'practicalities')[]): DeepDiveResearch['findings'] =>
+  researchers.map((r, i) => ({ ...finding(`f${i}`), researcher: r }))
 
 const ev = (over: Record<string, unknown>) => ({ kind: 'finding', ref: '', detail: '', ...over })
 
@@ -47,38 +51,40 @@ describe('synthesisPrompt', () => {
 describe('enforceReportFacts', () => {
   it('copies the register result and known sponsorship need from code', () => {
     const report = DeepDiveReportSchema.parse(modelReport())
-    const out = enforceReportFacts(report, gatherFixture(), 1)
+    const out = enforceReportFacts(report, gatherFixture(), found('company'))
     expect(out.practicalities.sponsorship).toMatchObject({ register: 'licensed', needed: true })
   })
 
   it("keeps the model's sponsorship need when code can't tell", () => {
     const report = DeepDiveReportSchema.parse(modelReport())
     const g = gatherFixture({ sponsorship: { needed: null, jobCountries: [], register: 'not_applicable', sponsorStatus: null } })
-    expect(enforceReportFacts(report, g, 0).practicalities.sponsorship).toMatchObject({ register: 'not_applicable', needed: false })
+    expect(enforceReportFacts(report, g, []).practicalities.sponsorship).toMatchObject({ register: 'not_applicable', needed: false })
   })
 
   it('drops evidence citing findings that do not exist', () => {
     const report = DeepDiveReportSchema.parse(modelReport({
       strengths: [{ point: 'p', evidence: [ev({ ref: '0' }), ev({ ref: '5' }), ev({ kind: 'register' })] }],
     }))
-    expect(enforceReportFacts(report, gatherFixture(), 1).strengths[0].evidence).toEqual([
+    expect(enforceReportFacts(report, gatherFixture(), found('company')).strengths[0].evidence).toEqual([
       { kind: 'finding', index: 0 },
       { kind: 'register' },
     ])
   })
 
-  it('drops a market pay range with no finding behind it', () => {
+  it('drops a market pay range with no pay finding behind it', () => {
     const market = (evidence: unknown[]) => DeepDiveReportSchema.parse(modelReport({
       pay: { stated: null, market: { min: 90000, max: 120000, currency: 'GBP', evidence }, ask: null, vsSearchProfile: 'x' },
     }))
-    expect(enforceReportFacts(market([ev({ kind: 'jd', ref: 'great pay' })]), gatherFixture(), 1).pay.market).toBeNull()
-    expect(enforceReportFacts(market([ev({ ref: '3' })]), gatherFixture(), 1).pay.market).toBeNull()
-    expect(enforceReportFacts(market([ev({ ref: '0' })]), gatherFixture(), 1).pay.market).toMatchObject({ min: 90000 })
+    const f = found('company', 'pay')
+    expect(enforceReportFacts(market([ev({ kind: 'jd', ref: 'great pay' })]), gatherFixture(), f).pay.market).toBeNull()
+    expect(enforceReportFacts(market([ev({ ref: '3' })]), gatherFixture(), f).pay.market).toBeNull()
+    expect(enforceReportFacts(market([ev({ ref: '0' })]), gatherFixture(), f).pay.market).toBeNull() // a company fact has no figures
+    expect(enforceReportFacts(market([ev({ ref: '1' })]), gatherFixture(), f).pay.market).toMatchObject({ min: 90000 })
   })
 })
 
 describe('synthesise', () => {
-  const ctx = { profileId: 'p1', jobApplicationId: 'job-1', runId: 'run-1', timeoutMs: 120_000 }
+  const ctx = { profileId: 'p1', jobApplicationId: 'job-1', runId: 'run-1', timeoutMs: 120_000, deadline: 1_900_000_000_000 }
 
   it('runs one JSON call with role analysis, the schema in the system prompt, generous caps and run attribution', async () => {
     mockJSON.mockResolvedValue({
@@ -95,6 +101,7 @@ describe('synthesise', () => {
       feature: DEEP_DIVE_FEATURES.synthesis,
       attribution: { jobApplicationId: 'job-1', runId: 'run-1' },
       timeoutMs: 120_000,
+      deadline: 1_900_000_000_000,
     })
     expect(opts.model).toBeUndefined()
     expect(opts.webSearch).toBeUndefined()

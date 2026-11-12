@@ -18,19 +18,19 @@ No feature code names a model: roles pick the model from the user's settings (`s
 
 - **Sources.** A finding citing a URL must cite one the search returned (`sources`) or wrote in its notes; a finding with no URL must quote the job ad word for word. Others are dropped. When the provider reports no URLs at all, URL findings are kept at `low` confidence.
 - **Register and sponsorship need.** `practicalities.sponsorship.register` always comes from the UK register (`companies/queries.ts`); `needed` comes from the user's work rights when they settle it (`gather.ts`, `sponsorshipNeeded`).
-- **Evidence.** Evidence pointing at a finding index that doesn't exist is dropped. A `pay.market` range with no finding behind it is dropped (no invented pay).
+- **Evidence.** Evidence pointing at a finding index that doesn't exist is dropped. A `pay.market` range that cites no pay-researcher finding is dropped (no invented pay).
 
 ## Rows
 
 - `JobDeepDive` (`prisma/schema/job-deep-dive.prisma`): one row per run, never written after `complete` / `failed`. Its `id` is the `runId` on every LLM usage row of the run. `inputsHash` is set by the gather stage (nullable until then).
-- `CompanyResearch` (`prisma/schema/company.prisma`): the company researcher's findings, shared across users (public facts only), fresh for 30 days. A second job at the same company skips the company researcher. Only web-sourced findings are stored (a job-ad quote belongs to one ad), and nothing is stored from an agency's ad (the researcher may have researched the hiring company, not the agency the job is linked to).
+- `CompanyResearch` (`prisma/schema/company.prisma`): the company researcher's findings, shared across users (public facts only), fresh for 30 days. A second job at the same company skips the company researcher. The job ad is user-supplied, so the shared copy is stricter than the run's own findings (`shareableFindings` in `research.ts`): a finding is stored only if its URL is a page the provider reported fetching (not just a URL the model wrote in its notes) and its site isn't named in the ad. That stops one user's ad from planting facts in other users' reports. Nothing is stored from an agency's ad, and agency jobs never read the cache: the researcher may have researched the hiring company, not the agency the job is linked to.
 
 ## Limits and timing
 
 - One active run per job: a second start returns the running one (`existing: true`).
 - At most 2 active runs per profile, admitted under a per-profile advisory lock. A third start is refused (`429 limit`); there is no queue.
 - Runs execute in `after()`; routes that start one set `maxDuration = 300`.
-- Research budget 120s in total (search calls get up to 90s); a researcher over budget is marked `timeout` and the run continues. Synthesis budget 120s; over it, the run fails with `timeout`.
+- Research budget 120s in total (search calls get up to 90s); a researcher over budget is marked `timeout` and the run continues. Synthesis budget 120s per attempt. The whole run also has one deadline, 280s after it starts (`TIME_BUDGET_MS.run`, under the route's 300s): research and both synthesis attempts are capped by it, and the cut-off retry is skipped with under 30s left. Over it, the run fails with `timeout` on its row instead of being killed mid-stage.
 - A run still active after 10 minutes reads as failed / `timeout` and stops counting towards the limits.
 - Output caps: research notes 4k tokens, structuring 8k, synthesis 16k (#359). Invalid structured output logs `finishReason`, so truncation (`length`) is visible.
 
@@ -63,7 +63,7 @@ The Server Action `startDeepDiveAction(jobId)` (`actions.ts`) calls the same `st
 
 ## Usage tags
 
-`deep-dive:research:company`, `deep-dive:research:pay`, `deep-dive:research:practicalities`, `deep-dive:structure`, `deep-dive:synthesis`. Every call carries `attribution: { jobApplicationId, runId: deepDive.id }`.
+`deep-dive-research-company`, `deep-dive-research-pay`, `deep-dive-research-practicalities`, `deep-dive-structure`, `deep-dive-synthesis`. Every call carries `attribution: { jobApplicationId, runId: deepDive.id }`.
 
 ## Providers
 

@@ -14,7 +14,7 @@
  * - the register result and (when code knows it) whether sponsorship is
  *   needed are copied from the gather stage
  * - evidence citing a finding that doesn't exist is dropped
- * - a market pay range with no finding behind it is dropped (no invented pay)
+ * - a market pay range that cites no pay finding is dropped (no invented pay)
  */
 
 import * as z from 'zod'
@@ -153,8 +153,8 @@ function validEvidence(list: Evidence[], findingCount: number): Evidence[] {
 }
 
 /** Applies the code-owned facts and evidence checks to a model report. Pure. */
-export function enforceReportFacts(report: DeepDiveReport, g: GatherResult, findingCount: number): DeepDiveReport {
-  const ev = (l: Evidence[]) => validEvidence(l, findingCount)
+export function enforceReportFacts(report: DeepDiveReport, g: GatherResult, findings: DeepDiveResearch['findings']): DeepDiveReport {
+  const ev = (l: Evidence[]) => validEvidence(l, findings.length)
   const market = report.pay.market
   const marketEvidence = market ? ev(market.evidence) : []
   return {
@@ -173,18 +173,25 @@ export function enforceReportFacts(report: DeepDiveReport, g: GatherResult, find
     },
     pay: {
       ...report.pay,
-      market: market && marketEvidence.some((e) => e.kind === 'finding') ? { ...market, evidence: marketEvidence } : null,
+      // Only the pay researcher gathers figures: a company or practicalities finding can't back a market range.
+      market: market && marketEvidence.some((e) => e.kind === 'finding' && findings[e.index].researcher === 'pay')
+        ? { ...market, evidence: marketEvidence }
+        : null,
     },
   }
 }
 
 export type SynthesisResult = { report: DeepDiveReport; model: string }
 
-/** Runs the synthesis call. Throws LLMError (kind 'timeout' past the budget). */
+/**
+ * Runs the synthesis call. Throws LLMError (kind 'timeout' past the budget).
+ * `timeoutMs` caps each attempt; `deadline` (epoch ms) caps both attempts
+ * together, so a cut-off retry can't run the job past the route's limit.
+ */
 export async function synthesise(
   g: GatherResult,
   research: DeepDiveResearch,
-  ctx: { profileId: string; jobApplicationId: string; runId: string; timeoutMs: number },
+  ctx: { profileId: string; jobApplicationId: string; runId: string; timeoutMs: number; deadline: number },
 ): Promise<SynthesisResult> {
   const result = await completeJSON(ctx.profileId, synthesisPrompt(g, research), DeepDiveReportSchema, {
     role: 'analysis',
@@ -193,6 +200,7 @@ export async function synthesise(
     retryMaxOutputTokens: MAX_OUTPUT_TOKENS.synthesisRetry,
     temperature: 0.2,
     timeoutMs: ctx.timeoutMs,
+    deadline: ctx.deadline,
     feature: DEEP_DIVE_FEATURES.synthesis,
     attribution: { jobApplicationId: ctx.jobApplicationId, runId: ctx.runId },
   })
@@ -205,5 +213,5 @@ export async function synthesise(
     })
     throw new LLMError('The report did not match the expected shape.', 'invalid_output')
   }
-  return { report: enforceReportFacts(result.extracted.value, g, research.findings.length), model: result.model }
+  return { report: enforceReportFacts(result.extracted.value, g, research.findings), model: result.model }
 }

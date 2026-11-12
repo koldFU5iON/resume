@@ -52,6 +52,8 @@ export type ResearchRun = {
   researchers: Record<Researcher, ResearcherOutcome>
   /** Milliseconds per researcher. */
   timings: Record<Researcher, number>
+  /** Company findings safe to share with other users' runs (see shareableFindings). */
+  shareableCompanyFindings: Finding[]
 }
 
 // ── Prompts ─────────────────────────────────────────────────────────────────
@@ -157,11 +159,23 @@ ${sourceList}${researcher === 'practicalities' ? `\n\nThe job ad (for exact quot
 
 // ── Source checks ───────────────────────────────────────────────────────────
 
-const URL_PATTERN = /https?:\/\/[^\s<>"')\]]+/g
+const URL_PATTERN = /https?:\/\/[^\s<>"'\]]+/g
+
+/** Drops a closing bracket that belongs to the text around a URL, not the URL: "(see https://a.example/x)". */
+function trimUnbalancedParens(url: string): string {
+  let u = url
+  while (u.endsWith(')') && (u.match(/\)/g) ?? []).length > (u.match(/\(/g) ?? []).length) u = u.slice(0, -1)
+  return u
+}
 
 /** Comparable form of a URL: no fragment, no trailing slash or punctuation. */
 export function normaliseUrl(url: string): string {
-  return url.trim().replace(/[.,;:!?]+$/, '').replace(/#.*$/, '').replace(/\/+$/, '').toLowerCase()
+  let u = url.trim()
+  for (let prev = ''; prev !== u;) {
+    prev = u
+    u = trimUnbalancedParens(u.replace(/[.,;:!?]+$/, ''))
+  }
+  return u.replace(/#.*$/, '').replace(/\/+$/, '').toLowerCase()
 }
 
 function squash(text: string): string {
@@ -196,6 +210,28 @@ export function checkFindingSources(
   })
 }
 
+/**
+ * The findings that may go into the shared company cache, where other users'
+ * runs reuse them. Stricter than checkFindingSources, because the job ad is
+ * user-supplied and could carry instructions planting a fact and its URL:
+ * - the URL must be one the provider reported fetching, not just one the
+ *   model wrote in its notes
+ * - the URL's site must not be named in the job ad
+ */
+export function shareableFindings(findings: readonly Finding[], sources: readonly WebSource[], jobDescription: string): Finding[] {
+  const fetched = new Set(sources.map((s) => normaliseUrl(s.url)))
+  const ad = jobDescription.toLowerCase()
+  return findings.filter((f) => {
+    if (!f.sourceUrl || !fetched.has(normaliseUrl(f.sourceUrl))) return false
+    try {
+      const host = new URL(f.sourceUrl).hostname.toLowerCase().replace(/^www\./, '')
+      return !ad.includes(host)
+    } catch {
+      return false
+    }
+  })
+}
+
 // ── Running ─────────────────────────────────────────────────────────────────
 
 function outcome(status: ResearcherOutcome['status'], reason: string | null, extra: Partial<ResearcherOutcome> = {}): ResearcherOutcome {
@@ -209,13 +245,20 @@ export function skipReason(researcher: Researcher, brief: ResearchBrief, ctx: Pi
   return null
 }
 
-async function runResearcher(researcher: Researcher, brief: ResearchBrief, ctx: ResearchContext): Promise<ResearcherOutcome> {
+type ResearcherResult = { outcome: ResearcherOutcome; shareable: Finding[] }
+
+async function runResearcher(researcher: Researcher, brief: ResearchBrief, ctx: ResearchContext): Promise<ResearcherResult> {
   if (researcher === 'company' && ctx.cachedCompanyResearch) {
     const cached = ctx.cachedCompanyResearch
-    return outcome('cached', null, { findings: cached.findings, model: cached.model, cachedResearchId: cached.id })
+    return { outcome: outcome('cached', null, { findings: cached.findings, model: cached.model, cachedResearchId: cached.id }), shareable: [] }
   }
   const skip = skipReason(researcher, brief, ctx)
-  if (skip) return outcome('skipped', skip)
+  if (skip) return { outcome: outcome('skipped', skip), shareable: [] }
+  return searchAndStructure(researcher, brief, ctx)
+}
+
+async function searchAndStructure(researcher: Researcher, brief: ResearchBrief, ctx: ResearchContext): Promise<ResearcherResult> {
+  const only = (o: ResearcherOutcome): ResearcherResult => ({ outcome: o, shareable: [] })
 
   const attribution = { jobApplicationId: ctx.jobApplicationId, runId: ctx.runId }
   let model: string | null = null
@@ -232,10 +275,10 @@ async function runResearcher(researcher: Researcher, brief: ResearchBrief, ctx: 
     model = search.model
     const notes = search.text.trim()
     // Seen live with Haiku: 45 pages searched, no text written. That's a failed search, not "nothing found".
-    if (!notes) return outcome('failed', `no_notes:${search.finishReason}`, { model, sourceCount: search.sources.length })
+    if (!notes) return only(outcome('failed', `no_notes:${search.finishReason}`, { model, sourceCount: search.sources.length }))
 
     const left = ctx.deadline - Date.now()
-    if (left < MIN_STRUCTURE_MS) return outcome('timeout', 'timeout', { model, sourceCount: search.sources.length })
+    if (left < MIN_STRUCTURE_MS) return only(outcome('timeout', 'timeout', { model, sourceCount: search.sources.length }))
 
     const structured = await completeStructured(
       ctx.profileId,
@@ -252,15 +295,18 @@ async function runResearcher(researcher: Researcher, brief: ResearchBrief, ctx: 
       },
     )
     const findings = checkFindingSources(structured.object.findings, notes, search.sources, brief.jobDescription)
-    return outcome('ok', null, { findings, model, sourceCount: search.sources.length })
+    return {
+      outcome: outcome('ok', null, { findings, model, sourceCount: search.sources.length }),
+      shareable: shareableFindings(findings, search.sources, brief.jobDescription),
+    }
   } catch (err) {
     if (err instanceof LLMError) {
-      if (err.kind === 'timeout') return outcome('timeout', 'timeout', { model })
-      if (err.kind === 'unsupported') return outcome('skipped', 'no_web_search', { model })
-      return outcome('failed', err.kind, { model })
+      if (err.kind === 'timeout') return only(outcome('timeout', 'timeout', { model }))
+      if (err.kind === 'unsupported') return only(outcome('skipped', 'no_web_search', { model }))
+      return only(outcome('failed', err.kind, { model }))
     }
     console.error('[deep-dive] researcher crashed', { researcher, err })
-    return outcome('failed', 'error', { model })
+    return only(outcome('failed', 'error', { model }))
   }
 }
 
@@ -275,5 +321,9 @@ export async function runResearch(brief: ResearchBrief, ctx: ResearchContext): P
       return [r, result] as const
     }),
   )
-  return { researchers: Object.fromEntries(results) as Record<Researcher, ResearcherOutcome>, timings }
+  return {
+    researchers: Object.fromEntries(results.map(([r, res]) => [r, res.outcome])) as Record<Researcher, ResearcherOutcome>,
+    timings,
+    shareableCompanyFindings: results.find(([r]) => r === 'company')?.[1].shareable ?? [],
+  }
 }

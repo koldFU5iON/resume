@@ -12,6 +12,7 @@ import {
   normaliseUrl,
   researchPrompt,
   runResearch,
+  shareableFindings,
   skipReason,
   structurePrompt,
   type ResearchContext,
@@ -99,6 +100,32 @@ describe('checkFindingSources', () => {
   it('normalises URLs for comparison', () => {
     expect(normaliseUrl('HTTPS://A.example/Path/#x')).toBe('https://a.example/path')
     expect(normaliseUrl('https://a.example/p.')).toBe('https://a.example/p')
+    expect(normaliseUrl('https://a.example/wiki/Acme_(company)')).toBe('https://a.example/wiki/acme_(company)')
+    expect(normaliseUrl('https://a.example/p).')).toBe('https://a.example/p')
+  })
+
+  it('matches URLs with brackets written in the notes', () => {
+    const wiki = 'https://en.wikipedia.org/wiki/Acme_(company)'
+    const kept = checkFindingSources([finding('a', { sourceUrl: wiki })], `Founded 1999 (${wiki}).`, [{ url: 'https://other.example', title: null }], JD)
+    expect(kept).toHaveLength(1)
+  })
+})
+
+describe('shareableFindings', () => {
+  const sources = [{ url: 'https://news.example/acme', title: null }, { url: 'https://evil.example/x', title: null }]
+
+  it('keeps only findings from pages the provider fetched', () => {
+    const kept = shareableFindings([
+      finding('fetched', { sourceUrl: 'https://news.example/acme/' }),
+      finding('notes only', { sourceUrl: 'https://written.example/y' }),
+      finding('ad', { sourceUrl: null, quote: 'q' }),
+    ], sources, JD)
+    expect(kept.map((f) => f.claim)).toEqual(['fetched'])
+  })
+
+  it('never shares a finding from a site the job ad names', () => {
+    const kept = shareableFindings([finding('planted', { sourceUrl: 'https://evil.example/x' })], sources, `${JD} See www.evil.example for details.`)
+    expect(kept).toEqual([])
   })
 })
 
@@ -146,6 +173,16 @@ describe('runResearch', () => {
       expect(opts.maxOutputTokens).toBeGreaterThanOrEqual(4000)
     }
     for (const r of RESEARCHERS) expect(run.researchers[r]).toMatchObject({ status: 'ok', findings: [expect.objectContaining({ claim: 'Fact' })] })
+    // The URL was only written in the notes, not reported as fetched: usable here, not shared.
+    expect(run.shareableCompanyFindings).toEqual([])
+  })
+
+  it('returns the company findings the provider fetched as shareable', async () => {
+    const url = 'https://acme.example/about'
+    mockComplete.mockResolvedValue(searchResult(`Fact (${url})`, [{ url, title: null }]) as never)
+    mockStructured.mockResolvedValue({ object: { findings: [finding('Fact', { sourceUrl: url })] } } as never)
+    const run = await runResearch(brief, ctx())
+    expect(run.shareableCompanyFindings).toEqual([expect.objectContaining({ claim: 'Fact' })])
   })
 
   it('isolates a failed or timed-out researcher', async () => {

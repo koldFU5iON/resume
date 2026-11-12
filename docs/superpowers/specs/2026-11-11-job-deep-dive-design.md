@@ -349,7 +349,7 @@ Each array has a maximum length so the report stays readable: blockers 8, gaps 1
   - With no LLM key, the button shows the reason and a link to settings, the same as today's `disabledReason`
   - With a key whose provider has no supported web search, the button still runs, and says "No web research with your provider"
 - **On the job page** (`view/[id]`): a **Deep dive** entry in the sidebar showing the verdict chip, next to the early assessment.
-- **Usage page.** `deep-dive:research:company`, `deep-dive:research:pay`, `deep-dive:research:practicalities`, `deep-dive:structure` and `deep-dive:synthesis` are added to `FEATURE_LABELS`. Each run's total cost appears on the deep-dive page, using #345's `runId` summary.
+- **Usage page.** `deep-dive-research-company`, `deep-dive-research-pay`, `deep-dive-research-practicalities`, `deep-dive-structure` and `deep-dive-synthesis` are added to `FEATURE_LABELS`. Each run's total cost appears on the deep-dive page, using #345's `runId` summary.
 
 ## 8. Routes and execution
 
@@ -366,6 +366,7 @@ Each array has a maximum length so the report stays readable: blockers 8, gaps 1
 - **Time budget:** gather < 2s, research (parallel) ≤ 120s, synthesis ≤ 120s.
   - A researcher over budget is cut and marked `timeout`, and the run continues.
   - A synthesis over budget fails the run with `timeout`.
+  - As built: the whole run also has one 280s deadline (under the route's 300s) capping research and both synthesis attempts, so a run always ends on its row.
   - If real runs often go past ~240s, move the pipeline to Vercel Workflow, one step per stage. The module boundary allows it.
 - **As built (#360):** a start past the per-profile limit is refused (`429`), not queued. `inputsHash` is nullable and set by the gather stage. `wrong_provider` isn't used: a provider without web search runs with research skipped.
 - **Rows left behind:** a row stuck in a running status for over 10 minutes is shown as failed (`timeout`), using the same stale rule as `IN_PROGRESS_STALE_MS`.

@@ -35,6 +35,7 @@ import {
   flattenFindings,
   type DeepDiveFailureKind,
   type DeepDiveResearch,
+  type Finding,
   type DeepDiveStatus,
 } from './schema'
 
@@ -144,21 +145,22 @@ async function fail(id: string, kind: DeepDiveFailureKind, message: string | nul
 
 /**
  * Stores fresh company findings for other runs (and users) to reuse. Best
- * effort. Only web-sourced findings are shared: a job-ad quote belongs to this
- * job's ad. An agency's ad isn't cached at all, since the researcher may have
- * researched the hiring company rather than the agency the job is linked to.
+ * effort. Only `shareable` findings are stored (sourced from a page the
+ * provider fetched, on a site the ad doesn't name: see shareableFindings), so
+ * one user's job ad can't plant facts in other users' reports. An agency's ad
+ * isn't cached at all, since the researcher may have researched the hiring
+ * company rather than the agency the job is linked to.
  */
-async function cacheCompanyResearch(g: GatherResult, research: DeepDiveResearch, now: Date): Promise<void> {
+async function cacheCompanyResearch(g: GatherResult, research: DeepDiveResearch, shareable: Finding[], now: Date): Promise<void> {
   const company = research.researchers.company
   if (!g.companyId || g.brief.isRecruitmentAgency || company.status !== 'ok' || !company.model) return
-  const findings = company.findings.filter((f) => f.sourceUrl !== null)
-  if (findings.length === 0) return
+  if (shareable.length === 0) return
   try {
     await prisma.companyResearch.create({
       data: {
         companyId: g.companyId,
         topic: 'company',
-        findings: findings as unknown as Prisma.InputJsonValue,
+        findings: shareable as unknown as Prisma.InputJsonValue,
         model: company.model,
         expiresAt: new Date(now.getTime() + COMPANY_RESEARCH_TTL_MS),
       },
@@ -171,6 +173,7 @@ async function cacheCompanyResearch(g: GatherResult, research: DeepDiveResearch,
 /** The pipeline. Never throws: every failure ends on the row. */
 export async function runDeepDive(profileId: string, jobId: string, deepDiveId: string): Promise<void> {
   const timings: { gather?: number; research?: Record<string, number>; synthesis?: number } = {}
+  const deadline = Date.now() + TIME_BUDGET_MS.run
   try {
     // 1. Gather
     let t = Date.now()
@@ -195,18 +198,18 @@ export async function runDeepDive(profileId: string, jobId: string, deepDiveId: 
     }))) return
     t = Date.now()
     const now = new Date()
-    const { researchers, timings: researchTimings } = await runResearch(g.brief, {
+    const { researchers, timings: researchTimings, shareableCompanyFindings } = await runResearch(g.brief, {
       profileId,
       jobApplicationId: jobId,
       runId: deepDiveId,
       webSearch: !!config.provider && supportsWebSearch(config.provider),
       cachedCompanyResearch: g.cachedCompanyResearch,
-      deadline: t + TIME_BUDGET_MS.research,
+      deadline: Math.min(t + TIME_BUDGET_MS.research, deadline),
       today: now,
     })
     timings.research = researchTimings
     const research: DeepDiveResearch = { researchers, findings: flattenFindings(researchers) }
-    await cacheCompanyResearch(g, research, now)
+    await cacheCompanyResearch(g, research, shareableCompanyFindings, now)
     const researchModel = Object.values(researchers).find((r) => r.status === 'ok' && r.model)?.model ?? null
 
     // 3. Synthesis
@@ -222,6 +225,7 @@ export async function runDeepDive(profileId: string, jobId: string, deepDiveId: 
         jobApplicationId: jobId,
         runId: deepDiveId,
         timeoutMs: TIME_BUDGET_MS.synthesis,
+        deadline,
       })
     } finally {
       timings.synthesis = Date.now() - t
