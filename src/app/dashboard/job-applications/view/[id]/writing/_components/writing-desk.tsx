@@ -459,7 +459,7 @@ export function WritingDesk({
   return (
     <div className="flex h-full flex-col">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b px-4 py-2">
-        <div className="flex min-w-0 flex-1 basis-48 items-center gap-1">
+        <div className="flex w-48 min-w-0 flex-1 basis-48 items-center gap-1">
           <div className="min-w-0">
             <h2 className="truncate text-sm font-semibold" title={name}>{name}</h2>
             <p className="truncate text-xs text-muted-foreground">{documentTypeLabel(documentType)}{sourceLabel ? ` · ${sourceLabel}` : ""}</p>

@@ -80,7 +80,7 @@ export function JobWorkspaceHeader({ workspace, compact, onExpand, statusTrigger
 
       <div
         id={CONTROLS_ID}
-        className={cn("flex w-full min-w-0 items-center gap-2 lg:w-auto lg:shrink-0", compact && "max-md:hidden")}
+        className={cn("flex w-full min-w-0 flex-wrap items-center gap-2 lg:w-auto lg:shrink-0", compact && "max-md:hidden")}
       >
         {archived && (
           <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">Archived</span>
