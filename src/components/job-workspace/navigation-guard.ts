@@ -67,10 +67,15 @@ export function interceptableHref(
   return `${url.pathname}${url.search}${url.hash}`
 }
 
+/** Set while a held click is being replayed, so the listener lets it through. */
+let replaying = false
+
 // One capture-phase listener on the document for all guards. It runs before
-// Next's <Link> handler (React listens on the root), holds the click, and
-// replays it through the router once every dirty guard has settled.
+// Next's <Link> handler (React listens on the root), holds the click, and once
+// every dirty guard has settled replays the same click on the same anchor, so
+// the link's own onClick, replace and scroll options all still apply.
 function onDocumentClick(event: MouseEvent) {
+  if (replaying) return
   const dirty = dirtyGuards()
   if (dirty.length === 0) return
   const anchor = event.target instanceof Element ? event.target.closest("a[href]") : null
@@ -80,7 +85,16 @@ function onDocumentClick(event: MouseEvent) {
   event.preventDefault()
   event.stopPropagation()
   const push = dirty[dirty.length - 1].push
-  void confirmNavigation().then(ok => { if (ok) push(href) })
+  void confirmNavigation().then(ok => {
+    if (!ok) return
+    if (!anchor.isConnected) return push(href)
+    replaying = true
+    try {
+      anchor.click()
+    } finally {
+      replaying = false
+    }
+  })
 }
 
 /** Registers `guard` while the calling editor is mounted. */

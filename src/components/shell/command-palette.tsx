@@ -1,6 +1,7 @@
 "use client"
 
 import { useRouter } from "next/navigation"
+import { guardedNavigate } from "@/components/job-workspace/navigation-guard"
 import { useTheme } from "next-themes"
 import { Settings, KeyRound, Plus, Sparkles, SunMoon, UserCog } from "lucide-react"
 
@@ -40,7 +41,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
 
   const go = (href: string) => {
     onOpenChange(false)
-    router.push(href)
+    void guardedNavigate(() => router.push(href))
   }
 
   return (

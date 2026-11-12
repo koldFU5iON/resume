@@ -42,7 +42,7 @@ export const WritingDeskDocumentNameSchema = z
   .string()
   .trim()
   .min(1, "Name the document")
-  .max(MAX_WRITING_DESK_DOCUMENT_NAME_LENGTH, `Keep the name under ${MAX_WRITING_DESK_DOCUMENT_NAME_LENGTH} characters`)
+  .max(MAX_WRITING_DESK_DOCUMENT_NAME_LENGTH, `Keep the name to ${MAX_WRITING_DESK_DOCUMENT_NAME_LENGTH} characters or fewer`)
   .refine(name => !/\p{Cc}/u.test(name), "The name can't contain control characters")
 
 /** Record ids (cuids) as they arrive from the client or an agent. */

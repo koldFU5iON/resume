@@ -177,6 +177,11 @@ export function WritingDesk({
     getWritingDeskLiveStateAction(desk.id)
       .then(live => {
         if (cancelled || !live || live.revision <= revisionRef.current) return
+        if (conflictRef.current) {
+          // The page may be a stale router-cache copy: compare against the real saved version.
+          setConflict(prev => (prev && live.revision > prev.revision ? { revision: live.revision, content: live.content } : prev))
+          return
+        }
         // With local edits pending, the next save surfaces this as a conflict instead.
         if (pendingValueRef.current !== null || inflightRef.current || conflictRef.current) return
         contentRef.current = live.content
@@ -190,6 +195,15 @@ export function WritingDesk({
       cancelled = true
       window.cancelAnimationFrame(frame)
       if (timerRef.current) clearTimeout(timerRef.current)
+      // Leaving by a route the navigation guard can't hold (Back/Forward): send
+      // the pending text anyway. Server Actions finish after unmount; an
+      // in-flight save already retries with any newer text itself.
+      const pending = pendingValueRef.current
+      if (pending !== null && !conflictRef.current && !inflightRef.current) {
+        void updateWritingDeskContent(desk.id, pending, revisionRef.current)
+          .then(result => { if (result.ok) clearRecovery(recoveryKey) })
+          .catch(() => {})
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once per mounted document
   }, [])
@@ -332,7 +346,8 @@ export function WritingDesk({
 
   async function chooseType(type: WritingDeskDocumentType) {
     if (documentType && documentType !== type && contentRef.current.trim() && !window.confirm("Change the document type? Your Markdown will stay unchanged.")) return
-    if (inflightRef.current) await inflightRef.current
+    await settleSaves()
+    if (conflictRef.current) return
     try {
       const result = await setWritingDeskDocumentType(desk.id, type, revisionRef.current)
       if (!result.ok) {
