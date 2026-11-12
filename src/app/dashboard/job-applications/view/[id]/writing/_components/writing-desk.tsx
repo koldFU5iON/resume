@@ -33,9 +33,11 @@ import type { WritingDeskSourceOption, WritingDeskWithJob } from "@/modules/writ
 import { WritingDeskPreview } from "@/app/components/writing-desk-preview"
 import { planAcceptedUpdate, newerSavedVersion } from "./accepted-update"
 import { AvailableBlocks } from "./available-blocks"
+import { CopyButton, type CopyFormat } from "./copy-button"
 import { DeleteDocumentDialog } from "./delete-document-dialog"
 import { DraftReview } from "./draft-review"
 import { RenameDocumentDialog } from "./rename-document-dialog"
+import { ReplaceWithCvPicker } from "./replace-with-cv-picker"
 import { SaveConflictDialog } from "./save-conflict-dialog"
 
 /** dirty: edited, save not started yet. failed/conflict keep the edits locally until resolved. */
@@ -59,8 +61,8 @@ const DOCUMENT_TYPES: Array<{ value: WritingDeskDocumentType; label: string }> =
   { value: "other", label: "Other" },
 ]
 
-function documentTypeLabel(type: WritingDeskDocumentType | null): string {
-  return DOCUMENT_TYPES.find(item => item.value === type)?.label ?? "No type yet"
+function documentTypeLabel(type: WritingDeskDocumentType): string {
+  return DOCUMENT_TYPES.find(item => item.value === type)?.label ?? type
 }
 
 /**
@@ -119,7 +121,6 @@ export function WritingDesk({
   const [conflictReason, setConflictReason] = useState<"elsewhere" | "accepted">("elsewhere")
   const [leaveRequest, setLeaveRequest] = useState<((leave: boolean) => void) | null>(null)
   const [mode, setMode] = useState<"markdown" | "preview">("markdown")
-  const [showExport, setShowExport] = useState(false)
   const [blocksOpen, setBlocksOpen] = useState(false)
   const [reviewing, setReviewing] = useState(true)
   const contentRef = useRef(desk.content)
@@ -402,8 +403,12 @@ export function WritingDesk({
     })
   }
 
+  /**
+   * Sets the type of a legacy document that has none (#383). The type is
+   * otherwise chosen once, in the "+" dialog, so typed documents can't change it.
+   */
   async function chooseType(type: WritingDeskDocumentType) {
-    if (documentType && documentType !== type && contentRef.current.trim() && !window.confirm("Change the document type? Your Markdown will stay unchanged.")) return
+    if (documentType) return
     await settleSaves()
     if (conflictRef.current) return
     try {
@@ -444,6 +449,11 @@ export function WritingDesk({
     pendingValueRef.current = null
     setSaveState("saved")
     window.location.reload()
+  }
+
+  function copyDocument(format: CopyFormat) {
+    if (format === "text") void copyText(writingDeskMarkdownToText(contentRef.current), "Plain text")
+    else void copyText(contentRef.current, "Markdown")
   }
 
   async function copyText(value: string, label: string) {
@@ -574,7 +584,23 @@ export function WritingDesk({
         <div className="flex w-48 min-w-0 flex-1 basis-48 items-center gap-1">
           <div className="min-w-0">
             <h2 className="truncate text-sm font-semibold" title={name}>{name}</h2>
-            <p className="truncate text-xs text-muted-foreground">{documentTypeLabel(documentType)}{sourceLabel ? ` · ${sourceLabel}` : ""}</p>
+            {documentType ? (
+              <p className="truncate text-xs text-muted-foreground">{documentTypeLabel(documentType)}{sourceLabel ? ` · ${sourceLabel}` : ""}</p>
+            ) : (
+              // Legacy documents made before types existed: the only place left to set one.
+              <p className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+                <select
+                  aria-label="Document type (not set yet)"
+                  value=""
+                  onChange={event => { if (event.target.value) void chooseType(event.target.value as WritingDeskDocumentType) }}
+                  className="h-5 max-w-32 shrink-0 cursor-pointer rounded border border-dashed bg-background px-1 text-xs text-foreground"
+                >
+                  <option value="" disabled>Set a type…</option>
+                  {DOCUMENT_TYPES.map(type => <option key={type.value} value={type.value}>{type.label}</option>)}
+                </select>
+                {sourceLabel && <span className="truncate">· {sourceLabel}</span>}
+              </p>
+            )}
           </div>
           <Button
             variant="ghost"
@@ -589,7 +615,7 @@ export function WritingDesk({
           <Button
             variant="ghost"
             size="icon"
-            className="size-7 shrink-0 text-muted-foreground hover:text-destructive"
+            className="size-7 shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive dark:hover:bg-destructive/20"
             aria-label={`Delete "${name}"`}
             title="Delete document"
             onClick={() => setConfirmingDelete(true)}
@@ -597,37 +623,20 @@ export function WritingDesk({
             <Trash2 className="size-3.5" aria-hidden="true" />
           </Button>
         </div>
-        <select
-          aria-label="Document type"
-          value={documentType ?? ""}
-          onChange={event => void chooseType(event.target.value as WritingDeskDocumentType)}
-          className="h-7 rounded-md border bg-background px-2 text-xs"
-        >
-          {!documentType && <option value="" disabled>Choose a type…</option>}
-          {DOCUMENT_TYPES.map(type => <option key={type.value} value={type.value}>{type.label}</option>)}
-        </select>
-        <select
-          aria-label="Replace this document with a CV"
-          value=""
-          onChange={event => { if (event.target.value) void chooseSource(event.target.value) }}
-          className="h-7 max-w-52 rounded-md border bg-background px-2 text-xs"
-        >
-          <option value="">Replace with a CV…</option>
-          {sourceCVs.map(source => <option key={source.id} value={source.id}>{source.label}</option>)}
-        </select>
+        <ReplaceWithCvPicker sources={sourceCVs} onChoose={cvId => void chooseSource(cvId)} />
         <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setBlocksOpen(true)}>Blocks</Button>
         <div className="flex overflow-hidden rounded-md border text-xs" role="group" aria-label="Editor view">
           <button type="button" aria-pressed={!showReview && mode === "markdown"} onClick={() => { setMode("markdown"); setReviewing(false) }} className={cn("px-3 py-1.5", !showReview && mode === "markdown" ? "bg-foreground text-background" : "text-muted-foreground")}>Markdown</button>
           <button type="button" aria-pressed={!showReview && mode === "preview"} onClick={() => { setMode("preview"); setReviewing(false) }} className={cn("px-3 py-1.5", !showReview && mode === "preview" ? "bg-foreground text-background" : "text-muted-foreground")}>Preview</button>
         </div>
         <SaveStatus state={saveState} onRetry={retrySave} onResolve={() => setConflictOpen(true)} />
-        <div className="relative">
-          <Button variant="outline" size="sm" className="h-7 text-xs" aria-expanded={showExport} onClick={() => setShowExport(value => !value)}><Download className="mr-1 size-3" />Export</Button>
-          {showExport && <div className="absolute right-0 z-20 mt-1 w-44 rounded-md border bg-background py-1 shadow-md">
-            <button onClick={() => { void exportPdf(); setShowExport(false) }} className="block w-full px-3 py-1.5 text-left text-sm hover:bg-muted">Download PDF</button>
-            <button onClick={() => { void copyText(content, "Markdown"); setShowExport(false) }} className="block w-full px-3 py-1.5 text-left text-sm hover:bg-muted">Copy Markdown</button>
-            <button onClick={() => { void copyText(writingDeskMarkdownToText(content), "Plain text"); setShowExport(false) }} className="block w-full px-3 py-1.5 text-left text-sm hover:bg-muted">Copy plain text</button>
-          </div>}
+        <div className="flex items-center gap-1.5">
+          <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={() => void exportPdf()} title="Download as PDF">
+            <Download className="size-3" aria-hidden="true" />
+            Export
+            <span className="sr-only">as PDF</span>
+          </Button>
+          <CopyButton onCopy={copyDocument} />
         </div>
         <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs" onClick={openPanel}><Sparkles className="size-3.5" />Ask coach</Button>
       </div>
