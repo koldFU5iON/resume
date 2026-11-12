@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest"
 import {
   activeJobDocument,
+  canAddWritingDeskDocument,
+  unlistedWritingDeskDocument,
   isJobDeepDivePath,
   jobDocumentCreateLinks,
   jobDocumentLinks,
@@ -37,14 +39,13 @@ const several: JobDocumentAssets = {
 }
 
 describe("jobDocumentLinks", () => {
-  it("always starts with the Job Description and a Writing Desk entry", () => {
-    expect(jobDocumentLinks(none).map((l) => l.kind)).toEqual(["description", "writing-desk"])
+  it("always starts with the Job Description", () => {
+    expect(jobDocumentLinks(none).map((l) => l.kind)).toEqual(["description"])
   })
 
-  it("points a job with no document at the job-scoped URL, which creates its first", () => {
-    const desk = jobDocumentLinks(none)[1]
-    expect(desk).toMatchObject({ key: "writing-desk", label: "Writing Desk", href: jobWritingDeskHref("job1") })
-    expect(desk.href).toBe("/dashboard/job-applications/view/job1/writing")
+  it("has no generic Writing Desk tab for a job with no document: + creates documents", () => {
+    expect(jobDocumentLinks(none).some((l) => l.kind === "writing-desk")).toBe(false)
+    expect(jobDocumentLinks(none).some((l) => l.href === jobWritingDeskHref("job1"))).toBe(false)
   })
 
   it("gives each named document its own tab, in the given (oldest-first) order, at its stable URL", () => {
@@ -116,8 +117,37 @@ describe("activeJobDocument", () => {
     expect(activeJobDocument("/dashboard/job-applications/view/job1/writing/deskN/", many)).toBe("writing-desk:deskN")
   })
 
-  it("marks the Writing Desk entry on the job-scoped URL of a job with no document", () => {
-    expect(activeJobDocument("/dashboard/job-applications/view/job1/writing", jobDocumentLinks(none))).toBe("writing-desk")
+  it("marks nothing on the legacy job-scoped URL, which only redirects", () => {
+    expect(activeJobDocument("/dashboard/job-applications/view/job1/writing", jobDocumentLinks(none))).toBeNull()
+  })
+})
+
+describe("canAddWritingDeskDocument", () => {
+  const withDesks = (n: number): JobDocumentAssets => ({
+    ...none,
+    writingDesks: Array.from({ length: n }, (_, i) => ({ id: `d${i}`, name: `Doc ${i}`, documentType: null })),
+  })
+
+  it("allows documents up to the per-job cap of 10, and not beyond", () => {
+    expect(canAddWritingDeskDocument(withDesks(0))).toBe(true)
+    expect(canAddWritingDeskDocument(withDesks(9))).toBe(true)
+    expect(canAddWritingDeskDocument(withDesks(10))).toBe(false)
+    expect(canAddWritingDeskDocument(withDesks(11))).toBe(false)
+  })
+})
+
+describe("unlistedWritingDeskDocument", () => {
+  it("names a document the nav doesn't list yet, so it can refresh once", () => {
+    expect(unlistedWritingDeskDocument("/dashboard/job-applications/view/job1/writing/deskNew", none)).toBe("deskNew")
+    expect(unlistedWritingDeskDocument("/dashboard/job-applications/view/job1/writing/deskNew/", several)).toBe("deskNew")
+  })
+
+  it("is null for listed documents and other routes", () => {
+    expect(unlistedWritingDeskDocument("/dashboard/job-applications/view/job1/writing/deskB", several)).toBeNull()
+    expect(unlistedWritingDeskDocument("/dashboard/job-applications/view/job1/writing", none)).toBeNull()
+    expect(unlistedWritingDeskDocument("/dashboard/job-applications/view/job1", none)).toBeNull()
+    expect(unlistedWritingDeskDocument("/dashboard/job-applications/view/job2/writing/deskX", none)).toBeNull()
+    expect(unlistedWritingDeskDocument("/dashboard/cv-builder/cv1", none)).toBeNull()
   })
 })
 

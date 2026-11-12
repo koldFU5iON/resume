@@ -58,6 +58,34 @@ export const CreateWritingDeskDocumentSchema = z.object({
 
 export type CreateWritingDeskDocumentInput = z.input<typeof CreateWritingDeskDocumentSchema>
 
+export const RenameWritingDeskDocumentSchema = z.object({
+  documentId: WritingDeskIdSchema,
+  name: WritingDeskDocumentNameSchema,
+})
+
+export type RenameWritingDeskDocumentResult =
+  | { ok: true; name: string }
+  | { ok: false; reason: "invalid" | "not_found"; message: string }
+
+/**
+ * The name the "+" dialog suggests for a new document of this type: the
+ * type's label ("CV"), numbered when the job already has one by that name
+ * ("CV 2", "CV 3", ...). Compared case-insensitively, ignoring surrounding
+ * space. The user can change it before creating, and rename it later.
+ */
+export function suggestWritingDeskDocumentName(
+  documentType: WritingDeskDocumentType,
+  existingNames: readonly string[],
+): string {
+  const base = documentType === "other" ? "Notes" : WRITING_DESK_DOCUMENT_TYPE_LABEL[documentType]
+  const taken = new Set(existingNames.map(name => name.trim().toLocaleLowerCase()))
+  if (!taken.has(base.toLocaleLowerCase())) return base
+  for (let n = 2; ; n++) {
+    const candidate = `${base} ${n}`
+    if (!taken.has(candidate.toLocaleLowerCase())) return candidate
+  }
+}
+
 export type CreateWritingDeskDocumentResult =
   | { ok: true; id: string }
   | { ok: false; reason: "invalid" | "job_not_found" | "source_not_found" | "limit"; message: string }

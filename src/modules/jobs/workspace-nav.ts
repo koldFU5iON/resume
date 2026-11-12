@@ -9,7 +9,11 @@
  * header, not a document tab.
  */
 
-import { WRITING_DESK_DOCUMENT_TYPE_LABEL, type WritingDeskDocumentType } from "@/modules/writing-desk/schema"
+import {
+  MAX_WRITING_DESK_DOCUMENTS_PER_JOB,
+  WRITING_DESK_DOCUMENT_TYPE_LABEL,
+  type WritingDeskDocumentType,
+} from "@/modules/writing-desk/schema"
 
 export type JobDocumentKind = "description" | "writing-desk" | "cv" | "cover-letter" | "interview-prep"
 
@@ -23,7 +27,11 @@ export type JobDocumentLink = {
   href: string
 }
 
-/** A creation flow that already exists in the app for an asset the job doesn't have yet. */
+/**
+ * A legacy structured editor's creation flow (CV Builder, cover letter,
+ * interview prep) for an asset the job doesn't have yet. These are not
+ * Writing Desk documents; the "+" dialog creates those.
+ */
 export type JobDocumentCreateLink = {
   kind: Exclude<JobDocumentKind, "description" | "writing-desk">
   label: string
@@ -93,18 +101,13 @@ function deskTab(jobId: string, desk: JobWritingDeskTab): JobDocumentLink {
 
 /**
  * The job's destinations, in navigation order. Each Writing Desk document is
- * its own tab, named for the document; a job with none shows one "Writing
- * Desk" tab on the job-scoped URL, which creates its first. Legacy assets
- * appear only when they exist.
+ * its own tab, named for the document. A job with none has no Writing Desk
+ * tab: "+" creates documents (#371). Legacy assets appear only when they exist.
  */
 export function jobDocumentLinks(assets: JobDocumentAssets): JobDocumentLink[] {
   const hub = jobHubHref(assets.jobId)
   const links: JobDocumentLink[] = [{ key: "description", kind: "description", label: "Job Description", href: hub }]
-  if (assets.writingDesks.length === 0) {
-    links.push({ key: "writing-desk", kind: "writing-desk", label: "Writing Desk", href: jobWritingDeskHref(assets.jobId) })
-  } else {
-    links.push(...assets.writingDesks.map(desk => deskTab(assets.jobId, desk)))
-  }
+  links.push(...assets.writingDesks.map(desk => deskTab(assets.jobId, desk)))
   if (assets.cvDocumentId) {
     links.push({ key: "cv", kind: "cv", label: "CV", href: `/dashboard/cv-builder/${assets.cvDocumentId}` })
   }
@@ -118,9 +121,9 @@ export function jobDocumentLinks(assets: JobDocumentAssets): JobDocumentLink[] {
 }
 
 /**
- * The existing creation flows for assets the job doesn't have yet (what the
- * old hub sidebar offered as "Create CV" and friends). Empty when every
- * legacy asset exists: creating further documents is Phase 3 (#371).
+ * The legacy editors' creation flows for assets the job doesn't have yet
+ * (what the old hub sidebar offered as "Create CV" and friends). Empty when
+ * every legacy asset exists.
  */
 export function jobDocumentCreateLinks(assets: JobDocumentAssets): JobDocumentCreateLink[] {
   const jobId = encodeURIComponent(assets.jobId)
@@ -129,6 +132,27 @@ export function jobDocumentCreateLinks(assets: JobDocumentAssets): JobDocumentCr
   if (!assets.coverLetterDocumentId) links.push({ kind: "cover-letter", label: "Create a cover letter", href: `/dashboard/cover-letters/new?jobId=${jobId}` })
   if (!assets.interviewPrepSessionId) links.push({ kind: "interview-prep", label: "Start interview prep", href: `/dashboard/interview-prep/new?jobId=${jobId}` })
   return links
+}
+
+/** Whether the job can take another Writing Desk document (the per-job cap). */
+export function canAddWritingDeskDocument(assets: JobDocumentAssets): boolean {
+  return assets.writingDesks.length < MAX_WRITING_DESK_DOCUMENTS_PER_JOB
+}
+
+/**
+ * The Writing Desk document id a pathname opens when the nav doesn't list it
+ * yet, else null. That happens when the page created the document after the
+ * (shared, client-cached) layout rendered: the legacy /writing URL creating a
+ * job's first document, or an agent adding one elsewhere. The nav refreshes
+ * once so the tab appears with its name.
+ */
+export function unlistedWritingDeskDocument(pathname: string, assets: JobDocumentAssets): string | null {
+  const prefix = `${jobWritingDeskHref(assets.jobId)}/`
+  const path = pathname.replace(/\/+$/, "")
+  if (!path.startsWith(prefix)) return null
+  const id = decodeURIComponent(path.slice(prefix.length).split("/")[0] ?? "")
+  if (!id || assets.writingDesks.some(desk => desk.id === id)) return null
+  return id
 }
 
 function isAt(pathname: string, href: string): boolean {

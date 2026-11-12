@@ -3,11 +3,14 @@
 import { revalidatePath } from "next/cache"
 import { prisma } from "@/lib/db"
 import { requireProfile } from "@/lib/session"
-import { createWritingDeskDocument, loadSourceCv } from "./documents"
+import { createWritingDeskDocument, loadSourceCv, renameWritingDeskDocument } from "./documents"
+import { getWritingDeskLiveState, listWritingDeskSourceCVs, type WritingDeskSourceOption } from "./queries"
 import {
   WritingDeskContentSchema,
   WritingDeskDocumentTypeSchema,
+  WritingDeskIdSchema,
   type CreateWritingDeskDocumentResult,
+  type RenameWritingDeskDocumentResult,
   type WritingDeskDocumentType,
   type WritingDeskSaveResult,
 } from "./schema"
@@ -39,6 +42,28 @@ export async function createWritingDeskDocumentAction(input: unknown): Promise<C
   const result = await createWritingDeskDocument(profile.id, input)
   if (result.ok) revalidatePath(JOB_WORKSPACE_LAYOUT, "layout")
   return result
+}
+
+/** Renames one of the signed-in user's documents; the job's tabs pick up the new name. */
+export async function renameWritingDeskDocumentAction(input: unknown): Promise<RenameWritingDeskDocumentResult> {
+  const { profile } = await requireProfile()
+  const result = await renameWritingDeskDocument(profile.id, input)
+  if (result.ok) revalidatePath(JOB_WORKSPACE_LAYOUT, "layout")
+  return result
+}
+
+/** The signed-in user's CVs a new document can start from, for the "+" dialog. */
+export async function listWritingDeskSourceCVsAction(): Promise<WritingDeskSourceOption[]> {
+  const { profile } = await requireProfile()
+  return listWritingDeskSourceCVs(profile.id)
+}
+
+/** A document's saved content and revision, so an editor can tell whether it is showing a stale copy. */
+export async function getWritingDeskLiveStateAction(id: unknown): Promise<{ content: string; revision: number } | null> {
+  const { profile } = await requireProfile()
+  const parsed = WritingDeskIdSchema.safeParse(id)
+  if (!parsed.success) return null
+  return getWritingDeskLiveState(profile.id, parsed.data)
 }
 
 export async function setWritingDeskDocumentType(

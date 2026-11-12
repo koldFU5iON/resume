@@ -20,8 +20,10 @@ import {
   CreateWritingDeskDocumentSchema,
   DEFAULT_WRITING_DESK_DOCUMENT_NAME,
   MAX_WRITING_DESK_DOCUMENTS_PER_JOB,
+  RenameWritingDeskDocumentSchema,
   WRITING_DESK_DOCUMENT_ORDER,
   type CreateWritingDeskDocumentResult,
+  type RenameWritingDeskDocumentResult,
   type WritingDeskSourceType,
 } from "./schema"
 
@@ -124,6 +126,28 @@ export async function createWritingDeskDocument(
     })
     return { ok: true, id: created.id }
   })
+}
+
+/**
+ * Renames one of the profile's documents. The name is metadata, not content:
+ * it doesn't bump the revision, so a rename never conflicts with an edit
+ * that is saving at the same time. Returns the stored (trimmed) name.
+ */
+export async function renameWritingDeskDocument(
+  profileId: string,
+  input: unknown,
+): Promise<RenameWritingDeskDocumentResult> {
+  const parsed = RenameWritingDeskDocumentSchema.safeParse(input)
+  if (!parsed.success) {
+    return { ok: false, reason: "invalid", message: parsed.error.issues[0]?.message ?? "Invalid name" }
+  }
+  const { documentId, name } = parsed.data
+  const updated = await prisma.writingDeskDocument.updateMany({
+    where: { id: documentId, profileId },
+    data: { name },
+  })
+  if (updated.count === 0) return { ok: false, reason: "not_found", message: "Document not found." }
+  return { ok: true, name }
 }
 
 /**

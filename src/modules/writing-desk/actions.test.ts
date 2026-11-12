@@ -27,6 +27,8 @@ import { parseCVContent } from "@/modules/cv/schema"
 import { toMarkdown } from "@/modules/cv/export"
 import {
   createWritingDeskDocumentAction,
+  getWritingDeskLiveStateAction,
+  renameWritingDeskDocumentAction,
   setWritingDeskDocumentType,
   setWritingDeskSource,
   updateWritingDeskContent,
@@ -224,5 +226,48 @@ describe("setWritingDeskSource", () => {
         revision: { increment: 1 },
       },
     })
+  })
+})
+
+describe("renameWritingDeskDocumentAction", () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it("renames the signed-in profile's document and refreshes the job's tabs", async () => {
+    mockDeskUpdateMany.mockResolvedValue({ count: 1 })
+
+    await expect(renameWritingDeskDocumentAction({ documentId: "desk-1", name: " Letter to Acme " }))
+      .resolves.toEqual({ ok: true, name: "Letter to Acme" })
+    expect(mockDeskUpdateMany).toHaveBeenCalledWith({
+      where: { id: "desk-1", profileId: "profile-1" },
+      data: { name: "Letter to Acme" },
+    })
+    expect(revalidatePath).toHaveBeenCalledWith("/dashboard/job-applications/view/[id]", "layout")
+  })
+
+  it("doesn't revalidate when the document isn't the profile's", async () => {
+    mockDeskUpdateMany.mockResolvedValue({ count: 0 })
+
+    await expect(renameWritingDeskDocumentAction({ documentId: "other", name: "Hijack" }))
+      .resolves.toMatchObject({ ok: false, reason: "not_found" })
+    expect(revalidatePath).not.toHaveBeenCalled()
+  })
+})
+
+describe("getWritingDeskLiveStateAction", () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it("reads only the signed-in profile's document", async () => {
+    mockDeskFindFirst.mockResolvedValue({ content: "Saved", revision: 7 } as never)
+
+    await expect(getWritingDeskLiveStateAction("desk-1")).resolves.toEqual({ content: "Saved", revision: 7 })
+    expect(mockDeskFindFirst).toHaveBeenCalledWith({
+      where: { id: "desk-1", profileId: "profile-1" },
+      select: { content: true, revision: true },
+    })
+  })
+
+  it("rejects a malformed id without querying", async () => {
+    await expect(getWritingDeskLiveStateAction({ id: "desk-1" })).resolves.toBeNull()
+    expect(mockDeskFindFirst).not.toHaveBeenCalled()
   })
 })

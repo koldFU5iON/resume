@@ -1,28 +1,26 @@
 "use client"
 
+import { useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { ChevronDown, ClipboardList, FileText, Mail, MessageSquare, NotebookPen, Plus, type LucideIcon } from "lucide-react"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+import { ClipboardList, FileText, Mail, MessageSquare, NotebookPen, Plus, type LucideIcon } from "lucide-react"
+import { toast } from "sonner"
 import { buttonVariants } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import type { JobWorkspace } from "@/modules/jobs/queries"
 import {
   activeJobDocument,
+  canAddWritingDeskDocument,
   isJobDeepDivePath,
   jobDeepDiveHref,
   jobDocumentCreateLinks,
   jobDocumentLinks,
-  type JobDocumentCreateLink,
+  unlistedWritingDeskDocument,
   type JobDocumentKind,
 } from "@/modules/jobs/workspace-nav"
+import { MAX_WRITING_DESK_DOCUMENTS_PER_JOB } from "@/modules/writing-desk/schema"
+import { DocumentSwitcher, type SwitcherEntry } from "./document-switcher"
+import { NewDocumentDialog } from "./new-document-dialog"
 
 const DOCUMENT_ICON: Record<JobDocumentKind, LucideIcon> = {
   description: ClipboardList,
@@ -32,21 +30,44 @@ const DOCUMENT_ICON: Record<JobDocumentKind, LucideIcon> = {
   "interview-prep": MessageSquare,
 }
 
+const AT_CAP_MESSAGE = `This job has ${MAX_WRITING_DESK_DOCUMENTS_PER_JOB} documents, the most a job can hold.`
+
 /**
- * The job's documents as route links (each keeps its existing editor), with
- * the current one marked. Tablet and desktop get a tab strip that scrolls
- * sideways when it runs out of room; phones get a document selector.
+ * The job's documents as route links (each keeps its own editor), with the
+ * current one marked, then "+" for a new document (#371). Tablet and desktop
+ * get a tab strip that scrolls sideways when it runs out of room, plus an
+ * "All documents" list with search; phones get that list as the document
+ * selector.
  */
 export function JobDocumentNav({ workspace }: { workspace: JobWorkspace }) {
   const pathname = usePathname()
   const router = useRouter()
-  const links = jobDocumentLinks(workspace.assets)
-  const createLinks = jobDocumentCreateLinks(workspace.assets)
-  const active = activeJobDocument(pathname, links)
+  const [creating, setCreating] = useState(false)
+  const activeTabRef = useRef<HTMLLIElement>(null)
+  const refreshedFor = useRef<string | null>(null)
+
+  const { assets } = workspace
+  const links = jobDocumentLinks(assets)
+  const legacyCreateLinks = jobDocumentCreateLinks(assets)
   const deepDiveHref = jobDeepDiveHref(workspace.jobId)
-  const selected = active
-    ? links.find((l) => l.key === active)!.href
-    : isJobDeepDivePath(pathname, workspace.jobId) ? deepDiveHref : ""
+  const active = activeJobDocument(pathname, links) ?? (isJobDeepDivePath(pathname, workspace.jobId) ? "deep-dive" : null)
+  const entries: SwitcherEntry[] = [...links, { key: "deep-dive", kind: "deep-dive", label: "Deep Dive", href: deepDiveHref }]
+  const canAdd = canAddWritingDeskDocument(assets)
+
+  // A document opened before this (client-cached) layout knew about it: the
+  // legacy /writing URL creating a job's first document, or one an agent
+  // added. Refresh once so its tab appears, named.
+  const unlisted = unlistedWritingDeskDocument(pathname, assets)
+  useEffect(() => {
+    if (!unlisted || refreshedFor.current === unlisted) return
+    refreshedFor.current = unlisted
+    router.refresh()
+  }, [unlisted, router])
+
+  // Keep the open document's tab in view when the strip overflows.
+  useEffect(() => {
+    activeTabRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" })
+  }, [active])
 
   return (
     <nav aria-label="Job documents" className="flex h-12 shrink-0 items-center gap-2 border-b bg-background px-2 md:h-11 md:px-4 print:hidden">
@@ -55,7 +76,7 @@ export function JobDocumentNav({ workspace }: { workspace: JobWorkspace }) {
           const Icon = DOCUMENT_ICON[link.kind]
           const current = active === link.key
           return (
-            <li key={link.key} className="flex">
+            <li key={link.key} ref={current ? activeTabRef : undefined} className="flex shrink-0">
               <Link
                 href={link.href}
                 aria-current={current ? "page" : undefined}
@@ -75,58 +96,47 @@ export function JobDocumentNav({ workspace }: { workspace: JobWorkspace }) {
         })}
       </ul>
 
-      <div className="relative flex min-w-0 flex-1 md:hidden">
-        <select
-          aria-label="Current document"
-          value={selected}
-          onChange={(event) => { if (event.target.value) router.push(event.target.value) }}
-          className="h-9 w-full min-w-0 appearance-none truncate rounded-lg border border-input bg-background pr-8 pl-2.5 text-sm font-medium outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
-        >
-          {!selected && <option value="" disabled>Choose a document</option>}
-          {links.map((link) => (
-            <option key={link.key} value={link.href}>
-              {link.detail ? `${link.label} · ${link.detail}` : link.label}
-            </option>
-          ))}
-          <option value={deepDiveHref}>Deep Dive</option>
-        </select>
-        <ChevronDown className="pointer-events-none absolute top-1/2 right-2.5 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-      </div>
+      <DocumentSwitcher
+        variant="selector"
+        entries={entries}
+        activeKey={active}
+        legacyCreateLinks={legacyCreateLinks}
+        icons={DOCUMENT_ICON}
+        className="flex-1 md:hidden"
+      />
 
-      {createLinks.length > 0 && <AddDocumentMenu links={createLinks} />}
-    </nav>
-  )
-}
-
-/**
- * Existing creation flows for the job's missing assets. Creating further
- * named Writing Desk documents is Phase 3 (#371); nothing here pretends to.
- */
-function AddDocumentMenu({ links }: { links: JobDocumentCreateLink[] }) {
-  const router = useRouter()
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        aria-label="Add a document"
-        title="Add a document"
-        className={cn(buttonVariants({ variant: "outline", size: "icon" }), "size-9 shrink-0 md:size-8")}
+      <button
+        type="button"
+        aria-label={canAdd ? "New document" : `New document. ${AT_CAP_MESSAGE}`}
+        aria-disabled={canAdd ? undefined : true}
+        title={canAdd ? "New document" : AT_CAP_MESSAGE}
+        onClick={() => (canAdd ? setCreating(true) : toast.info(AT_CAP_MESSAGE))}
+        className={cn(
+          buttonVariants({ variant: "outline", size: "icon" }),
+          "size-9 shrink-0 md:size-8",
+          !canAdd && "cursor-not-allowed opacity-50",
+        )}
       >
         <Plus aria-hidden="true" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuGroup>
-          <DropdownMenuLabel>Add to this job</DropdownMenuLabel>
-          {links.map((link) => {
-            const Icon = DOCUMENT_ICON[link.kind]
-            return (
-              <DropdownMenuItem key={link.kind} onClick={() => router.push(link.href)}>
-                <Icon aria-hidden="true" />
-                {link.label}
-              </DropdownMenuItem>
-            )
-          })}
-        </DropdownMenuGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
+      </button>
+
+      <DocumentSwitcher
+        variant="overflow"
+        entries={entries}
+        activeKey={active}
+        legacyCreateLinks={legacyCreateLinks}
+        icons={DOCUMENT_ICON}
+        className="hidden md:inline-flex"
+      />
+
+      {creating && (
+        <NewDocumentDialog
+          jobId={workspace.jobId}
+          existingNames={assets.writingDesks.map((desk) => desk.name)}
+          open
+          onOpenChange={setCreating}
+        />
+      )}
+    </nav>
   )
 }
