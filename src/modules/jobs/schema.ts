@@ -50,9 +50,9 @@ export const JobAnalysisRiskSchema = z.object({
 })
 
 export const JobAnalysisSchema = z.object({
-  mustHave: z.array(z.string()).describe('Non-negotiable requirements per the job description.'),
-  niceToHave: z.array(z.string()).describe('Preferred but not required skills or experience.'),
-  risks: z.array(JobAnalysisRiskSchema),
+  mustHave: z.array(z.string()).describe('Non-negotiable requirements per the job description. At most 10, most important first.'),
+  niceToHave: z.array(z.string()).describe('Preferred but not required skills or experience. At most 8.'),
+  risks: z.array(JobAnalysisRiskSchema).describe('At most 6, most serious first.'),
   positioningStrategy: z.string().describe('1–2 sentences on how the candidate should frame their application — what to lead with, what to de-emphasise.'),
 })
 
