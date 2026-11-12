@@ -4,7 +4,7 @@ import { Check, Circle, CircleAlert, Info, Loader2, TriangleAlert } from "lucide
 import { cn } from "@/lib/utils"
 import { requireProfile } from "@/lib/session"
 import { JobContextNav } from "@/components/job-context-nav"
-import { getJobAssets } from "@/modules/jobs/queries"
+import { getJobAssets, type JobAssets } from "@/modules/jobs/queries"
 import { getDeepDiveAccess, type DeepDiveAccess } from "@/modules/deep-dive/access"
 import { getDeepDive, listDeepDiveRuns, type DeepDiveRunItem, type DeepDiveView } from "@/modules/deep-dive/queries"
 import { RESEARCHERS } from "@/modules/deep-dive/schema"
@@ -21,7 +21,8 @@ import {
   stageIndex,
 } from "@/app/dashboard/job-applications/_components/deep-dive-view"
 import { DeepDiveReportView, REPORT_SECTIONS, presentSections } from "./_components/report"
-import { Elapsed, LocalDateTime, RunAgainButton } from "./_components/run-controls"
+import { reportToMarkdown } from "./_components/report-text"
+import { CopyMarkdownButton, Elapsed, LocalDateTime, RunAgainButton } from "./_components/run-controls"
 
 // Run again starts a deep dive, which runs in after() within this limit; keep
 // in sync with DEEP_DIVE_ROUTE_MAX_DURATION_S in src/modules/deep-dive/schema.ts.
@@ -77,7 +78,7 @@ export default async function DeepDivePage({
 
           {view && (
             <aside className="lg:sticky lg:top-10 lg:self-start">
-              <RunPanel jobId={id} view={view} runs={runs} latestActive={latestActive} access={access} />
+              <RunPanel jobId={id} view={view} runs={runs} latestActive={latestActive} access={access} job={assets} />
             </aside>
           )}
         </div>
@@ -271,16 +272,22 @@ function Progress({ view }: { view: DeepDiveView }) {
 
 // ── Side panel ──────────────────────────────────────────────────────────────
 
-function RunPanel({ jobId, view, runs, latestActive, access }: {
+function RunPanel({ jobId, view, runs, latestActive, access, job }: {
   jobId: string
   view: DeepDiveView
   runs: DeepDiveRunItem[]
   latestActive: boolean
   access: DeepDiveAccess
+  job: JobAssets
 }) {
   const sections = view.report ? presentSections(view.report, view.research) : []
   const usage = view.usage
   const models = [...new Set([view.researchModel, view.synthesisModel].filter((m): m is string => !!m))]
+  const markdown = view.status === 'complete' && view.report
+    ? reportToMarkdown(view.report, view.research, {
+        jobTitle: job.title, company: job.company, jobUrl: job.url, createdAt: view.createdAt, models,
+      })
+    : null
 
   return (
     <div className="space-y-8 text-sm">
@@ -303,8 +310,11 @@ function RunPanel({ jobId, view, runs, latestActive, access }: {
             </PanelFact>
           )}
         </dl>
-        {/* A failed run offers Run again in the body already. */}
-        {view.status !== 'failed' && <RunAgainButton jobId={jobId} disabled={latestActive || !access.configured} />}
+        <div className="flex flex-wrap gap-2">
+          {/* A failed run offers Run again in the body already. */}
+          {view.status !== 'failed' && <RunAgainButton jobId={jobId} disabled={latestActive || !access.configured} />}
+          {markdown && <CopyMarkdownButton markdown={markdown} />}
+        </div>
         {latestActive && <p className="text-xs text-muted-foreground">A run is in progress.</p>}
         {!access.configured && (
           <p className="text-xs text-muted-foreground">

@@ -46,6 +46,8 @@ Extra columns: `cacheReadTokens`, `cacheWriteTokens` and `serverToolCalls` (prov
 
 `getJobCostSummary(profileId, jobId)` in `src/modules/llm/job-cost.ts` totals requests, tokens, cache tokens, server tool calls and latency for a job — the full workflow, the `cv-generate` calls alone, by feature and by CV. Money is an **estimate** from the dated rate card in `src/modules/llm/pricing.ts` (source, currency and `PRICING_RATES_AS_OF` are returned with it); unpriced models, unknown usage and web-search fees mark the estimate incomplete. `actualChargesUsd` is always null (BYOK is billed to the user by their provider), and `costPerAcceptedCv` is the full workflow estimate divided by the job's accepted CVs (`acceptedCvCount`), or null when none is accepted. A CV is accepted manually in the CV builder or automatically when its job moves to applied/interviewing (`CVDocument.acceptedVia` = `manual` | `applied`); see `src/modules/cv/acceptance.ts`.
 
+`getJobSpend(profileId, jobId)` (same file) is the job page sidebar's **AI spend on this job** card: the estimate split into calls on the user's own key and app-paid Jev calls, and broken down by feature. Every deep dive call carries `{ jobApplicationId, runId }`, so its cost is counted there too.
+
 ---
 
 ## The `feature` field is required

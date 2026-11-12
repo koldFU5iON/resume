@@ -34,12 +34,12 @@ import {
 } from '@typesafe-ai/sdk'
 import { prisma } from '@/lib/db'
 import { resolveAttribution, type AttributionDb, type LlmAttribution } from '@/modules/llm/attribution'
-import { JEV_FAILED_FEATURE_SUFFIX } from './constants'
+import { JEV_FAILED_FEATURE_SUFFIX, JEV_PROVIDER } from './constants'
 
 /** Pinned model. Upgrading changes answers, so it needs a new PIPELINE_VERSION. */
 export const JEV_MODEL = 'jev-1.14.0'
 
-export const JEV_PROVIDER = 'typesafe'
+export { JEV_PROVIDER }
 
 /** Appended to `feature` on the usage row of a failed call (see file header). */
 export { JEV_FAILED_FEATURE_SUFFIX }

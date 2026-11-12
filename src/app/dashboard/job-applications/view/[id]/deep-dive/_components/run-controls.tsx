@@ -1,7 +1,8 @@
 'use client'
 
-import { useSyncExternalStore } from "react"
-import { Loader2, RotateCw, Telescope } from "lucide-react"
+import { useState, useSyncExternalStore } from "react"
+import { Check, Copy, Loader2, RotateCw, Telescope } from "lucide-react"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { useStartDeepDive } from "@/app/dashboard/job-applications/_components/deep-dive-button"
 
@@ -18,6 +19,27 @@ export function RunAgainButton({ jobId, label = 'Run again', variant = 'outline'
     <Button variant={variant} size="sm" className="gap-1.5" onClick={start} disabled={disabled || isStarting}>
       {isStarting ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Icon className="size-3.5" aria-hidden="true" />}
       {isStarting ? 'Starting…' : label}
+    </Button>
+  )
+}
+
+/** Copies the whole report as Markdown, e.g. to have another LLM review it. */
+export function CopyMarkdownButton({ markdown }: { markdown: string }) {
+  const [copied, setCopied] = useState(false)
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(markdown)
+      setCopied(true)
+      toast.success("Report copied as Markdown")
+      window.setTimeout(() => setCopied(false), 2000)
+    } catch {
+      toast.error("Could not copy to the clipboard")
+    }
+  }
+  return (
+    <Button variant="outline" size="sm" className="gap-1.5" onClick={copy}>
+      {copied ? <Check className="size-3.5" aria-hidden="true" /> : <Copy className="size-3.5" aria-hidden="true" />}
+      {copied ? 'Copied' : 'Copy as Markdown'}
     </Button>
   )
 }

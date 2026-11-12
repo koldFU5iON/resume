@@ -10,7 +10,9 @@ import { SalaryPopover } from "@/app/dashboard/job-applications/_components/sala
 import { StatusDropdown } from "@/app/dashboard/job-applications/_components/status-dropdown"
 import { formatDate, cn } from "@/lib/utils"
 import type { DeepDiveAccess } from "@/modules/deep-dive/access"
+import type { JobSpend } from "@/modules/llm/job-cost"
 import { DeepDiveEntry } from "./deep-dive-entry"
+import { JobSpendCard } from "./job-spend"
 import { deepDiveSignature } from "@/app/dashboard/job-applications/_components/deep-dive-view"
 import { FileText, Mail, ClipboardList, NotebookPen } from "lucide-react"
 
@@ -20,6 +22,8 @@ interface Props {
   /** Early assessment on for this user (decided on the server). */
   earlyEnabled?: boolean
   deepDiveAccess: DeepDiveAccess
+  /** Estimated AI spend on the job; null when it couldn't be read. */
+  spend?: JobSpend | null
 }
 
 function fitStrengthLabel(rating: number): string {
@@ -50,7 +54,7 @@ function LegacyJobFit({ job, hasLLMKey }: { job: Job; hasLLMKey: boolean }) {
   )
 }
 
-export function JobSidebar({ job, hasLLMKey, earlyEnabled = false, deepDiveAccess }: Props) {
+export function JobSidebar({ job, hasLLMKey, earlyEnabled = false, deepDiveAccess, spend = null }: Props) {
   const early = job.earlyAssessment ?? null
   // One poller for the page: the early assessment and the deep dive, while either runs.
   const pending = [pendingSignature([early]), deepDiveSignature(job.deepDive)].filter(Boolean).join(',')
@@ -241,6 +245,8 @@ export function JobSidebar({ job, hasLLMKey, earlyEnabled = false, deepDiveAcces
           </CardContent>
         </Card>
       </div>
+
+      {spend && <JobSpendCard spend={spend} />}
     </div>
   )
 }

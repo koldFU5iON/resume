@@ -9,7 +9,7 @@ vi.mock('@/lib/db', () => ({
 }))
 
 import { prisma } from '@/lib/db'
-import { buildJobCostSummary, getJobCostSummary, summarizeRows, type JobCv, type UsageRow } from './job-cost'
+import { buildJobCostSummary, buildJobSpend, getJobCostSummary, getJobSpend, summarizeRows, type JobCv, type UsageRow } from './job-cost'
 import { estimateRowCostUsd, PRICING_RATES_AS_OF } from './pricing'
 
 const row = (over: Partial<UsageRow>): UsageRow => ({
@@ -160,5 +160,45 @@ describe('getJobCostSummary', () => {
       where: { profileId: 'p1', jobApplicationId: 'job-1' },
       select: { status: true, acceptedAt: true, acceptedVia: true },
     })
+  })
+})
+
+describe('buildJobSpend', () => {
+  it('splits spend by who pays and totals it by feature', () => {
+    const spend = buildJobSpend(rows)
+    expect(spend.appBilled.requests).toBe(2)
+    expect(spend.yourKey.requests).toBe(rows.length - 2)
+    expect(spend.yourKey.estimatedCostUsd + spend.appBilled.estimatedCostUsd)
+      .toBeCloseTo(summarizeRows(rows).estimatedCostUsd, 10)
+
+    const generate = spend.byFeature.find((f) => f.feature === 'cv-generate')!
+    expect(generate).toMatchObject({ appBilled: false, requests: 3 })
+    expect(spend.byFeature[0].feature).toBe('cv-generate') // most expensive first
+    // A failed Jev call folds into its base feature.
+    expect(spend.byFeature.find((f) => f.feature === 'job-assessment-judge')).toMatchObject({ appBilled: true, requests: 1, estimateComplete: false })
+  })
+
+  it('is empty for a job with no attributed calls', () => {
+    const spend = buildJobSpend([])
+    expect(spend.byFeature).toEqual([])
+    expect(spend.yourKey.requests).toBe(0)
+  })
+})
+
+describe('getJobSpend', () => {
+  beforeEach(() => vi.mocked(prisma.llmUsageLog.findMany).mockReset())
+
+  it('returns null for a job of another profile, without reading usage', async () => {
+    vi.mocked(prisma.jobApplication.findFirst).mockResolvedValue(null)
+    expect(await getJobSpend('p1', 'job-x')).toBeNull()
+    expect(prisma.llmUsageLog.findMany).not.toHaveBeenCalled()
+  })
+
+  it("reads only the profile's rows for the job", async () => {
+    vi.mocked(prisma.jobApplication.findFirst).mockResolvedValue({ id: 'job-a' } as never)
+    vi.mocked(prisma.llmUsageLog.findMany).mockResolvedValue(rows as never)
+    const spend = await getJobSpend('p1', 'job-a')
+    expect(vi.mocked(prisma.llmUsageLog.findMany).mock.calls[0][0]).toMatchObject({ where: { profileId: 'p1', jobApplicationId: 'job-a' } })
+    expect(spend?.byFeature.length).toBeGreaterThan(0)
   })
 })
