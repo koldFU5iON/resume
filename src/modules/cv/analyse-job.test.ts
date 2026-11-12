@@ -97,6 +97,13 @@ describe('analyseJob', () => {
     )
   })
 
+  it('runs on the fast role with room for the full schema (#359)', async () => {
+    await analyseJob(PROFILE_ID, JOB_ID)
+    const opts = mockCompleteStructured.mock.calls[0][3]
+    expect(opts).toMatchObject({ role: 'fast' })
+    expect(opts.maxOutputTokens).toBeGreaterThanOrEqual(3000)
+  })
+
   it('stores the analysis result on the job application', async () => {
     await analyseJob(PROFILE_ID, JOB_ID)
     expect(mockUpdate).toHaveBeenCalledWith({

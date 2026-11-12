@@ -41,7 +41,10 @@ export async function analyseJob(
       system: composeSystem(systemPrompt),
       feature: 'cv-job-analysis',
       attribution: { ...attribution, jobApplicationId: job.id },
-      maxOutputTokens: 800,
+      // Structured extraction: runs on the user's fast model. 800 tokens truncated the
+      // JSON most days (#359); the list caps in the schema descriptions keep output well under 3000.
+      role: 'fast',
+      maxOutputTokens: 3000,
       temperature: 0.2,
     })
 
