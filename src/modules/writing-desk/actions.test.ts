@@ -10,6 +10,8 @@ vi.mock("@/lib/db", () => ({
       count: vi.fn(),
       updateMany: vi.fn(),
       findFirst: vi.fn(),
+      findMany: vi.fn(),
+      deleteMany: vi.fn(),
     },
     jobApplication: { findFirst: vi.fn() },
     cVDocument: { findFirst: vi.fn() },
@@ -18,15 +20,21 @@ vi.mock("@/lib/db", () => ({
   },
 }))
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }))
+vi.mock("next/navigation", () => ({
+  RedirectType: { push: "push", replace: "replace" },
+  redirect: vi.fn(() => { throw new Error("NEXT_REDIRECT") }),
+}))
 vi.mock("@/modules/cv/schema", () => ({ parseCVContent: vi.fn() }))
 vi.mock("@/modules/cv/export", () => ({ toMarkdown: vi.fn() }))
 
 import { prisma } from "@/lib/db"
 import { revalidatePath } from "next/cache"
+import { redirect } from "next/navigation"
 import { parseCVContent } from "@/modules/cv/schema"
 import { toMarkdown } from "@/modules/cv/export"
 import {
   createWritingDeskDocumentAction,
+  deleteWritingDeskDocumentAction,
   getWritingDeskLiveStateAction,
   renameWritingDeskDocumentAction,
   setWritingDeskDocumentType,
@@ -269,5 +277,47 @@ describe("getWritingDeskLiveStateAction", () => {
   it("rejects a malformed id without querying", async () => {
     await expect(getWritingDeskLiveStateAction({ id: "desk-1" })).resolves.toBeNull()
     expect(mockDeskFindFirst).not.toHaveBeenCalled()
+  })
+})
+
+describe("deleteWritingDeskDocumentAction", () => {
+  const mockJob = vi.mocked(prisma.jobApplication.findFirst)
+  const mockFindMany = vi.mocked(prisma.writingDeskDocument.findMany)
+  const mockDeleteMany = vi.mocked(prisma.writingDeskDocument.deleteMany)
+  const input = { jobId: "job-1", documentId: "desk-a" }
+
+  beforeEach(() => {
+    vi.mocked(prisma.$transaction).mockImplementation((async (fn: (tx: typeof prisma) => unknown) => fn(prisma)) as never)
+    mockJob.mockResolvedValue({ id: "job-1" } as never)
+    mockFindMany.mockResolvedValue([{ id: "desk-a" }, { id: "desk-b" }] as never)
+    mockDeleteMany.mockResolvedValue({ count: 1 })
+    vi.mocked(revalidatePath).mockClear()
+    vi.mocked(redirect).mockClear()
+  })
+
+  it("deletes for the session's profile and refreshes the job's tabs", async () => {
+    await expect(deleteWritingDeskDocumentAction(input)).resolves.toEqual({ ok: true, nextDocumentId: "desk-b" })
+    expect(mockDeleteMany).toHaveBeenCalledWith({ where: { id: "desk-a", profileId: "profile-1", jobApplicationId: "job-1" } })
+    expect(revalidatePath).toHaveBeenCalledWith("/dashboard/job-applications/view/[id]", "layout")
+    expect(redirect).not.toHaveBeenCalled()
+  })
+
+  it("opens the next document in place of the deleted one", async () => {
+    await expect(deleteWritingDeskDocumentAction(input, { openNext: true })).rejects.toThrow("NEXT_REDIRECT")
+    expect(redirect).toHaveBeenCalledWith("/dashboard/job-applications/view/job-1/writing/desk-b", "replace")
+  })
+
+  it("opens Job Description when no document remains", async () => {
+    mockFindMany.mockResolvedValue([{ id: "desk-a" }] as never)
+    await expect(deleteWritingDeskDocumentAction(input, { openNext: true })).rejects.toThrow("NEXT_REDIRECT")
+    expect(redirect).toHaveBeenCalledWith("/dashboard/job-applications/view/job-1", "replace")
+  })
+
+  it("neither revalidates nor moves on when nothing was deleted", async () => {
+    mockJob.mockResolvedValue(null)
+    await expect(deleteWritingDeskDocumentAction(input, { openNext: true }))
+      .resolves.toMatchObject({ ok: false, reason: "not_found" })
+    expect(revalidatePath).not.toHaveBeenCalled()
+    expect(redirect).not.toHaveBeenCalled()
   })
 })

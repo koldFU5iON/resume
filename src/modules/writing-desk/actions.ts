@@ -1,15 +1,19 @@
 "use server"
 
 import { revalidatePath } from "next/cache"
+import { RedirectType, redirect } from "next/navigation"
 import { prisma } from "@/lib/db"
 import { requireProfile } from "@/lib/session"
-import { createWritingDeskDocument, loadSourceCv, renameWritingDeskDocument } from "./documents"
+import { jobHubHref, writingDeskDocumentHref } from "@/modules/jobs/workspace-nav"
+import { createWritingDeskDocument, deleteWritingDeskDocument, loadSourceCv, renameWritingDeskDocument } from "./documents"
 import { getWritingDeskLiveState, listWritingDeskSourceCVs, type WritingDeskSourceOption } from "./queries"
 import {
+  DeleteWritingDeskDocumentSchema,
   WritingDeskContentSchema,
   WritingDeskDocumentTypeSchema,
   WritingDeskIdSchema,
   type CreateWritingDeskDocumentResult,
+  type DeleteWritingDeskDocumentResult,
   type RenameWritingDeskDocumentResult,
   type WritingDeskDocumentType,
   type WritingDeskSaveResult,
@@ -49,6 +53,32 @@ export async function renameWritingDeskDocumentAction(input: unknown): Promise<R
   const { profile } = await requireProfile()
   const result = await renameWritingDeskDocument(profile.id, input)
   if (result.ok) revalidatePath(JOB_WORKSPACE_LAYOUT, "layout")
+  return result
+}
+
+/**
+ * Deletes one of the signed-in user's documents (#377) after they confirmed
+ * it. The job's tabs and the deleted document's page both revalidate, so a
+ * cached copy of it can't come back. With `openNext` (deleting the document
+ * that is open) it then replaces the page with the job's next document, or
+ * Job Description when none remain, in the same response, so the deleted
+ * page never re-renders as a 404 first.
+ */
+export async function deleteWritingDeskDocumentAction(
+  input: unknown,
+  options?: { openNext?: boolean },
+): Promise<DeleteWritingDeskDocumentResult> {
+  const { profile } = await requireProfile()
+  const result = await deleteWritingDeskDocument(profile.id, input)
+  if (!result.ok) return result
+  revalidatePath(JOB_WORKSPACE_LAYOUT, "layout")
+  if (options?.openNext === true) {
+    const { jobId } = DeleteWritingDeskDocumentSchema.parse(input)
+    redirect(
+      result.nextDocumentId ? writingDeskDocumentHref(jobId, result.nextDocumentId) : jobHubHref(jobId),
+      RedirectType.replace,
+    )
+  }
   return result
 }
 

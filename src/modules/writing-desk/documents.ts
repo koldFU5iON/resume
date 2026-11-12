@@ -10,8 +10,8 @@
 // the one-desk-per-job model it is the desk they already had.
 //
 // Creating a document takes a per-job advisory lock, so two first visits
-// can't both create a "first" document and the per-job cap holds. Agent draft
-// resolution (draft.ts) takes the same lock.
+// can't both create a "first" document and the per-job cap holds. Deleting
+// one (#377) takes the same lock, as does agent draft resolution (draft.ts).
 
 import { prisma } from "@/lib/db"
 import { toMarkdown } from "@/modules/cv/export"
@@ -19,10 +19,12 @@ import { parseCVContent } from "@/modules/cv/schema"
 import {
   CreateWritingDeskDocumentSchema,
   DEFAULT_WRITING_DESK_DOCUMENT_NAME,
+  DeleteWritingDeskDocumentSchema,
   MAX_WRITING_DESK_DOCUMENTS_PER_JOB,
   RenameWritingDeskDocumentSchema,
   WRITING_DESK_DOCUMENT_ORDER,
   type CreateWritingDeskDocumentResult,
+  type DeleteWritingDeskDocumentResult,
   type RenameWritingDeskDocumentResult,
   type WritingDeskSourceType,
 } from "./schema"
@@ -148,6 +150,48 @@ export async function renameWritingDeskDocument(
   })
   if (updated.count === 0) return { ok: false, reason: "not_found", message: "Document not found." }
   return { ok: true, name }
+}
+
+/**
+ * Permanently deletes one of the profile's documents on the given job (#377),
+ * with its pending agent draft and draft history (the events cascade in the
+ * database). The job's other documents, the source CV and anything else are
+ * untouched, and the job gets a free slot under the per-job cap. Users only:
+ * no agent tool calls this.
+ *
+ * Returns the document to open instead: the one after it in the job's order,
+ * else the one before, else null (none left).
+ */
+export async function deleteWritingDeskDocument(
+  profileId: string,
+  input: unknown,
+): Promise<DeleteWritingDeskDocumentResult> {
+  const parsed = DeleteWritingDeskDocumentSchema.safeParse(input)
+  if (!parsed.success) {
+    return { ok: false, reason: "invalid", message: parsed.error.issues[0]?.message ?? "Invalid document" }
+  }
+  const { jobId, documentId } = parsed.data
+  const notFound: DeleteWritingDeskDocumentResult = { ok: false, reason: "not_found", message: "Document not found." }
+
+  const job = await findOwnedJob(profileId, jobId)
+  if (!job) return notFound
+
+  return prisma.$transaction(async (tx): Promise<DeleteWritingDeskDocumentResult> => {
+    await lockJobDocuments(tx, job.id)
+    const docs = await tx.writingDeskDocument.findMany({
+      where: { profileId, jobApplicationId: job.id },
+      orderBy: WRITING_DESK_DOCUMENT_ORDER,
+      select: { id: true },
+    })
+    const index = docs.findIndex(doc => doc.id === documentId)
+    if (index === -1) return notFound
+    const deleted = await tx.writingDeskDocument.deleteMany({
+      where: { id: documentId, profileId, jobApplicationId: job.id },
+    })
+    if (deleted.count === 0) return notFound
+    const next = docs[index + 1] ?? docs[index - 1] ?? null
+    return { ok: true, nextDocumentId: next?.id ?? null }
+  })
 }
 
 /**

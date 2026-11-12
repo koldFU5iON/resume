@@ -121,6 +121,12 @@ used. Agents never land on an arbitrarily chosen document:
 Agent drafts are CVs only: a document with another type refuses
 `create_draft`.
 
+Only the user can delete a document (from its header in the job workspace);
+there is no MCP tool for it. Deleting removes the document's pending draft and
+draft history with it, and its id then fails like any other unknown id
+(`document_not_found`). Without `documentId`, the rules above apply to the
+documents that remain.
+
 Ask the client to read job context first, draft a CV, and revise its sections.
 Then open that document in the job's **Writing Desk** to compare the draft with
 the live document. You can edit it manually and **Accept** or **Discard** it. MCP cannot
