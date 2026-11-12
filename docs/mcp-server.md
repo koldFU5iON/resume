@@ -107,8 +107,11 @@ used. Agents never land on an arbitrarily chosen document:
 - **With `documentId`:** the call uses exactly that document. It must belong to
   your account and to the given job; otherwise it fails with "No Writing Desk
   document with that id belongs to this job" and nothing is read or written.
-- **Without `documentId`, one document:** the call uses it (the behavior from
-  before documents had names).
+- **Without `documentId`, one document:** the call uses it when it's a CV, or
+  has no type and still has a default name ("CV" or "Untitled document"), as
+  before documents had names. Any other single document (say "Interview
+  notes") is refused with nothing written; pass its `documentId` only if the
+  user wants a CV draft there.
 - **Without `documentId`, no document:** reads report that there is no draft;
   `create_draft` creates the job's first document, named "CV".
 - **Without `documentId`, several documents:** the call is refused and nothing
