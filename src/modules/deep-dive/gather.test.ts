@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { emptySearchProfile, type Eligibility } from '@/modules/search-profile/schema'
-import { computeInputsHash, resolveJobCountries, searchProfileSuggestions, sponsorshipNeeded } from './gather'
+import { computeInputsHash, resolveJobCountries, salaryFloorFromNotes, searchProfileSuggestions, sponsorshipNeeded } from './gather'
 
 const today = new Date('2026-11-11T00:00:00Z')
 const elig = (over: Partial<Eligibility>): Eligibility => ({
@@ -78,5 +78,19 @@ describe('searchProfileSuggestions', () => {
       field: 'roles', source: 'deep-dive', suggestedValue: ['Programme Manager', 'Platform Lead'],
     })])
     expect(searchProfileSuggestions({ brief, searchProfile: { ...emptySearchProfile, roles: ['platform lead'] }, notes: null })).toEqual([])
+  })
+})
+
+describe('salaryFloorFromNotes', () => {
+  it('reads salary figures after a floor phrase', () => {
+    expect(salaryFloorFromNotes('Not worth it below 85,000')).toBe(85000)
+    expect(salaryFloorFromNotes('minimum £90k')).toBe(90000)
+    expect(salaryFloorFromNotes('less than $120,000 is a no')).toBe(120000)
+  })
+
+  it('ignores numbers that are not salaries', () => {
+    expect(salaryFloorFromNotes('less than 30 minutes commute')).toBeNull()
+    expect(salaryFloorFromNotes('minimum 10 years experience')).toBeNull()
+    expect(salaryFloorFromNotes('below average Glassdoor, 2019 reviews 85000')).toBeNull()
   })
 })

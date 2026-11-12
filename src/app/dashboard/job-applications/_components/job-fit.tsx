@@ -13,15 +13,17 @@ import type { JobFit as JobFitType } from "@/app/types/job-application"
 import { cn } from "@/lib/utils"
 import { usePageContext } from "@/lib/context/page-context"
 import { ScoreHeader, ScorePill } from "./score-display"
-import { useStartDeepDive } from "./deep-dive-button"
+import type { DeepDiveSummary } from "@/modules/deep-dive/queries"
+import { VerdictChip, useStartDeepDive } from "./deep-dive-button"
+import { deepDiveHref } from "./deep-dive-view"
 
 type JobFitProps = {
   jobId?: string
   jobFit: JobFitType | null
   canAssess?: boolean
   hasLLMKey?: boolean
-  /** The job has a complete deep dive: the pill is hidden (the deep dive replaces it). */
-  hasDeepDive?: boolean
+  /** The job's deep dive. Once it has a complete one, its verdict replaces the pill. */
+  deepDive?: DeepDiveSummary | null
   company?: string
   jdSnippet?: string
 }
@@ -48,7 +50,8 @@ const PILL_TEXT_STYLES: Record<JobFitType['label'], string> = {
  * and in the job page's "Legacy fit score" section for reference. Remove once
  * nothing needs to look back at it. Hidden once the job has a deep dive.
  */
-export function JobFit({ jobId, jobFit, canAssess = true, hasLLMKey = true, hasDeepDive = false, company, jdSnippet }: JobFitProps) {
+export function JobFit({ jobId, jobFit, canAssess = true, hasLLMKey = true, deepDive, company, jdSnippet }: JobFitProps) {
+  const hasDeepDive = !!deepDive?.hasReport
   const { start, isStarting } = useStartDeepDive(jobId ?? '')
   const [popoverOpen, setPopoverOpen] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -59,7 +62,18 @@ export function JobFit({ jobId, jobFit, canAssess = true, hasLLMKey = true, hasD
     return <FitPill fit={jobFit} />
   }
 
-  if (hasDeepDive) return null
+  if (hasDeepDive) {
+    return deepDive?.verdict ? (
+      <Link
+        href={deepDiveHref(jobId)}
+        title="Open the deep dive"
+        className="inline-flex h-6 items-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <span className="sr-only">Deep dive verdict: </span>
+        <VerdictChip verdict={deepDive.verdict} />
+      </Link>
+    ) : null
+  }
 
   // Nothing writes jobFit any more (spec §10): Assess and Re-assess start a deep dive.
   function handleAssess() {

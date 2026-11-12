@@ -4,6 +4,7 @@
  * timeout; nothing is written here.
  */
 
+import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
 import { summarizeRows, type UsageBucket } from '@/modules/llm/job-cost'
 import { currentInputsHash } from './gather'
@@ -136,7 +137,9 @@ export async function getLatestDeepDive(profileId: string, jobId: string): Promi
 
 /**
  * One run of one of the profile's jobs: `runId`, or the newest when null.
- * Null when the job has no such run.
+ * Null when the job has no such run. `outOfDate` is only checked for the
+ * newest run (runId null): it costs a profile snapshot, and an older run is
+ * out of date by definition once a newer one exists.
  */
 export async function getDeepDive(profileId: string, jobId: string, runId: string | null): Promise<DeepDiveView | null> {
   const row = await prisma.jobDeepDive.findFirst({
@@ -147,7 +150,7 @@ export async function getDeepDive(profileId: string, jobId: string, runId: strin
   if (!row) return null
   const [usage, hash] = await Promise.all([
     getRunUsage(profileId, row.id),
-    row.status === 'complete' ? currentInputsHash(profileId, jobId) : Promise.resolve(undefined),
+    row.status === 'complete' && !runId ? currentInputsHash(profileId, jobId) : Promise.resolve(undefined),
   ])
   return toDeepDiveView(row, usage, hash)
 }
@@ -186,20 +189,19 @@ const SUMMARY_SELECT = { id: true, jobApplicationId: true, status: true, verdict
 /** Summaries for several of the profile's jobs, keyed by job id; jobs with no run are absent. Two queries in all. */
 export async function getDeepDiveSummaries(profileId: string, jobIds: readonly string[]): Promise<Record<string, DeepDiveSummary>> {
   if (jobIds.length === 0) return {}
-  const where = { profileId, jobApplicationId: { in: [...jobIds] } }
+  const ids = Prisma.join([...jobIds])
+  // DISTINCT ON in SQL: Prisma's `distinct` would fetch every past run and dedupe in JS.
   const [newest, complete] = await Promise.all([
-    prisma.jobDeepDive.findMany({
-      where,
-      orderBy: [{ jobApplicationId: 'asc' }, { createdAt: 'desc' }],
-      distinct: ['jobApplicationId'],
-      select: SUMMARY_SELECT,
-    }),
-    prisma.jobDeepDive.findMany({
-      where: { ...where, status: 'complete' },
-      orderBy: [{ jobApplicationId: 'asc' }, { createdAt: 'desc' }],
-      distinct: ['jobApplicationId'],
-      select: SUMMARY_SELECT,
-    }),
+    prisma.$queryRaw<SummaryRow[]>`
+      SELECT DISTINCT ON ("jobApplicationId") "id", "jobApplicationId", "status", "verdict", "createdAt"
+      FROM "JobDeepDive"
+      WHERE "profileId" = ${profileId} AND "jobApplicationId" IN (${ids})
+      ORDER BY "jobApplicationId", "createdAt" DESC, "id" DESC`,
+    prisma.$queryRaw<SummaryRow[]>`
+      SELECT DISTINCT ON ("jobApplicationId") "id", "jobApplicationId", "status", "verdict", "createdAt"
+      FROM "JobDeepDive"
+      WHERE "profileId" = ${profileId} AND "jobApplicationId" IN (${ids}) AND "status" = 'complete'
+      ORDER BY "jobApplicationId", "createdAt" DESC, "id" DESC`,
   ])
   const completeByJob = new Map(complete.map((r) => [r.jobApplicationId, r]))
   const now = new Date()

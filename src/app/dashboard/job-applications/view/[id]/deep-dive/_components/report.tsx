@@ -447,6 +447,8 @@ function SourcesSection({ research }: { research: DeepDiveResearch }) {
                         <ExternalLink className="size-3" aria-hidden="true" />
                         <span className="sr-only">(opens in a new tab)</span>
                       </a>
+                    ) : f.sourceUrl ? (
+                      <span>Unreadable link</span>
                     ) : (
                       <span>The job ad</span>
                     )}

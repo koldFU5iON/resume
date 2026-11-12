@@ -88,11 +88,17 @@ export function formatRunCost(usd: number, complete: boolean): string {
   return complete ? amount : `${amount} + web searches`
 }
 
-/** Plain-language host of a URL ("monzo.com"), or null when unreadable. */
+/**
+ * Host of an http(s) URL ("monzo.com"), or null when unreadable or another
+ * scheme. Source URLs are model output from web content, so only http(s)
+ * links are rendered (callers link only when this is non-null).
+ */
 export function hostOf(url: string | null | undefined): string | null {
   if (!url) return null
   try {
-    return new URL(url).hostname.replace(/^www\./, '')
+    const u = new URL(url)
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null
+    return u.hostname.replace(/^www\./, '') || null
   } catch {
     return null
   }

@@ -33,6 +33,7 @@ import { BatchCaptureDialog } from "./batch-capture-dialog"
 import { archiveJobApplication, bulkArchiveJobApplications } from "@/modules/jobs/mutations"
 import { AssessmentPoller } from "./assessment-poller"
 import { DeepDiveAccessProvider } from "./deep-dive-button"
+import { deepDiveSignature } from "./deep-dive-view"
 import type { DeepDiveAccess } from "@/modules/deep-dive/access"
 import { earlyFilterKey, earlySortValue, parseEarlyFilter, pendingSignature } from "./early-assessment-view"
 
@@ -51,6 +52,11 @@ const OPEN_PRIORITY: ApplicationStatusType[] = [
 ]
 
 const CLOSED_SET: ReadonlySet<string> = new Set(ClosedStatuses)
+
+/** The legacy JobFit as the row shows it: hidden (null) once the job has a complete deep dive. */
+function legacyFit(job: Job): Job['jobFit'] {
+  return job.deepDive?.hasReport ? null : job.jobFit
+}
 
 export function JobList({ jobs, hasLLMKey, deepDiveAccess, earlyEnabled = false, openCreate, initialCreateUrl }: {
   jobs: Job[]
@@ -176,7 +182,7 @@ export function JobList({ jobs, hasLLMKey, deepDiveAccess, earlyEnabled = false,
     // The deprecated JobFit filter applies only while the early assessment is off.
     if (!earlyEnabled && filter.fit.size > 0) {
       result = result.filter(j => {
-        const label = j.jobFit?.label ?? 'none'
+        const label = legacyFit(j)?.label ?? 'none'
         return filter.fit.has(label as JobFit['label'] | 'none')
       })
     }
@@ -209,7 +215,7 @@ export function JobList({ jobs, hasLLMKey, deepDiveAccess, earlyEnabled = false,
           cmp = (a.company ?? '').localeCompare(b.company ?? '')
           break
         case 'fitRating':
-          cmp = (a.jobFit?.rating ?? -1) - (b.jobFit?.rating ?? -1)
+          cmp = (legacyFit(a)?.rating ?? -1) - (legacyFit(b)?.rating ?? -1)
           break
         case 'earlyScore': {
           const aVal = earlySortValue(a.earlyAssessment)
@@ -232,7 +238,10 @@ export function JobList({ jobs, hasLLMKey, deepDiveAccess, earlyEnabled = false,
   }, [jobs, query, filter, sort, earlyEnabled])
 
   const pendingRuns = useMemo(
-    () => pendingSignature(jobs.map(j => j.earlyAssessment)),
+    // Early assessments and deep dives in progress: rows show both, so both keep the list refreshing.
+    () => [pendingSignature(jobs.map(j => j.earlyAssessment)), ...jobs.map(j => deepDiveSignature(j.deepDive))]
+      .filter(Boolean)
+      .join(','),
     [jobs],
   )
 

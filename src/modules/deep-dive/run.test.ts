@@ -145,6 +145,8 @@ describe('runDeepDive', () => {
   })
 
   it('writes jobAnalysis from the report and queues search-profile suggestions once complete', async () => {
+    const g = gatherFixture()
+    mockGather.mockResolvedValue({ ok: true, ...g, earlyAssessment: { ...g.earlyAssessment!, facts: { requirements: [{ text: 'Platform leadership', importance: 'must' }] } } })
     await runDeepDive('p1', 'job-1', 'dd-1')
     expect(db.jobApplication.update).toHaveBeenCalledTimes(1)
     const call = db.jobApplication.update.mock.calls[0][0]
@@ -156,7 +158,24 @@ describe('runDeepDive', () => {
     expect(emitSearchProfileSuggestions).toHaveBeenCalledWith('p1', expect.objectContaining({ inputsHash: 'hash-1' }))
   })
 
+  it('keeps the existing jobAnalysis when there is nothing to base requirements on', async () => {
+    await runDeepDive('p1', 'job-1', 'dd-1')
+    expect(db.jobApplication.update).not.toHaveBeenCalled()
+    expect(statuses().at(-1)).toBe('complete')
+  })
+
+  it('builds on an existing jobAnalysis when the run had no facts', async () => {
+    db.jobApplication.findFirst.mockResolvedValue({
+      jobDescription: 'A job',
+      jobAnalysis: { mustHave: ['Pricing strategy'], niceToHave: [], risks: [], positioningStrategy: 'Old.' },
+    } as never)
+    await runDeepDive('p1', 'job-1', 'dd-1')
+    const data = db.jobApplication.update.mock.calls[0][0].data as { jobAnalysis: { mustHave: string[] } }
+    expect(data.jobAnalysis.mustHave[0]).toBe('Pricing strategy')
+  })
+
   it('keeps the run complete when writing jobAnalysis or the suggestions fails', async () => {
+    db.jobApplication.findFirst.mockRejectedValue(new Error('db down'))
     db.jobApplication.update.mockRejectedValue(new Error('db down'))
     vi.mocked(emitSearchProfileSuggestions).mockRejectedValue(new Error('nope'))
     vi.spyOn(console, 'error').mockImplementation(() => {})

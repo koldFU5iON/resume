@@ -36,7 +36,7 @@ function LegacyJobFit({ job, hasLLMKey }: { job: Job; hasLLMKey: boolean }) {
         jobFit={job.jobFit ?? null}
         canAssess={!!job.jobDescription?.trim()}
         hasLLMKey={hasLLMKey}
-        hasDeepDive={!!job.deepDive?.hasReport}
+        deepDive={job.deepDive}
         company={job.company ?? undefined}
         jdSnippet={job.jobDescription ? job.jobDescription.slice(0, 800) : undefined}
       />

@@ -278,6 +278,23 @@ export async function currentInputsHash(profileId: string, jobId: string): Promi
 
 export type SuggestionDraft = Omit<SearchSuggestion, 'id' | 'createdAt'>
 
+/** Smallest figure read as an annual salary: keeps "less than 30 minutes" or "minimum 10 years" out. */
+const MIN_SALARY_FLOOR = 10_000
+
+/**
+ * A salary floor written in the notes ("not worth it below £85k", "minimum
+ * 90,000"), or null. The figure must directly follow the phrase (allowing a
+ * currency sign) and read as an annual salary.
+ */
+export function salaryFloorFromNotes(notes: string): number | null {
+  const re = /(?:not worth(?: it)?|minimum(?: of)?|at least|below|less than|under)\s*(?:[£$€]\s*)?(\d[\d,]*(?:\.\d+)?)\s*(k\b)?/gi
+  for (const m of notes.matchAll(re)) {
+    const n = Number(m[1].replace(/,/g, '')) * (m[2] ? 1000 : 1)
+    if (Number.isFinite(n) && n >= MIN_SALARY_FLOOR) return Math.round(n)
+  }
+  return null
+}
+
 /**
  * Suggestions for the user's search profile from a run's inputs, the same two
  * rules assessJobFit had: a salary floor written in the job notes (only notes
@@ -289,9 +306,8 @@ export function searchProfileSuggestions(g: Pick<GatherResult, 'brief' | 'search
   const { searchProfile, notes, brief } = g
 
   if (notes && !searchProfile.salaryBand) {
-    const match = notes.match(/(?:not worth|minimum|below|less than)[^\d]*(\d[\d,]+)/i)
-    const floor = match ? Number(match[1].replace(/,/g, '')) : NaN
-    if (Number.isFinite(floor) && floor > 0) {
+    const floor = salaryFloorFromNotes(notes)
+    if (floor !== null) {
       out.push({
         field: 'salaryBand',
         suggestedValue: { min: floor, max: null, currency: 'GBP' },

@@ -39,21 +39,37 @@ function unique(items: string[]): string[] {
 const SEVERITY_ORDER: Record<JobAnalysisRisk['severity'], number> = { high: 0, medium: 1, low: 2 }
 
 /**
- * `jobAnalysis` from a report. `facts` is the early assessment's stored facts
- * (null when the run had none): its must and nice requirements come first.
- * Without facts, must-haves come from the report's blockers and gaps.
+ * `jobAnalysis` from a report, or null when there is nothing to base the
+ * job's requirements on.
+ *
+ * The report says what the candidate lacks (blockers, gaps), not everything
+ * the job requires, so the requirement lists come from elsewhere: the early
+ * assessment's stored `facts` (must / nice requirements), else the job's
+ * `existing` jobAnalysis (an earlier analyseJob run). With neither, it returns
+ * null and the caller keeps what's there, so CV generation still runs
+ * analyseJob for the full requirements instead of reading a thin list.
+ * Open blockers and gaps are added to must-haves; risks and positioning
+ * always come from the report.
  */
-export function reportToJobAnalysis(report: DeepDiveReport, facts: unknown): JobAnalysis {
+export function reportToJobAnalysis(report: DeepDiveReport, facts: unknown, existing: JobAnalysis | null): JobAnalysis | null {
   const requirements = factRequirements(facts)
+  const baseMust = requirements.length > 0
+    ? requirements.filter((r) => r.importance === 'must').map((r) => r.text)
+    : existing?.mustHave ?? []
+  const baseNice = requirements.length > 0
+    ? requirements.filter((r) => r.importance === 'nice').map((r) => r.text)
+    : existing?.niceToHave ?? []
+  if (baseMust.length === 0 && baseNice.length === 0) return null
+
   const openBlockers = report.blockers.filter((b) => b.status !== 'cleared')
 
   const mustHave = unique([
-    ...requirements.filter((r) => r.importance === 'must').map((r) => r.text),
+    ...baseMust,
     ...openBlockers.map((b) => b.label),
     ...report.gaps.map((g) => g.requirement),
   ]).slice(0, JOB_ANALYSIS_CAPS.mustHave)
 
-  const niceToHave = unique(requirements.filter((r) => r.importance === 'nice').map((r) => r.text))
+  const niceToHave = unique(baseNice)
     .filter((n) => !mustHave.some((m) => m.toLowerCase() === n.toLowerCase()))
     .slice(0, JOB_ANALYSIS_CAPS.niceToHave)
 

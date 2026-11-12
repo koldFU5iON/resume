@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils"
 import { startDeepDiveAction } from "@/modules/deep-dive/actions"
 import type { DeepDiveAccess } from "@/modules/deep-dive/access"
 import type { DeepDiveSummary } from "@/modules/deep-dive/queries"
-import type { Verdict } from "@/modules/deep-dive/schema"
+import { DEEP_DIVE_CONCURRENCY_PER_PROFILE, type Verdict } from "@/modules/deep-dive/schema"
 import {
   DEEP_DIVE_STATUS_LABEL,
   VERDICT_CHIP,
@@ -40,14 +40,21 @@ export function useStartDeepDive(jobId: string) {
   function start() {
     if (isStarting) return
     startTransition(async () => {
-      const result = await startDeepDiveAction(jobId)
+      let result: Awaited<ReturnType<typeof startDeepDiveAction>>
+      try {
+        result = await startDeepDiveAction(jobId)
+      } catch {
+        // Session expired, network or server error: say so instead of crashing the page.
+        toast.error("Couldn't start the deep dive. Check your connection, reload the page and try again.")
+        return
+      }
       switch (result.kind) {
         case 'started':
         case 'existing':
           router.push(deepDiveHref(jobId))
           return
         case 'limit':
-          toast.error('Two deep dives are already running. Try again when one finishes.')
+          toast.error(`${DEEP_DIVE_CONCURRENCY_PER_PROFILE} deep dives are already running. Try again when one finishes.`)
           return
         case 'no_llm_key':
           toast.error('Add an LLM API key to run a deep dive.', {

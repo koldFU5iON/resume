@@ -30,5 +30,7 @@ describe('deep-dive-view', () => {
     expect(formatRunCost(0.004, false)).toBe('under $0.01 + web searches')
     expect(hostOf('https://www.monzo.com/careers')).toBe('monzo.com')
     expect(hostOf('not a url')).toBeNull()
+    expect(hostOf('javascript://example.com/%0aalert(1)')).toBeNull()
+    expect(hostOf('data:text/html,hi')).toBeNull()
   })
 })

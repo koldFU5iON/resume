@@ -25,6 +25,7 @@ import { LLMError } from '@/modules/llm/errors'
 import { supportsWebSearch } from '@/modules/llm/web-search'
 import { emitSearchProfileSuggestions, gatherDeepDiveInputs, type GatherResult } from './gather'
 import { reportToJobAnalysis } from './job-analysis'
+import { JobAnalysisSchema } from '@/modules/jobs/schema'
 import { runResearch } from './research'
 import { synthesise } from './synthesise'
 import {
@@ -175,18 +176,22 @@ async function cacheCompanyResearch(g: GatherResult, research: DeepDiveResearch,
 /**
  * Work that follows a complete run (spec §7, §10), best effort: the run is
  * already complete on its row, so nothing here can fail it.
- * - `jobAnalysis` from the report, for CV generation and cover letters.
+ * - `jobAnalysis` from the report, for CV generation and cover letters
+ *   (skipped when there's nothing to base the job's requirements on).
  * - Search-profile suggestions (the rules moved from assessJobFit).
  */
 async function afterComplete(profileId: string, jobId: string, g: GatherResult, report: DeepDiveReport): Promise<void> {
   try {
-    await prisma.jobApplication.update({
-      where: { id: jobId, profileId },
-      data: {
-        jobAnalysis: reportToJobAnalysis(report, g.earlyAssessment?.facts ?? null) as unknown as Prisma.InputJsonValue,
-        jobAnalysedAt: new Date(),
-      },
-    })
+    const job = await prisma.jobApplication.findFirst({ where: { id: jobId, profileId }, select: { jobAnalysis: true } })
+    const existing = job?.jobAnalysis ? JobAnalysisSchema.safeParse(job.jobAnalysis) : null
+    const analysis = reportToJobAnalysis(report, g.earlyAssessment?.facts ?? null, existing?.success ? existing.data : null)
+    // Null: nothing to base the requirements on; keep what's there so CV generation runs analyseJob.
+    if (analysis) {
+      await prisma.jobApplication.update({
+        where: { id: jobId, profileId },
+        data: { jobAnalysis: analysis as unknown as Prisma.InputJsonValue, jobAnalysedAt: new Date() },
+      })
+    }
   } catch (err) {
     console.error('[deep-dive] could not write jobAnalysis', { jobId, err })
   }
