@@ -1,4 +1,10 @@
-// Per-job agent draft, stored beside the live Writing Desk content.
+// Per-document agent draft, stored beside the live Writing Desk content.
+//
+// Agent calls address a job and, optionally, one of its documents (#370).
+// They never guess: an explicit documentId must belong to the profile and the
+// job; without one, the job's only document is used (created on create_draft
+// when it has none), and a job with several documents is refused with
+// document_required, listing them. Owner calls address the document by id.
 //
 // Session-free: every function takes the caller's profileId first and filters
 // every query by it. Agent writes (createDraft, editDraftSection) are validated
@@ -15,13 +21,22 @@ import { prisma } from "@/lib/db"
 import { buildProfileSnapshot } from "@/modules/profile/snapshot"
 import { fillContactPlaceholder, hasContactPlaceholder } from "@/modules/profile-map/contact"
 import type { Contact } from "@/modules/profile-map/types"
+import { findOwnedJob, lockJobDocuments } from "./documents"
 import { checkFacts, type FactWarning } from "./fact-check"
-import { MAX_WRITING_DESK_CONTENT_LENGTH } from "./schema"
+import {
+  MAX_WRITING_DESK_CONTENT_LENGTH,
+  WRITING_DESK_DOCUMENT_ORDER,
+  WRITING_DESK_DOCUMENT_TYPE_LABEL,
+} from "./schema"
 import { applySectionOp, splitSections, type DraftSection, type SectionOp } from "./sections"
 import { validateDraftMarkdown, type DraftIssue } from "./validate"
 
+/** Which document an agent call means: a job, plus a document id when the job has several. */
+export type DeskRef = { jobId: string; documentId?: string }
+
 export type DraftState = {
   deskId: string
+  documentName: string
   jobId: string
   content: string
   draftRevision: number
@@ -33,6 +48,8 @@ export type DraftState = {
 
 export type DraftFailureReason =
   | "job_not_found"
+  | "document_not_found"
+  | "document_required"
   | "no_draft"
   | "draft_exists"
   | "wrong_document_type"
@@ -61,8 +78,12 @@ const MAX_EDIT_ATTEMPTS = 3
 
 const DRAFT_DOCUMENT_TYPE = "cv"
 
+/** How many of a job's documents a document_required failure lists. */
+const MAX_LISTED_DOCUMENTS = 20
+
 const DESK_SELECT = {
   id: true,
+  name: true,
   jobApplicationId: true,
   documentType: true,
   draftContent: true,
@@ -78,9 +99,11 @@ const OP_TOOL: Record<SectionOp["type"], string> = {
 
 const MESSAGES = {
   job_not_found: "Job not found.",
-  no_draft: "This job has no draft. Create one with create_draft.",
-  draft_exists: "A draft already exists for this job. Edit it section by section instead.",
-  wrong_document_type: "This job's Writing Desk holds a different document type; agent drafts are CVs only.",
+  document_not_found: "No Writing Desk document with that id belongs to this job. Pass a documentId from get_job_context, or omit it when the job has one document.",
+  document_required: "This job has several Writing Desk documents. Pass documentId to choose one.",
+  no_draft: "This document has no draft. Create one with create_draft.",
+  draft_exists: "A draft already exists for this document. Edit it section by section instead.",
+  wrong_document_type: "This Writing Desk document holds a different document type; agent drafts are CVs only.",
   invalid: "The draft failed validation. Fix the listed errors and retry.",
   conflict: "The draft changed while this write was in progress. Re-read it and retry.",
   section_not_found: "No section has that id. Use one of the listed section ids.",
@@ -93,13 +116,6 @@ function fail(reason: DraftFailureReason, extra: Omit<DraftFailure, "ok" | "reas
   return { ok: false, reason, message: message ?? MESSAGES[reason], ...rest }
 }
 
-async function findOwnedJob(profileId: string, jobId: string) {
-  return prisma.jobApplication.findFirst({
-    where: { id: jobId, profileId },
-    select: { id: true },
-  })
-}
-
 async function findDeskById(profileId: string, deskId: string) {
   return prisma.writingDeskDocument.findFirst({
     where: { id: deskId, profileId },
@@ -107,22 +123,74 @@ async function findDeskById(profileId: string, deskId: string) {
   })
 }
 
-async function findDeskByJob(profileId: string, jobId: string) {
-  return prisma.writingDeskDocument.findFirst({
-    where: { jobApplicationId: jobId, profileId },
-    select: DESK_SELECT,
+type AgentDesk = NonNullable<Awaited<ReturnType<typeof findDeskById>>>
+
+function documentRequired(docs: AgentDesk[]): DraftFailure {
+  const shown = docs.slice(0, MAX_LISTED_DOCUMENTS)
+  const lines = shown.map(doc => {
+    const type = doc.documentType ? WRITING_DESK_DOCUMENT_TYPE_LABEL[doc.documentType as keyof typeof WRITING_DESK_DOCUMENT_TYPE_LABEL] ?? doc.documentType : "no type yet"
+    return `- ${doc.id}: "${doc.name}" (${type}${doc.draftContent !== null ? ", has a draft" : ""})`
+  })
+  const more = docs.length > shown.length ? "\n- ...and more; see get_job_context." : ""
+  return fail("document_required", {
+    message: `This job has several Writing Desk documents. Nothing was chosen or written. Pass documentId to choose one:\n${lines.join("\n")}${more}`,
+  })
+}
+
+/**
+ * The document an agent call addresses (see the header). `create` makes the
+ * job's first document, named "CV", when it has none; it runs under the
+ * job's document lock so it can't race another first document into being.
+ * A null desk means the job has no document (only without `create`).
+ */
+async function resolveAgentDesk(
+  profileId: string,
+  jobId: string,
+  documentId: string | undefined,
+  { create }: { create: boolean },
+): Promise<{ ok: true; desk: AgentDesk | null } | DraftFailure> {
+  if (documentId !== undefined) {
+    const desk = await prisma.writingDeskDocument.findFirst({
+      where: { id: documentId, profileId, jobApplicationId: jobId },
+      select: DESK_SELECT,
+    })
+    return desk ? { ok: true, desk } : fail("document_not_found")
+  }
+
+  const pick = async (db: Pick<typeof prisma, "writingDeskDocument">) => {
+    const docs = await db.writingDeskDocument.findMany({
+      where: { profileId, jobApplicationId: jobId },
+      orderBy: WRITING_DESK_DOCUMENT_ORDER,
+      take: MAX_LISTED_DOCUMENTS + 1,
+      select: DESK_SELECT,
+    })
+    if (docs.length > 1) return documentRequired(docs)
+    return { ok: true as const, desk: docs[0] ?? null }
+  }
+
+  if (!create) return pick(prisma)
+  return prisma.$transaction(async tx => {
+    await lockJobDocuments(tx, jobId)
+    const picked = await pick(tx)
+    if (!picked.ok || picked.desk) return picked
+    const desk = await tx.writingDeskDocument.create({
+      data: { profileId, jobApplicationId: jobId, name: WRITING_DESK_DOCUMENT_TYPE_LABEL.cv },
+      select: DESK_SELECT,
+    })
+    return { ok: true as const, desk }
   })
 }
 
 async function buildState(
   profileId: string,
-  desk: { id: string; jobApplicationId: string; revision: number },
+  desk: { id: string; name: string; jobApplicationId: string; revision: number },
   content: string,
   draftRevision: number,
 ): Promise<DraftState> {
   const profile = await buildProfileSnapshot(profileId)
   return {
     deskId: desk.id,
+    documentName: desk.name,
     jobId: desk.jobApplicationId,
     content,
     draftRevision,
@@ -151,22 +219,20 @@ async function writeAgentDraft(
 
 export async function createDraft(
   profileId: string,
-  jobId: string,
+  ref: DeskRef,
   content: string,
   actor?: Actor,
 ): Promise<DraftResult> {
-  const job = await findOwnedJob(profileId, jobId)
+  const job = await findOwnedJob(profileId, ref.jobId)
   if (!job) return fail("job_not_found")
 
   const validation = validateDraftMarkdown(content)
   if (!validation.ok) return fail("invalid", { issues: validation.issues })
 
-  const desk = await prisma.writingDeskDocument.upsert({
-    where: { jobApplicationId: job.id },
-    update: {},
-    create: { profileId, jobApplicationId: job.id },
-    select: { id: true, documentType: true, draftContent: true, draftRevision: true, revision: true },
-  })
+  const resolved = await resolveAgentDesk(profileId, job.id, ref.documentId, { create: true })
+  if (!resolved.ok) return resolved
+  const desk = resolved.desk
+  if (!desk) return fail("conflict")
   if (desk.documentType !== null && desk.documentType !== DRAFT_DOCUMENT_TYPE) return fail("wrong_document_type")
   if (desk.draftContent !== null) return fail("draft_exists")
 
@@ -198,15 +264,17 @@ export async function createDraft(
 
   return {
     ok: true,
-    value: await buildState(profileId, { ...desk, jobApplicationId: job.id }, content, desk.draftRevision + 1),
+    value: await buildState(profileId, desk, content, desk.draftRevision + 1),
   }
 }
 
-export async function getDraft(profileId: string, jobId: string): Promise<DraftResult> {
-  const job = await findOwnedJob(profileId, jobId)
+export async function getDraft(profileId: string, ref: DeskRef): Promise<DraftResult> {
+  const job = await findOwnedJob(profileId, ref.jobId)
   if (!job) return fail("job_not_found")
 
-  const desk = await findDeskByJob(profileId, job.id)
+  const resolved = await resolveAgentDesk(profileId, job.id, ref.documentId, { create: false })
+  if (!resolved.ok) return resolved
+  const desk = resolved.desk
   if (!desk || desk.draftContent === null) return fail("no_draft")
 
   return { ok: true, value: await buildState(profileId, desk, desk.draftContent, desk.draftRevision) }
@@ -219,15 +287,20 @@ function opDetail(op: SectionOp): Record<string, string> {
 
 export async function editDraftSection(
   profileId: string,
-  jobId: string,
+  ref: DeskRef,
   op: SectionOp,
   actor?: Actor,
 ): Promise<DraftResult> {
-  const job = await findOwnedJob(profileId, jobId)
+  const job = await findOwnedJob(profileId, ref.jobId)
   if (!job) return fail("job_not_found")
 
+  // Resolved once: retries re-read this same document by id, never another one.
+  const resolved = await resolveAgentDesk(profileId, job.id, ref.documentId, { create: false })
+  if (!resolved.ok) return resolved
+  let desk = resolved.desk
+
   for (let attempt = 0; attempt < MAX_EDIT_ATTEMPTS; attempt++) {
-    const desk = await findDeskByJob(profileId, job.id)
+    if (attempt > 0 && desk) desk = await findDeskById(profileId, desk.id)
     if (!desk || desk.draftContent === null) return fail("no_draft")
 
     const applied = applySectionOp(desk.draftContent, op)

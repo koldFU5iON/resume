@@ -1,31 +1,21 @@
-import { renderToBuffer } from "@react-pdf/renderer"
 import { NextRequest, NextResponse } from "next/server"
-import { WritingDeskPDFDocument } from "@/app/components/writing-desk-pdf-document"
 import { requireProfile } from "@/lib/session"
-import { getWritingDesk } from "@/modules/writing-desk/queries"
+import { getPrimaryWritingDeskId } from "@/modules/writing-desk/documents"
+import { writingDeskPdfResponse } from "../../_lib/pdf-response"
 
 export const maxDuration = 30
 
-function filename(title: string): string {
-  const slug = title.trim().replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "")
-  return `${slug || "writing-desk-document"}.pdf`
-}
-
+/**
+ * The job-scoped export URL, kept for old links (#370): exports the job's
+ * primary document (the oldest, see writing-desk/documents.ts). Never creates
+ * one. Documents export at /api/writing-desk/<jobId>/documents/<documentId>/pdf.
+ */
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ jobId: string }> },
 ) {
   const [{ jobId }, { profile }] = await Promise.all([params, requireProfile()])
-  const desk = await getWritingDesk(profile.id, jobId)
-  if (!desk) return NextResponse.json({ error: "Not found" }, { status: 404 })
-
-  const title = `${desk.documentType ?? "writing-desk"}-${desk.jobApplication.title}`
-  const buffer = await renderToBuffer(<WritingDeskPDFDocument markdown={desk.content} title={title} documentType={desk.documentType} />)
-
-  return new NextResponse(Buffer.from(buffer), {
-    headers: {
-      "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename="${filename(title)}"`,
-    },
-  })
+  const documentId = await getPrimaryWritingDeskId(profile.id, jobId)
+  if (!documentId) return NextResponse.json({ error: "Not found" }, { status: 404 })
+  return writingDeskPdfResponse(profile.id, jobId, documentId)
 }

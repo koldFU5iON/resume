@@ -6,7 +6,11 @@ import { requireProfile } from "@/lib/session"
 import { getEarlyAssessmentForJob, getEarlyAssessmentsForJobs, isEarlyAssessmentEnabled, type AssessmentView } from "@/modules/job-assessment/queries"
 import { getDeepDiveSummaries, getDeepDiveSummary, type DeepDiveSummary } from "@/modules/deep-dive/queries"
 import { getDeepDiveAccess, type DeepDiveAccess } from "@/modules/deep-dive/access"
-import { WritingDeskDocumentTypeSchema } from "@/modules/writing-desk/schema"
+import {
+  MAX_WRITING_DESK_DOCUMENTS_PER_JOB,
+  WRITING_DESK_DOCUMENT_ORDER,
+  parseWritingDeskDocumentType,
+} from "@/modules/writing-desk/schema"
 import type { JobDocumentAssets } from "@/modules/jobs/workspace-nav"
 
 /**
@@ -260,7 +264,11 @@ async function getJobWorkspaceUncached(profileId: string, jobId: string): Promis
       cvDocuments: { select: { id: true }, take: 1, orderBy: { createdAt: 'desc' } },
       coverLetters: { select: { id: true }, take: 1, orderBy: { updatedAt: 'desc' } },
       interviewPrepSessions: { select: { id: true }, take: 1, orderBy: { createdAt: 'desc' } },
-      writingDesk: { select: { documentType: true } },
+      writingDesks: {
+        select: { id: true, name: true, documentType: true },
+        orderBy: WRITING_DESK_DOCUMENT_ORDER,
+        take: MAX_WRITING_DESK_DOCUMENTS_PER_JOB,
+      },
     },
   })
   if (!job) return null
@@ -271,7 +279,6 @@ async function getJobWorkspaceUncached(profileId: string, jobId: string): Promis
     getDeepDiveSummary(profileId, jobId),
     getDeepDiveAccess(profileId),
   ])
-  const deskType = WritingDeskDocumentTypeSchema.safeParse(job.writingDesk?.documentType)
 
   return {
     jobId: job.id,
@@ -289,7 +296,11 @@ async function getJobWorkspaceUncached(profileId: string, jobId: string): Promis
       cvDocumentId: job.cvDocuments[0]?.id ?? null,
       coverLetterDocumentId: job.coverLetters[0]?.id ?? null,
       interviewPrepSessionId: job.interviewPrepSessions[0]?.id ?? null,
-      writingDeskType: deskType.success ? deskType.data : null,
+      writingDesks: job.writingDesks.map((desk) => ({
+        id: desk.id,
+        name: desk.name,
+        documentType: parseWritingDeskDocumentType(desk.documentType),
+      })),
     },
   }
 }

@@ -2,10 +2,11 @@ import * as z from 'zod'
 import { editDraftSection } from '@/modules/writing-desk/draft'
 import { MAX_WRITING_DESK_CONTENT_LENGTH } from '@/modules/writing-desk/schema'
 import type { McpToolDefinition } from '../registry'
-import { writeResult } from './draft-view'
+import { deskRef, documentIdInput, writeResult } from './draft-view'
 
 const inputSchema = z.object({
   jobId: z.string().min(1).max(100).describe('The job id returned by list_jobs.'),
+  documentId: documentIdInput,
   sectionId: z.string().min(1).max(200).describe('Section id from get_draft.'),
   expectedHash: z.string().min(1).max(100).describe('The hash of that section from get_draft.'),
   content: z.string().max(MAX_WRITING_DESK_CONTENT_LENGTH).refine(c => c.trim().length > 0, { message: 'content must not be empty; use remove_section to delete a section' }).describe('Replacement Markdown for the section.'),
@@ -23,6 +24,6 @@ export const replaceSectionTool: McpToolDefinition = {
   inputSchema,
   async handler(ctx, args: z.infer<typeof inputSchema>) {
     const op = { type: 'replace' as const, sectionId: args.sectionId, expectedHash: args.expectedHash, content: args.content }
-    return writeResult(await editDraftSection(ctx.profileId, args.jobId, op, { tokenId: ctx.tokenId }))
+    return writeResult(await editDraftSection(ctx.profileId, deskRef(args), op, { tokenId: ctx.tokenId }))
   },
 }

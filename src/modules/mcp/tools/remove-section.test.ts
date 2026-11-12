@@ -19,10 +19,10 @@ describe('remove_section tool', () => {
   it('passes a remove op with profileId and the token actor', async () => {
     vi.mocked(editDraftSection).mockResolvedValue({
       ok: true,
-      value: { jobId: 'j1', draftRevision: 2, sections: [], issues: [], warnings: [] },
+      value: { jobId: 'j1', deskId: 'd1', documentName: 'CV', draftRevision: 2, sections: [], issues: [], warnings: [] },
     } as never)
     await removeSectionTool.handler(ctx, { jobId: 'j1', sectionId: 's', expectedHash: 'h' })
-    expect(editDraftSection).toHaveBeenCalledWith('p1', 'j1', { type: 'remove', sectionId: 's', expectedHash: 'h' }, { tokenId: 't1' })
+    expect(editDraftSection).toHaveBeenCalledWith('p1', { jobId: 'j1' }, { type: 'remove', sectionId: 's', expectedHash: 'h' }, { tokenId: 't1' })
   })
 
   it('on hash_mismatch surfaces the current text', async () => {

@@ -21,6 +21,8 @@ describe('validate_draft tool', () => {
       ok: true,
       value: {
         jobId: 'j1',
+        deskId: 'd1',
+        documentName: 'CV',
         content: '',
         draftRevision: 1,
         sections: [],
@@ -29,7 +31,7 @@ describe('validate_draft tool', () => {
       },
     } as never)
     const result = (await validateDraftTool.handler(ctx, { jobId: 'j1' })) as Record<string, unknown>
-    expect(getDraft).toHaveBeenCalledWith('p1', 'j1')
+    expect(getDraft).toHaveBeenCalledWith('p1', { jobId: 'j1' })
     expect(Object.keys(result).sort()).toEqual(['issues', 'ok', 'warnings'])
     expect(result.warnings).toHaveLength(1)
     expect(typeof result.ok).toBe('boolean')

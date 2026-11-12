@@ -45,7 +45,7 @@ export function JobDocumentNav({ workspace }: { workspace: JobWorkspace }) {
   const active = activeJobDocument(pathname, links)
   const deepDiveHref = jobDeepDiveHref(workspace.jobId)
   const selected = active
-    ? links.find((l) => l.kind === active)!.href
+    ? links.find((l) => l.key === active)!.href
     : isJobDeepDivePath(pathname, workspace.jobId) ? deepDiveHref : ""
 
   return (
@@ -53,13 +53,13 @@ export function JobDocumentNav({ workspace }: { workspace: JobWorkspace }) {
       <ul className="hidden h-full min-w-0 flex-1 items-stretch gap-1 overflow-x-auto [scrollbar-width:thin] md:flex">
         {links.map((link) => {
           const Icon = DOCUMENT_ICON[link.kind]
-          const current = active === link.kind
+          const current = active === link.key
           return (
-            <li key={link.kind} className="flex">
+            <li key={link.key} className="flex">
               <Link
                 href={link.href}
                 aria-current={current ? "page" : undefined}
-                title={link.detail ? `${link.label} · ${link.detail}` : undefined}
+                title={link.detail ? `${link.label} · ${link.detail}` : link.label}
                 className={cn(
                   "relative flex items-center gap-1.5 rounded-sm px-2.5 text-sm whitespace-nowrap text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
                   "after:absolute after:inset-x-1.5 after:bottom-0 after:h-0.5 after:rounded-full",
@@ -67,7 +67,7 @@ export function JobDocumentNav({ workspace }: { workspace: JobWorkspace }) {
                 )}
               >
                 <Icon className="size-3.5 shrink-0" aria-hidden="true" />
-                {link.label}
+                <span className="max-w-48 truncate">{link.label}</span>
                 {link.detail && <span className="text-muted-foreground">· {link.detail}</span>}
               </Link>
             </li>
@@ -84,7 +84,7 @@ export function JobDocumentNav({ workspace }: { workspace: JobWorkspace }) {
         >
           {!selected && <option value="" disabled>Choose a document</option>}
           {links.map((link) => (
-            <option key={link.kind} value={link.href}>
+            <option key={link.key} value={link.href}>
               {link.detail ? `${link.label} · ${link.detail}` : link.label}
             </option>
           ))}

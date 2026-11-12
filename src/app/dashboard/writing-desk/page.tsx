@@ -5,15 +5,9 @@ import { listWritingDeskJobs } from "@/modules/writing-desk/queries"
 import {
   APPLICATION_STATUS_LABEL,
 } from "@/app/types/job-application"
-import type { WritingDeskDocumentType } from "@/modules/writing-desk/schema"
+import { WRITING_DESK_DOCUMENT_TYPE_LABEL } from "@/modules/writing-desk/schema"
+import { jobWritingDeskHref } from "@/modules/jobs/workspace-nav"
 import { daysAgo, formatRelative } from "@/lib/utils"
-
-const DOCUMENT_TYPE_LABELS: Record<WritingDeskDocumentType, string> = {
-  cv: "CV",
-  "cover-letter": "Cover letter",
-  "interview-prep": "Interview prep",
-  other: "Other",
-}
 
 export default async function WritingDeskIndexPage() {
   const { profile } = await requireProfile()
@@ -42,9 +36,11 @@ export default async function WritingDeskIndexPage() {
         <div className="divide-y divide-border/50 rounded-md border">
           {jobs.map(job => {
             const days = job.deskUpdatedAt ? daysAgo(job.deskUpdatedAt) : null
-            const deskLabel = job.documentType
+            const deskLabel = job.documentCount > 0
               ? [
-                  DOCUMENT_TYPE_LABELS[job.documentType],
+                  job.documentCount > 1
+                    ? `${job.documentCount} documents`
+                    : job.documentType ? WRITING_DESK_DOCUMENT_TYPE_LABEL[job.documentType] : "1 document",
                   days !== null ? formatRelative(days) : null,
                 ]
                   .filter(Boolean)
@@ -53,7 +49,7 @@ export default async function WritingDeskIndexPage() {
             return (
               <Link
                 key={job.id}
-                href={`/dashboard/job-applications/view/${job.id}/writing`}
+                href={jobWritingDeskHref(job.id)}
                 className="flex items-start gap-4 px-4 py-3 transition-colors hover:bg-accent/50"
               >
                 <div className="min-w-0 flex-1">
