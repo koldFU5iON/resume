@@ -7,12 +7,14 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 
 /**
  * The document changed elsewhere (another tab, device, or an accepted agent
- * draft) after this editor loaded it, so the save was refused (#371). Shows
- * both versions, each copyable, and lets the user pick which one continues.
+ * draft) after this editor loaded it, so the save was refused (#371), or a
+ * draft was accepted while edits here hadn't saved yet (#378). Shows both
+ * versions, each copyable, and lets the user pick which one continues.
  * Nothing is overwritten until they choose.
  */
 export function SaveConflictDialog({
   open,
+  reason = "elsewhere",
   onOpenChange,
   mine,
   saved,
@@ -21,6 +23,8 @@ export function SaveConflictDialog({
   onCopy,
 }: {
   open: boolean
+  /** "accepted": the saved version is a draft just accepted from the Coach or the review. */
+  reason?: "elsewhere" | "accepted"
   onOpenChange: (open: boolean) => void
   mine: string
   saved: string
@@ -29,6 +33,8 @@ export function SaveConflictDialog({
   onCopy: (value: string, label: string) => void
 }) {
   const [busy, setBusy] = useState(false)
+  const accepted = reason === "accepted"
+  const savedLabel = accepted ? "Accepted draft (saved)" : "Saved version"
 
   async function keepMine() {
     setBusy(true)
@@ -39,19 +45,21 @@ export function SaveConflictDialog({
     <Dialog open={open} onOpenChange={next => { if (!busy) onOpenChange(next) }}>
       <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle>This document changed elsewhere</DialogTitle>
+          <DialogTitle>{accepted ? "You have edits that aren't saved" : "This document changed elsewhere"}</DialogTitle>
           <DialogDescription>
-            Your edits weren&apos;t saved because a newer version was saved somewhere else. Choose which version to keep.
+            {accepted
+              ? "The draft you accepted is now the saved version, but your latest edits here hadn't saved yet. They're kept. Choose which version to keep."
+              : "Your edits weren't saved because a newer version was saved somewhere else. Choose which version to keep."}{" "}
             Copy the other first if you want to merge by hand.
           </DialogDescription>
         </DialogHeader>
         <div className="grid min-h-0 gap-3 md:grid-cols-2">
           <VersionPane title="Your version (unsaved)" value={mine} onCopy={() => onCopy(mine, "Your version")} />
-          <VersionPane title="Saved version" value={saved} onCopy={() => onCopy(saved, "Saved version")} />
+          <VersionPane title={savedLabel} value={saved} onCopy={() => onCopy(saved, savedLabel)} />
         </div>
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>Decide later</Button>
-          <Button type="button" variant="outline" onClick={onUseSaved} disabled={busy}>Use saved version</Button>
+          <Button type="button" variant="outline" onClick={onUseSaved} disabled={busy}>{accepted ? "Use accepted draft" : "Use saved version"}</Button>
           <Button type="button" onClick={() => void keepMine()} disabled={busy}>{busy ? "Saving…" : "Keep my version"}</Button>
         </DialogFooter>
       </DialogContent>
