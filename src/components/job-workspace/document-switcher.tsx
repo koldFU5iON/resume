@@ -8,6 +8,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { buttonVariants } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import type { JobDocumentCreateLink, JobDocumentKind, JobDocumentLink } from "@/modules/jobs/workspace-nav"
+import { DEPRECATING_SOON, DeprecatingSoonBadge, LEGACY_EDITORS_EXPLANATION } from "@/components/legacy-editors/deprecation"
 import { guardedNavigate } from "./navigation-guard"
 
 /** Plain substring match on the names (cmdk's default fuzzy match finds "recruit" in "Panel round"). */
@@ -18,7 +19,7 @@ function matchesName(_value: string, search: string, keywords?: string[]): numbe
 }
 
 /** Where the switcher can take you: the nav's links plus Deep Dive. */
-export type SwitcherEntry = Pick<JobDocumentLink, "key" | "label" | "detail" | "href"> & { kind: JobDocumentKind | "deep-dive" }
+export type SwitcherEntry = Pick<JobDocumentLink, "key" | "label" | "detail" | "href" | "deprecated"> & { kind: JobDocumentKind | "deep-dive" }
 
 const LEGACY_EDITOR: Record<JobDocumentCreateLink["kind"], string> = {
   cv: "CV Builder",
@@ -32,7 +33,8 @@ const LEGACY_EDITOR: Record<JobDocumentCreateLink["kind"], string> = {
  * screens it is the "All documents" overflow beside the tabs, so documents
  * stay reachable however many there are or however long their names. It
  * also keeps the legacy editors' creation flows reachable, clearly labelled
- * as separate editors, so "+" can be only the new-document dialog.
+ * as separate editors that are deprecating soon (#379), so "+" can be only
+ * the new-document dialog.
  */
 export function DocumentSwitcher({
   variant,
@@ -71,6 +73,7 @@ export function DocumentSwitcher({
         >
           <span className="min-w-0 flex-1 truncate">{active ? active.label : "Choose a document"}</span>
           {active?.detail && <span className="shrink-0 text-xs font-normal text-muted-foreground">{active.detail}</span>}
+          {active?.deprecated && <DeprecatingSoonBadge />}
           <ChevronDown className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
         </PopoverTrigger>
       ) : (
@@ -100,12 +103,13 @@ export function DocumentSwitcher({
                     keywords={[entry.label, entry.detail ?? ""]}
                     onSelect={() => go(entry.href)}
                     aria-current={current ? "page" : undefined}
-                    title={entry.detail ? `${entry.label} · ${entry.detail}` : entry.label}
+                    title={[entry.label, entry.detail, entry.deprecated && DEPRECATING_SOON].filter(Boolean).join(" · ")}
                     className="py-2"
                   >
                     <Icon aria-hidden="true" />
                     <span className="min-w-0 flex-1 truncate">{entry.label}</span>
                     {entry.detail && <span className="shrink-0 text-xs text-muted-foreground">{entry.detail}</span>}
+                    {entry.deprecated && <DeprecatingSoonBadge />}
                     <Check className={cn("size-4 shrink-0", current ? "opacity-100" : "opacity-0")} aria-hidden="true" />
                   </CommandItem>
                 )
@@ -115,6 +119,10 @@ export function DocumentSwitcher({
               <>
                 <CommandSeparator />
                 <CommandGroup heading="Older editors (not Writing Desk documents)">
+                  <p className="flex items-start gap-1.5 px-2 pb-1.5 text-xs text-muted-foreground">
+                    <DeprecatingSoonBadge />
+                    <span className="min-w-0 flex-1">{LEGACY_EDITORS_EXPLANATION}</span>
+                  </p>
                   {legacyCreateLinks.map(link => {
                     const Icon = icons[link.kind]
                     return (
@@ -128,6 +136,7 @@ export function DocumentSwitcher({
                         <Icon aria-hidden="true" />
                         <span className="min-w-0 flex-1 truncate">{link.label}</span>
                         <span className="shrink-0 text-xs text-muted-foreground">{LEGACY_EDITOR[link.kind]}</span>
+                        <span className="sr-only">, {DEPRECATING_SOON.toLowerCase()}</span>
                       </CommandItem>
                     )
                   })}

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
-import { AlertTriangle, Check, Download, FileCheck2, Loader2, Pencil, Sparkles } from "lucide-react"
+import { AlertTriangle, Check, Download, FileCheck2, Loader2, Pencil, Sparkles, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import {
@@ -20,6 +20,7 @@ import { usePageContext, useWorkspaceContext } from "@/lib/context/page-context"
 import { useNavigationGuard } from "@/components/job-workspace/navigation-guard"
 import { FOCUS_NEW_DOCUMENT_KEY } from "@/components/job-workspace/new-document-dialog"
 import {
+  deleteWritingDeskDocumentAction,
   getWritingDeskLiveStateAction,
   setWritingDeskDocumentType,
   setWritingDeskSource,
@@ -30,7 +31,9 @@ import { writingDeskMarkdownToText } from "@/modules/writing-desk/markdown"
 import type { WritingDeskDocumentType, WritingDeskSaveResult } from "@/modules/writing-desk/schema"
 import type { WritingDeskSourceOption, WritingDeskWithJob } from "@/modules/writing-desk/queries"
 import { WritingDeskPreview } from "@/app/components/writing-desk-preview"
+import { planAcceptedUpdate, newerSavedVersion } from "./accepted-update"
 import { AvailableBlocks } from "./available-blocks"
+import { DeleteDocumentDialog } from "./delete-document-dialog"
 import { DraftReview } from "./draft-review"
 import { RenameDocumentDialog } from "./rename-document-dialog"
 import { SaveConflictDialog } from "./save-conflict-dialog"
@@ -39,6 +42,15 @@ import { SaveConflictDialog } from "./save-conflict-dialog"
 type SaveState = "idle" | "dirty" | "saving" | "saved" | "failed" | "conflict"
 
 type Conflict = { revision: number; content: string }
+
+/** The editor dispatches nothing; the Coach card and draft review dispatch this after an accept has saved. */
+type WritingDeskUpdatedDetail = { deskId: string; proposedContent: string; revision: number }
+
+/** A Server Action that redirected rejects with Next's redirect error; the navigation itself goes ahead. */
+function isRedirectError(error: unknown): boolean {
+  const digest = (error as { digest?: unknown } | null)?.digest
+  return typeof digest === "string" && digest.startsWith("NEXT_REDIRECT")
+}
 
 const DOCUMENT_TYPES: Array<{ value: WritingDeskDocumentType; label: string }> = [
   { value: "cv", label: "CV" },
@@ -95,6 +107,7 @@ export function WritingDesk({
   const recoveryKey = `writing-desk-recovery-${desk.id}`
   const [name, setName] = useState(desk.name)
   const [renaming, setRenaming] = useState(false)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [documentType, setDocumentType] = useState(desk.documentType)
   const [content, setContent] = useState(desk.content)
   const [revision, setRevision] = useState(desk.revision)
@@ -102,6 +115,8 @@ export function WritingDesk({
   const [saveState, setSaveStateValue] = useState<SaveState>("idle")
   const [conflict, setConflict] = useState<Conflict | null>(null)
   const [conflictOpen, setConflictOpen] = useState(false)
+  /** Why the open conflict happened: a save refused, or a draft accepted over unsaved edits. */
+  const [conflictReason, setConflictReason] = useState<"elsewhere" | "accepted">("elsewhere")
   const [leaveRequest, setLeaveRequest] = useState<((leave: boolean) => void) | null>(null)
   const [mode, setMode] = useState<"markdown" | "preview">("markdown")
   const [showExport, setShowExport] = useState(false)
@@ -113,10 +128,16 @@ export function WritingDesk({
   const pendingValueRef = useRef<string | null>(null)
   const inflightRef = useRef<Promise<void> | null>(null)
   const conflictRef = useRef(false)
+  /** The conflict state, readable from event handlers without waiting for a render. */
+  const conflictValueRef = useRef<Conflict | null>(null)
   const saveStateRef = useRef<SaveState>("idle")
+  /** Set while this document is being deleted: no saves start, and leaving drops its edits. */
+  const deletingRef = useRef(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const { openPanel } = usePageContext()
   const router = useRouter()
+
+  useEffect(() => { conflictValueRef.current = conflict }, [conflict])
 
   function setSaveState(state: SaveState) {
     saveStateRef.current = state
@@ -137,6 +158,7 @@ export function WritingDesk({
   function enterConflict(result: Extract<WritingDeskSaveResult, { ok: false }>) {
     conflictRef.current = true
     setConflict({ revision: result.revision, content: result.content })
+    setConflictReason("elsewhere")
     setSaveState("conflict")
   }
 
@@ -195,6 +217,11 @@ export function WritingDesk({
       cancelled = true
       window.cancelAnimationFrame(frame)
       if (timerRef.current) clearTimeout(timerRef.current)
+      // Deleted (#377): its edits went with it, and there's nothing left to save to.
+      if (deletingRef.current) {
+        clearRecovery(recoveryKey)
+        return
+      }
       // Leaving by a route the navigation guard can't hold (Back/Forward): send
       // the pending text anyway. Server Actions finish after unmount; an
       // in-flight save already retries with any newer text itself.
@@ -208,23 +235,53 @@ export function WritingDesk({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once per mounted document
   }, [])
 
+  // A draft for this document was accepted (Coach card or draft review): the
+  // server already holds it as the new saved version (#378). Settle the save
+  // in flight first. Unsaved edits are never overwritten: they stay here, with
+  // their recovery copy, and the user compares them with the accepted text.
   useEffect(() => {
-    function handleWritingDeskUpdated(event: Event) {
-      const detail = (event as CustomEvent<{ deskId: string; proposedContent: string; revision: number }>).detail
+    async function handleWritingDeskUpdated(event: Event) {
+      const detail = (event as CustomEvent<WritingDeskUpdatedDetail>).detail
       if (detail.deskId !== desk.id) return
       if (timerRef.current) clearTimeout(timerRef.current)
+      // A save that finishes may start another with newer text; let those land too.
+      for (let attempt = 0; attempt < 3 && inflightRef.current; attempt++) await inflightRef.current
+
+      const accepted = { content: detail.proposedContent, revision: detail.revision }
+      const plan = planAcceptedUpdate({
+        content: contentRef.current,
+        revision: revisionRef.current,
+        pending: pendingValueRef.current,
+        conflict: conflictRef.current ? conflictValueRef.current : null,
+      }, accepted)
+
+      if (plan.kind === "ignore") {
+        // Edits typed on a newer revision: carry on saving them.
+        if (pendingValueRef.current !== null && !conflictRef.current) void flushSave()
+        return
+      }
+      if (plan.kind === "conflict") {
+        conflictRef.current = true
+        setConflict(prev => newerSavedVersion(prev, plan.compareWith))
+        setConflictReason("accepted")
+        setSaveState("conflict")
+        setConflictOpen(true)
+        toast.info("Draft accepted. Your unsaved edits are kept here: compare the two versions.")
+        return
+      }
       pendingValueRef.current = null
       conflictRef.current = false
       setConflict(null)
-      contentRef.current = detail.proposedContent
-      revisionRef.current = detail.revision
-      setContent(detail.proposedContent)
-      setRevision(detail.revision)
+      contentRef.current = accepted.content
+      revisionRef.current = accepted.revision
+      setContent(accepted.content)
+      setRevision(accepted.revision)
       setSaveState("saved")
       clearRecovery(recoveryKey)
     }
     window.addEventListener("writing-desk-updated", handleWritingDeskUpdated)
     return () => window.removeEventListener("writing-desk-updated", handleWritingDeskUpdated)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reads refs; flushSave only reads refs too
   }, [desk.id, recoveryKey])
 
   function isDirty() {
@@ -254,7 +311,7 @@ export function WritingDesk({
 
   function flushSave(): Promise<void> {
     if (inflightRef.current) return inflightRef.current
-    if (pendingValueRef.current === null || conflictRef.current) return Promise.resolve()
+    if (pendingValueRef.current === null || conflictRef.current || deletingRef.current) return Promise.resolve()
     if (timerRef.current) clearTimeout(timerRef.current)
     const value = pendingValueRef.current
     setSaveState("saving")
@@ -317,6 +374,7 @@ export function WritingDesk({
       return
     }
     setSaveState("dirty")
+    if (deletingRef.current) return
     if (timerRef.current) clearTimeout(timerRef.current)
     timerRef.current = setTimeout(() => void flushSave(), 900)
   }
@@ -461,6 +519,45 @@ export function WritingDesk({
     clearRecovery(recoveryKey)
   }
 
+  /**
+   * Deletes this document (#377). Saving stops first, so no autosave races
+   * the delete; on success the server replaces this page with the next
+   * document (or Job Description) and the unmount drops this one's edits and
+   * recovery copy. Resolves with a message when the document is still there.
+   */
+  async function deleteDocument(): Promise<string | null> {
+    deletingRef.current = true
+    if (timerRef.current) clearTimeout(timerRef.current)
+    if (inflightRef.current) await inflightRef.current
+    try {
+      const result = await deleteWritingDeskDocumentAction({ jobId: desk.jobApplication.id, documentId: desk.id }, { openNext: true })
+      if (result.ok) return null
+      if (result.reason === "not_found") {
+        // Already gone (another tab): stop saving to a document that no longer
+        // exists, drop its recovery copy, and reload to the not-found state.
+        pendingValueRef.current = null
+        clearRecovery(recoveryKey)
+        router.refresh()
+        return result.message
+      }
+      deletingRef.current = false
+      resumeSaving()
+      return result.message
+    } catch (error) {
+      if (isRedirectError(error)) {
+        toast.success(`Deleted "${name}"`)
+        return null
+      }
+      deletingRef.current = false
+      resumeSaving()
+      return "Couldn't delete the document. Check your connection and try again."
+    }
+  }
+
+  function resumeSaving() {
+    if (pendingValueRef.current !== null && !conflictRef.current) void flushSave()
+  }
+
   // Returning to the review re-reads the server so the live side of the
   // comparison (and the revision Accept is checked against) includes any
   // edits just made in the live editor.
@@ -488,6 +585,16 @@ export function WritingDesk({
             onClick={() => setRenaming(true)}
           >
             <Pencil className="size-3.5" aria-hidden="true" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7 shrink-0 text-muted-foreground hover:text-destructive"
+            aria-label={`Delete "${name}"`}
+            title="Delete document"
+            onClick={() => setConfirmingDelete(true)}
+          >
+            <Trash2 className="size-3.5" aria-hidden="true" />
           </Button>
         </div>
         <select
@@ -559,8 +666,17 @@ export function WritingDesk({
           onRenamed={next => { setName(next); toast.success("Document renamed") }}
         />
       )}
+      {confirmingDelete && (
+        <DeleteDocumentDialog
+          name={name}
+          hasDraft={desk.draft !== null}
+          onOpenChange={setConfirmingDelete}
+          onConfirm={deleteDocument}
+        />
+      )}
       <SaveConflictDialog
         open={conflictOpen && conflict !== null}
+        reason={conflictReason}
         onOpenChange={setConflictOpen}
         mine={content}
         saved={conflict?.content ?? ""}

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest"
 import {
   activeJobDocument,
   canAddWritingDeskDocument,
+  isLegacyDocumentKind,
   unlistedWritingDeskDocument,
   isJobDeepDivePath,
   jobDocumentCreateLinks,
@@ -81,6 +82,11 @@ describe("jobDocumentLinks", () => {
 
   it("names the legacy editors beside their tabs, so they aren't mistaken for Writing Desk documents", () => {
     expect(jobDocumentLinks(all).slice(2).map((l) => l.detail)).toEqual(["CV Builder", "Cover letter editor", "Prep session"])
+  })
+
+  it("marks only the legacy editors' tabs as deprecating (#379)", () => {
+    expect(jobDocumentLinks(all).map((l) => l.deprecated ?? false)).toEqual([false, false, true, true, true])
+    expect(jobDocumentLinks(all).map((l) => isLegacyDocumentKind(l.kind))).toEqual([false, false, true, true, true])
   })
 })
 

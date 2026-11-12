@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("@/lib/db", () => ({
   prisma: {
-    writingDeskDocument: { create: vi.fn(), count: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn() },
+    writingDeskDocument: { create: vi.fn(), count: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), updateMany: vi.fn(), deleteMany: vi.fn() },
     jobApplication: { findFirst: vi.fn() },
     cVDocument: { findFirst: vi.fn() },
     $transaction: vi.fn(),
@@ -16,6 +16,7 @@ import { prisma } from "@/lib/db"
 import { toMarkdown } from "@/modules/cv/export"
 import {
   createWritingDeskDocument,
+  deleteWritingDeskDocument,
   ensurePrimaryWritingDesk,
   getPrimaryWritingDeskId,
   jobDocumentsLockKey,
@@ -29,6 +30,8 @@ const mockCreate = vi.mocked(prisma.writingDeskDocument.create)
 const mockCount = vi.mocked(prisma.writingDeskDocument.count)
 const mockFindFirst = vi.mocked(prisma.writingDeskDocument.findFirst)
 const mockUpdateMany = vi.mocked(prisma.writingDeskDocument.updateMany)
+const mockFindMany = vi.mocked(prisma.writingDeskDocument.findMany)
+const mockDeleteMany = vi.mocked(prisma.writingDeskDocument.deleteMany)
 const mockExecuteRaw = vi.mocked(prisma.$executeRaw)
 const mockTransaction = vi.mocked(prisma.$transaction)
 
@@ -261,5 +264,65 @@ describe("createWritingDeskDocument from the + dialog", () => {
     await expect(createWritingDeskDocument(PROFILE, { jobId: "job-1", name: "One more", documentType: "other" }))
       .resolves.toMatchObject({ ok: false, reason: "limit" })
     expect(mockCreate).not.toHaveBeenCalled()
+  })
+})
+
+describe("deleteWritingDeskDocument", () => {
+  const docs = (...ids: string[]) => ids.map(id => ({ id }))
+
+  beforeEach(() => {
+    mockFindMany.mockResolvedValue(docs("desk-a", "desk-b", "desk-c") as never)
+    mockDeleteMany.mockResolvedValue({ count: 1 })
+  })
+
+  it("deletes only that document, scoped to the profile and job, under the job's lock", async () => {
+    await expect(deleteWritingDeskDocument(PROFILE, { jobId: "job-1", documentId: "desk-b" }))
+      .resolves.toEqual({ ok: true, nextDocumentId: "desk-c" })
+
+    expect(mockJob).toHaveBeenCalledWith({ where: { id: "job-1", profileId: PROFILE }, select: { id: true } })
+    expect(lockedJobKeys()).toEqual([jobDocumentsLockKey("job-1")])
+    expect(mockFindMany).toHaveBeenCalledWith({
+      where: { profileId: PROFILE, jobApplicationId: "job-1" },
+      orderBy: ORDER,
+      select: { id: true },
+    })
+    expect(mockDeleteMany).toHaveBeenCalledTimes(1)
+    expect(mockDeleteMany).toHaveBeenCalledWith({ where: { id: "desk-b", profileId: PROFILE, jobApplicationId: "job-1" } })
+  })
+
+  it("opens the previous document after deleting the last one, and none after deleting the only one", async () => {
+    await expect(deleteWritingDeskDocument(PROFILE, { jobId: "job-1", documentId: "desk-c" }))
+      .resolves.toEqual({ ok: true, nextDocumentId: "desk-b" })
+
+    mockFindMany.mockResolvedValue(docs("desk-a") as never)
+    await expect(deleteWritingDeskDocument(PROFILE, { jobId: "job-1", documentId: "desk-a" }))
+      .resolves.toEqual({ ok: true, nextDocumentId: null })
+  })
+
+  it("refuses another profile's job without deleting anything", async () => {
+    mockJob.mockResolvedValue(null)
+
+    await expect(deleteWritingDeskDocument(PROFILE, { jobId: "job-x", documentId: "desk-b" }))
+      .resolves.toMatchObject({ ok: false, reason: "not_found" })
+    expect(mockDeleteMany).not.toHaveBeenCalled()
+  })
+
+  it("refuses a document that isn't on this job (or isn't the profile's, or is already gone)", async () => {
+    await expect(deleteWritingDeskDocument(PROFILE, { jobId: "job-1", documentId: "desk-other" }))
+      .resolves.toMatchObject({ ok: false, reason: "not_found" })
+    expect(mockDeleteMany).not.toHaveBeenCalled()
+  })
+
+  it("reports not_found when the row vanished before the delete", async () => {
+    mockDeleteMany.mockResolvedValue({ count: 0 })
+
+    await expect(deleteWritingDeskDocument(PROFILE, { jobId: "job-1", documentId: "desk-a" }))
+      .resolves.toMatchObject({ ok: false, reason: "not_found" })
+  })
+
+  it("validates input at the boundary", async () => {
+    await expect(deleteWritingDeskDocument(PROFILE, { jobId: "job-1" }))
+      .resolves.toMatchObject({ ok: false, reason: "invalid" })
+    expect(mockJob).not.toHaveBeenCalled()
   })
 })

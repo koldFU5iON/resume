@@ -3,6 +3,7 @@ import { requireProfile } from '@/lib/session'
 import { listCoverLetters } from '@/modules/cover-letters/queries'
 import { daysAgo, formatRelative, cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { LegacyEditorNotice } from '@/components/legacy-editors/deprecation'
 
 export default async function CoverLettersPage() {
   const { profile } = await requireProfile()
@@ -10,6 +11,7 @@ export default async function CoverLettersPage() {
 
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-6 md:px-6">
+      <LegacyEditorNotice kind="cover-letter" className="mb-6 rounded-lg border" />
       <div className="mb-6 flex items-start justify-between">
         <div>
           <h1 className="text-xl font-semibold">Cover Letters</h1>

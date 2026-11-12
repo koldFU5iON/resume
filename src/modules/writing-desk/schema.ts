@@ -63,6 +63,16 @@ export const RenameWritingDeskDocumentSchema = z.object({
   name: WritingDeskDocumentNameSchema,
 })
 
+export const DeleteWritingDeskDocumentSchema = z.object({
+  jobId: WritingDeskIdSchema,
+  documentId: WritingDeskIdSchema,
+})
+
+export type DeleteWritingDeskDocumentResult =
+  /** nextDocumentId: the document to open instead (the next one, else the previous), or null when none remain. */
+  | { ok: true; nextDocumentId: string | null }
+  | { ok: false; reason: "invalid" | "not_found"; message: string }
+
 export type RenameWritingDeskDocumentResult =
   | { ok: true; name: string }
   | { ok: false; reason: "invalid" | "not_found"; message: string }

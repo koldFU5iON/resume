@@ -11,6 +11,9 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
   SidebarRail,
   SidebarSeparator,
   useSidebar,
@@ -25,8 +28,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
+  ChevronRight,
   ChevronsUpDown,
   Coins,
+  History,
   LogOut,
   MessageSquareWarning,
   Moon,
@@ -37,14 +42,15 @@ import {
   Settings,
   Sparkles,
   Sun,
+  TriangleAlert,
   User,
 } from "lucide-react"
 import { useTheme } from "next-themes"
 import Link from "next/link"
-import { useState } from "react"
+import { useId, useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import { authClient, useSession } from "@/lib/auth-client"
-import { navGroups, type NavItem } from "@/lib/nav-menu"
+import { OLD_SYSTEM_LABEL, navGroups, type NavItem } from "@/lib/nav-menu"
 import { brand } from "@/lib/brand"
 import { FeedbackDrawer } from "@/app/components/FeedbackDrawer"
 import { Wordmark } from "@/components/brand/wordmark"
@@ -53,6 +59,7 @@ import { Dialog, DialogContent, DialogTrigger } from "./ui/dialog"
 import { Support } from "./support"
 import { cn } from "@/lib/utils"
 import { usePageContext } from "@/lib/context/page-context"
+import { DEPRECATING_SOON, LEGACY_EDITORS_EXPLANATION } from "@/components/legacy-editors/deprecation"
 import type { ActiveJobForNav } from "@/modules/jobs/queries"
 
 export function AppSidebar({ activeJobs, suggestionCount }: { activeJobs: ActiveJobForNav[]; suggestionCount: number }) {
@@ -79,6 +86,7 @@ export function AppSidebar({ activeJobs, suggestionCount }: { activeJobs: Active
                     badge={item.destination === '/dashboard/search-context' && suggestionCount > 0 ? suggestionCount : undefined}
                   />
                 ))}
+                {group.legacy && <OldSystemMenuItem items={group.legacy} />}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
@@ -318,6 +326,109 @@ function NavMenuItem({ destination, label, Icon, badge }: NavItem & { badge?: nu
         )}
       </SidebarMenuButton>
     </SidebarMenuItem>
+  )
+}
+
+function isNavItemActive(pathname: string, destination: string): boolean {
+  return destination === "/dashboard" ? pathname === destination : pathname.startsWith(destination)
+}
+
+/**
+ * "Old system" (#379): the legacy editors under one item, headed by a single
+ * "Deprecating soon" note. Expanded (and in the phone drawer) it is a
+ * disclosure that opens by itself on a legacy page; in the collapsed icon
+ * rail, where sub-menus can't show, it opens the same list as a menu.
+ */
+function OldSystemMenuItem({ items }: { items: NavItem[] }) {
+  const pathname = usePathname()
+  const closeMobile = useCloseMobileSidebar()
+  const { state, isMobile } = useSidebar()
+  const activeItem = items.find(item => isNavItemActive(pathname, item.destination)) ?? null
+  const [open, setOpen] = useState(activeItem !== null)
+  const [openedFor, setOpenedFor] = useState(pathname)
+  const listId = useId()
+
+  // Arriving on a legacy page opens the group, so its current item shows.
+  if (openedFor !== pathname) {
+    setOpenedFor(pathname)
+    if (activeItem && !open) setOpen(true)
+  }
+
+  if (state === "collapsed" && !isMobile) {
+    return (
+      <SidebarMenuItem>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <SidebarMenuButton isActive={activeItem !== null} tooltip={`${OLD_SYSTEM_LABEL} · ${DEPRECATING_SOON}`}>
+                <History />
+                <span>{OLD_SYSTEM_LABEL}</span>
+              </SidebarMenuButton>
+            }
+          />
+          <DropdownMenuContent side="right" align="start" className="w-64">
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>
+                <OldSystemHeader />
+              </DropdownMenuLabel>
+              {items.map(item => (
+                <DropdownMenuItem key={item.destination} render={<Link href={item.destination} />} className={cn(item === activeItem && "bg-accent text-accent-foreground")}>
+                  <item.Icon />
+                  <span>{item.label}</span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </SidebarMenuItem>
+    )
+  }
+
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        isActive={activeItem !== null && !open}
+        aria-expanded={open}
+        aria-controls={open ? listId : undefined}
+        onClick={() => setOpen(value => !value)}
+      >
+        <History />
+        <span>{OLD_SYSTEM_LABEL}</span>
+        <ChevronRight className={cn("ml-auto transition-transform", open && "rotate-90")} aria-hidden="true" />
+      </SidebarMenuButton>
+      {open && (
+        <SidebarMenuSub id={listId}>
+          <li className="px-2 pt-1 pb-0.5">
+            <OldSystemHeader />
+          </li>
+          {items.map(item => (
+            <SidebarMenuSubItem key={item.destination}>
+              <SidebarMenuSubButton
+                isActive={item === activeItem}
+                aria-current={item === activeItem ? "page" : undefined}
+                render={<Link href={item.destination} onClick={closeMobile} />}
+              >
+                <item.Icon />
+                <span>{item.label}</span>
+              </SidebarMenuSubButton>
+            </SidebarMenuSubItem>
+          ))}
+        </SidebarMenuSub>
+      )}
+    </SidebarMenuItem>
+  )
+}
+
+/** The one marker for the whole group: icon and text, not colour alone. */
+function OldSystemHeader() {
+  return (
+    <span className="flex flex-col gap-0.5">
+      <span className="flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-400">
+        <TriangleAlert className="size-3.5 shrink-0" aria-hidden="true" />
+        {DEPRECATING_SOON}
+      </span>
+      <span className="text-[11px] leading-snug font-normal text-muted-foreground">{LEGACY_EDITORS_EXPLANATION}</span>
+    </span>
   )
 }
 

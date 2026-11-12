@@ -6,6 +6,7 @@ import { createSession } from '@/modules/interview-prep/actions'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { LegacyEditorNotice } from '@/components/legacy-editors/deprecation'
 
 type Props = { searchParams: Promise<{ jobId?: string }> }
 
@@ -39,6 +40,7 @@ export default async function NewInterviewPrepPage({ searchParams }: Props) {
 
   return (
     <div className="mx-auto w-full max-w-lg px-4 py-6 md:px-6">
+      <LegacyEditorNotice kind="interview-prep" className="mb-6 rounded-lg border" />
       <h1 className="mb-6 text-xl font-semibold">New Prep Session</h1>
       <form action={handleCreate} className="space-y-4">
         <div className="space-y-1.5">

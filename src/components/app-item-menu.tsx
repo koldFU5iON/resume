@@ -21,6 +21,7 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { DeprecatingSoonBadge } from "@/components/legacy-editors/deprecation"
 
 type AppControlsProps = {
   id: string
@@ -41,7 +42,7 @@ export function AppControls({ id, cvDocumentId, coverLetterDocumentId, onEdit, o
       >
         <MoreHorizontal size={16} />
       </DropdownMenuTrigger>
-      <DropdownMenuContent className="w-56">
+      <DropdownMenuContent className="w-80 max-w-[calc(100vw-1rem)]">
         <DropdownMenuGroup>
           <DropdownMenuLabel className="text-xs text-muted-foreground">Quick Actions</DropdownMenuLabel>
           <AppControlsItem
@@ -60,6 +61,7 @@ export function AppControls({ id, cvDocumentId, coverLetterDocumentId, onEdit, o
             <AppControlsItem
               Icon={FileText}
               label="View CV"
+              deprecated
               action={`/dashboard/cv-builder/${cvDocumentId}`}
               shortcut="⌘D"
             />
@@ -67,6 +69,7 @@ export function AppControls({ id, cvDocumentId, coverLetterDocumentId, onEdit, o
             <AppControlsItem
               Icon={FileText}
               label="Generate CV"
+              deprecated
               onSelect={onGenerateCV}
               action={onGenerateCV ? undefined : `/dashboard/cv-builder/new?jobId=${id}`}
               shortcut="⌘D"
@@ -76,12 +79,14 @@ export function AppControls({ id, cvDocumentId, coverLetterDocumentId, onEdit, o
             <AppControlsItem
               Icon={Mail}
               label="View Cover Letter"
+              deprecated
               action={`/dashboard/cover-letters/${coverLetterDocumentId}`}
             />
           ) : (
             <AppControlsItem
               Icon={Mail}
               label="Create Cover Letter"
+              deprecated
               onSelect={onCreateCoverLetter}
               action={onCreateCoverLetter ? undefined : `/dashboard/cover-letters/new?jobId=${id}`}
             />
@@ -130,6 +135,8 @@ export function AppControls({ id, cvDocumentId, coverLetterDocumentId, onEdit, o
 type AppControlsItemProps = {
   Icon: LucideIcon
   label: string
+  /** Opens a legacy editor that Writing Desk documents replace (#379). */
+  deprecated?: boolean
   color?: string
   action?: string
   onSelect?: () => void
@@ -137,11 +144,12 @@ type AppControlsItemProps = {
   shortcut?: string
 }
 
-function AppControlsItem({ Icon, color, label, action, onSelect, disabled, shortcut }: AppControlsItemProps) {
+function AppControlsItem({ Icon, color, label, deprecated, action, onSelect, disabled, shortcut }: AppControlsItemProps) {
   const content = (
     <>
       {Icon && <Icon color={color} className="size-4" />}
-      <span className="flex-1">{label}</span>
+      <span className="flex-1 whitespace-nowrap">{label}</span>
+      {deprecated && <DeprecatingSoonBadge />}
       {shortcut && <DropdownMenuShortcut>{shortcut}</DropdownMenuShortcut>}
     </>
   )
