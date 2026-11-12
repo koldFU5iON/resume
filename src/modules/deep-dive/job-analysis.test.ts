@@ -62,6 +62,13 @@ describe('reportToJobAnalysis', () => {
     expect(a.risks[0]).toMatchObject({ risk: 'UK security clearance', severity: 'high' })
   })
 
+  it('prefers an existing analyseJob result over the shorter facts list', () => {
+    const existing = { mustHave: ['A', 'B', 'C', 'D'], niceToHave: ['E'], risks: [], positioningStrategy: '' }
+    const a = reportToJobAnalysis(report(), facts, existing)!
+    expect(a.mustHave).toEqual(['A', 'B', 'C', 'D'])
+    expect(a.niceToHave).toEqual(['E'])
+  })
+
   it('returns null with neither facts nor an existing analysis, so CV generation runs analyseJob', () => {
     expect(reportToJobAnalysis(report({
       gaps: [{ requirement: 'Go experience', closability: 'closable_later', action: 'Ship it.', weeksToClose: 6, evidence: [] }],

@@ -43,21 +43,23 @@ const SEVERITY_ORDER: Record<JobAnalysisRisk['severity'], number> = { high: 0, m
  * job's requirements on.
  *
  * The report says what the candidate lacks (blockers, gaps), not everything
- * the job requires, so the requirement lists come from elsewhere: the early
- * assessment's stored `facts` (must / nice requirements), else the job's
- * `existing` jobAnalysis (an earlier analyseJob run). With neither, it returns
+ * the job requires, so the requirement lists come from elsewhere: the job's
+ * `existing` jobAnalysis (analyseJob, or an earlier run that kept it), else
+ * the early assessment's stored `facts` (must / nice requirements). With neither, it returns
  * null and the caller keeps what's there, so CV generation still runs
  * analyseJob for the full requirements instead of reading a thin list.
  * Risks (open blockers and gaps) and positioning always come from the report.
  */
 export function reportToJobAnalysis(report: DeepDiveReport, facts: unknown, existing: JobAnalysis | null): JobAnalysis | null {
+  // An existing analysis (analyseJob read the whole ad) is the fuller list; facts fill in when there is none.
   const requirements = factRequirements(facts)
-  const baseMust = requirements.length > 0
-    ? requirements.filter((r) => r.importance === 'must').map((r) => r.text)
-    : existing?.mustHave ?? []
-  const baseNice = requirements.length > 0
-    ? requirements.filter((r) => r.importance === 'nice').map((r) => r.text)
-    : existing?.niceToHave ?? []
+  const hasExisting = !!existing && (existing.mustHave.length > 0 || existing.niceToHave.length > 0)
+  const baseMust = hasExisting
+    ? existing.mustHave
+    : requirements.filter((r) => r.importance === 'must').map((r) => r.text)
+  const baseNice = hasExisting
+    ? existing.niceToHave
+    : requirements.filter((r) => r.importance === 'nice').map((r) => r.text)
   if (baseMust.length === 0 && baseNice.length === 0) return null
 
   const openBlockers = report.blockers.filter((b) => b.status !== 'cleared')

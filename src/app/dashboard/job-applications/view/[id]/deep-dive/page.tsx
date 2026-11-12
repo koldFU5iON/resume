@@ -95,7 +95,8 @@ function RunBody({ jobId, view, latest, runs, access }: {
   runs: DeepDiveRunItem[]
   access: DeepDiveAccess
 }) {
-  const isLatest = latest?.id === view.id
+  // Two reads: a run started between them makes the view newer than runs[0]; it is still the latest.
+  const isLatest = !latest || latest.id === view.id || view.createdAt > latest.createdAt
 
   if (isDeepDiveActive(view.status)) return <Progress view={view} />
 

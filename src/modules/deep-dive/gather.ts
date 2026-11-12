@@ -286,15 +286,19 @@ const CURRENCY_SIGNS: Record<string, string> = { '£': 'GBP', '$': 'USD', '€':
 /**
  * A salary floor written in the notes ("not worth it below £85k", "minimum
  * salary 90,000", "Minimum expected: $150k"), or null. The figure must come
- * within a few words of the phrase, on the same line, and read as an annual
- * salary. The currency comes from its sign; GBP without one.
+ * within a few words of the phrase, on the same line, read as an annual
+ * salary, and look like pay: a currency sign, a "k", or a pay word between the
+ * phrase and the figure. That keeps "less than 50,000 employees" out. The
+ * currency comes from its sign; GBP without one.
  */
 export function salaryFloorFromNotes(notes: string): { amount: number; currency: string } | null {
-  const re = /(?:not worth|minimum|at least|below|less than|under)[^\d£$€\n]{0,25}?([£$€])?\s*(\d[\d,]*(?:\.\d+)?)\s*(k\b)?/gi
+  const re = /(?:not worth|minimum|below|less than)([^\d£$€\n]{0,25}?)([£$€])?\s*(\d[\d,]*(?:\.\d+)?)\s*(k\b)?/gi
   for (const m of notes.matchAll(re)) {
-    const amount = Number(m[2].replace(/,/g, '')) * (m[3] ? 1000 : 1)
-    if (Number.isFinite(amount) && amount >= MIN_SALARY_FLOOR) {
-      return { amount: Math.round(amount), currency: m[1] ? CURRENCY_SIGNS[m[1]] : 'GBP' }
+    const [, between, sign, digits, k] = m
+    const looksLikePay = !!sign || !!k || /\b(?:salary|pay|comp|compensation|package|base|ote)\b/i.test(between)
+    const amount = Number(digits.replace(/,/g, '')) * (k ? 1000 : 1)
+    if (looksLikePay && Number.isFinite(amount) && amount >= MIN_SALARY_FLOOR) {
+      return { amount: Math.round(amount), currency: sign ? CURRENCY_SIGNS[sign] : 'GBP' }
     }
   }
   return null

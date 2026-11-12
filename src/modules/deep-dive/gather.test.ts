@@ -60,7 +60,7 @@ describe('searchProfileSuggestions', () => {
   const brief = { title: 'Platform Lead', company: 'Acme' } as Parameters<typeof searchProfileSuggestions>[0]['brief']
 
   it('suggests a salary floor from the notes when the profile has no band', () => {
-    const out = searchProfileSuggestions({ brief, searchProfile: emptySearchProfile, notes: 'Not worth it below 85,000' })
+    const out = searchProfileSuggestions({ brief, searchProfile: emptySearchProfile, notes: 'Not worth it below £85,000' })
     expect(out).toEqual([expect.objectContaining({
       field: 'salaryBand', source: 'deep-dive', suggestedValue: { min: 85000, max: null, currency: 'GBP' },
     })])
@@ -83,11 +83,11 @@ describe('searchProfileSuggestions', () => {
 
 describe('salaryFloorFromNotes', () => {
   it('reads salary figures after a floor phrase', () => {
-    expect(salaryFloorFromNotes('Not worth it below 85,000')).toEqual({ amount: 85000, currency: 'GBP' })
+    expect(salaryFloorFromNotes('Not worth it below £85,000')).toEqual({ amount: 85000, currency: 'GBP' })
     expect(salaryFloorFromNotes('minimum £90k')).toEqual({ amount: 90000, currency: 'GBP' })
     expect(salaryFloorFromNotes('less than $120,000 is a no')).toEqual({ amount: 120000, currency: 'USD' })
     expect(salaryFloorFromNotes('minimum salary £90k')).toEqual({ amount: 90000, currency: 'GBP' })
-    expect(salaryFloorFromNotes('Minimum expected: 85,000')).toEqual({ amount: 85000, currency: 'GBP' })
+    expect(salaryFloorFromNotes('Minimum expected salary: 85,000')).toEqual({ amount: 85000, currency: 'GBP' })
     expect(salaryFloorFromNotes('not worth it below €95k')).toEqual({ amount: 95000, currency: 'EUR' })
   })
 
@@ -95,5 +95,7 @@ describe('salaryFloorFromNotes', () => {
     expect(salaryFloorFromNotes('less than 30 minutes commute')).toBeNull()
     expect(salaryFloorFromNotes('minimum 10 years experience')).toBeNull()
     expect(salaryFloorFromNotes('below average Glassdoor, 2019 reviews 85000')).toBeNull()
+    expect(salaryFloorFromNotes('company has less than 50,000 employees')).toBeNull()
+    expect(salaryFloorFromNotes('minimum 20,000 users a day')).toBeNull()
   })
 })

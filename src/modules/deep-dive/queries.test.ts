@@ -79,3 +79,13 @@ describe('toDeepDiveSummary', () => {
     expect(toDeepDiveSummary(row({ status: 'complete' }), { verdict: 'maybe' }, now).verdict).toBeNull()
   })
 })
+
+describe('parseReport shape check', () => {
+  it('rejects a report missing nested parts the page reads', () => {
+    const full = DeepDiveReportSchema.parse(modelReport())
+    expect(parseReport(full)).not.toBeNull()
+    expect(parseReport({ ...full, company: { summary: 'x' } })).toBeNull()
+    expect(parseReport({ ...full, pay: undefined })).toBeNull()
+    expect(parseReport({ verdict: 'apply' })).toBeNull()
+  })
+})

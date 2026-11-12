@@ -100,18 +100,24 @@ export function JobSidebar({ job, hasLLMKey, earlyEnabled = false, deepDiveAcces
             <>
               <EarlyAssessment jobId={job.id} assessment={early} enabled deepDive={job.deepDive} deepDiveAccess={deepDiveAccess} />
               {/* JobFit is deprecated: kept here for reference until it's removed. */}
-              <details className="mt-1 border-t pt-3 text-xs">
-                <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
-                  Legacy fit score (deprecated)
-                </summary>
-                <div className="mt-2 space-y-1">
-                  <LegacyJobFit job={job} hasLLMKey={hasLLMKey} />
-                </div>
-              </details>
+              {/* Only existing scores: starting a deep dive lives in the Deep dive card. */}
+              {job.jobFit && (
+                <details className="mt-1 border-t pt-3 text-xs">
+                  <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                    Legacy fit score (deprecated)
+                  </summary>
+                  <div className="mt-2 space-y-1">
+                    <LegacyJobFit job={job} hasLLMKey={hasLLMKey} />
+                  </div>
+                </details>
+              )}
             </>
           ) : (
             <>
-              <LegacyJobFit job={job} hasLLMKey={hasLLMKey} />
+              {/* Only an existing score; the Deep dive card below starts a run and shows the verdict. */}
+              {job.jobFit
+                ? <LegacyJobFit job={job} hasLLMKey={hasLLMKey} />
+                : <p className="text-xs text-muted-foreground">See Deep dive below.</p>}
               {early && (
                 <div className="mt-1 space-y-1 border-t pt-3">
                   <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Early assessment</p>

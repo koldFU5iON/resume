@@ -78,11 +78,21 @@ export function effectiveStatus(row: Pick<Row, 'status' | 'createdAt'>, now: Dat
 /**
  * A stored report, or null when absent or unreadable. Stored reports are
  * already-transformed schema output (evidence as a union), so they can't be
- * re-parsed with the model-facing schema; this checks the shape's anchor.
+ * re-parsed with the model-facing schema; this checks the shape the report
+ * page reads, so an older or partial row shows "can't be read" instead of crashing.
  */
 export function parseReport(value: unknown): DeepDiveReport | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-  return asVerdict((value as { verdict?: unknown }).verdict) ? (value as DeepDiveReport) : null
+  const r = value as Record<string, unknown>
+  const obj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
+  const company = r.company, practicalities = r.practicalities, cv = r.cvStrategy
+  const ok = asVerdict(r.verdict) !== null
+    && ['blockers', 'gaps', 'strengths', 'questionsToAsk', 'unknowns'].every((k) => Array.isArray(r[k]))
+    && obj(r.worthTailoredCv) && obj(r.likelihood) && obj(r.pay)
+    && obj(company) && Array.isArray(company.signals)
+    && obj(practicalities) && obj(practicalities.location) && obj(practicalities.sponsorship) && Array.isArray(practicalities.other)
+    && obj(cv) && ['leadWith', 'emphasise', 'playDown'].every((k) => Array.isArray(cv[k]))
+  return ok ? (value as DeepDiveReport) : null
 }
 
 /** Pure: view of a row. `currentHash` is the inputs hash a run would get now (complete runs only). */
