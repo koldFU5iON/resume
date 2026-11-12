@@ -12,8 +12,10 @@ The early assessment gives every captured job a fast 1–10 score and a level (w
 moment it is saved, with blockers, strengths, gaps and "check these" notes. It reads the job description and the user's
 profile and answers a fixed set of typed questions with Jev, TypeSafe's System One model.
 
-**JobFit** (`src/modules/jobs/job-fit.ts`) is the older, on-demand assessment: one Claude call on the user's own key,
-rated 0–10, stored on `JobApplication.jobFit`. **JobFit is deprecated:** wherever the early assessment is on for a user,
+**JobFit** is the older, on-demand assessment: one Claude call on the user's own key, rated 0–10, stored on
+`JobApplication.jobFit`. **Nothing writes JobFit any more:** `assessJobFit` was removed in #363, the pill's Assess
+and Re-assess start a job deep dive (`docs/deep-dive.md`) instead, and the pill is hidden once the job has a complete
+deep dive. Before that, **JobFit was deprecated:** wherever the early assessment is on for a user,
 the early assessment is the fit score in the UI and JobFit is hidden, apart from a collapsed "Legacy fit score
 (deprecated)" section on the job page kept for reference. Users with the early assessment off still see JobFit. The
 stored `jobFit` is still shown in the CV editor's job panel and read by the chat job tools; those move over before JobFit

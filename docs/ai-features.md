@@ -5,9 +5,9 @@ before writing the next AI feature; you should not need to re-derive the
 pattern from scratch.
 
 > The plumbing is in `src/modules/llm/` and `src/modules/profile/snapshot.ts`.
-> The canonical worked example is **job-fit** in `src/modules/jobs/job-fit.ts`
-> with its UI trigger in `src/app/dashboard/job-applications/_components/job-fit.tsx`.
-> When in doubt, copy that shape.
+> The worked example below is **job-fit** (`assessJobFit`), retired in #363 when
+> the job deep dive replaced it; read `src/modules/jobs/job-fit.ts` in git history
+> (before #363) or use `src/modules/cv/analyse-job.ts` as a live example of the shape.
 
 > **Streaming / conversational features** use a different pattern — see [`docs/chat-assistant.md`](./chat-assistant.md). The five-step pipeline below applies to batch features (job-fit, CV generation, cover letters) that generate output once and persist it.
 

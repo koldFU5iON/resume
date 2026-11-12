@@ -5,7 +5,7 @@ vi.mock('@/lib/db', () => {
   const tx = { $executeRaw: vi.fn(), jobDeepDive }
   return {
     prisma: {
-      jobApplication: { findFirst: vi.fn() },
+      jobApplication: { findFirst: vi.fn(), update: vi.fn() },
       companyResearch: { create: vi.fn() },
       jobDeepDive,
       $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
@@ -15,7 +15,7 @@ vi.mock('@/lib/db', () => {
 })
 vi.mock('next/server', () => ({ after: vi.fn() }))
 vi.mock('@/modules/llm/client', () => ({ getLLMConfigStatus: vi.fn() }))
-vi.mock('./gather', () => ({ gatherDeepDiveInputs: vi.fn() }))
+vi.mock('./gather', () => ({ gatherDeepDiveInputs: vi.fn(), emitSearchProfileSuggestions: vi.fn() }))
 vi.mock('./research', () => ({ runResearch: vi.fn() }))
 vi.mock('./synthesise', () => ({ synthesise: vi.fn() }))
 
@@ -24,7 +24,7 @@ import { prisma } from '@/lib/db'
 import { getLLMConfigStatus } from '@/modules/llm/client'
 import { LLMError } from '@/modules/llm/errors'
 import { finding, gatherFixture, modelReport, outcome } from './__fixtures__/inputs'
-import { gatherDeepDiveInputs } from './gather'
+import { emitSearchProfileSuggestions, gatherDeepDiveInputs } from './gather'
 import { runResearch } from './research'
 import { DeepDiveReportSchema, DEEP_DIVE_CONCURRENCY_PER_PROFILE, DEEP_DIVE_ROUTE_MAX_DURATION_S } from './schema'
 import { synthesise } from './synthesise'
@@ -142,6 +142,52 @@ describe('runDeepDive', () => {
     const synthesising = db.jobDeepDive.updateMany.mock.calls[2][0].data as { research: { findings: unknown[] }; researchModel: string }
     expect(synthesising.research.findings).toHaveLength(1)
     expect(synthesising.researchModel).toBe('research-model')
+  })
+
+  it('writes jobAnalysis from the report and queues search-profile suggestions once complete', async () => {
+    const g = gatherFixture()
+    mockGather.mockResolvedValue({ ok: true, ...g, earlyAssessment: { ...g.earlyAssessment!, facts: { requirements: [{ text: 'Platform leadership', importance: 'must' }] } } })
+    await runDeepDive('p1', 'job-1', 'dd-1')
+    expect(db.jobApplication.update).toHaveBeenCalledTimes(1)
+    const call = db.jobApplication.update.mock.calls[0][0]
+    expect(call.where).toEqual({ id: 'job-1', profileId: 'p1' })
+    const analysis = call.data.jobAnalysis as { mustHave: string[]; positioningStrategy: string }
+    expect(Array.isArray(analysis.mustHave)).toBe(true)
+    expect(analysis.positioningStrategy).toContain(report.cvStrategy.positioning)
+    expect(call.data.jobAnalysedAt).toBeInstanceOf(Date)
+    expect(emitSearchProfileSuggestions).toHaveBeenCalledWith('p1', expect.objectContaining({ inputsHash: 'hash-1' }))
+  })
+
+  it('keeps the existing jobAnalysis when there is nothing to base requirements on', async () => {
+    await runDeepDive('p1', 'job-1', 'dd-1')
+    expect(db.jobApplication.update).not.toHaveBeenCalled()
+    expect(statuses().at(-1)).toBe('complete')
+  })
+
+  it('builds on an existing jobAnalysis when the run had no facts', async () => {
+    db.jobApplication.findFirst.mockResolvedValue({
+      jobDescription: 'A job',
+      jobAnalysis: { mustHave: ['Pricing strategy'], niceToHave: [], risks: [], positioningStrategy: 'Old.' },
+    } as never)
+    await runDeepDive('p1', 'job-1', 'dd-1')
+    const data = db.jobApplication.update.mock.calls[0][0].data as { jobAnalysis: { mustHave: string[] } }
+    expect(data.jobAnalysis.mustHave[0]).toBe('Pricing strategy')
+  })
+
+  it('keeps the run complete when writing jobAnalysis or the suggestions fails', async () => {
+    db.jobApplication.findFirst.mockRejectedValue(new Error('db down'))
+    db.jobApplication.update.mockRejectedValue(new Error('db down'))
+    vi.mocked(emitSearchProfileSuggestions).mockRejectedValue(new Error('nope'))
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    await runDeepDive('p1', 'job-1', 'dd-1')
+    expect(statuses()).toEqual(['gathering', 'researching', 'synthesising', 'complete'])
+  })
+
+  it('writes nothing to the job when the run was no longer active at completion', async () => {
+    db.jobDeepDive.updateMany.mockImplementation((async (args: { data: { status?: string } }) =>
+      ({ count: args.data.status === 'complete' ? 0 : 1 })) as never)
+    await runDeepDive('p1', 'job-1', 'dd-1')
+    expect(db.jobApplication.update).not.toHaveBeenCalled()
   })
 
   it('runs without web research for a provider with no search tool', async () => {

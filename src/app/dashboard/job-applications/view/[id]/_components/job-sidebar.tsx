@@ -9,6 +9,9 @@ import { pendingSignature } from "@/app/dashboard/job-applications/_components/e
 import { SalaryPopover } from "@/app/dashboard/job-applications/_components/salary-popover"
 import { StatusDropdown } from "@/app/dashboard/job-applications/_components/status-dropdown"
 import { formatDate, cn } from "@/lib/utils"
+import type { DeepDiveAccess } from "@/modules/deep-dive/access"
+import { DeepDiveEntry } from "./deep-dive-entry"
+import { deepDiveSignature } from "@/app/dashboard/job-applications/_components/deep-dive-view"
 import { FileText, Mail, ClipboardList, NotebookPen } from "lucide-react"
 
 interface Props {
@@ -16,6 +19,7 @@ interface Props {
   hasLLMKey: boolean
   /** Early assessment on for this user (decided on the server). */
   earlyEnabled?: boolean
+  deepDiveAccess: DeepDiveAccess
 }
 
 function fitStrengthLabel(rating: number): string {
@@ -33,6 +37,7 @@ function LegacyJobFit({ job, hasLLMKey }: { job: Job; hasLLMKey: boolean }) {
         jobFit={job.jobFit ?? null}
         canAssess={!!job.jobDescription?.trim()}
         hasLLMKey={hasLLMKey}
+        deepDive={job.deepDive}
         company={job.company ?? undefined}
         jdSnippet={job.jobDescription ? job.jobDescription.slice(0, 800) : undefined}
       />
@@ -45,11 +50,14 @@ function LegacyJobFit({ job, hasLLMKey }: { job: Job; hasLLMKey: boolean }) {
   )
 }
 
-export function JobSidebar({ job, hasLLMKey, earlyEnabled = false }: Props) {
+export function JobSidebar({ job, hasLLMKey, earlyEnabled = false, deepDiveAccess }: Props) {
   const early = job.earlyAssessment ?? null
+  // One poller for the page: the early assessment and the deep dive, while either runs.
+  const pending = [pendingSignature([early]), deepDiveSignature(job.deepDive)].filter(Boolean).join(',')
 
   return (
-    <div className="flex flex-col gap-4 overflow-y-auto border-r p-4">
+    <div className="flex flex-col gap-4 overflow-y-auto border-r p-4 [&>*]:shrink-0">
+      <AssessmentPoller signature={pending} />
       {/* Stats card */}
       <Card>
         <CardContent className="flex flex-col gap-3 pt-4">
@@ -90,30 +98,42 @@ export function JobSidebar({ job, hasLLMKey, earlyEnabled = false }: Props) {
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Fit Score</p>
           {earlyEnabled ? (
             <>
-              <EarlyAssessment jobId={job.id} assessment={early} enabled />
-              <AssessmentPoller signature={pendingSignature([early])} />
+              <EarlyAssessment jobId={job.id} assessment={early} enabled deepDive={job.deepDive} deepDiveAccess={deepDiveAccess} />
               {/* JobFit is deprecated: kept here for reference until it's removed. */}
-              <details className="mt-1 border-t pt-3 text-xs">
-                <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
-                  Legacy fit score (deprecated)
-                </summary>
-                <div className="mt-2 space-y-1">
-                  <LegacyJobFit job={job} hasLLMKey={hasLLMKey} />
-                </div>
-              </details>
+              {/* Only existing scores: starting a deep dive lives in the Deep dive card. */}
+              {job.jobFit && (
+                <details className="mt-1 border-t pt-3 text-xs">
+                  <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                    Legacy fit score (deprecated)
+                  </summary>
+                  <div className="mt-2 space-y-1">
+                    <LegacyJobFit job={job} hasLLMKey={hasLLMKey} />
+                  </div>
+                </details>
+              )}
             </>
           ) : (
             <>
-              <LegacyJobFit job={job} hasLLMKey={hasLLMKey} />
+              {/* Only an existing score; the Deep dive card below starts a run and shows the verdict. */}
+              {job.jobFit
+                ? <LegacyJobFit job={job} hasLLMKey={hasLLMKey} />
+                : <p className="text-xs text-muted-foreground">See Deep dive below.</p>}
               {early && (
                 <div className="mt-1 space-y-1 border-t pt-3">
                   <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Early assessment</p>
-                  <EarlyAssessment jobId={job.id} assessment={early} enabled={false} />
-                  <AssessmentPoller signature={pendingSignature([early])} />
-                </div>
+                  <EarlyAssessment jobId={job.id} assessment={early} enabled={false} deepDive={job.deepDive} deepDiveAccess={deepDiveAccess} />
+                    </div>
               )}
             </>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Deep dive: next to the early assessment (spec §7) */}
+      <Card>
+        <CardContent className="flex flex-col gap-2 pt-4">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Deep dive</p>
+          <DeepDiveEntry jobId={job.id} deepDive={job.deepDive ?? null} access={deepDiveAccess} />
         </CardContent>
       </Card>
 

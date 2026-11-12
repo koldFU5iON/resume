@@ -19,7 +19,8 @@ import { DESCRIPTION_MAX_CHARS, type Blocker } from '@/modules/job-assessment/sc
 import { SalaryEstimateSchema, type SalaryEstimate } from '@/modules/jobs/schema'
 import { loadWritingRules } from '@/modules/llm/prompt-context'
 import { buildProfileSnapshot, serializeProfileForLLM } from '@/modules/profile/snapshot'
-import { normalizeSearchProfile, type Eligibility, type SearchProfile } from '@/modules/search-profile/schema'
+import { emitSuggestion } from '@/modules/search-profile/actions'
+import { normalizeSearchProfile, type Eligibility, type SearchProfile, type SearchSuggestion } from '@/modules/search-profile/schema'
 import { FindingSchema, type Finding } from './schema'
 
 /** Public facts about the job: the only input researchers get. */
@@ -271,4 +272,79 @@ export async function currentInputsHash(profileId: string, jobId: string): Promi
     salaryBand: job.salaryBand?.trim() || null,
     sourceAssessmentId: assessment?.id ?? null,
   })
+}
+
+// ── Search-profile suggestions (moved from the retired assessJobFit, spec §10) ──
+
+export type SuggestionDraft = Omit<SearchSuggestion, 'id' | 'createdAt'>
+
+/** Smallest figure read as an annual salary: keeps "less than 30 minutes" or "minimum 10 years" out. */
+const MIN_SALARY_FLOOR = 10_000
+
+const CURRENCY_SIGNS: Record<string, string> = { '£': 'GBP', '$': 'USD', '€': 'EUR' }
+
+/**
+ * A salary floor written in the notes ("not worth it below £85k", "minimum
+ * salary 90,000", "Minimum expected: $150k"), or null. The figure must come
+ * within a few words of the phrase, on the same line, read as an annual
+ * salary, and look like pay: a currency sign, a "k", or a pay word between the
+ * phrase and the figure. That keeps "less than 50,000 employees" out. The
+ * currency comes from its sign; GBP without one.
+ */
+export function salaryFloorFromNotes(notes: string): { amount: number; currency: string } | null {
+  const re = /(?:not worth|minimum|below|less than)([^\d£$€\n]{0,25}?)([£$€])?\s*(\d[\d,]*(?:\.\d+)?)\s*(k\b)?/gi
+  for (const m of notes.matchAll(re)) {
+    const [, between, sign, digits, k] = m
+    const looksLikePay = !!sign || !!k || /\b(?:salary|pay|comp|compensation|package|base|ote)\b/i.test(between)
+    const amount = Number(digits.replace(/,/g, '')) * (k ? 1000 : 1)
+    if (looksLikePay && Number.isFinite(amount) && amount >= MIN_SALARY_FLOOR) {
+      return { amount: Math.round(amount), currency: sign ? CURRENCY_SIGNS[sign] : 'GBP' }
+    }
+  }
+  return null
+}
+
+/**
+ * Suggestions for the user's search profile from a run's inputs, the same two
+ * rules assessJobFit had: a salary floor written in the job notes (only notes
+ * the user lets fit read) when the profile has no salary band, and a job
+ * title that isn't one of the target roles. Pure.
+ */
+export function searchProfileSuggestions(g: Pick<GatherResult, 'brief' | 'searchProfile' | 'notes'>): SuggestionDraft[] {
+  const out: SuggestionDraft[] = []
+  const { searchProfile, notes, brief } = g
+
+  if (notes && !searchProfile.salaryBand) {
+    const floor = salaryFloorFromNotes(notes)
+    if (floor !== null) {
+      out.push({
+        field: 'salaryBand',
+        suggestedValue: { min: floor.amount, max: null, currency: floor.currency },
+        reason: `You noted a salary floor around ${floor.amount.toLocaleString('en-GB')} ${floor.currency} while reviewing ${brief.company ?? 'this role'}.`,
+        source: 'deep-dive',
+      })
+    }
+  }
+
+  const title = brief.title.trim()
+  if (title && searchProfile.roles.length > 0) {
+    const t = title.toLowerCase()
+    const tracked = searchProfile.roles.some((r) => t.includes(r.toLowerCase()) || r.toLowerCase().includes(t))
+    if (!tracked) {
+      out.push({
+        field: 'roles',
+        suggestedValue: [...searchProfile.roles, title],
+        reason: `You ran a deep dive on "${title}", which isn't in your target roles.`,
+        source: 'deep-dive',
+      })
+    }
+  }
+  return out
+}
+
+/** Queues the run's suggestions. Best effort: a failure never affects the run. */
+export async function emitSearchProfileSuggestions(profileId: string, g: Pick<GatherResult, 'brief' | 'searchProfile' | 'notes'>): Promise<void> {
+  for (const s of searchProfileSuggestions(g)) {
+    await emitSuggestion(profileId, s).catch((err) => console.error('[deep-dive] could not queue suggestion', { field: s.field, err }))
+  }
 }

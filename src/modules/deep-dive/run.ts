@@ -23,7 +23,9 @@ import { prisma } from '@/lib/db'
 import { getLLMConfigStatus } from '@/modules/llm/client'
 import { LLMError } from '@/modules/llm/errors'
 import { supportsWebSearch } from '@/modules/llm/web-search'
-import { gatherDeepDiveInputs, type GatherResult } from './gather'
+import { emitSearchProfileSuggestions, gatherDeepDiveInputs, type GatherResult } from './gather'
+import { reportToJobAnalysis } from './job-analysis'
+import { JobAnalysisSchema } from '@/modules/jobs/schema'
 import { runResearch } from './research'
 import { synthesise } from './synthesise'
 import {
@@ -34,6 +36,7 @@ import {
   TIME_BUDGET_MS,
   flattenFindings,
   type DeepDiveFailureKind,
+  type DeepDiveReport,
   type DeepDiveResearch,
   type Finding,
   type DeepDiveStatus,
@@ -170,6 +173,35 @@ async function cacheCompanyResearch(g: GatherResult, research: DeepDiveResearch,
   }
 }
 
+/**
+ * Work that follows a complete run (spec §7, §10), best effort: the run is
+ * already complete on its row, so nothing here can fail it.
+ * - `jobAnalysis` from the report, for CV generation and cover letters
+ *   (skipped when there's nothing to base the job's requirements on).
+ * - Search-profile suggestions (the rules moved from assessJobFit).
+ */
+async function afterComplete(profileId: string, jobId: string, g: GatherResult, report: DeepDiveReport): Promise<void> {
+  try {
+    const job = await prisma.jobApplication.findFirst({ where: { id: jobId, profileId }, select: { jobAnalysis: true } })
+    const existing = job?.jobAnalysis ? JobAnalysisSchema.safeParse(job.jobAnalysis) : null
+    const analysis = reportToJobAnalysis(report, g.earlyAssessment?.facts ?? null, existing?.success ? existing.data : null)
+    // Null: nothing to base the requirements on; keep what's there so CV generation runs analyseJob.
+    if (analysis) {
+      await prisma.jobApplication.update({
+        where: { id: jobId, profileId },
+        data: { jobAnalysis: analysis as unknown as Prisma.InputJsonValue, jobAnalysedAt: new Date() },
+      })
+    }
+  } catch (err) {
+    console.error('[deep-dive] could not write jobAnalysis', { jobId, err })
+  }
+  try {
+    await emitSearchProfileSuggestions(profileId, g)
+  } catch (err) {
+    console.error('[deep-dive] could not queue search-profile suggestions', { jobId, err })
+  }
+}
+
 /** The pipeline. Never throws: every failure ends on the row. */
 export async function runDeepDive(profileId: string, jobId: string, deepDiveId: string): Promise<void> {
   const timings: { gather?: number; research?: Record<string, number>; synthesis?: number } = {}
@@ -231,7 +263,7 @@ export async function runDeepDive(profileId: string, jobId: string, deepDiveId: 
       timings.synthesis = Date.now() - t
     }
 
-    await updateActive(deepDiveId, {
+    const completed = await updateActive(deepDiveId, {
       status: 'complete',
       report: synthesis.report as unknown as Prisma.InputJsonValue,
       synthesisModel: synthesis.model,
@@ -240,6 +272,7 @@ export async function runDeepDive(profileId: string, jobId: string, deepDiveId: 
       completedAt: new Date(),
       stageTimings: timings as Prisma.InputJsonValue,
     })
+    if (completed) await afterComplete(profileId, jobId, g, synthesis.report)
   } catch (err) {
     const kind = failureKindFor(err)
     if (kind === 'error') console.error('[deep-dive] run failed', { deepDiveId, err })
