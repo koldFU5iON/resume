@@ -32,6 +32,7 @@ import {
   getDraft,
   listDraftEvents,
   saveDraftContent,
+  isImplicitDraftTarget,
 } from "./draft"
 
 const mockJobFindFirst = vi.mocked(prisma.jobApplication.findFirst)
@@ -131,12 +132,22 @@ describe("createDraft", () => {
     expect(mockEventCreate).not.toHaveBeenCalled()
   })
 
-  it("returns wrong_document_type for a desk typed cover-letter", async () => {
+  it("won't implicitly pick a job's only document when it isn't a CV", async () => {
+    mockDeskFindMany.mockResolvedValue([deskRow({ name: "Interview notes", documentType: null, draftContent: null })])
+
+    const result = await createDraft(PROFILE, { jobId: "job-1" }, DRAFT, { tokenId: TOKEN })
+
+    expect(result).toMatchObject({ ok: false, reason: "document_required" })
+    expect(mockDeskUpdateMany).not.toHaveBeenCalled()
+    expect(mockEventCreate).not.toHaveBeenCalled()
+  })
+
+  it("returns document_required for a job's only desk typed cover-letter", async () => {
     mockDeskFindMany.mockResolvedValue([deskRow({ documentType: "cover-letter", draftContent: null })])
 
     const result = await createDraft(PROFILE, { jobId: "job-1" }, DRAFT, { tokenId: TOKEN })
 
-    expect(result).toMatchObject({ ok: false, reason: "wrong_document_type" })
+    expect(result).toMatchObject({ ok: false, reason: "document_required" })
     expect(mockDeskUpdateMany).not.toHaveBeenCalled()
     expect(mockEventCreate).not.toHaveBeenCalled()
   })
@@ -760,5 +771,17 @@ describe("agent document resolution (#370)", () => {
     await expect(getDraft(PROFILE, { jobId: "job-1" })).resolves.toMatchObject({ ok: false, reason: "no_draft" })
     expect(mockDeskCreate).not.toHaveBeenCalled()
     expect(mockExecuteRaw).not.toHaveBeenCalled()
+  })
+})
+
+describe("isImplicitDraftTarget", () => {
+  it("accepts a CV, or an untyped document on a default name", () => {
+    expect(isImplicitDraftTarget({ name: "CV for recruiters", documentType: "cv" })).toBe(true)
+    expect(isImplicitDraftTarget({ name: "CV", documentType: null })).toBe(true)
+    expect(isImplicitDraftTarget({ name: "Untitled document", documentType: null })).toBe(true)
+  })
+  it("refuses a document the user named or typed for something else", () => {
+    expect(isImplicitDraftTarget({ name: "Interview notes", documentType: null })).toBe(false)
+    expect(isImplicitDraftTarget({ name: "Cover letter", documentType: "cover-letter" })).toBe(false)
   })
 })

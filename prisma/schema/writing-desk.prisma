@@ -8,7 +8,7 @@ model WritingDeskDocument {
   id                 String    @id @default(cuid())
   profileId          String
   jobApplicationId   String
-  name               String
+  name               String    @default("Untitled document")
   documentType       String?
   content            String    @default("")
   revision           Int       @default(1)

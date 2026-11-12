@@ -1,3 +1,4 @@
+import { MAX_WRITING_DESK_DOCUMENTS_PER_JOB } from '@/modules/writing-desk/schema'
 import { prisma } from '@/lib/db'
 import { parseCVContent, type CVDocumentContent } from '@/modules/cv/schema'
 import { toMarkdown } from '@/modules/cv/export'
@@ -24,7 +25,7 @@ const MAX_TITLE_CHARS = 300
 const MAX_TITLE_ESCAPED = 600
 const MAX_COMPANY_CHARS = 300
 const MAX_COMPANY_ESCAPED = 600
-const MAX_LISTED_DOCUMENTS = 10
+const MAX_LISTED_DOCUMENTS = MAX_WRITING_DESK_DOCUMENTS_PER_JOB
 const MAX_DOCUMENT_NAME_CHARS = 80
 const MAX_DOCUMENT_NAME_ESCAPED = 160
 // Worst-case budget (escaped chars): 600 + 600 + 26,000 + 12,000 + 12,000 = 51,200

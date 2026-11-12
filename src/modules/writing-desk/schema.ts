@@ -32,8 +32,11 @@ export const DEFAULT_WRITING_DESK_DOCUMENT_NAME = "Untitled document"
 
 export const MAX_WRITING_DESK_DOCUMENT_NAME_LENGTH = 80
 
-/** Hard cap per job, checked under the job's document lock. */
-export const MAX_WRITING_DESK_DOCUMENTS_PER_JOB = 50
+/**
+ * Hard cap per job, checked under the job's document lock. Kept equal to what
+ * MCP get_job_context lists, so an agent can always see every document's id.
+ */
+export const MAX_WRITING_DESK_DOCUMENTS_PER_JOB = 10
 
 export const WritingDeskDocumentNameSchema = z
   .string()

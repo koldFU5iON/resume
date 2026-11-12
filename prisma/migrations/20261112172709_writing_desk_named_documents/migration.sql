@@ -26,6 +26,11 @@ WHERE "name" IS NULL;
 
 ALTER TABLE "WritingDeskDocument" ALTER COLUMN "name" SET NOT NULL;
 
+-- A default keeps the previous deployment's inserts (which don't send a name)
+-- working while this migration is live ahead of the new build, and after an
+-- instant rollback. New code always passes a name.
+ALTER TABLE "WritingDeskDocument" ALTER COLUMN "name" SET DEFAULT 'Untitled document';
+
 -- 2. One job, many documents: index the job lookup (and the primary-document
 --    order), then drop the one-desk-per-job unique constraint.
 CREATE INDEX "WritingDeskDocument_jobApplicationId_createdAt_idx" ON "WritingDeskDocument"("jobApplicationId", "createdAt");

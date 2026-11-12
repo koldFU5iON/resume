@@ -24,6 +24,7 @@ import type { Contact } from "@/modules/profile-map/types"
 import { findOwnedJob, lockJobDocuments } from "./documents"
 import { checkFacts, type FactWarning } from "./fact-check"
 import {
+  DEFAULT_WRITING_DESK_DOCUMENT_NAME,
   MAX_WRITING_DESK_CONTENT_LENGTH,
   WRITING_DESK_DOCUMENT_ORDER,
   WRITING_DESK_DOCUMENT_TYPE_LABEL,
@@ -137,6 +138,14 @@ function documentRequired(docs: AgentDesk[]): DraftFailure {
   })
 }
 
+const DEFAULT_DRAFT_TARGET_NAMES = new Set<string>([WRITING_DESK_DOCUMENT_TYPE_LABEL.cv, DEFAULT_WRITING_DESK_DOCUMENT_NAME])
+
+/** A document an agent may write to without naming it: a CV, or an untyped one still on a default name. */
+export function isImplicitDraftTarget(doc: { name: string; documentType: string | null }): boolean {
+  if (doc.documentType === DRAFT_DOCUMENT_TYPE) return true
+  return doc.documentType === null && DEFAULT_DRAFT_TARGET_NAMES.has(doc.name)
+}
+
 /**
  * The document an agent call addresses (see the header). `create` makes the
  * job's first document, named "CV", when it has none; it runs under the
@@ -165,7 +174,15 @@ async function resolveAgentDesk(
       select: DESK_SELECT,
     })
     if (docs.length > 1) return documentRequired(docs)
-    return { ok: true as const, desk: docs[0] ?? null }
+    const only = docs[0]
+    // Never pick a document the user named for something else (e.g. "Interview
+    // notes" with no type yet): an implicit write would retype it as a CV.
+    if (only && !isImplicitDraftTarget(only)) {
+      return fail("document_required", {
+        message: `This job's only Writing Desk document, "${only.name}" (${only.id}), isn't a CV. Nothing was written. Pass its documentId only if the user wants a CV draft there.`,
+      })
+    }
+    return { ok: true as const, desk: only ?? null }
   }
 
   if (!create) return pick(prisma)
