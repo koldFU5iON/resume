@@ -23,7 +23,7 @@ export const createJobSchema = jobSchemaBase
 // Same fields, all optional — for partial updates from the edit dialog.
 export const updateJobSchema = jobSchemaBase.partial()
 
-// Lives here (not next to assessJobFit) because action files use 'use server',
+// Lives here (not in an action file) because action files use 'use server',
 // which forbids non-async exports — schemas have to be reachable from a plain module.
 // Constraints are intentionally loose: zod min/max bounds reject the whole
 // response if the model trims or pads slightly, and the cost of a retry is

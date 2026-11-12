@@ -1,6 +1,6 @@
 # Job Deep Dive — Design Spec
 
-**Status:** Design agreed in discussion on 2026-11-11. Steps 2–3 merged; step 4 (backend) built in #360, see `docs/deep-dive.md`. Step 5 (UI) not built.
+**Status:** Design agreed in discussion on 2026-11-11. Steps 2–3 merged; step 4 (backend) built in #360, see `docs/deep-dive.md`. Step 5 (UI) built in #363, see `docs/deep-dive.md`.
 **Depends on:** #345 (LLM usage → job attribution), merged in #347: `attribution: { jobApplicationId, cvDocumentId, runId }` on LLM calls, plus `serverToolCalls`, cache tokens and failed-call rows on `LlmUsageLog`.
 **Related:** `2026-11-10-jev-early-assessment-design.md` (the early assessment this builds on), `2026-11-11-profile-map-design.md` (the evidence links the report cites).
 

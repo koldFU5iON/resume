@@ -1,5 +1,6 @@
 import type { JobApplication } from "@prisma/client"
 import type { AssessmentView } from "@/modules/job-assessment/queries"
+import type { DeepDiveSummary } from "@/modules/deep-dive/queries"
 
 export const ApplicationStatus = {
   NotStarted: "not started",
@@ -101,6 +102,8 @@ export type Job = Omit<JobApplication, "status" | "progress" | "jobFit" | "appli
   salaryEstimate?: SalaryEstimate | null
   /** Newest early assessment (Jev) run; absent when there is none or the feature is off for the user. */
   earlyAssessment?: AssessmentView | null
+  /** Newest deep dive run and newest verdict; null when the job has none. */
+  deepDive?: DeepDiveSummary | null
 }
 
 export type ProfileType = {

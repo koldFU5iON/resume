@@ -17,6 +17,7 @@ type Props = {
 
 const SOURCE_LABELS: Record<SearchSuggestion['source'], string> = {
   'job-fit': 'job fit',
+  'deep-dive': 'deep dive',
   'chat': 'chat',
   'cover-letter': 'cover letter',
   'interview-prep': 'interview prep',

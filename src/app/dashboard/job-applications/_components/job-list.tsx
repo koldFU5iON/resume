@@ -32,6 +32,8 @@ import { CreateJobSheet } from "./create-job-sheet"
 import { BatchCaptureDialog } from "./batch-capture-dialog"
 import { archiveJobApplication, bulkArchiveJobApplications } from "@/modules/jobs/mutations"
 import { AssessmentPoller } from "./assessment-poller"
+import { DeepDiveAccessProvider } from "./deep-dive-button"
+import type { DeepDiveAccess } from "@/modules/deep-dive/access"
 import { earlyFilterKey, earlySortValue, parseEarlyFilter, pendingSignature } from "./early-assessment-view"
 
 type ViewMode = 'grouped' | 'all'
@@ -50,9 +52,11 @@ const OPEN_PRIORITY: ApplicationStatusType[] = [
 
 const CLOSED_SET: ReadonlySet<string> = new Set(ClosedStatuses)
 
-export function JobList({ jobs, hasLLMKey, earlyEnabled = false, openCreate, initialCreateUrl }: {
+export function JobList({ jobs, hasLLMKey, deepDiveAccess, earlyEnabled = false, openCreate, initialCreateUrl }: {
   jobs: Job[]
   hasLLMKey: boolean
+  /** The user's deep dive access (server-computed): enables the Deep dive action in rows. */
+  deepDiveAccess?: DeepDiveAccess
   /** Early assessment on for this user (decided on the server). */
   earlyEnabled?: boolean
   openCreate?: boolean
@@ -331,7 +335,7 @@ export function JobList({ jobs, hasLLMKey, earlyEnabled = false, openCreate, ini
     }
   }
 
-  return (
+  const content = (
     <div className="container w-full border-t border-accent pt-3 mt-2">
       <AssessmentPoller signature={pendingRuns} />
       <ToolBar
@@ -435,6 +439,8 @@ export function JobList({ jobs, hasLLMKey, earlyEnabled = false, openCreate, ini
       <BatchCaptureDialog open={batching} onOpenChange={setBatching} />
     </div>
   )
+  if (!deepDiveAccess) return content
+  return <DeepDiveAccessProvider access={deepDiveAccess}>{content}</DeepDiveAccessProvider>
 }
 
 type ToolBarProps = {

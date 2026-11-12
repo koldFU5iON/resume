@@ -19,7 +19,8 @@ import { DESCRIPTION_MAX_CHARS, type Blocker } from '@/modules/job-assessment/sc
 import { SalaryEstimateSchema, type SalaryEstimate } from '@/modules/jobs/schema'
 import { loadWritingRules } from '@/modules/llm/prompt-context'
 import { buildProfileSnapshot, serializeProfileForLLM } from '@/modules/profile/snapshot'
-import { normalizeSearchProfile, type Eligibility, type SearchProfile } from '@/modules/search-profile/schema'
+import { emitSuggestion } from '@/modules/search-profile/actions'
+import { normalizeSearchProfile, type Eligibility, type SearchProfile, type SearchSuggestion } from '@/modules/search-profile/schema'
 import { FindingSchema, type Finding } from './schema'
 
 /** Public facts about the job: the only input researchers get. */
@@ -271,4 +272,54 @@ export async function currentInputsHash(profileId: string, jobId: string): Promi
     salaryBand: job.salaryBand?.trim() || null,
     sourceAssessmentId: assessment?.id ?? null,
   })
+}
+
+// ── Search-profile suggestions (moved from the retired assessJobFit, spec §10) ──
+
+export type SuggestionDraft = Omit<SearchSuggestion, 'id' | 'createdAt'>
+
+/**
+ * Suggestions for the user's search profile from a run's inputs, the same two
+ * rules assessJobFit had: a salary floor written in the job notes (only notes
+ * the user lets fit read) when the profile has no salary band, and a job
+ * title that isn't one of the target roles. Pure.
+ */
+export function searchProfileSuggestions(g: Pick<GatherResult, 'brief' | 'searchProfile' | 'notes'>): SuggestionDraft[] {
+  const out: SuggestionDraft[] = []
+  const { searchProfile, notes, brief } = g
+
+  if (notes && !searchProfile.salaryBand) {
+    const match = notes.match(/(?:not worth|minimum|below|less than)[^\d]*(\d[\d,]+)/i)
+    const floor = match ? Number(match[1].replace(/,/g, '')) : NaN
+    if (Number.isFinite(floor) && floor > 0) {
+      out.push({
+        field: 'salaryBand',
+        suggestedValue: { min: floor, max: null, currency: 'GBP' },
+        reason: `You noted a salary floor around ${floor.toLocaleString('en-GB')} while reviewing ${brief.company ?? 'this role'}.`,
+        source: 'deep-dive',
+      })
+    }
+  }
+
+  const title = brief.title.trim()
+  if (title && searchProfile.roles.length > 0) {
+    const t = title.toLowerCase()
+    const tracked = searchProfile.roles.some((r) => t.includes(r.toLowerCase()) || r.toLowerCase().includes(t))
+    if (!tracked) {
+      out.push({
+        field: 'roles',
+        suggestedValue: [...searchProfile.roles, title],
+        reason: `You ran a deep dive on "${title}", which isn't in your target roles.`,
+        source: 'deep-dive',
+      })
+    }
+  }
+  return out
+}
+
+/** Queues the run's suggestions. Best effort: a failure never affects the run. */
+export async function emitSearchProfileSuggestions(profileId: string, g: Pick<GatherResult, 'brief' | 'searchProfile' | 'notes'>): Promise<void> {
+  for (const s of searchProfileSuggestions(g)) {
+    await emitSuggestion(profileId, s).catch((err) => console.error('[deep-dive] could not queue suggestion', { field: s.field, err }))
+  }
 }

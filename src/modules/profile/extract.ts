@@ -1,7 +1,7 @@
 'use server'
 
 // Two-tier extraction pipeline for Experience notes (markdown stored in
-// Experience.summary). Mirrors the 5-step shape of job-fit.ts:
+// Experience.summary). Mirrors the 5-step shape of the retired job-fit.ts:
 //
 // 1. Gather   — load experience + existing activities + profile skills
 // 2. Parse    — local tag parser bucketizes recognized H2 headings (free, offline)

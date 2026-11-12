@@ -1,5 +1,5 @@
-// Plain module — not a server action. Called from generate.ts (plain module) and
-// job-fit.ts ('use server'). Adding 'use server' would break the generate.ts call path.
+// Plain module — not a server action. Called from generate.ts (plain module).
+// Adding 'use server' would break the generate.ts call path.
 import { prisma } from '@/lib/db'
 import { completeStructured, type LlmAttribution } from '@/modules/llm/client'
 import { loadCVJobAnalysisPrompt, composeSystem } from '@/modules/llm/prompt-context'
@@ -46,7 +46,7 @@ export async function analyseJob(
     })
 
     // revalidatePath is not called here — plain modules cannot call it in Next.js 16.
-    // The server action caller (job-fit.ts) handles revalidation for its own path.
+    // Callers that render a page handle their own revalidation.
     await prisma.jobApplication.update({
       where: { id: jobId, profileId },
       data: { jobAnalysis: result.object, jobAnalysedAt: new Date() },

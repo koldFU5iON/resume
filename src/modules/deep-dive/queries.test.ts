@@ -6,7 +6,7 @@ vi.mock('./gather', () => ({ currentInputsHash: vi.fn() }))
 import { summarizeRows } from '@/modules/llm/job-cost'
 import { DeepDiveReportSchema } from './schema'
 import { modelReport } from './__fixtures__/inputs'
-import { STALE_RUN_MESSAGE, isStaleRun, parseReport, toDeepDiveView } from './queries'
+import { STALE_RUN_MESSAGE, isStaleRun, parseReport, toDeepDiveSummary, toDeepDiveView } from './queries'
 
 const now = new Date('2026-11-11T12:00:00Z')
 const usage = summarizeRows([])
@@ -54,5 +54,28 @@ describe('parseReport', () => {
     expect(parseReport({ verdict: 'nope' })).toBeNull()
     expect(parseReport(null)).toBeNull()
     expect(parseReport([])).toBeNull()
+  })
+})
+
+describe('toDeepDiveSummary', () => {
+  const now = new Date('2026-11-12T12:00:00Z')
+  const row = (over: Record<string, unknown> = {}) => ({
+    id: 'dd-2', jobApplicationId: 'job-1', status: 'researching', verdict: null, createdAt: new Date('2026-11-12T11:58:00Z'), ...over,
+  })
+
+  it('takes the status from the newest run and the verdict from the newest complete one', () => {
+    expect(toDeepDiveSummary(row(), { verdict: 'long_shot' }, now)).toEqual({
+      id: 'dd-2', status: 'researching', verdict: 'long_shot', hasReport: true,
+    })
+  })
+
+  it('reads a stale active run as failed', () => {
+    expect(toDeepDiveSummary(row({ createdAt: new Date('2026-11-12T11:00:00Z') }), null, now)).toMatchObject({
+      status: 'failed', verdict: null, hasReport: false,
+    })
+  })
+
+  it('drops an unknown verdict', () => {
+    expect(toDeepDiveSummary(row({ status: 'complete' }), { verdict: 'maybe' }, now).verdict).toBeNull()
   })
 })

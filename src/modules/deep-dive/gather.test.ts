@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { emptySearchProfile, type Eligibility } from '@/modules/search-profile/schema'
-import { computeInputsHash, resolveJobCountries, sponsorshipNeeded } from './gather'
+import { computeInputsHash, resolveJobCountries, searchProfileSuggestions, sponsorshipNeeded } from './gather'
 
 const today = new Date('2026-11-11T00:00:00Z')
 const elig = (over: Partial<Eligibility>): Eligibility => ({
@@ -53,5 +53,30 @@ describe('computeInputsHash', () => {
     ]) {
       expect(computeInputsHash({ ...base, ...change })).not.toBe(h)
     }
+  })
+})
+
+describe('searchProfileSuggestions', () => {
+  const brief = { title: 'Platform Lead', company: 'Acme' } as Parameters<typeof searchProfileSuggestions>[0]['brief']
+
+  it('suggests a salary floor from the notes when the profile has no band', () => {
+    const out = searchProfileSuggestions({ brief, searchProfile: emptySearchProfile, notes: 'Not worth it below 85,000' })
+    expect(out).toEqual([expect.objectContaining({
+      field: 'salaryBand', source: 'deep-dive', suggestedValue: { min: 85000, max: null, currency: 'GBP' },
+    })])
+  })
+
+  it('suggests no floor without notes or when a band is set', () => {
+    expect(searchProfileSuggestions({ brief, searchProfile: emptySearchProfile, notes: null })).toEqual([])
+    const withBand = { ...emptySearchProfile, salaryBand: { min: 90000, max: null, currency: 'GBP' } }
+    expect(searchProfileSuggestions({ brief, searchProfile: withBand, notes: 'minimum 85000' })).toEqual([])
+  })
+
+  it('suggests adding a job title that is not a target role', () => {
+    const profile = { ...emptySearchProfile, roles: ['Programme Manager'] }
+    expect(searchProfileSuggestions({ brief, searchProfile: profile, notes: null })).toEqual([expect.objectContaining({
+      field: 'roles', source: 'deep-dive', suggestedValue: ['Programme Manager', 'Platform Lead'],
+    })])
+    expect(searchProfileSuggestions({ brief, searchProfile: { ...emptySearchProfile, roles: ['platform lead'] }, notes: null })).toEqual([])
   })
 })

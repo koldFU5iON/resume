@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useTransition } from "react"
-import { Flame, Info, Loader2, Puzzle, Sparkles, StickyNote } from "lucide-react"
+import { useState } from "react"
+import { Flame, Info, Loader2, Sparkles, StickyNote, Telescope } from "lucide-react"
 import Link from "next/link"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { Drawer, DrawerContent, DrawerTitle, DrawerTrigger } from "@/components/ui/drawer"
@@ -10,18 +10,18 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import { Button } from "@/components/ui/button"
 import { MarkdownProse } from "@/components/ui/markdown-prose"
 import type { JobFit as JobFitType } from "@/app/types/job-application"
-import { assessJobFit } from "@/modules/jobs/job-fit"
-import { notifyUsageUpdated } from "@/lib/usage-events"
-import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { usePageContext } from "@/lib/context/page-context"
 import { ScoreHeader, ScorePill } from "./score-display"
+import { useStartDeepDive } from "./deep-dive-button"
 
 type JobFitProps = {
   jobId?: string
   jobFit: JobFitType | null
   canAssess?: boolean
   hasLLMKey?: boolean
+  /** The job has a complete deep dive: the pill is hidden (the deep dive replaces it). */
+  hasDeepDive?: boolean
   company?: string
   jdSnippet?: string
 }
@@ -46,47 +46,33 @@ const PILL_TEXT_STYLES: Record<JobFitType['label'], string> = {
  * @deprecated JobFit (Claude, user's LLM key) is superseded by the early
  * assessment (`EarlyAssessment`). Shown only where that is off for the user,
  * and in the job page's "Legacy fit score" section for reference. Remove once
- * nothing needs to look back at it.
+ * nothing needs to look back at it. Hidden once the job has a deep dive.
  */
-export function JobFit({ jobId, jobFit, canAssess = true, hasLLMKey = true, company, jdSnippet }: JobFitProps) {
-  const [isPending, startTransition] = useTransition()
+export function JobFit({ jobId, jobFit, canAssess = true, hasLLMKey = true, hasDeepDive = false, company, jdSnippet }: JobFitProps) {
+  const { start, isStarting } = useStartDeepDive(jobId ?? '')
   const [popoverOpen, setPopoverOpen] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
 
   // Display-only context (e.g. no jobId passed)
   if (!jobId) {
-    if (!jobFit) return <div className="h-6 w-16" />
+    if (!jobFit || hasDeepDive) return <div className="h-6 w-16" />
     return <FitPill fit={jobFit} />
   }
 
+  if (hasDeepDive) return null
+
+  // Nothing writes jobFit any more (spec §10): Assess and Re-assess start a deep dive.
   function handleAssess() {
-    if (!jobId || isPending) return
-    startTransition(async () => {
-      const scrollY = window.scrollY
-      const result = await assessJobFit(jobId)
-      if (result.ok) {
-        notifyUsageUpdated()
-        if (window.innerWidth >= 640) {
-          setPopoverOpen(true)
-          requestAnimationFrame(() => window.scrollTo({ top: scrollY, behavior: 'instant' }))
-        } else {
-          setDrawerOpen(true)
-        }
-      } else {
-        toast.error(result.message, {
-          action: result.error === 'not_configured'
-            ? { label: 'Set up', onClick: () => { window.location.href = '/dashboard/settings/llm' } }
-            : undefined,
-        })
-      }
-    })
+    setPopoverOpen(false)
+    setDrawerOpen(false)
+    start()
   }
 
-  if (isPending) {
+  if (isStarting) {
     return (
       <div className="inline-flex h-6 items-center gap-1.5 px-2 text-xs text-muted-foreground" aria-live="polite">
         <Loader2 className="size-3 animate-spin" />
-        Assessing...
+        Starting deep dive…
       </div>
     )
   }
@@ -94,10 +80,10 @@ export function JobFit({ jobId, jobFit, canAssess = true, hasLLMKey = true, comp
   if (!jobFit) {
     const disabled = !hasLLMKey || !canAssess
     const title = !hasLLMKey
-      ? 'Add an LLM API key in Settings to assess fit'
+      ? 'Add an LLM API key in Settings to run a deep dive'
       : !canAssess
         ? 'Add a job description first'
-        : 'Assess fit'
+        : 'Run a deep dive on this job'
 
     return (
       <button
@@ -113,8 +99,8 @@ export function JobFit({ jobId, jobFit, canAssess = true, hasLLMKey = true, comp
             : "hover:bg-muted hover:text-foreground cursor-pointer",
         )}
       >
-        <Puzzle size={12} className={disabled ? undefined : "text-primary-foreground group-hover/assess:text-primary"} />
-        assess
+        <Telescope size={12} className={disabled ? undefined : "text-primary-foreground group-hover/assess:text-primary"} />
+        Deep dive
       </button>
     )
   }
@@ -269,10 +255,10 @@ function FitDetail({ jobFit, hasLLMKey, canAssess, onReassess, jobId, company, j
             disabled={!hasLLMKey || !canAssess}
             title={
               !hasLLMKey
-                ? 'Add an LLM API key to re-assess'
+                ? 'Add an LLM API key to run a deep dive'
                 : !canAssess
-                  ? 'Add a job description to re-assess'
-                  : undefined
+                  ? 'Add a job description to run a deep dive'
+                  : 'Replace this legacy score with a deep dive'
             }
             className={cn(
               "shrink-0 text-xs inline-flex items-center gap-1 transition-colors",
@@ -281,8 +267,8 @@ function FitDetail({ jobFit, hasLLMKey, canAssess, onReassess, jobId, company, j
                 : "text-muted-foreground hover:text-foreground",
             )}
           >
-            <Puzzle size={11} className={(!hasLLMKey || !canAssess) ? undefined : "text-accent"} />
-            Re-assess
+            <Telescope size={11} className={(!hasLLMKey || !canAssess) ? undefined : "text-accent"} />
+            Deep dive
           </button>
         </div>
       </div>

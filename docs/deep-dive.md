@@ -1,6 +1,6 @@
-# Job deep dive (backend)
+# Job deep dive
 
-A user-triggered report on one job: should they apply, and how. Billed to the user's own LLM key. Spec: `docs/superpowers/specs/2026-11-11-job-deep-dive-design.md`; this is build step 4 (#360). The report page, the re-wired button, writing `jobAnalysis` and retiring `assessJobFit` are step 5.
+A user-triggered report on one job: should they apply, and how. Billed to the user's own LLM key. Spec: `docs/superpowers/specs/2026-11-11-job-deep-dive-design.md`. The backend is build step 4 (#360); the UI, writing `jobAnalysis` and retiring `assessJobFit` are step 5 (#363, see [UI](#ui) below).
 
 ## Pipeline (`src/modules/deep-dive/`)
 
@@ -10,7 +10,9 @@ A user-triggered report on one job: should they apply, and how. Billed to the us
 | Research | `research.ts` | `role: 'research'` + `webSearch`, then `role: 'fast'` | Three researchers in parallel (company 5 searches, pay 5, practicalities 3). They get the `ResearchBrief` only: no profile, goals or notes. |
 | Synthesis | `synthesise.ts` | `role: 'analysis'`, JSON in text | The only step that judges. Output: `DeepDiveReportSchema` (`schema.ts`), validated with Zod. |
 | Run | `run.ts` | | Admission, status updates, failure mapping, company research cache. |
-| Read | `queries.ts` | | Newest run as a view; stale runs read as failed / timeout; per-run usage from `LlmUsageLog.runId`. |
+| Read | `queries.ts` | | A run as a view (newest, or one by id); stale runs read as failed / timeout; per-run usage from `LlmUsageLog.runId`. Summaries for job lists (`getDeepDiveSummaries`, two queries) and the run list. |
+| After complete | `job-analysis.ts`, `gather.ts` | none | Writes `JobApplication.jobAnalysis` from the report; queues search-profile suggestions. Best effort: neither can fail a complete run. |
+| Access | `access.ts` | | Whether the user has a key, and whether their provider's research is `tested` (Anthropic), `untested` (OpenAI, Google) or `none`. |
 
 No feature code names a model: roles pick the model from the user's settings (`src/modules/llm/roles.ts`).
 
@@ -93,3 +95,27 @@ Synthesis (`analysis` = Opus 5.5), 7 runs: ~10–15k in, ~7–9k out, 58–84s, 
 Report quality on the test profile: verdicts were calibrated (long shot / don't apply for principal-PM roles on a programme-manager profile, apply with caveats for the matching Senior Program Manager role), profile evidence quoted real profile items, pay asks cited findings and noted when the ad gave two ranges, and register vs ad wording were reported separately.
 
 Not covered: the early-assessment path (no Jev assessments on the local test jobs), and OpenAI / Google (out of scope).
+
+## UI
+
+- **Report page** `/dashboard/job-applications/view/[id]/deep-dive` (`?run=<id>` for an earlier run). One reading column (verdict, blockers, gaps, strengths, pay, practicalities and sponsorship, company, CV strategy, questions and unknowns, sources) and a side panel: the run's date, its estimated cost from the `runId` usage rows, the models, **Run again**, the contents and the list of runs. While the newest run is active the page shows its stage and polls every 3s with `AssessmentPoller` (the signature is `id:status`, so each new stage restarts the fast window). A complete run whose `inputsHash` no longer matches shows "Out of date" with **Run again**. Evidence is shown inline: job-ad quotes and profile items in words, findings as numbered links into Sources. The page sets `maxDuration = 300` because Run again starts a run.
+- **Deep dive button** (`_components/deep-dive-button.tsx`) in the early assessment popover, on every complete assessment, blocked ones included (no gate). No run yet: starts one and opens the page. A run exists: opens the page and shows the verdict chip. No key: disabled, with a link to Settings → LLM. The job list passes access through `DeepDiveAccessProvider`; the job page passes it directly.
+- **Job page sidebar:** a Deep dive card under Fit score, with the newest verdict and a link to the report (or the stage while running).
+- **Providers:** Anthropic shows nothing extra. OpenAI and Google: "Deep dives are tested with Anthropic. With <provider>, web research runs but hasn't been tested, so check the sources." A provider with no web search: "No web research with your provider".
+
+## `jobAnalysis` from the report
+
+A complete run writes `JobApplication.jobAnalysis` and `jobAnalysedAt` (`reportToJobAnalysis`, `job-analysis.ts`), so CV generation, cover letters, the writing guide and career-vertical use it without another call:
+
+| Field | From | Cap |
+|---|---|---|
+| `mustHave` | The early assessment's must requirements, then open blockers, then gap requirements (de-duplicated) | 10 |
+| `niceToHave` | The early assessment's nice requirements | 8 |
+| `risks` | Open blockers (hard → high, confirm with recruiter → medium) and gaps (not closable → high, later → medium, now → low), most serious first | 6 |
+| `positioningStrategy` | `cvStrategy.positioning`, plus "Lead with" and "Play down" | |
+
+The caps match the `JobAnalysisSchema` descriptions (#362).
+
+## Retired: `assessJobFit`
+
+`src/modules/jobs/job-fit.ts` is gone and nothing writes `jobFit` any more. The `JobFit` pill still shows existing data, is hidden once the job has a complete deep dive, and its Assess / Re-assess start a deep dive. Its two search-profile suggestion rules (a salary floor in the job notes, a title outside the target roles) moved to `searchProfileSuggestions` in `gather.ts` and run after a complete deep dive, with source `deep-dive`. Dropping the `jobFit` columns and the `job-fit` usage label is a later change with a migration.

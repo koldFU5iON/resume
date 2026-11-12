@@ -24,6 +24,9 @@ import { cn } from "@/lib/utils"
 import { rerunJobAssessment } from "@/modules/job-assessment/actions"
 import type { AssessmentView } from "@/modules/job-assessment/queries"
 import type { Blocker } from "@/modules/job-assessment/schema"
+import type { DeepDiveAccess } from "@/modules/deep-dive/access"
+import type { DeepDiveSummary } from "@/modules/deep-dive/queries"
+import { DeepDiveButton, useDeepDiveAccess } from "./deep-dive-button"
 import { notifyAssessmentStarted } from "./assessment-poller"
 import { ScoreHeader, ScorePill } from "./score-display"
 import {
@@ -52,6 +55,10 @@ type EarlyAssessmentProps = {
   enabled: boolean
   /** Where to edit the job, shown when the run failed because its details are too thin. Omit where an Edit button is already on screen. */
   editHref?: string
+  /** The job's deep dive, if any. */
+  deepDive?: DeepDiveSummary | null
+  /** Shows the Deep dive action on complete assessments. Defaults to the DeepDiveAccessProvider's; hidden with neither. */
+  deepDiveAccess?: DeepDiveAccess
 }
 
 /**
@@ -61,7 +68,9 @@ type EarlyAssessmentProps = {
  * EarlyAssessmentDetail inside. Runs in progress show a spinner; the
  * AssessmentPoller on the page refreshes them.
  */
-export function EarlyAssessment({ jobId, assessment, enabled, editHref }: EarlyAssessmentProps) {
+export function EarlyAssessment({ jobId, assessment, enabled, editHref, deepDive, deepDiveAccess: accessProp }: EarlyAssessmentProps) {
+  const contextAccess = useDeepDiveAccess()
+  const deepDiveAccess = accessProp ?? contextAccess ?? undefined
   const [popoverOpen, setPopoverOpen] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [isRerunning, startRerun] = useTransition()
@@ -117,6 +126,9 @@ export function EarlyAssessment({ jobId, assessment, enabled, editHref }: EarlyA
       enabled={enabled}
       onRerun={handleRerun}
       editHref={editHref}
+      jobId={jobId}
+      deepDive={deepDive}
+      deepDiveAccess={deepDiveAccess}
     />
   )
 
@@ -197,9 +209,12 @@ type EarlyAssessmentDetailProps = {
   enabled: boolean
   onRerun: () => void
   editHref?: string
+  jobId?: string
+  deepDive?: DeepDiveSummary | null
+  deepDiveAccess?: DeepDiveAccess
 }
 
-export function EarlyAssessmentDetail({ view, enabled, onRerun, editHref }: EarlyAssessmentDetailProps) {
+export function EarlyAssessmentDetail({ view, enabled, onRerun, editHref, jobId, deepDive, deepDiveAccess }: EarlyAssessmentDetailProps) {
   const failed = view.status === 'failed'
   const blockers = blockerItems(view.blockers)
   const yearsGaps = yearsGapItems(view.blockers)
@@ -353,6 +368,13 @@ export function EarlyAssessmentDetail({ view, enabled, onRerun, editHref }: Earl
         )}
       </div>
 
+      {/* Every complete assessment, blocked ones included: a deep dive is how the user checks a blocker (spec §2). */}
+      {!failed && jobId && deepDiveAccess && (
+        <>
+          <Separator />
+          <DeepDiveButton jobId={jobId} deepDive={deepDive} access={deepDiveAccess} />
+        </>
+      )}
     </div>
   )
 }
