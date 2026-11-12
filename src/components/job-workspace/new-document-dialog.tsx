@@ -51,19 +51,22 @@ type SourcesState = { status: "loading" | "failed" } | { status: "ready"; source
 export function NewDocumentDialog({
   jobId,
   existingNames,
+  initialType = "cv",
   open,
   onOpenChange,
 }: {
   jobId: string
   existingNames: string[]
+  /** The type selected when the dialog opens (a legacy editor's notice offers its own type). */
+  initialType?: WritingDeskDocumentType
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
   const router = useRouter()
   const ids = useId()
   const nameRef = useRef<HTMLInputElement>(null)
-  const [documentType, setDocumentType] = useState<WritingDeskDocumentType>("cv")
-  const [name, setName] = useState(() => suggestWritingDeskDocumentName("cv", existingNames))
+  const [documentType, setDocumentType] = useState<WritingDeskDocumentType>(initialType)
+  const [name, setName] = useState(() => suggestWritingDeskDocumentName(initialType, existingNames))
   const [nameEdited, setNameEdited] = useState(false)
   const [sourceCvId, setSourceCvId] = useState("")
   const [sources, setSources] = useState<SourcesState>({ status: "loading" })

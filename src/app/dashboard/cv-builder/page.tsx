@@ -8,6 +8,7 @@ import { buttonVariants } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { FileText, Plus, Target } from "lucide-react"
 import { formatDate } from "@/lib/utils"
+import { LegacyEditorNotice } from "@/components/legacy-editors/deprecation"
 
 export default async function CVBuilderPage() {
   const { profile } = await requireProfile()
@@ -21,6 +22,7 @@ export default async function CVBuilderPage() {
       title="CV Builder"
       description="Create and manage your CVs. Generate a tailored CV from any job application, or build a master CV to share with recruiters."
     >
+      <LegacyEditorNotice kind="cv" className="mb-4 rounded-lg border" />
       <div className="mb-4 flex items-center justify-end gap-2">
         {!careerVertical && (
           <Link

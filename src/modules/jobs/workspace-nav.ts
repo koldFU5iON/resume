@@ -25,6 +25,8 @@ export type JobDocumentLink = {
   /** Extra context shown beside the label: a desk's document type, or a legacy asset's editor. */
   detail?: string
   href: string
+  /** A legacy structured editor, marked "Deprecating soon" (#379). */
+  deprecated?: true
 }
 
 /**
@@ -36,6 +38,11 @@ export type JobDocumentCreateLink = {
   kind: Exclude<JobDocumentKind, "description" | "writing-desk">
   label: string
   href: string
+}
+
+/** The legacy editors' kinds: being replaced by Writing Desk documents (#379). */
+export function isLegacyDocumentKind(kind: JobDocumentKind): kind is JobDocumentCreateLink["kind"] {
+  return kind === "cv" || kind === "cover-letter" || kind === "interview-prep"
 }
 
 export type JobDocumentAssets = {
@@ -109,13 +116,13 @@ export function jobDocumentLinks(assets: JobDocumentAssets): JobDocumentLink[] {
   const links: JobDocumentLink[] = [{ key: "description", kind: "description", label: "Job Description", href: hub }]
   links.push(...assets.writingDesks.map(desk => deskTab(assets.jobId, desk)))
   if (assets.cvDocumentId) {
-    links.push({ key: "cv", kind: "cv", label: "CV", detail: "CV Builder", href: `/dashboard/cv-builder/${assets.cvDocumentId}` })
+    links.push({ key: "cv", kind: "cv", label: "CV", detail: "CV Builder", href: `/dashboard/cv-builder/${assets.cvDocumentId}`, deprecated: true })
   }
   if (assets.coverLetterDocumentId) {
-    links.push({ key: "cover-letter", kind: "cover-letter", label: "Cover Letter", detail: "Cover letter editor", href: `/dashboard/cover-letters/${assets.coverLetterDocumentId}` })
+    links.push({ key: "cover-letter", kind: "cover-letter", label: "Cover Letter", detail: "Cover letter editor", href: `/dashboard/cover-letters/${assets.coverLetterDocumentId}`, deprecated: true })
   }
   if (assets.interviewPrepSessionId) {
-    links.push({ key: "interview-prep", kind: "interview-prep", label: "Interview Prep", detail: "Prep session", href: `/dashboard/interview-prep/${assets.interviewPrepSessionId}` })
+    links.push({ key: "interview-prep", kind: "interview-prep", label: "Interview Prep", detail: "Prep session", href: `/dashboard/interview-prep/${assets.interviewPrepSessionId}`, deprecated: true })
   }
   return links
 }

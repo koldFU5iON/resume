@@ -16,6 +16,8 @@ export type NavItem = {
   destination: string
   label: string
   Icon: LucideIcon
+  /** A legacy editor being replaced by Writing Desk documents: marked "Deprecating soon" (#379). */
+  deprecated?: true
 }
 
 export const navGroups: { label: string; items: NavItem[] }[] = [
@@ -38,10 +40,10 @@ export const navGroups: { label: string; items: NavItem[] }[] = [
   {
     label: 'Application Tools',
     items: [
-      { destination: '/dashboard/cv-builder', label: 'CV Builder', Icon: FileText },
-      { destination: '/dashboard/cover-letters', label: 'Cover Letters', Icon: Mail },
+      { destination: '/dashboard/cv-builder', label: 'CV Builder', Icon: FileText, deprecated: true },
+      { destination: '/dashboard/cover-letters', label: 'Cover Letters', Icon: Mail, deprecated: true },
       { destination: '/dashboard/writing-desk', label: 'Writing Desk', Icon: NotebookPen },
-      { destination: '/dashboard/interview-prep', label: 'Interview Prep', Icon: MessageSquare },
+      { destination: '/dashboard/interview-prep', label: 'Interview Prep', Icon: MessageSquare, deprecated: true },
     ],
   },
 ]

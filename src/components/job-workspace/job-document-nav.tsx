@@ -19,6 +19,7 @@ import {
   type JobDocumentKind,
 } from "@/modules/jobs/workspace-nav"
 import { MAX_WRITING_DESK_DOCUMENTS_PER_JOB } from "@/modules/writing-desk/schema"
+import { DEPRECATING_SOON, DeprecatingSoonBadge } from "@/components/legacy-editors/deprecation"
 import { DocumentSwitcher, type SwitcherEntry } from "./document-switcher"
 import { NewDocumentDialog } from "./new-document-dialog"
 
@@ -30,7 +31,7 @@ const DOCUMENT_ICON: Record<JobDocumentKind, LucideIcon> = {
   "interview-prep": MessageSquare,
 }
 
-const AT_CAP_MESSAGE = `This job has ${MAX_WRITING_DESK_DOCUMENTS_PER_JOB} documents, the most a job can hold.`
+const AT_CAP_MESSAGE = `This job has ${MAX_WRITING_DESK_DOCUMENTS_PER_JOB} documents, the most a job can hold. Delete one you no longer need to make room.`
 
 /**
  * The job's documents as route links (each keeps its own editor), with the
@@ -88,7 +89,7 @@ export function JobDocumentNav({ workspace }: { workspace: JobWorkspace }) {
               <Link
                 href={link.href}
                 aria-current={current ? "page" : undefined}
-                title={link.detail ? `${link.label} · ${link.detail}` : link.label}
+                title={[link.label, link.detail, link.deprecated && DEPRECATING_SOON].filter(Boolean).join(" · ")}
                 className={cn(
                   "relative flex items-center gap-1.5 rounded-sm px-2.5 text-sm whitespace-nowrap text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
                   "after:absolute after:inset-x-1.5 after:bottom-0 after:h-0.5 after:rounded-full",
@@ -98,6 +99,7 @@ export function JobDocumentNav({ workspace }: { workspace: JobWorkspace }) {
                 <Icon className="size-3.5 shrink-0" aria-hidden="true" />
                 <span className="max-w-48 truncate">{link.label}</span>
                 {link.detail && <span className="text-muted-foreground">· {link.detail}</span>}
+                {link.deprecated && <DeprecatingSoonBadge className="ml-0.5" />}
               </Link>
             </li>
           )

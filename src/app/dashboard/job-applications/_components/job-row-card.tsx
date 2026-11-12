@@ -106,7 +106,8 @@ export function JobRowCard({ job, selected, busyLabel, onToggleSelect, onEdit, o
             {job.cvDocumentId && (
               <Link
                 href={`/dashboard/cv-builder/${job.cvDocumentId}`}
-                aria-label="View CV"
+                aria-label="View CV in the CV Builder (deprecating soon)"
+                title="CV Builder · Deprecating soon"
                 className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
               >
                 <FileText size={12} />
@@ -115,7 +116,8 @@ export function JobRowCard({ job, selected, busyLabel, onToggleSelect, onEdit, o
             {job.coverLetterDocumentId && (
               <Link
                 href={`/dashboard/cover-letters/${job.coverLetterDocumentId}`}
-                aria-label="View cover letter"
+                aria-label="View cover letter in the cover letter editor (deprecating soon)"
+                title="Cover letter editor · Deprecating soon"
                 className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
               >
                 <Mail size={12} />

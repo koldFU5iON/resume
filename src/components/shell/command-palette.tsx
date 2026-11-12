@@ -14,6 +14,7 @@ import {
   CommandList,
 } from "@/components/ui/command"
 import { mainNav } from "@/lib/nav-menu"
+import { DeprecatingSoonBadge } from "@/components/legacy-editors/deprecation"
 import { usePageContext } from "@/lib/context/page-context"
 
 type SettingsItem = {
@@ -81,6 +82,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
             >
               <item.Icon />
               <span>{item.label}</span>
+              {item.deprecated && <DeprecatingSoonBadge className="ml-auto" />}
             </CommandItem>
           ))}
         </CommandGroup>

@@ -16,7 +16,16 @@ type HeaderState = { compact: boolean; pinned: boolean; path: string }
  * explicit "Expand job controls"; compact styles are `max-md:` only, so the
  * state has no effect on wider screens.
  */
-export function JobWorkspaceFrame({ workspace, children }: { workspace: JobWorkspace; children: ReactNode }) {
+export function JobWorkspaceFrame({
+  workspace,
+  notice,
+  children,
+}: {
+  workspace: JobWorkspace
+  /** Shown between the navigation and the content, outside the scroller (a legacy editor's deprecation notice). */
+  notice?: ReactNode
+  children: ReactNode
+}) {
   const pathname = usePathname()
   const scrollerRef = useRef<HTMLDivElement>(null)
   const [header, setHeader] = useState<HeaderState>({ compact: false, pinned: false, path: pathname })
@@ -65,6 +74,7 @@ export function JobWorkspaceFrame({ workspace, children }: { workspace: JobWorks
         statusTriggerId={STATUS_TRIGGER_ID}
       />
       <JobDocumentNav workspace={workspace} />
+      {notice}
       <div ref={scrollerRef} className="flex min-h-0 flex-1 flex-col overflow-auto print:block print:overflow-visible">
         {children}
       </div>

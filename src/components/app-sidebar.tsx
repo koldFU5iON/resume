@@ -53,6 +53,7 @@ import { Dialog, DialogContent, DialogTrigger } from "./ui/dialog"
 import { Support } from "./support"
 import { cn } from "@/lib/utils"
 import { usePageContext } from "@/lib/context/page-context"
+import { DEPRECATING_SOON, DeprecatingSoonBadge } from "@/components/legacy-editors/deprecation"
 import type { ActiveJobForNav } from "@/modules/jobs/queries"
 
 export function AppSidebar({ activeJobs, suggestionCount }: { activeJobs: ActiveJobForNav[]; suggestionCount: number }) {
@@ -298,7 +299,7 @@ function FeedbackButton() {
   )
 }
 
-function NavMenuItem({ destination, label, Icon, badge }: NavItem & { badge?: number }) {
+function NavMenuItem({ destination, label, Icon, badge, deprecated }: NavItem & { badge?: number }) {
   const pathname = usePathname()
   const closeMobile = useCloseMobileSidebar()
   const isActive =
@@ -308,9 +309,14 @@ function NavMenuItem({ destination, label, Icon, badge }: NavItem & { badge?: nu
 
   return (
     <SidebarMenuItem>
-      <SidebarMenuButton isActive={isActive} tooltip={label} render={<Link href={destination} onClick={closeMobile} />}>
+      <SidebarMenuButton
+        isActive={isActive}
+        tooltip={deprecated ? `${label} · ${DEPRECATING_SOON}` : label}
+        render={<Link href={destination} onClick={closeMobile} />}
+      >
         <Icon />
-        <span>{label}</span>
+        <span className="min-w-0 truncate">{label}</span>
+        {deprecated && <DeprecatingSoonBadge className="ml-auto h-4 px-1.5 text-[10px] group-data-[collapsible=icon]:hidden" />}
         {badge && badge > 0 && (
           <span className="ml-auto flex h-4 w-4 items-center justify-center rounded-full bg-violet-500 text-[9px] font-bold text-white">
             {badge}
