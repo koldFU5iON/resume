@@ -20,8 +20,12 @@ export default async function CVEditorPage({ params }: Props) {
     masterCV !== null &&
     cv.masterCvUpdatedAt < masterCV.updatedAt
 
+  // The master CV stays: Writing Desk documents start from it, so it gets no
+  // "Deprecating soon" notice (with no job, `current` only drives that notice).
+  const isMasterCV = cv.jobApplicationId === null && cv.careerVerticalId !== null
+
   return (
-    <JobWorkspace jobId={cv.jobApplicationId} current={{ kind: "cv", id: cv.id }}>
+    <JobWorkspace jobId={cv.jobApplicationId} current={isMasterCV ? undefined : { kind: "cv", id: cv.id }}>
       <CvEditor key={cv.id} cv={{ ...cv, profileName: cv.profile.name }} stale={stale} />
     </JobWorkspace>
   )
