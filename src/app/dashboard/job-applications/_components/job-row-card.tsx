@@ -7,6 +7,7 @@ import {
   type Job,
 } from "@/app/types/job-application"
 import { AppProgressBar } from "./app-progress-bar"
+import { ApplicationDateBlock } from "./app-date-block"
 import { AppControls } from "@/components/app-item-menu"
 import { FileText, Mail, Loader2, SquareArrowOutUpRight } from "lucide-react"
 import { JobFit } from "./job-fit"
@@ -16,7 +17,7 @@ import { JobNotes } from "./job-notes"
 import { StatusDropdown } from "./status-dropdown"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Badge } from "@/components/ui/badge"
-import { cn, formatShortDate } from "@/lib/utils"
+import { cn } from "@/lib/utils"
 import { FreshnessChip } from "./freshness-chip"
 import { PostingAge } from "./posting-age"
 import { JobCompletenessDot } from "./job-completeness-dot"
@@ -165,9 +166,10 @@ export function JobRowCard({ job, selected, busyLabel, onToggleSelect, onEdit, o
           {!earlyEnabled && <JobFit jobId={id} jobFit={jobFit ?? null} canAssess={!!jobDescription?.trim()} hasLLMKey={hasLLMKey} deepDive={job.deepDive} company={company ?? undefined} jdSnippet={jobDescription ? jobDescription.slice(0, 800) : undefined} />}
           <EarlyAssessment jobId={id} assessment={job.earlyAssessment ?? null} enabled={earlyEnabled} editHref={`/dashboard/job-applications/view/${id}`} deepDive={job.deepDive} />
         </span>
-        {dateApplied && (
-          <span className="text-xs text-muted-foreground">{formatShortDate(dateApplied)}</span>
-        )}
+        <div className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+          <span>Applied</span>
+          <ApplicationDateBlock label="Applied" date={dateApplied} jobId={id} compact />
+        </div>
         <PostingAge
           datePublished={datePublished ?? null}
           dateApplied={dateApplied ?? null}
