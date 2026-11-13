@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Profile workspace sketch</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: var(--font-sans, system-ui, sans-serif); color: var(--foreground); font-size: 13px; line-height: 1.5; }
+  h2 { font-size: 13px; font-weight: 600; margin: 28px 0 4px; }
+  h2:first-child { margin-top: 0; }
+  .cap { color: var(--muted-foreground); margin: 0 0 10px; font-size: 12px; }
+  .frame { border: 1px solid var(--border); border-radius: var(--radius, 8px); overflow: hidden; background: var(--card); }
+  .ws { display: grid; grid-template-columns: 168px minmax(0, 1fr) 190px; min-height: 380px; }
+  .pane { padding: 12px; min-width: 0; }
+  .pane + .pane { border-left: 1px solid var(--border); }
+  .list { background: var(--muted); }
+  .search { border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; color: var(--muted-foreground); font-size: 12px; background: var(--card); }
+  .new { margin-top: 6px; border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; font-size: 12px; font-weight: 500; background: var(--card); }
+  .grp { margin: 14px 0 4px; font-size: 12px; color: var(--muted-foreground); font-weight: 500; }
+  .item { padding: 4px 8px; border-radius: 6px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .item.sub { padding-left: 20px; color: var(--muted-foreground); }
+  .item.on { background: var(--card); box-shadow: inset 2px 0 0 var(--primary); font-weight: 600; }
+  .count { float: right; color: var(--muted-foreground); font-weight: 400; }
+  .title { font-size: 18px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+  .meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0 14px; font-size: 12px; color: var(--muted-foreground); }
+  .chip { border: 1px solid var(--border); border-radius: 999px; padding: 1px 9px; font-size: 12px; color: var(--foreground); background: var(--card); white-space: nowrap; }
+  .chip.sel { border-color: var(--primary); }
+  .saved { margin-left: auto; }
+  .body p { margin: 0 0 10px; max-width: 62ch; font-size: 14px; line-height: 1.65; }
+  .lnk { border-bottom: 1px solid var(--primary); }
+  .tabs { display: flex; gap: 12px; border-bottom: 1px solid var(--border); margin: -2px 0 10px; font-size: 12px; }
+  .tab { padding-bottom: 6px; color: var(--muted-foreground); }
+  .tab.on { color: var(--foreground); font-weight: 600; box-shadow: inset 0 -2px 0 var(--primary); }
+  .row { padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
+  .row:last-child { border-bottom: 0; }
+  .row small { display: block; color: var(--muted-foreground); font-size: 12px; }
+  .sugg { border: 1px dashed var(--border); border-radius: 6px; padding: 7px 8px; margin-top: 8px; font-size: 12px; }
+  .btns { display: flex; gap: 6px; margin-top: 6px; }
+  .btn { border: 1px solid var(--border); border-radius: 6px; padding: 2px 8px; font-size: 12px; background: var(--card); }
+  .btn.pri { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); }
+  .flow { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .step { border: 1px solid var(--border); border-radius: var(--radius, 8px); padding: 12px; background: var(--card); min-width: 0; }
+  .step b { display: block; font-size: 12px; margin-bottom: 8px; }
+  .menu { border: 1px solid var(--border); border-radius: 6px; margin-top: 8px; overflow: hidden; }
+  .menu div { padding: 4px 8px; font-size: 12px; }
+  .menu .on { background: var(--muted); font-weight: 600; }
+  .field { display: grid; grid-template-columns: 62px 1fr; gap: 6px; align-items: center; margin-top: 6px; font-size: 12px; color: var(--muted-foreground); }
+  .input { border: 1px solid var(--border); border-radius: 6px; padding: 3px 7px; color: var(--foreground); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .two { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 16px; align-items: start; }
+  .phone { border: 1px solid var(--border); border-radius: 18px; padding: 12px; background: var(--card); }
+  .phone .title { font-size: 15px; }
+  .phone .body p { font-size: 13px; }
+  .sheet { border-top: 1px solid var(--border); margin: 10px -12px -12px; padding: 10px 12px 12px; background: var(--muted); border-radius: 0 0 18px 18px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted-foreground); font-weight: 500; }
+  @media (max-width: 560px) {
+    .ws { grid-template-columns: 1fr; }
+    .pane + .pane { border-left: 0; border-top: 1px solid var(--border); }
+    .flow, .two { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<h2>Desktop: notes, document, details</h2>
+<p class="cap">Illustrative content. The document is the widest region and keeps a readable line length. Each region scrolls on its own.</p>
+<div class="frame">
+  <div class="ws">
+    <div class="pane list">
+      <div class="search">Search notes</div>
+      <div class="new">+ New note</div>
+      <div class="item" style="margin-top:12px">Overview <span class="count">3 gaps</span></div>
+      <div class="grp">Experience</div>
+      <div class="item on">Blizzard · Snr. PR Manager</div>
+      <div class="item sub">EU launch programme</div>
+      <div class="item">Unity · Program Manager</div>
+      <div class="grp">Notes</div>
+      <div class="item">Why I moved out of PR</div>
+      <div class="item">Untitled, 12 Nov</div>
+      <div class="grp">Records</div>
+      <div class="item">Capabilities <span class="count">6</span></div>
+      <div class="item">Credentials <span class="count">2</span></div>
+    </div>
+    <div class="pane">
+      <p class="title">Snr. PR Manager · Blizzard Entertainment</p>
+      <div class="meta">
+        <span class="chip sel">Experience ▾</span>
+        <span>Nov 2016 – Mar 2025</span>
+        <span>Versailles, France</span>
+        <span class="saved">Saved</span>
+      </div>
+      <div class="body">
+        <p>Strategic lead for Blizzard's European organisation across eight markets. Primary bridge between EU country teams and global leadership.</p>
+        <p>Ran programme governance in <span class="lnk">Jira</span> and owned <span class="lnk">Budget Management</span> for the regional launch calendar.</p>
+        <p>The hardest part was getting eight country leads to agree one release plan…</p>
+      </div>
+    </div>
+    <div class="pane">
+      <div class="tabs"><span class="tab">Properties</span><span class="tab on">Evidence 6</span><span class="tab">Links</span></div>
+      <div class="row">Cut launch sign-off from 9 days to 4<small>Achievement · links Jira</small></div>
+      <div class="row">Owned regional launch budget<small>Responsibility · links Budget Management</small></div>
+      <div class="sugg">Aligned eight country leads on one release plan
+        <small style="display:block;color:var(--muted-foreground)">Suggested from your notes</small>
+        <div class="btns"><span class="btn pri">Accept</span><span class="btn">Edit</span><span class="btn">Skip</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2>Capture first, classify later</h2>
+<p class="cap">The body never changes when the type does. Facts are asked for only at the moment a type needs them.</p>
+<div class="flow">
+  <div class="step">
+    <b>1. Write</b>
+    <div style="font-weight:600">Untitled, 12 Nov</div>
+    <div class="meta" style="margin:6px 0"><span class="chip">Note ▾</span><span>Saved</span></div>
+    <div style="color:var(--muted-foreground)">Spent six months at Acme sorting out their release process. Nobody owned it…</div>
+  </div>
+  <div class="step">
+    <b>2. Choose a type</b>
+    <div class="menu">
+      <div>Note</div><div>Thought</div><div>Essay</div>
+      <div class="on">Experience</div><div>Project</div>
+    </div>
+  </div>
+  <div class="step">
+    <b>3. Add only what that type needs</b>
+    <div class="field"><span>Company</span><span class="input">Acme</span></div>
+    <div class="field"><span>Role</span><span class="input">Release lead</span></div>
+    <div class="field"><span>Started</span><span class="input">Mar 2014</span></div>
+    <div class="btns"><span class="btn pri">Make it an experience</span></div>
+  </div>
+</div>
+
+<h2>Phone, and what the AI may use</h2>
+<div class="two">
+  <div class="phone">
+    <div style="font-size:12px;color:var(--muted-foreground)">‹ Notes</div>
+    <p class="title" style="margin-top:6px">Snr. PR Manager · Blizzard</p>
+    <div class="meta" style="margin:6px 0 10px"><span class="chip">Experience ▾</span><span class="saved">Saved</span></div>
+    <div class="body"><p>Strategic lead for Blizzard's European organisation across eight markets…</p></div>
+    <div class="sheet">
+      <div class="tabs" style="margin-bottom:6px"><span class="tab">Properties</span><span class="tab on">Evidence 6</span><span class="tab">Links</span></div>
+      <div style="font-size:12px;color:var(--muted-foreground)">Details open as a sheet. The note is the page.</div>
+    </div>
+  </div>
+  <table>
+    <thead><tr><th>Standing</th><th>What it is</th><th>In a CV or fit score</th></tr></thead>
+    <tbody>
+      <tr><td><b>Confirmed</b></td><td>Accepted evidence, capabilities, credentials</td><td>The only source of facts</td></tr>
+      <tr><td><b>Source</b></td><td>Body of an experience or project</td><td>Context for wording</td></tr>
+      <tr><td><b>Reflection</b></td><td>Notes, thoughts, essays</td><td>Never a fact. Tone only, when you include it</td></tr>
+      <tr><td><b>Suggested</b></td><td>AI proposals not yet reviewed</td><td>Never used</td></tr>
+    </tbody>
+  </table>
+</div>
+
+</body>
+</html>
