@@ -30,6 +30,8 @@ Checked in the shared Chromium preview against the local app and its existing 14
 - Light and dark themes.
 - 61 applications/completeness tests pass; scoped ESLint and mechanical design scan pass.
 
+Batch URL overflow follow-up: the shared textarea's content-based sizing could enlarge the modal's grid around long URLs. The modal now uses a zero-minimum grid column and viewport bounds, and both URL textareas use fixed sizing, wrapping and internal scrolling. A headless Chromium check pasted 50 URLs totaling 101,589 characters at 1280×800, 390×844, 320×740 and 844×390; modal and textarea widths stayed within their bounds without horizontal overflow. A mocked import failure also verified the failed-URL textarea at desktop and 320px, without submitting an actual import. The 13 batch-capture tests and scoped lint also pass.
+
 The repository typecheck still reports existing errors in `settings/account/_actions.ts` (missing providerId) and `lib/auth.ts` (untyped url). Development logs also report a client-rendered script warning and an `AlphaBanner` hydration mismatch. The unchanged banner initializes visibility from a browser-only localStorage branch, so its initial server/client output differs. These shell issues remain outside this page change.
 
 Physical iOS/Android devices, Safari touch behavior, the on-screen keyboard, populated archive pagination, and live writes/paid assessments were not exercised. Resizing Chromium verifies layout and mouse/keyboard interaction, not native touch gestures.
