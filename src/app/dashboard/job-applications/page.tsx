@@ -1,5 +1,6 @@
 import { cookies } from 'next/headers'
 import { TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { JOB_APPLICATIONS_DESCRIPTION } from './_components/job-list-layout'
 import { ApplicationTabs } from './_components/application-tabs'
 import { JobList } from "./_components/job-list"
 import { ArchivedTab } from "./_components/archived-tab"
@@ -34,7 +35,7 @@ export default async function Page({
   const hasLLMKey = llmConfig.configured
 
   return (
-    <ContentContainer fullWidth title="Job Applications" description="Track all the jobs you're currently interested in. Update the status to keep up to date on the current process and where you stand with your application">
+    <ContentContainer fullWidth title="Job Applications" description={JOB_APPLICATIONS_DESCRIPTION}>
       <ApplicationTabs initialTab={create !== '1' && cookieStore.get('jobs-tab')?.value === 'archived' ? 'archived' : 'active'}>
         <TabsList className="mb-3">
           <TabsTrigger value="active">Active</TabsTrigger>

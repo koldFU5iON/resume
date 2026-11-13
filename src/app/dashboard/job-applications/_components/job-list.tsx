@@ -27,6 +27,7 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/in
 import { Separator } from "@/components/ui/separator"
 import { toast } from "sonner"
 import { JobGroup } from "./job-group"
+import { JOB_LIST_COLUMNS } from "./job-list-layout"
 import { EditJobDialog } from "./edit-job-dialog"
 import { AddJobDialog } from "./add-job-dialog"
 import { BatchCaptureDialog } from "./batch-capture-dialog"
@@ -417,7 +418,7 @@ export function JobList({ jobs, hasLLMKey, deepDiveAccess, earlyEnabled = false 
   useEffect(() => { bulkArchiveRef.current = handleBulkArchive })
 
   const content = (
-    <div className="container w-full border-t border-accent pt-3 mt-2">
+    <div className="@container w-full border-t border-accent pt-3 mt-2">
       <AssessmentPoller signature={pendingRuns} />
       <ToolBar
         query={query}
@@ -441,8 +442,8 @@ export function JobList({ jobs, hasLLMKey, deepDiveAccess, earlyEnabled = false 
 
       {filteredJobs.length > 0 ? (
         <>
-          {/* Mobile card list — below md only */}
-          <div className="md:hidden border border-border/30 rounded-md overflow-hidden">
+          {/* Cards when the available content width cannot fit the table. */}
+          <div className="@5xl:hidden border border-border/30 rounded-md overflow-hidden">
             {groups.map(g => (
               <JobGroup
                 key={g.key}
@@ -464,8 +465,8 @@ export function JobList({ jobs, hasLLMKey, deepDiveAccess, earlyEnabled = false 
             ))}
           </div>
 
-          {/* Desktop grid — md and above */}
-          <div className="hidden md:grid md:grid-cols-[auto_1.5fr_auto_auto_auto_auto] lg:grid-cols-[auto_1.5fr_auto_1fr_auto_auto_auto_auto] xl:grid-cols-[auto_1.5fr_auto_1fr_auto_auto_auto_auto_auto_auto_auto]">
+          {/* Fixed metadata columns leave the remaining width to the role. */}
+          <div className={cn("hidden @5xl:grid", JOB_LIST_COLUMNS)}>
             <ColHeaders
               isAllSelected={isAllSelected}
               isSomeSelected={isSomeSelected}
@@ -686,15 +687,10 @@ type ColHeadersProps = {
 }
 
 const COL_HEADERS = [
-  { label: "Role",      className: "" },
-  { label: "Status",    className: "" },
-  { label: "Progress",  className: "hidden lg:block" },
-  { label: "Salary",    className: "" },
-  { label: "Fit",       className: "" },
-  { label: "Applied",   className: "hidden lg:block" },
-  { label: "Published", className: "hidden xl:block" },
-  { label: "Notes",     className: "hidden xl:block" },
-  { label: "Updated",   className: "hidden xl:block" },
+  { label: "Role",        className: "px-3" },
+  { label: "Application", className: "px-2" },
+  { label: "Fit",         className: "px-2" },
+  { label: "Dates",       className: "px-2" },
 ] as const
 
 function ColHeaders({ isAllSelected, isSomeSelected, onToggleAll, sort, onSortChange, fitField }: ColHeadersProps) {
@@ -721,7 +717,7 @@ function ColHeaders({ isAllSelected, isSomeSelected, onToggleAll, sort, onSortCh
           onClick={sortByFit}
           aria-label={`Sort by fit score${fitSorted ? `, currently ${sort.direction === 'desc' ? 'highest' : 'lowest'} first` : ''}`}
           className={cn(
-            'flex items-center gap-0.5 px-3 py-1.5 text-left text-[10px] font-semibold uppercase tracking-wide transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            'flex items-center gap-0.5 py-1.5 text-left text-[10px] font-semibold uppercase tracking-wide transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
             fitSorted ? 'text-foreground' : 'text-muted-foreground/50',
             className,
           )}
@@ -732,11 +728,11 @@ function ColHeaders({ isAllSelected, isSomeSelected, onToggleAll, sort, onSortCh
             : <ArrowUp size={10} aria-hidden="true" />)}
         </button>
       ) : (
-        <div key={label} className={`px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/50 ${className}`}>
+        <div key={label} className={`py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/50 ${className}`}>
           {label}
         </div>
       ))}
-      <div className="px-2 py-1.5" />
+      <div className="px-2 py-1.5"><span className="sr-only">Notes and actions</span></div>
     </div>
   )
 }
