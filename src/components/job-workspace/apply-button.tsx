@@ -4,7 +4,7 @@ import { useState, useTransition } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { Check, Loader2, SquareArrowOutUpRight } from "lucide-react"
+import { Check, Copy, Loader2, SquareArrowOutUpRight } from "lucide-react"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverDescription, PopoverHeader, PopoverTitle, PopoverTrigger } from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
@@ -17,7 +17,8 @@ import { jobHubHref } from "@/modules/jobs/workspace-nav"
  * The header's primary action (#383). Opens the job's posting in a new tab,
  * then offers "Mark as applied" beside the button. The status never changes
  * by itself: the user may want to read the posting first. With no usable
- * link, the same popover explains where to add one.
+ * link, the same popover explains where to add one. A joined icon button
+ * beside it copies the posting link.
  */
 export function ApplyButton({ jobId, url, status }: {
   jobId: string
@@ -40,6 +41,16 @@ export function ApplyButton({ jobId, url, status }: {
     setOpen(next)
   }
 
+  async function copyLink() {
+    if (!href) return
+    try {
+      await navigator.clipboard.writeText(href)
+      toast.success("Job link copied")
+    } catch {
+      toast.error("Couldn't copy the link.")
+    }
+  }
+
   function markApplied() {
     startTransition(async () => {
       try {
@@ -54,57 +65,71 @@ export function ApplyButton({ jobId, url, status }: {
   }
 
   return (
-    <Popover open={open} onOpenChange={handleOpenChange}>
-      <PopoverTrigger
-        className={cn(
-          buttonVariants({ variant: href ? "default" : "outline", size: "sm" }),
-          "h-8 shrink-0 gap-1.5",
-        )}
-        aria-describedby={href ? undefined : `${jobId}-apply-missing`}
-        title={href ? "Open the job posting in a new tab" : "No posting link saved for this job"}
-      >
-        Apply
-        <SquareArrowOutUpRight aria-hidden="true" />
-        {href && <span className="sr-only">(opens the job posting in a new tab)</span>}
-      </PopoverTrigger>
-      <span id={`${jobId}-apply-missing`} className="sr-only">No posting link saved for this job</span>
-      <PopoverContent align="start" className="w-72">
-        {href ? (
-          <>
-            <PopoverHeader>
-              <PopoverTitle className="text-sm font-medium">Applied for this job?</PopoverTitle>
-              <PopoverDescription className="text-xs text-muted-foreground">
-                The posting opened in a new tab. Mark the job as applied once you&apos;ve sent your application.
-              </PopoverDescription>
-            </PopoverHeader>
-            <div className="flex justify-end gap-2">
-              <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>Not yet</Button>
-              <Button size="sm" className="gap-1.5" onClick={markApplied} disabled={isPending}>
-                {isPending ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Check aria-hidden="true" />}
-                Mark as applied
-              </Button>
-            </div>
-          </>
-        ) : (
-          <>
-            <PopoverHeader>
-              <PopoverTitle className="text-sm font-medium">No posting link yet</PopoverTitle>
-              <PopoverDescription className="text-xs text-muted-foreground">
-                Add the job&apos;s link with Edit details on the Job Description tab, then Apply opens it here.
-              </PopoverDescription>
-            </PopoverHeader>
-            <div className="flex justify-end">
-              <Link
-                href={jobHubHref(jobId)}
-                onClick={() => setOpen(false)}
-                className={buttonVariants({ variant: "outline", size: "sm" })}
-              >
-                Go to Job Description
-              </Link>
-            </div>
-          </>
-        )}
-      </PopoverContent>
-    </Popover>
+    <div className="flex shrink-0 items-center">
+      <Popover open={open} onOpenChange={handleOpenChange}>
+        <PopoverTrigger
+          className={cn(
+            buttonVariants({ variant: "outline", size: "sm" }),
+            "h-8 shrink-0 gap-1.5",
+            href && "rounded-r-none",
+          )}
+          aria-describedby={href ? undefined : `${jobId}-apply-missing`}
+          title={href ? "Open the job posting in a new tab" : "No posting link saved for this job"}
+        >
+          Apply
+          <SquareArrowOutUpRight aria-hidden="true" />
+          {href && <span className="sr-only">(opens the job posting in a new tab)</span>}
+        </PopoverTrigger>
+        <span id={`${jobId}-apply-missing`} className="sr-only">No posting link saved for this job</span>
+        <PopoverContent align="start" className="w-72">
+          {href ? (
+            <>
+              <PopoverHeader>
+                <PopoverTitle className="text-sm font-medium">Applied for this job?</PopoverTitle>
+                <PopoverDescription className="text-xs text-muted-foreground">
+                  The posting opened in a new tab. Mark the job as applied once you&apos;ve sent your application.
+                </PopoverDescription>
+              </PopoverHeader>
+              <div className="flex justify-end gap-2">
+                <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>Not yet</Button>
+                <Button size="sm" className="gap-1.5" onClick={markApplied} disabled={isPending}>
+                  {isPending ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Check aria-hidden="true" />}
+                  Mark as applied
+                </Button>
+              </div>
+            </>
+          ) : (
+            <>
+              <PopoverHeader>
+                <PopoverTitle className="text-sm font-medium">No posting link yet</PopoverTitle>
+                <PopoverDescription className="text-xs text-muted-foreground">
+                  Add the job&apos;s link with Edit details on the Job Description tab, then Apply opens it here.
+                </PopoverDescription>
+              </PopoverHeader>
+              <div className="flex justify-end">
+                <Link
+                  href={jobHubHref(jobId)}
+                  onClick={() => setOpen(false)}
+                  className={buttonVariants({ variant: "outline", size: "sm" })}
+                >
+                  Go to Job Description
+                </Link>
+              </div>
+            </>
+          )}
+        </PopoverContent>
+      </Popover>
+      {href && (
+        <Button
+          variant="outline"
+          size="icon"
+          className="-ml-px size-8 rounded-l-none"
+          onClick={copyLink}
+          aria-label="Copy job link"
+        >
+          <Copy aria-hidden="true" />
+        </Button>
+      )}
+    </div>
   )
 }
