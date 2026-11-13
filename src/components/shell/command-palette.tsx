@@ -1,7 +1,7 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { Settings, KeyRound, Sparkles, UserCog } from "lucide-react"
+import { Settings, KeyRound, Plus, Sparkles, UserCog } from "lucide-react"
 
 import {
   CommandDialog,
@@ -53,6 +53,13 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
           >
             <Sparkles />
             <span>AI Coach</span>
+          </CommandItem>
+          <CommandItem
+            value="Add job application create new"
+            onSelect={() => go("/dashboard/job-applications?create=1")}
+          >
+            <Plus />
+            <span>Add job</span>
           </CommandItem>
         </CommandGroup>
         <CommandGroup heading="Navigation">

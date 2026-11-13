@@ -7,6 +7,7 @@ import { ArrowLeft, Pencil, SquareArrowOutUpRight } from "lucide-react"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { EditJobDialog } from "@/app/dashboard/job-applications/_components/edit-job-dialog"
+import { isHttpUrl } from "@/modules/jobs/form-utils"
 
 export function JobDetailHeader({ job, hasLLMKey }: { job: Job; hasLLMKey: boolean }) {
   const [editOpen, setEditOpen] = useState(false)
@@ -33,7 +34,7 @@ export function JobDetailHeader({ job, hasLLMKey }: { job: Job; hasLLMKey: boole
             <Pencil size={13} />
             Edit
           </Button>
-          {job.url && (
+          {isHttpUrl(job.url) && (
             <a
               href={job.url}
               target="_blank"

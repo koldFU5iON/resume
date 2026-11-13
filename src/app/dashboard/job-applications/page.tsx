@@ -1,4 +1,6 @@
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { cookies } from 'next/headers'
+import { TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { ApplicationTabs } from './_components/application-tabs'
 import { JobList } from "./_components/job-list"
 import { ArchivedTab } from "./_components/archived-tab"
 import { getActiveJobs } from "@/modules/jobs/queries"
@@ -15,12 +17,13 @@ export const maxDuration = 300
 export default async function Page({
   searchParams,
 }: {
-  searchParams: Promise<{ create?: string; url?: string }>
+  searchParams: Promise<{ create?: string }>
 }) {
-  const [jobs, { profile }, { create, url }] = await Promise.all([
+  const [jobs, { profile }, { create }, cookieStore] = await Promise.all([
     getActiveJobs(),
     requireProfile(),
     searchParams,
+    cookies(),
   ])
   const [{ configured: hasLLMKey }, earlyEnabled] = await Promise.all([
     getLLMConfigStatus(profile.id),
@@ -29,7 +32,7 @@ export default async function Page({
 
   return (
     <ContentContainer fullWidth title="Job Applications" description="Track all the jobs you're currently interested in. Update the status to keep up to date on the current process and where you stand with your application">
-      <Tabs defaultValue="active" className="w-full">
+      <ApplicationTabs initialTab={create !== '1' && cookieStore.get('jobs-tab')?.value === 'archived' ? 'archived' : 'active'}>
         <TabsList className="mb-3">
           <TabsTrigger value="active">Active</TabsTrigger>
           <TabsTrigger value="archived">Archived</TabsTrigger>
@@ -39,14 +42,12 @@ export default async function Page({
             jobs={jobs}
             hasLLMKey={hasLLMKey}
             earlyEnabled={earlyEnabled}
-            openCreate={create === '1'}
-            initialCreateUrl={url}
           />
         </TabsContent>
         <TabsContent value="archived">
           <ArchivedTab />
         </TabsContent>
-      </Tabs>
+      </ApplicationTabs>
     </ContentContainer>
   )
 }

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useTransition } from 'react'
+import { useEffect } from 'react'
 import * as z from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm, FormProvider } from 'react-hook-form'
@@ -17,9 +17,7 @@ import { Button } from '@/components/ui/button'
 import { JobFormFields } from './job-form-fields'
 import { updateJobSchema } from '@/modules/jobs/schema'
 import { updateJobApplication } from '@/modules/jobs/mutations'
-import { extractJobFromUrl } from '@/modules/jobs/extract'
-import { applyExtractedData } from '@/modules/jobs/form-utils'
-import { notifyUsageUpdated } from '@/lib/usage-events'
+import { useJobExtraction } from './use-job-extraction'
 import type { Job } from '@/app/types/job-application'
 
 type EditJobDialogProps = {
@@ -51,7 +49,7 @@ export function EditJobDialog({ job, open, onOpenChange, hasLLMKey = false }: Ed
     defaultValues: valuesFromJob(job),
   })
 
-  const [isExtracting, startExtraction] = useTransition()
+  const { isExtracting, extract } = useJobExtraction(form)
 
   useEffect(() => {
     if (open) form.reset(valuesFromJob(job))
@@ -79,15 +77,7 @@ export function EditJobDialog({ job, open, onOpenChange, hasLLMKey = false }: Ed
   }
 
   function handleExtract() {
-    const url = form.getValues('url')
-    if (!url) return
-    startExtraction(async () => {
-      const result = await extractJobFromUrl(url)
-      if (!result.ok) { toast.error(result.error); return }
-      applyExtractedData(form, result.data)
-      notifyUsageUpdated()
-      toast.success('Details refreshed — review and save')
-    })
+    void extract(() => { toast.success('Details refreshed — review and save') })
   }
 
   return (
@@ -99,7 +89,7 @@ export function EditJobDialog({ job, open, onOpenChange, hasLLMKey = false }: Ed
         </DialogHeader>
 
         <FormProvider {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="flex min-h-0 flex-1 flex-col">
+          <form onSubmit={isExtracting ? (e) => e.preventDefault() : form.handleSubmit(onSubmit)} className="flex min-h-0 flex-1 flex-col">
             <div className="flex-1 overflow-y-auto overflow-x-hidden pr-1">
               <JobFormFields
                 isExtracting={isExtracting}
@@ -118,7 +108,7 @@ export function EditJobDialog({ job, open, onOpenChange, hasLLMKey = false }: Ed
               <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={form.formState.isSubmitting}>
+              <Button type="submit" disabled={form.formState.isSubmitting || isExtracting}>
                 {form.formState.isSubmitting ? 'Saving…' : 'Save changes'}
               </Button>
             </DialogFooter>

@@ -1,6 +1,7 @@
 'use client'
 
 import { useTransition } from "react"
+import { toast } from "sonner"
 import clsx from "clsx";
 import React from "react";
 import { ApplicationProgress, ApplicationProgressType } from "@/app/types/job-application";
@@ -30,7 +31,11 @@ export function AppProgressBar({
   function handleSelect(stage: ApplicationProgressType) {
     if (stage === progress) return
     startTransition(async () => {
-      await updateJobProgress(jobId, stage)
+      try {
+        await updateJobProgress(jobId, stage)
+      } catch {
+        toast.error('Could not update progress. Please try again.')
+      }
     })
   }
 

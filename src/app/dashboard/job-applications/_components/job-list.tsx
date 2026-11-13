@@ -1,7 +1,7 @@
 'use client'
 
-import { useRouter } from "next/navigation"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Archive, ArrowDown, ArrowUp, ListPlus, Plus, SearchIcon, X } from "lucide-react"
 import {
   APPLICATION_STATUS_LABEL,
@@ -28,9 +28,10 @@ import { Separator } from "@/components/ui/separator"
 import { toast } from "sonner"
 import { JobGroup } from "./job-group"
 import { EditJobDialog } from "./edit-job-dialog"
-import { CreateJobSheet } from "./create-job-sheet"
+import { AddJobDialog } from "./add-job-dialog"
 import { BatchCaptureDialog } from "./batch-capture-dialog"
-import { archiveJobApplication, bulkArchiveJobApplications } from "@/modules/jobs/mutations"
+import { archiveJobApplication, bulkArchiveJobApplications, bulkRestoreJobApplications } from "@/modules/jobs/mutations"
+import { visibleJobIds } from "./list-selection"
 import { AssessmentPoller } from "./assessment-poller"
 import { earlyFilterKey, earlySortValue, parseEarlyFilter, pendingSignature } from "./early-assessment-view"
 
@@ -38,6 +39,8 @@ type ViewMode = 'grouped' | 'all'
 const VIEW_MODE_KEY = 'jobs-view-mode'
 const FILTER_KEY = 'jobs-filter'
 const SORT_KEY = 'jobs-sort'
+const COLLAPSE_KEY = 'jobs-group-collapsed'
+const QUERY_KEY = 'jobs-query'
 
 // Priority order for open work — interviews top (most time-pressing), then
 // active prep work, then sent-and-waiting, then untouched leads.
@@ -50,22 +53,23 @@ const OPEN_PRIORITY: ApplicationStatusType[] = [
 
 const CLOSED_SET: ReadonlySet<string> = new Set(ClosedStatuses)
 
-export function JobList({ jobs, hasLLMKey, earlyEnabled = false, openCreate, initialCreateUrl }: {
+export function JobList({ jobs, hasLLMKey, earlyEnabled = false }: {
   jobs: Job[]
   hasLLMKey: boolean
   /** Early assessment on for this user (decided on the server). */
   earlyEnabled?: boolean
-  openCreate?: boolean
-  initialCreateUrl?: string
 }) {
   const router = useRouter()
   const [query, setQuery] = useState("")
   const [viewMode, setViewMode] = useState<ViewMode>('grouped')
   const [filter, setFilter] = useState<FilterState>(DEFAULT_FILTER)
   const [sort, setSort] = useState<SortState>(DEFAULT_SORT)
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
+  const archiving = useRef(new Set<string>())
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [editing, setEditing] = useState<Job | null>(null)
-  const [creating, setCreating] = useState(openCreate ?? false)
+  const [creating, setCreating] = useState(false)
+  const [createUrl, setCreateUrl] = useState('')
   const [batching, setBatching] = useState(false)
   // Per-row in-flight label so the user sees "Archiving…" the instant they click,
   // not after the server roundtrip + revalidate finishes.
@@ -73,16 +77,40 @@ export function JobList({ jobs, hasLLMKey, earlyEnabled = false, openCreate, ini
 
   // Stable ref so the keydown handler always sees the latest archive callback
   // without re-attaching the listener on every selection change.
-  const bulkArchiveRef = useRef(handleBulkArchive)
-  useEffect(() => { bulkArchiveRef.current = handleBulkArchive })
+  const bulkArchiveRef = useRef<(() => Promise<void>) | null>(null)
 
-  // ⌘J / Ctrl+J — open create sheet. E — archive selection (guards against input focus).
+  // Every manual-add entry point opens the form this way; no URL clears an earlier prefill.
+  const openCreate = useCallback((url = '') => {
+    setCreateUrl(url)
+    setCreating(true)
+  }, [setCreating, setCreateUrl])
+
+  // Deep link `?create=1[&url=…]` (dashboard, command palette, /create redirect,
+  // quick-capture fallback). Consume only those two params so reload and Back
+  // don't reopen the form and the same link works again. An open draft wins
+  // over a new prefill.
+  const searchParams = useSearchParams()
+  const deepLinkCreate = searchParams.get('create') === '1'
+  const deepLinkUrl = searchParams.get('url') ?? ''
+  useEffect(() => {
+    if (!deepLinkCreate) return
+    if (!creating) openCreate(deepLinkUrl) // eslint-disable-line react-hooks/set-state-in-effect
+    const next = new URL(window.location.href)
+    next.searchParams.delete('create')
+    next.searchParams.delete('url')
+    // Next syncs replaceState with useSearchParams, so this effect re-runs once with no deep link.
+    window.history.replaceState(null, '', next.href)
+  }, [deepLinkCreate, deepLinkUrl, creating, openCreate])
+
+  // ⌘J / Ctrl+J — open the Add Job form. E — archive selection (guards against input focus).
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
+      if (e.defaultPrevented || e.repeat) return
+      if (document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"]')) return
       if (e.metaKey || e.ctrlKey) {
         if (e.key.toLowerCase() === 'j') {
           e.preventDefault()
-          setCreating(true)
+          openCreate()
         }
         return
       }
@@ -90,12 +118,12 @@ export function JobList({ jobs, hasLLMKey, earlyEnabled = false, openCreate, ini
       if (tag === 'input' || tag === 'textarea' || (e.target as HTMLElement).isContentEditable) return
       if (e.key.toLowerCase() === 'e' && !e.shiftKey && !e.altKey) {
         e.preventDefault()
-        bulkArchiveRef.current()
+        bulkArchiveRef.current?.()
       }
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [])
+  }, [openCreate])
 
   // Hydrate view-mode preference once on mount. Doing this in an effect (rather
   // than as a lazy initial state) avoids an SSR/CSR hydration mismatch — server
@@ -104,6 +132,14 @@ export function JobList({ jobs, hasLLMKey, earlyEnabled = false, openCreate, ini
     const saved = window.localStorage.getItem(VIEW_MODE_KEY)
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (saved === 'all' || saved === 'grouped') setViewMode(saved)
+
+    try {
+      setQuery(window.sessionStorage.getItem(QUERY_KEY) ?? '')
+      const map: unknown = JSON.parse(window.localStorage.getItem(COLLAPSE_KEY) ?? '{}')
+      if (map && typeof map === 'object' && !Array.isArray(map)) {
+        setCollapsedGroups(Object.fromEntries(Object.entries(map).filter(([, value]) => typeof value === 'boolean')))
+      }
+    } catch { /* preferences are optional */ }
 
     try {
       const savedFilter = window.localStorage.getItem(FILTER_KEY)
@@ -130,6 +166,7 @@ export function JobList({ jobs, hasLLMKey, earlyEnabled = false, openCreate, ini
   }, [earlyEnabled])
 
   function changeViewMode(next: ViewMode) {
+    clearSelection()
     setViewMode(next)
     window.localStorage.setItem(VIEW_MODE_KEY, next)
   }
@@ -143,6 +180,19 @@ export function JobList({ jobs, hasLLMKey, earlyEnabled = false, openCreate, ini
       fit: [...next.fit],
       early: [...next.early],
     }))
+  }
+
+  function changeQuery(next: string) {
+    clearSelection()
+    setQuery(next)
+    window.sessionStorage.setItem(QUERY_KEY, next)
+  }
+
+  function toggleGroup(key: string, current: boolean) {
+    clearSelection()
+    const next = { ...collapsedGroups, [key]: !current }
+    setCollapsedGroups(next)
+    window.localStorage.setItem(COLLAPSE_KEY, JSON.stringify(next))
   }
 
   function changeSort(next: SortState) {
@@ -253,6 +303,9 @@ export function JobList({ jobs, hasLLMKey, earlyEnabled = false, openCreate, ini
     ]
   }, [filteredJobs, effectiveMode])
 
+  const visibleIds = visibleJobIds(groups, collapsedGroups)
+  const visibleSelected = new Set([...selected].filter(id => visibleIds.has(id)))
+
   function toggleSelect(id: string) {
     setSelected(prev => {
       const next = new Set(prev)
@@ -266,11 +319,11 @@ export function JobList({ jobs, hasLLMKey, earlyEnabled = false, openCreate, ini
     setSelected(new Set())
   }
 
-  const isAllSelected = filteredJobs.length > 0 && filteredJobs.every(j => selected.has(j.id))
-  const isSomeSelected = !isAllSelected && filteredJobs.some(j => selected.has(j.id))
+  const isAllSelected = visibleIds.size > 0 && [...visibleIds].every(id => visibleSelected.has(id))
+  const isSomeSelected = !isAllSelected && visibleSelected.size > 0
 
   function toggleSelectAll() {
-    const allIds = filteredJobs.map(j => j.id)
+    const allIds = [...visibleIds]
     const allSelected = allIds.every(id => selected.has(id))
     if (allSelected) {
       setSelected(new Set())
@@ -299,56 +352,80 @@ export function JobList({ jobs, hasLLMKey, earlyEnabled = false, openCreate, ini
     router.push(`/dashboard/cover-letters/new?jobId=${id}`)
   }
 
+  function showArchivedToast(ids: string[]) {
+    toast.success(`${ids.length} ${ids.length === 1 ? 'job' : 'jobs'} archived`, {
+      action: {
+        label: 'Undo',
+        onClick: async () => {
+          try {
+            const { restored } = await bulkRestoreJobApplications(ids)
+            toast.success(`${restored} ${restored === 1 ? 'job' : 'jobs'} restored`)
+          } catch {
+            toast.error('Could not undo archive. Restore the jobs from Archived.')
+          }
+        },
+      },
+    })
+  }
+
   async function handleSingleArchive(id: string) {
+    if (archiving.current.has(id)) return
+    archiving.current.add(id)
     markBusy([id], 'Archiving…')
     try {
       await archiveJobApplication(id)
-      toast.success('Job archived')
+      showArchivedToast([id])
       setSelected(prev => {
         if (!prev.has(id)) return prev
         const next = new Set(prev)
         next.delete(id)
         return next
       })
-      // No clear needed on success — revalidate removes the row entirely.
     } catch {
       toast.error('Failed to archive')
+    } finally {
       markBusy([id], null)
+      archiving.current.delete(id)
     }
   }
 
   async function handleBulkArchive() {
-    const ids = [...selected]
+    const ids = [...visibleSelected].filter(id => !archiving.current.has(id))
     if (ids.length === 0) return
+    ids.forEach(id => archiving.current.add(id))
     markBusy(ids, 'Archiving…')
     try {
-      const { archived } = await bulkArchiveJobApplications(ids)
-      toast.success(`${archived} ${archived === 1 ? 'job' : 'jobs'} archived`)
+      await bulkArchiveJobApplications(ids)
+      showArchivedToast(ids)
       clearSelection()
     } catch {
       toast.error('Failed to archive')
+    } finally {
       markBusy(ids, null)
+      ids.forEach(id => archiving.current.delete(id))
     }
   }
+
+  useEffect(() => { bulkArchiveRef.current = handleBulkArchive })
 
   return (
     <div className="container w-full border-t border-accent pt-3 mt-2">
       <AssessmentPoller signature={pendingRuns} />
       <ToolBar
         query={query}
-        onQueryChange={setQuery}
+        onQueryChange={changeQuery}
         visibleCount={filteredJobs.length}
         totalCount={jobs.length}
         viewMode={viewMode}
         onViewModeChange={changeViewMode}
-        selectedCount={selected.size}
+        selectedCount={visibleSelected.size}
         onClearSelection={clearSelection}
         onBulkArchive={handleBulkArchive}
         filter={filter}
         sort={sort}
         onFilterChange={changeFilter}
         onSortChange={changeSort}
-        onCreateOpen={() => setCreating(true)}
+        onCreateOpen={() => openCreate()}
         onBatchOpen={() => setBatching(true)}
         earlyEnabled={earlyEnabled}
       />
@@ -361,11 +438,11 @@ export function JobList({ jobs, hasLLMKey, earlyEnabled = false, openCreate, ini
             {groups.map(g => (
               <JobGroup
                 key={g.key}
-                groupKey={g.key}
                 label={g.label}
                 jobs={g.jobs}
-                defaultCollapsed={g.defaultCollapsed}
-                selected={selected}
+                collapsed={g.label !== null && (collapsedGroups[g.key] ?? g.defaultCollapsed)}
+                onToggleCollapse={() => toggleGroup(g.key, collapsedGroups[g.key] ?? g.defaultCollapsed)}
+                selected={visibleSelected}
                 busyRows={busyRows}
                 onToggleSelect={toggleSelect}
                 onEdit={setEditing}
@@ -392,11 +469,11 @@ export function JobList({ jobs, hasLLMKey, earlyEnabled = false, openCreate, ini
             {groups.map(g => (
               <JobGroup
                 key={g.key}
-                groupKey={g.key}
                 label={g.label}
                 jobs={g.jobs}
-                defaultCollapsed={g.defaultCollapsed}
-                selected={selected}
+                collapsed={g.label !== null && (collapsedGroups[g.key] ?? g.defaultCollapsed)}
+                onToggleCollapse={() => toggleGroup(g.key, collapsedGroups[g.key] ?? g.defaultCollapsed)}
+                selected={visibleSelected}
                 busyRows={busyRows}
                 onToggleSelect={toggleSelect}
                 onEdit={setEditing}
@@ -426,10 +503,10 @@ export function JobList({ jobs, hasLLMKey, earlyEnabled = false, openCreate, ini
         />
       )}
 
-      <CreateJobSheet
+      <AddJobDialog
         open={creating}
         onOpenChange={setCreating}
-        initialUrl={initialCreateUrl}
+        initialUrl={createUrl}
       />
 
       <BatchCaptureDialog open={batching} onOpenChange={setBatching} />
@@ -525,8 +602,8 @@ function ToolBar({
         {selectedCount > 0
           ? `${selectedCount} selected`
           : visibleCount === totalCount
-            ? `${totalCount} Jobs Listed`
-            : `${visibleCount} of ${totalCount} Jobs`}
+            ? `${totalCount} ${totalCount === 1 ? 'job' : 'jobs'}`
+            : `${visibleCount} of ${totalCount} jobs`}
       </div>
     </div>
   )
@@ -572,8 +649,8 @@ type JobSearchBarProps = {
 
 function JobSearchBar({ value, onChange }: JobSearchBarProps) {
   return (
-    <div className="flex ">
-      <InputGroup className="w-sm">
+    <div className="w-full sm:w-auto sm:max-w-sm">
+      <InputGroup className="w-full sm:w-80">
         <InputGroupInput
           value={value}
           onChange={(e) => onChange(e.target.value)}
@@ -624,7 +701,7 @@ function ColHeaders({ isAllSelected, isSomeSelected, onToggleAll, sort, onSortCh
           checked={isAllSelected}
           indeterminate={isSomeSelected}
           onCheckedChange={onToggleAll}
-          aria-label={isAllSelected ? 'Deselect all' : 'Select all'}
+          aria-label={isAllSelected ? 'Deselect visible jobs' : 'Select visible jobs'}
         />
       </div>
       {COL_HEADERS.map(({ label, className }) => label === 'Fit' ? (

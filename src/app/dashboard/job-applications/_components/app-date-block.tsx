@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useTransition } from "react"
+import { toast } from "sonner"
 import { Pencil } from "lucide-react"
 import { daysAgo, formatShortDate } from "@/lib/utils"
 import {
@@ -24,39 +25,43 @@ export function ApplicationDateBlock({ label, date, jobId }: ApplicationDateBloc
   const [isPending, startTransition] = useTransition()
   const [value, setValue] = useState("")
 
-  if (!date) {
+  if (!date && !jobId) {
     return <div className="text-xs text-muted-foreground/30">—</div>
   }
 
   function handleOpenChange(next: boolean) {
-    if (next && date) setValue(date.toLocaleDateString("en-CA"))
+    if (next) setValue(date?.toLocaleDateString("en-CA") ?? "")
     setOpen(next)
   }
 
   function handleSubmit() {
     if (!jobId || !value) return
     startTransition(async () => {
-      await updateJobDate(jobId, new Date(`${value}T00:00:00`))
-      setOpen(false)
+      try {
+        await updateJobDate(jobId, new Date(`${value}T00:00:00`))
+        setOpen(false)
+      } catch {
+        toast.error('Could not save the date. Your edit is still here; please try again.')
+      }
     })
   }
 
-  const days = daysAgo(date)
+  const days = date ? daysAgo(date) : null
   return (
     <div className="flex flex-col gap-0.5 group/date">
       <div className="flex items-center gap-1.5">
-        <span className="text-xs text-muted-foreground">{formatShortDate(date)}</span>
+        <span className="text-xs text-muted-foreground">{date ? formatShortDate(date) : "—"}</span>
         {jobId && (
           <Popover open={open} onOpenChange={handleOpenChange}>
             <PopoverTrigger
-              aria-label={`Edit ${label.toLowerCase()} date`}
-              className="invisible cursor-pointer rounded p-0.5 text-muted-foreground/40 transition-colors hover:text-foreground group-hover/date:visible"
+              aria-label={`${date ? 'Edit' : 'Add'} ${label.toLowerCase()} date`}
+              className="inline-flex size-8 items-center justify-center cursor-pointer rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <Pencil size={10} />
             </PopoverTrigger>
             <PopoverContent className="w-auto">
               <form action={handleSubmit} className="flex flex-col gap-2">
-                <span className="text-xs font-medium">Change {label.toLowerCase()} date</span>
+                <span className="text-xs font-medium">{date ? "Change" : "Add"} {label.toLowerCase()} date</span>
                 <Input
                   type="date"
                   value={value}

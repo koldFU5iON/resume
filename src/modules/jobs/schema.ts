@@ -1,26 +1,39 @@
 import * as z from 'zod'
 import { APPLICATION_SOURCES, APPLICATION_SOURCE_LABEL } from '@/app/types/job-application'
+import { isHttpUrl } from './form-utils'
+
+const optionalText = z.string().trim().optional()
 
 const jobSchemaBase = z.object({
-  title: z.string().min(1, 'Job title is required'),
-  company: z.string().optional(),
-  url: z.string().optional().refine(
-    val => !val || z.string().url().safeParse(val).success,
-    { message: 'Must be a valid URL' },
+  title: z.string().trim().min(1, 'Job title is required'),
+  company: optionalText,
+  // Rendered as a link, so only http(s) is stored. Blank is fine.
+  url: optionalText.refine(
+    val => !val || isHttpUrl(val),
+    { message: 'Enter a full http:// or https:// link' },
   ),
   jobDescription: z.string().optional(),
-  jobNumber: z.string().optional(),
+  jobNumber: optionalText,
   datePublished: z.date().optional(),
-  location: z.string().optional(),
+  location: optionalText,
   applicationSource: z.enum(APPLICATION_SOURCES),
-  salaryBand: z.string().optional(),
+  salaryBand: optionalText,
   isRecruitmentAgency: z.boolean().optional(),
-  recruiterName: z.string().optional(),
+  recruiterName: optionalText,
 })
 
-export const createJobSchema = jobSchemaBase
+export const createJobSchema = jobSchemaBase.refine(
+  data => !!data.isRecruitmentAgency || !!data.company,
+  // `when` lets this run alongside other field errors, so both show at once.
+  {
+    message: 'Company is required',
+    path: ['company'],
+    when: payload => payload.issues.every(issue => issue.path?.[0] !== 'company'),
+  },
+)
 
 // Same fields, all optional — for partial updates from the edit dialog.
+// Built from the unrefined base: the company rule needs the whole row.
 export const updateJobSchema = jobSchemaBase.partial()
 
 // Lives here (not next to assessJobFit) because action files use 'use server',

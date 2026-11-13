@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useTransition } from "react"
+import { toast } from "sonner"
 import { Pencil, X } from "lucide-react"
 import {
   Popover,
@@ -26,10 +27,14 @@ export function SalaryBandCell({ salaryBand, jobId }: SalaryBandCellProps) {
     setOpen(next)
   }
 
-  function handleSubmit() {
+  function saveSalary(next: string | null) {
     startTransition(async () => {
-      await updateJobSalaryBand(jobId, value.trim() || null)
-      setOpen(false)
+      try {
+        await updateJobSalaryBand(jobId, next)
+        setOpen(false)
+      } catch {
+        toast.error('Could not save the salary. Your edit is still here; please try again.')
+      }
     })
   }
 
@@ -41,12 +46,12 @@ export function SalaryBandCell({ salaryBand, jobId }: SalaryBandCellProps) {
       <Popover open={open} onOpenChange={handleOpenChange}>
         <PopoverTrigger
           aria-label="Edit salary band"
-          className="invisible cursor-pointer rounded p-0.5 text-muted-foreground/40 transition-colors hover:text-foreground group-hover/salary:visible"
+          className="inline-flex size-8 items-center justify-center cursor-pointer rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <Pencil size={10} />
         </PopoverTrigger>
         <PopoverContent className="w-56">
-          <form action={handleSubmit} className="flex flex-col gap-2">
+          <form action={() => saveSalary(value.trim() || null)} className="flex flex-col gap-2">
             <span className="text-xs font-medium">Salary band</span>
             <Input
               value={value}
@@ -65,12 +70,8 @@ export function SalaryBandCell({ salaryBand, jobId }: SalaryBandCellProps) {
                   size="sm"
                   variant="ghost"
                   disabled={isPending}
-                  onClick={() => {
-                    startTransition(async () => {
-                      await updateJobSalaryBand(jobId, null)
-                      setOpen(false)
-                    })
-                  }}
+                  onClick={() => saveSalary(null)}
+                  aria-label="Clear salary band"
                 >
                   <X size={12} />
                 </Button>
