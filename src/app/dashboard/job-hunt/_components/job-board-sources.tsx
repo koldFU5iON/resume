@@ -7,8 +7,10 @@ import { cn } from '@/lib/utils'
 import { BoardSourceRow } from './board-source-row'
 import { ManualBoardsSection } from './manual-boards-section'
 
-const FREE_PROVIDERS = ['remotive', 'remoteok', 'adzuna'] as const
-const PAID_PROVIDERS = ['jsearch'] as const
+const PROVIDER_GROUPS = [
+  { label: 'Free', providers: ['remotive', 'remoteok', 'adzuna'] },
+  { label: 'Paid — bring your own key', providers: ['jsearch'] },
+]
 
 type Props = {
   sources: JobBoardSource[]
@@ -27,49 +29,41 @@ export function JobBoardSources({ sources, availableProviders, manualBoards }: P
       <div className="w-full flex items-center gap-2 mb-3">
         <button
           onClick={() => setOpen(v => !v)}
-          className="flex items-center gap-2 flex-1 min-w-0 text-left"
+          className="flex flex-wrap items-center gap-x-2 gap-y-0.5 flex-1 min-w-0 text-left"
           aria-expanded={open}
           aria-controls="job-boards-body"
         >
-          <h2 className="text-sm font-semibold">Job Board Sources</h2>
-          <div className="flex items-center gap-1 ml-1">
-            <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-muted text-muted-foreground">
-              {sources.length}
-            </span>
-            {active > 0 && (
-              <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-green-500/10 text-green-600 dark:text-green-400">
-                ✓ {active}
-              </span>
-            )}
-            {failed > 0 && (
-              <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-destructive/10 text-destructive">
-                ✗ {failed}
-              </span>
-            )}
-            <ChevronDown className={cn("size-3.5 text-muted-foreground/50 transition-transform duration-200 shrink-0 ml-1", !open && "rotate-90")} />
-          </div>
+          <h2 className="text-sm font-semibold whitespace-nowrap">Job Board Sources</h2>
+          <ChevronDown className={cn("size-3.5 text-muted-foreground transition-transform duration-200 shrink-0", !open && "-rotate-90")} />
+          <span className="basis-full text-xs tabular-nums text-muted-foreground">
+            {sources.length}
+            {active > 0 && <> · {active} working</>}
+            {failed > 0 && <> · <span className="text-destructive">{failed} failed</span></>}
+          </span>
         </button>
       </div>
 
       {open && (
-        <div id="job-boards-body" className="space-y-1.5">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground px-1">Free</p>
-          {FREE_PROVIDERS.map((p) => {
-            const source = byProvider[p]
-            if (!source) return null
-            return <BoardSourceRow key={p} source={source} isAdapterAvailable={availableProviders.has(p)} />
+        <div id="job-boards-body" className="space-y-5">
+          {PROVIDER_GROUPS.map(({ label, providers }) => {
+            const rows = providers.flatMap((p) => (byProvider[p] ? [byProvider[p]] : []))
+            if (rows.length === 0) return null
+            return (
+              <div key={label}>
+                <p className="mb-2 text-xs font-medium text-muted-foreground">{label}</p>
+                <div className="divide-y rounded-lg border">
+                  {rows.map((source) => (
+                    <BoardSourceRow
+                      key={source.provider}
+                      source={source}
+                      isAdapterAvailable={availableProviders.has(source.provider)}
+                    />
+                  ))}
+                </div>
+              </div>
+            )
           })}
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground px-1 pt-2">
-            Paid — bring your own key
-          </p>
-          {PAID_PROVIDERS.map((p) => {
-            const source = byProvider[p]
-            if (!source) return null
-            return <BoardSourceRow key={p} source={source} isAdapterAvailable={availableProviders.has(p)} />
-          })}
-          <div className="pt-2">
-            <ManualBoardsSection boards={manualBoards} />
-          </div>
+          <ManualBoardsSection boards={manualBoards} />
         </div>
       )}
     </section>

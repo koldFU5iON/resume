@@ -64,66 +64,22 @@ export function CompanyWatchRow({ watch }: { watch: CompanyWatch }) {
   const detectionFailed = watch.status === 'discovery_failed'
 
   return (
-    <>
-      <div className="flex items-start justify-between gap-3 rounded-lg border px-4 py-3">
-        <div className="min-w-0 space-y-1">
-          {/* Line 1: name + ATS inline */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <p className="font-medium leading-snug">{watch.name}</p>
-            {detectionFailed ? (
-              <span className="flex items-center gap-1 text-xs text-amber-600">
-                <AlertTriangle className="size-3" />
-                ATS unknown
-              </span>
-            ) : (
-              <span className="text-xs text-muted-foreground">
-                {PROVIDER_LABELS[watch.atsProvider] ?? watch.atsProvider}
-              </span>
-            )}
-          </div>
-
-          {/* Line 2: meta — location filters + scan time + careers link */}
-          <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
-            {watch.searchLocations.length > 0 ? (
-              <>
-                {watch.searchLocations.map((loc) => (
-                  <span key={loc} className="flex items-center gap-1">
-                    <MapPin className="size-3" />
-                    {loc}
-                  </span>
-                ))}
-                {watch.includeRemote && (
-                  <span className="text-muted-foreground/70">+remote</span>
-                )}
-              </>
-            ) : null}
-            <span className="flex items-center gap-1">
-              <Clock className="size-3" />
-              {scanLabel}
+    <div className="space-y-1.5 px-3 py-3">
+      <div className="flex items-start justify-between gap-2">
+        {/* Line 1: name + ATS inline */}
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 pt-1">
+          <p className="text-sm font-medium leading-snug">{watch.name}</p>
+          {detectionFailed ? (
+            <span className="flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400">
+              <AlertTriangle className="size-3" />
+              ATS unknown
             </span>
-            {(watch.careersUrl || watch.website) && (
-              <a
-                href={watch.careersUrl ?? watch.website}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1 hover:text-foreground transition-colors"
-                onClick={e => e.stopPropagation()}
-              >
-                <ExternalLink className="size-3" />
-                Board
-              </a>
-            )}
-          </div>
-
-          {/* Line 3: persistent scan error */}
-          {watch.lastScanError && (
-            <p className="flex items-center gap-1 text-xs text-destructive">
-              <AlertTriangle className="size-3 shrink-0" />
-              {watch.lastScanError}
-            </p>
+          ) : (
+            <span className="text-xs text-muted-foreground">
+              {PROVIDER_LABELS[watch.atsProvider] ?? watch.atsProvider}
+            </span>
           )}
         </div>
-
         <div className="flex items-center gap-1 shrink-0">
           <Button
             size="sm"
@@ -161,7 +117,48 @@ export function CompanyWatchRow({ watch }: { watch: CompanyWatch }) {
         </div>
       </div>
 
+      {/* Line 2: meta — location filters + scan time + careers link */}
+      <div className="flex items-center gap-x-3 gap-y-1 text-xs text-muted-foreground flex-wrap">
+        {watch.searchLocations.length > 0 ? (
+          <>
+            {watch.searchLocations.map((loc) => (
+              <span key={loc} className="flex items-center gap-1">
+                <MapPin className="size-3" />
+                {loc}
+              </span>
+            ))}
+            {watch.includeRemote && (
+              <span className="text-muted-foreground/70">+remote</span>
+            )}
+          </>
+        ) : null}
+        <span className="flex items-center gap-1">
+          <Clock className="size-3" />
+          {scanLabel}
+        </span>
+        {(watch.careersUrl || watch.website) && (
+          <a
+            href={watch.careersUrl ?? watch.website}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1 hover:text-foreground transition-colors"
+            onClick={e => e.stopPropagation()}
+          >
+            <ExternalLink className="size-3" />
+            Board
+          </a>
+        )}
+      </div>
+
+      {/* Line 3: persistent scan error */}
+      {watch.lastScanError && (
+        <p className="flex items-start gap-1 text-xs text-destructive">
+          <AlertTriangle className="mt-0.5 size-3 shrink-0" />
+          {watch.lastScanError}
+        </p>
+      )}
+
       <EditWatchSheet watch={watch} open={editOpen} onOpenChange={setEditOpen} />
-    </>
+    </div>
   )
 }

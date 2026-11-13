@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Copy, Link2, Plus, Trash2 } from 'lucide-react'
+import { Copy, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { createScoutInviteAction, revokeScoutInviteAction } from '@/modules/scout-inbox/actions'
@@ -37,14 +37,11 @@ export function ScoutInvites({ invites }: { invites: Invite[] }) {
   }
 
   return (
-    <section className="rounded-lg border bg-card p-4">
-      <div className="flex items-center gap-2">
-        <Link2 className="size-4 text-muted-foreground" />
-        <h2 className="text-sm font-semibold">Scout invites</h2>
-      </div>
+    <section>
+      <h2 className="text-sm font-semibold">Scout invites</h2>
       <p className="mt-1 text-xs text-muted-foreground">Create a limited link for someone to share roles. They cannot access applications.</p>
       <form className="mt-3 flex gap-2" onSubmit={createInvite}>
-        <Input value={name} onChange={event => setName(event.target.value)} placeholder="e.g. Mum" maxLength={80} required />
+        <Input value={name} onChange={event => setName(event.target.value)} placeholder="e.g. Mum" aria-label="Invite name" maxLength={80} required className="h-8" />
         <Button size="sm" type="submit" disabled={busy}><Plus className="size-3.5" /> Create</Button>
       </form>
       {createdLink && (
@@ -57,10 +54,10 @@ export function ScoutInvites({ invites }: { invites: Invite[] }) {
         </div>
       )}
       {invites.length > 0 && (
-        <ul className="mt-3 space-y-2 text-xs">
+        <ul className="mt-3 divide-y rounded-lg border text-sm">
           {invites.map(invite => (
-            <li key={invite.id} className="flex items-center justify-between gap-2">
-              <span className="min-w-0 truncate">{invite.name} <code className="text-muted-foreground">{invite.prefix}…</code>{invite.revokedAt ? ' (revoked)' : ''}</span>
+            <li key={invite.id} className="flex min-h-10 items-center justify-between gap-2 py-1 pl-3 pr-1">
+              <span className="min-w-0 truncate">{invite.name} <code className="text-xs text-muted-foreground">{invite.prefix}…</code>{invite.revokedAt ? ' (revoked)' : ''}</span>
               {!invite.revokedAt && <Button size="sm" variant="ghost" className="h-7 px-2 text-destructive" onClick={() => revoke(invite.id)}><Trash2 className="size-3.5" /> Revoke</Button>}
             </li>
           ))}

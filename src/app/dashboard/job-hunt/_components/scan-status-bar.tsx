@@ -52,35 +52,26 @@ export function ScanStatusBar({ summary }: { summary: ScanSummary }) {
   const { companiesScanned, companiesFailed, boardsScanned, boardsFailed, jobsToday } = summary
 
   return (
-    <div className="rounded-lg border bg-card px-4 py-2.5 mb-4 flex flex-wrap items-center gap-x-4 gap-y-2">
-      <Button
-        size="sm"
-        variant="outline"
-        onClick={handleSync}
-        disabled={isPending}
-        className="h-7 px-2.5 text-xs shrink-0"
-      >
-        {isPending ? <Loader2 className="size-3 animate-spin" /> : <RefreshCw className="size-3" />}
+    <div className="flex flex-wrap items-center gap-x-6 gap-y-3 px-4 py-3">
+      <Button size="sm" variant="outline" onClick={handleSync} disabled={isPending} className="shrink-0">
+        {isPending ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
         <span className="ml-1.5">{isPending ? 'Syncing…' : 'Sync All'}</span>
       </Button>
 
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-        <span className="text-muted-foreground hidden sm:inline">·</span>
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs tabular-nums">
         <span className="flex items-center gap-1.5">
           <span className="text-muted-foreground">Companies</span>
           <StatPill label="scanned" value={companiesScanned} />
           {companiesFailed > 0 && <StatPill label="failed" value={companiesFailed} alert />}
         </span>
-        <span className="text-muted-foreground/40 hidden sm:inline">|</span>
         <span className="flex items-center gap-1.5">
           <span className="text-muted-foreground">Job Sources</span>
           <StatPill label="scanned" value={boardsScanned} />
           {boardsFailed > 0 && <StatPill label="failed" value={boardsFailed} alert />}
         </span>
-        <span className="text-muted-foreground/40 hidden sm:inline">|</span>
         <span className="flex items-center gap-1.5">
           <span className="text-muted-foreground">Found today</span>
-          <span className="text-xs font-medium text-foreground">{jobsToday}</span>
+          <span className="font-medium text-foreground">{jobsToday}</span>
         </span>
       </div>
     </div>

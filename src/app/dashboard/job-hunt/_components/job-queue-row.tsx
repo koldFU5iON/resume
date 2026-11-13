@@ -3,7 +3,7 @@
 import { useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
-import { MapPin, Clock, ExternalLink, Loader2, Trash2 } from 'lucide-react'
+import { Clock, ExternalLink, Loader2, Trash2 } from 'lucide-react'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
@@ -11,11 +11,11 @@ import { daysAgo, formatRelative } from '@/lib/utils'
 import { scoreDiscoveredJob, importJob, ignoreJob, removeDiscoveredJob } from '@/modules/job-hunt/actions'
 
 const FIT_BADGE_STYLES: Record<string, string> = {
-  standout: 'bg-red-100 text-red-800 border-red-200',
-  solid:    'bg-orange-100 text-orange-800 border-orange-200',
-  stretch:  'bg-amber-100 text-amber-800 border-amber-200',
-  possible: 'bg-blue-100 text-blue-800 border-blue-200',
-  reach:    'bg-slate-100 text-slate-600 border-slate-200',
+  standout: 'bg-red-500/15 text-red-700 dark:text-red-400',
+  solid:    'bg-orange-500/15 text-orange-700 dark:text-orange-400',
+  stretch:  'bg-amber-500/15 text-amber-700 dark:text-amber-400',
+  possible: 'bg-sky-500/15 text-sky-700 dark:text-sky-400',
+  reach:    'bg-muted text-muted-foreground',
 }
 
 export type DiscoveredJobWithWatch = {
@@ -96,62 +96,42 @@ export function JobQueueRow({ job }: { job: DiscoveredJobWithWatch }) {
   const isRecentPost = job.postedAt !== null && (daysAgo(job.postedAt) ?? Infinity) < 7
 
   return (
-    <div className="flex items-start justify-between gap-4 rounded-lg border px-4 py-3">
+    <div className="flex flex-col gap-3 px-4 py-3.5 @xl:flex-row @xl:items-start @xl:justify-between @xl:gap-4">
       <div className="min-w-0 space-y-1">
-        <div className="flex items-center gap-2 flex-wrap">
-          <p className="font-medium">{job.title}</p>
-          {isFoundToday && (
-            <span className="text-xs px-2 py-0.5 rounded-full border font-medium bg-emerald-50 text-emerald-700 border-emerald-200">
-              Found today
-            </span>
-          )}
-          {!isFoundToday && isRecentPost && (
-            <span className="text-xs px-2 py-0.5 rounded-full border font-medium bg-blue-50 text-blue-700 border-blue-200">
-              New
-            </span>
-          )}
+        <p className="font-medium leading-snug">{job.title}</p>
+        <p className="text-sm text-muted-foreground">
+          {job.company}
+          {job.location && <> · {job.location}</>}
+        </p>
+        {/* Status first, then the facts that back it up */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 pt-1 text-xs text-muted-foreground">
           {job.fitLabel && (
-            <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${FIT_BADGE_STYLES[job.fitLabel] ?? ''}`}>
+            <Badge variant="outline" className={cn('border-transparent', FIT_BADGE_STYLES[job.fitLabel])}>
               {job.fitLabel}
               {job.fitScore != null ? ` · ${job.fitScore.toFixed(0)}/10` : ''}
-            </span>
-          )}
-          {isImported && (
-            <Badge variant="secondary" className="text-xs">Imported</Badge>
-          )}
-          {job.watch && (
-            <span className="text-xs px-2 py-0.5 rounded-full border font-medium bg-purple-50 text-purple-700 border-purple-200">
-              company
-            </span>
-          )}
-          {job.boardSource && (
-            <span className="text-xs px-2 py-0.5 rounded-full border font-medium bg-emerald-50 text-emerald-700 border-emerald-200">
-              board
-            </span>
-          )}
-          {job.source === 'SCOUT' && (
-            <span className="text-xs px-2 py-0.5 rounded-full border font-medium bg-sky-50 text-sky-700 border-sky-200">
-              scout
-            </span>
+            </Badge>
           )}
           {job.scoutVerdict && (
-            <span className="text-xs px-2 py-0.5 rounded-full border font-medium bg-violet-50 text-violet-700 border-violet-200">
-              {job.scoutVerdict.toLowerCase()}
-            </span>
+            <Badge variant="outline" className="border-transparent bg-violet-500/15 text-violet-700 dark:text-violet-400">
+              Scout: {job.scoutVerdict.toLowerCase()}
+            </Badge>
           )}
-        </div>
-        <p className="text-sm text-muted-foreground">{job.company}</p>
-        <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
-          {job.location && (
-            <span className="flex items-center gap-1">
-              <MapPin className="size-3" />
-              {job.location}
-            </span>
+          {!isFoundToday && isRecentPost && (
+            <Badge variant="info">New</Badge>
+          )}
+          {isImported && (
+            <Badge variant="secondary">Imported</Badge>
+          )}
+          {job.salary && (
+            <span className="font-medium text-foreground">{job.salary}</span>
           )}
           <span className="flex items-center gap-1">
             <Clock className="size-3" />
             {ageLabel}
           </span>
+          {job.watch && <span>Company watch</span>}
+          {job.boardSource && <span>Job board</span>}
+          {job.source === 'SCOUT' && !job.scoutVerdict && <span>Scout</span>}
           {job.url && (
             <a
               href={job.url}
@@ -164,11 +144,6 @@ export function JobQueueRow({ job }: { job: DiscoveredJobWithWatch }) {
             </a>
           )}
         </div>
-        {job.salary && (
-          <span className="text-xs px-2 py-0.5 rounded-full border font-medium bg-green-50 text-green-700 border-green-200">
-            {job.salary}
-          </span>
-        )}
       </div>
 
       {!isImported && !isIgnored && (

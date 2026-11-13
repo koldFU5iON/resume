@@ -9,7 +9,8 @@ import { DiscoveredJobs } from './_components/discovered-jobs'
 import { JobBoardSources } from './_components/job-board-sources'
 import { ScanStatusBar } from './_components/scan-status-bar'
 import { ScoutInvites } from './_components/scout-invites'
-import { Settings2 } from 'lucide-react'
+import { ArrowDown, Settings2 } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { buttonVariants } from '@/components/ui/button'
 import { listScoutInvites } from '@/modules/scout-inbox/service'
 
@@ -47,52 +48,62 @@ export default async function JobHuntPage() {
       description="Scan companies and job boards, then review matched roles."
       fullWidth
     >
-      {/* Search criteria summary */}
-      <div className="rounded-lg border bg-card px-4 py-3 mb-4 flex items-center justify-between gap-4">
-        <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
-          {criteria.roles.length > 0 && (
-            <span><span className="text-muted-foreground text-xs uppercase tracking-wide mr-1.5">Roles</span>{criteria.roles.join(', ')}</span>
-          )}
-          {criteria.countries.length > 0 && (
-            <span><span className="text-muted-foreground text-xs uppercase tracking-wide mr-1.5">Countries</span>{criteria.countries.join(', ')}</span>
-          )}
-          {criteria.remotePreference && (
-            <span><span className="text-muted-foreground text-xs uppercase tracking-wide mr-1.5">Remote</span>{criteria.remotePreference}</span>
-          )}
-          {!hasCriteria && (
-            <span className="text-muted-foreground text-sm">No search criteria set yet</span>
-          )}
-        </div>
-        <Link
-          href="/dashboard/search-context"
-          className={buttonVariants({ variant: 'outline', size: 'sm' })}
-        >
-          <Settings2 className="size-3.5 mr-1.5" />
-          Edit search context
-        </Link>
-      </div>
-
-      {/* Sync status bar */}
-      <ScanStatusBar summary={summary} />
-
-      <div className="grid grid-cols-1 lg:grid-cols-[280px_280px_1fr] gap-6 items-start">
-        <aside className="space-y-6 lg:sticky lg:top-6">
-          <Watchlist
-            watches={watches}
-            defaultLocations={criteria.countries}
-            defaultRemote={criteria.remotePreference !== 'onsite'}
-          />
-        </aside>
-
-          <aside className="lg:sticky lg:top-6">
-          <div className="space-y-6">
-            <JobBoardSources sources={boardSources} availableProviders={availableProviders} manualBoards={manualBoards} />
-            <ScoutInvites invites={scoutInvites} />
+      <div className="@container">
+        {/* What we search for, and how the last scan went */}
+        <section aria-label="Search criteria and scan status" className="mb-8 divide-y rounded-lg border bg-card">
+          <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
+              {criteria.roles.length > 0 && (
+                <span><span className="text-muted-foreground text-xs uppercase tracking-wide mr-1.5">Roles</span>{criteria.roles.join(', ')}</span>
+              )}
+              {criteria.countries.length > 0 && (
+                <span><span className="text-muted-foreground text-xs uppercase tracking-wide mr-1.5">Countries</span>{criteria.countries.join(', ')}</span>
+              )}
+              {criteria.remotePreference && (
+                <span><span className="text-muted-foreground text-xs uppercase tracking-wide mr-1.5">Remote</span>{criteria.remotePreference}</span>
+              )}
+              {!hasCriteria && (
+                <span className="text-muted-foreground text-sm">No search criteria set yet</span>
+              )}
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              {/* Sources sit below the roles until the rail fits beside them */}
+              <a href="#sources" className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), '@4xl:hidden')}>
+                <ArrowDown className="size-3.5 mr-1.5" />
+                Sources
+              </a>
+              <Link
+                href="/dashboard/search-context"
+                className={buttonVariants({ variant: 'outline', size: 'sm' })}
+              >
+                <Settings2 className="size-3.5 mr-1.5" />
+                Edit search context
+              </Link>
+            </div>
           </div>
-        </aside>
+          <ScanStatusBar summary={summary} />
+        </section>
 
-        <div className="min-w-0">
-          <DiscoveredJobs jobs={jobs} />
+        <div className="grid items-start gap-x-10 gap-y-12 @4xl:grid-cols-[minmax(0,1fr)_22rem]">
+          <div className="min-w-0">
+            <DiscoveredJobs jobs={jobs} />
+          </div>
+
+          <aside
+            id="sources"
+            aria-label="Sources"
+            className="grid scroll-mt-6 items-start gap-10 @2xl:grid-cols-2 @4xl:grid-cols-1"
+          >
+            <Watchlist
+              watches={watches}
+              defaultLocations={criteria.countries}
+              defaultRemote={criteria.remotePreference !== 'onsite'}
+            />
+            <div className="space-y-10">
+              <JobBoardSources sources={boardSources} availableProviders={availableProviders} manualBoards={manualBoards} />
+              <ScoutInvites invites={scoutInvites} />
+            </div>
+          </aside>
         </div>
       </div>
     </ContentContainer>
