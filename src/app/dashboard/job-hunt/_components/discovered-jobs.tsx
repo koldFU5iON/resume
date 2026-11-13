@@ -34,36 +34,31 @@ function GroupAccordion({
   defaultOpen?: boolean
 }) {
   const [open, setOpen] = useState(defaultOpen)
+  if (jobs.length === 0) return null
 
   const pillClass = {
     neutral: 'bg-muted text-muted-foreground',
-    amber: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-    green: 'bg-green-500/10 text-green-600 dark:text-green-400',
+    amber: 'bg-amber-500/15 text-amber-700 dark:text-amber-400',
+    green: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400',
   }[pillVariant]
 
   return (
-    <div className="mb-4">
+    <div className="mb-8 last:mb-0">
       <button
         onClick={() => setOpen(v => !v)}
-        className="w-full flex items-center gap-2 mb-2 text-left"
+        className="w-full flex items-center gap-2 mb-2 py-1.5 text-left"
         aria-expanded={open}
       >
         <span className="text-sm font-semibold">{title}</span>
-        {jobs.length > 0 && (
-          <span className={cn('inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium', pillClass)}>
-            {jobs.length}
-          </span>
-        )}
-        <ChevronDown className={cn('size-3.5 text-muted-foreground/50 transition-transform duration-200 ml-auto shrink-0', !open && 'rotate-90')} />
+        <span className={cn('inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium tabular-nums', pillClass)}>
+          {jobs.length}
+        </span>
+        <ChevronDown className={cn('size-3.5 text-muted-foreground transition-transform duration-200 ml-auto shrink-0', !open && '-rotate-90')} />
       </button>
       {open && (
-        jobs.length === 0 ? (
-          <p className="text-xs text-muted-foreground py-3 text-center">None</p>
-        ) : (
-          <div className="space-y-2">
-            {jobs.map(job => <JobQueueRow key={job.id} job={job} />)}
-          </div>
-        )
+        <div className="divide-y rounded-lg border">
+          {jobs.map(job => <JobQueueRow key={job.id} job={job} />)}
+        </div>
       )}
     </div>
   )
@@ -95,8 +90,8 @@ export function DiscoveredJobs({ jobs }: Props) {
   const pendingCount = jobs.filter(j => j.status === 'new' || j.status === 'scored').length
 
   return (
-    <section>
-      <div className="flex items-center justify-between mb-3">
+    <section className="@container">
+      <div className="flex items-end justify-between gap-4 mb-4">
         <div>
           <h2 className="text-base font-semibold">Discovered Roles</h2>
           <p className="text-sm text-muted-foreground">
@@ -104,7 +99,8 @@ export function DiscoveredJobs({ jobs }: Props) {
           </p>
         </div>
         <button
-          className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+          className="shrink-0 py-1 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          aria-pressed={showIgnored}
           onClick={() => setShowIgnored(v => !v)}
         >
           {showIgnored ? 'Hide ignored' : 'Show ignored'}
@@ -112,12 +108,13 @@ export function DiscoveredJobs({ jobs }: Props) {
       </div>
 
       {/* Source filter tabs */}
-      <div className="flex gap-1 mb-4 border-b">
+      <div className="flex mb-6 border-b overflow-x-auto">
         {TABS.map((t) => (
           <button
             key={t.value}
             onClick={() => setTab(t.value)}
-            className={`px-3 py-1.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+            aria-pressed={tab === t.value}
+            className={`shrink-0 px-2.5 py-2 text-sm font-medium border-b-2 transition-colors @md:px-3.5 ${
               tab === t.value
                 ? 'border-foreground text-foreground'
                 : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -128,7 +125,7 @@ export function DiscoveredJobs({ jobs }: Props) {
         ))}
       </div>
 
-      {visible.length === 0 ? (
+      {foundToday.length + underReview.length + imported.length === 0 ? (
         <div className="rounded-lg border border-dashed px-6 py-10 text-center">
           <p className="text-sm text-muted-foreground">
             {tab === 'company'
@@ -137,7 +134,9 @@ export function DiscoveredJobs({ jobs }: Props) {
               ? 'No board roles found yet. Enable a job board source and click Scan.'
               : tab === 'scout'
               ? 'No Scout roles have been shared yet.'
-              : 'No roles found yet.'}
+              : tab === 'scored'
+              ? 'No scored roles yet. Use Score Fit on a role to see how well it matches.'
+              : 'No roles found yet. Watch a company or enable a job board under Sources, then Sync All.'}
           </p>
         </div>
       ) : (

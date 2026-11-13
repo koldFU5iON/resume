@@ -54,44 +54,48 @@ export function ManualBoardsSection({ boards }: Props) {
   }
 
   return (
-    <div className="rounded-lg border border-dashed px-3 py-3 space-y-3">
+    <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+        <p className="text-xs font-medium text-muted-foreground">
           Manual boards
         </p>
         <button
           onClick={() => setShowForm((v) => !v)}
-          className="flex items-center gap-0.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+          aria-expanded={showForm}
+          className="-my-1 flex items-center gap-1 py-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
         >
-          <Plus className="size-2.5" />
+          <Plus className="size-3" />
           Add
         </button>
       </div>
 
       {showForm && (
-        <div className="space-y-1.5 pb-1">
+        <div className="space-y-2 pb-2">
           <Input
             value={category}
             onChange={(e) => setCategory(e.target.value)}
             placeholder="Category (e.g. Gaming)"
-            className="h-6 text-xs"
+            aria-label="Category"
+            className="h-8 text-sm"
           />
           <Input
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Name (e.g. Hitmarker)"
-            className="h-6 text-xs"
+            aria-label="Board name"
+            className="h-8 text-sm"
           />
           <Input
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             placeholder="URL (https://…)"
-            className="h-6 text-xs"
+            aria-label="Board URL"
+            className="h-8 text-sm"
           />
-          <div className="flex gap-1.5 pt-0.5">
+          <div className="flex gap-2">
             <Button
               size="sm"
-              className="h-6 px-2 text-xs flex-1"
+              className="flex-1"
               onClick={handleAdd}
               disabled={isPending || !category.trim() || !name.trim() || !url.trim()}
             >
@@ -100,7 +104,6 @@ export function ManualBoardsSection({ boards }: Props) {
             <Button
               size="sm"
               variant="ghost"
-              className="h-6 px-2 text-xs"
               onClick={() => setShowForm(false)}
             >
               Cancel
@@ -115,26 +118,26 @@ export function ManualBoardsSection({ boards }: Props) {
 
       {[...grouped.entries()].map(([cat, items]) => (
         <div key={cat}>
-          <p className="text-[10px] font-medium text-muted-foreground mb-1">{cat}</p>
-          <div className="space-y-0.5">
+          <p className="text-xs text-muted-foreground mb-1">{cat}</p>
+          <div>
             {items.map((board) => (
-              <div key={board.id} className="flex items-center gap-1 group">
+              <div key={board.id} className="flex items-center gap-1">
                 <a
                   href={board.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-1 text-xs text-foreground hover:text-primary transition-colors flex-1 min-w-0"
+                  className="flex items-center gap-1.5 py-1 text-sm text-foreground hover:text-primary transition-colors flex-1 min-w-0"
                 >
                   <span className="truncate">{board.name}</span>
-                  <ExternalLink className="size-2.5 opacity-50 shrink-0" />
+                  <ExternalLink className="size-3 opacity-50 shrink-0" />
                 </a>
                 <button
                   onClick={() => handleRemove(board.id, board.name)}
                   disabled={isPending}
-                  className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all shrink-0"
+                  className="p-1.5 text-muted-foreground hover:text-destructive transition-colors shrink-0"
                   aria-label={`Remove ${board.name}`}
                 >
-                  <X className="size-2.5" />
+                  <X className="size-3" />
                 </button>
               </div>
             ))}
