@@ -10,16 +10,18 @@ type Props = {
   initialEstimate: SalaryEstimateType | null
   hasJD: boolean
   hasLLMKey: boolean
+  showLabel?: boolean
 }
 
-export function SalaryPopover({ jobId, initialEstimate, hasJD, hasLLMKey }: Props) {
+export function SalaryPopover({ jobId, initialEstimate, hasJD, hasLLMKey, showLabel = false }: Props) {
   return (
     <Popover>
       <PopoverTrigger
-        className="inline-flex size-5 items-center justify-center rounded text-muted-foreground/50 transition-colors hover:bg-muted hover:text-muted-foreground"
-        aria-label="Salary estimate"
+        className={showLabel ? "inline-flex min-h-11 items-center gap-2 rounded-md border border-border px-3 text-sm text-muted-foreground" : "inline-flex size-5 items-center justify-center rounded text-muted-foreground/50 transition-colors hover:bg-muted hover:text-muted-foreground"}
+        aria-label={showLabel ? "Salary details and estimate" : "Salary estimate"}
       >
-        <TrendingUp size={11} />
+        <TrendingUp size={showLabel ? 16 : 11} />
+        {showLabel && "Salary details"}
       </PopoverTrigger>
       <PopoverContent side="bottom" align="start" className="w-64 space-y-2">
         <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">

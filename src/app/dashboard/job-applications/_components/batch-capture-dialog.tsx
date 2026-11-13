@@ -126,7 +126,7 @@ export function BatchCaptureDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg max-md:max-h-[90dvh] max-md:overflow-y-auto max-md:[&_button]:min-h-11 max-md:[&_[data-slot=dialog-close]]:size-11">
         <DialogHeader>
           <DialogTitle>Batch Add Jobs</DialogTitle>
         </DialogHeader>
@@ -138,9 +138,9 @@ export function BatchCaptureDialog({
               value={text}
               onChange={e => setText(e.target.value)}
               rows={8}
-              className="font-mono text-xs resize-none"
+              className="min-h-40 resize-none text-base md:font-mono md:text-xs"
             />
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <span className="text-xs text-muted-foreground">
                 {parsedCount === 0
                   ? 'No URLs detected'

@@ -37,7 +37,7 @@ export function PostingAge({ datePublished, dateApplied, status }: PostingAgePro
 
     return (
       <Tooltip>
-        <TooltipTrigger>
+        <TooltipTrigger className="max-md:min-h-11">
           <span className={cn('cursor-default text-xs', colorClass)}>
             {formatShortDate(datePublished)}
           </span>
@@ -68,7 +68,7 @@ export function PostingAge({ datePublished, dateApplied, status }: PostingAgePro
 
   return (
     <Tooltip>
-      <TooltipTrigger>
+      <TooltipTrigger className="max-md:min-h-11">
         <span className={cn('cursor-default text-xs', colorClass)}>
           {formatShortDate(datePublished)}
         </span>

@@ -4,13 +4,17 @@ import { JOB_APPLICATIONS_DESCRIPTION, JOB_LIST_COLUMNS } from './_components/jo
 
 export default function Loading() {
   return (
-    <ContentContainer fullWidth title="Job Applications" description={JOB_APPLICATIONS_DESCRIPTION}>
+    <ContentContainer fullWidth compactHeaderOnMobile title="Job Applications" description={JOB_APPLICATIONS_DESCRIPTION}>
       <div role="status" aria-label="Loading job applications" className="@container">
         <span className="sr-only">Loading job applications…</span>
         <div aria-hidden="true" className="flex flex-col gap-2">
-          <Skeleton className="mb-3 h-8 w-32" />
+          <Skeleton className="mb-1 h-[50px] w-full md:mb-3 md:h-8 md:w-32" />
           <div className="mt-2 border-t border-accent pt-3">
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="space-y-3 md:hidden">
+              <div className="flex items-center justify-between"><Skeleton className="h-4 w-16" /><Skeleton className="h-11 w-28" /></div>
+              <Skeleton className="h-12 w-full" /><Skeleton className="h-11 w-full" />
+            </div>
+            <div className="hidden flex-wrap items-center gap-2 md:flex">
               <Skeleton className="h-8 w-full sm:w-80" />
               <Skeleton className="h-8 w-28" />
               <Skeleton className="h-8 w-20" />
@@ -20,7 +24,7 @@ export default function Loading() {
                 <Skeleton className="h-8 w-28" />
               </div>
             </div>
-            <Skeleton className="mt-2 h-3 w-16" />
+            <Skeleton className="mt-2 hidden h-3 w-16 md:block" />
             <div className="my-3 border-t border-border" />
 
             <div className={`hidden @5xl:grid ${JOB_LIST_COLUMNS}`}>
@@ -62,14 +66,14 @@ export default function Loading() {
 
             <div className="space-y-2 @5xl:hidden">
               {Array.from({ length: 5 }, (_, i) => (
-                <div key={i} className="space-y-3 rounded-md border border-border/30 p-3">
-                  <Skeleton className="h-4 w-3/4" />
-                  <Skeleton className="h-3 w-1/2" />
+                <div key={i} className="space-y-4 rounded-md border border-border/30 p-4 py-5">
+                  <Skeleton className="h-5 w-3/4" />
+                  <Skeleton className="h-4 w-1/2" />
                   <div className="flex gap-3">
-                    <Skeleton className="h-7 w-28" />
-                    <Skeleton className="h-7 w-24" />
+                    <Skeleton className="h-11 w-28" />
+                    <Skeleton className="h-11 w-24" />
                   </div>
-                  <Skeleton className="h-3 w-2/3" />
+                  <Skeleton className="h-11 w-2/3" />
                 </div>
               ))}
             </div>

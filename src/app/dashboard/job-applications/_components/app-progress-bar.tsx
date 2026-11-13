@@ -1,6 +1,7 @@
 'use client'
 
 import { useTransition } from "react"
+import { ChevronDown } from "lucide-react"
 import { toast } from "sonner"
 import clsx from "clsx";
 import React from "react";
@@ -22,10 +23,12 @@ export function AppProgressBar({
   progress,
   jobId,
   compact = false,
+  textOnly = false,
 }: {
   progress: ApplicationProgressType
   jobId: string
   compact?: boolean
+  textOnly?: boolean
 }) {
   const [isPending, startTransition] = useTransition()
   const activeIndex = stages.indexOf(progress)
@@ -46,8 +49,9 @@ export function AppProgressBar({
       <DropdownMenuTrigger
         disabled={isPending}
         aria-label={`Application progress: ${progress}`}
-        className={clsx("flex min-h-8 flex-col justify-center cursor-pointer", compact ? "items-start" : "items-center")}
+        className={clsx("flex min-h-8 justify-center cursor-pointer", textOnly ? "min-h-11 flex-row items-center gap-2 rounded-md border border-border px-3 text-sm capitalize focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" : "flex-col", compact ? "items-start" : "items-center")}
       >
+        {textOnly ? <><span>Progress: {progress}</span><ChevronDown className="size-4" /></> : <>
         <span className={compact ? "sr-only" : "text-xs text-muted-foreground"}>Progress</span>
         <div className="flex items-center w-28">
           {stages.map((stage, index) => {
@@ -62,6 +66,7 @@ export function AppProgressBar({
             )
           })}
         </div>
+        </>}
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-48">
         <DropdownMenuGroup>
@@ -69,7 +74,7 @@ export function AppProgressBar({
             <DropdownMenuItem
               key={stage}
               onClick={() => handleSelect(stage)}
-              className={clsx("capitalize", stage === progress && "font-semibold")}
+              className={clsx("capitalize max-md:min-h-11", stage === progress && "font-semibold")}
             >
               {stage}
             </DropdownMenuItem>

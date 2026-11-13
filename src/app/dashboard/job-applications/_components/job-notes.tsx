@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from "react"
+import { useId, useState, useTransition } from "react"
 import { StickyNote } from "lucide-react"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { Button } from "@/components/ui/button"
@@ -14,9 +14,11 @@ type JobNotesProps = {
   jobId: string
   initialNotes: string | null
   initialIncludeInFit: boolean
+  showLabel?: boolean
 }
 
-export function JobNotes({ jobId, initialNotes, initialIncludeInFit }: JobNotesProps) {
+export function JobNotes({ jobId, initialNotes, initialIncludeInFit, showLabel = false }: JobNotesProps) {
+  const includeId = useId()
   const [saved, setSaved] = useState(initialNotes ?? '')
   const [savedIncludeInFit, setSavedIncludeInFit] = useState(initialIncludeInFit)
   const [draft, setDraft] = useState(saved)
@@ -59,16 +61,18 @@ export function JobNotes({ jobId, initialNotes, initialIncludeInFit }: JobNotesP
         aria-label={hasNotes ? 'View note' : 'Add note'}
         title={hasNotes ? 'View note' : 'Add note'}
         className={cn(
-          "flex size-6 items-center justify-center rounded-md transition-colors",
+          "flex items-center justify-center rounded-md transition-colors",
+          showLabel ? "min-h-11 gap-2 border border-border px-3 text-sm text-muted-foreground" : "size-6",
           hasNotes
             ? "hover:bg-muted/50"
-            : "text-muted-foreground/40 hover:bg-muted hover:text-foreground",
+            : showLabel ? "hover:bg-muted hover:text-foreground" : "text-muted-foreground/40 hover:bg-muted hover:text-foreground",
         )}
       >
         <StickyNote
           size={14}
           className={hasNotes ? 'fill-amber-200 text-amber-500' : ''}
         />
+        {showLabel && (hasNotes ? 'View note' : 'Add note')}
       </PopoverTrigger>
       <PopoverContent className="w-72">
         <div className="space-y-3">
@@ -79,21 +83,21 @@ export function JobNotes({ jobId, initialNotes, initialIncludeInFit }: JobNotesP
             placeholder="Add a note..."
             rows={4}
             disabled={isPending}
-            className="resize-none text-xs"
+            className="resize-none text-base md:text-xs"
           />
-          <label htmlFor="include-in-fit" className={cn(
-            "flex items-center gap-2 text-xs cursor-pointer select-none",
+          <label htmlFor={includeId} className={cn(
+            "flex min-h-11 items-center gap-2 text-sm cursor-pointer select-none md:min-h-0 md:text-xs",
             (!draft.trim() || isPending) ? "text-muted-foreground/40 cursor-not-allowed" : "text-muted-foreground",
           )}>
             <Checkbox
-              id="include-in-fit"
+              id={includeId}
               checked={includeInFit}
               onCheckedChange={setIncludeInFit}
               disabled={isPending || !draft.trim()}
             />
             Include in job-fit assessment
           </label>
-          <div className="flex justify-end gap-2">
+          <div className="flex justify-end gap-2 [&_button]:max-md:min-h-11">
             <Button
               type="button"
               variant="ghost"
