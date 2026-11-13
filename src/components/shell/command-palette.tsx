@@ -37,7 +37,7 @@ type CommandPaletteProps = {
 
 export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const router = useRouter()
-  const { togglePanel, setAddJobOpen } = usePageContext()
+  const { togglePanel } = usePageContext()
   const { resolvedTheme, setTheme } = useTheme()
 
   const go = (href: string) => {
@@ -59,8 +59,8 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
             <span>AI Coach</span>
           </CommandItem>
           <CommandItem
-            value="Add job capture URL"
-            onSelect={() => { onOpenChange(false); setAddJobOpen(true) }}
+            value="Add job application create new"
+            onSelect={() => go("/dashboard/job-applications?create=1")}
           >
             <Plus />
             <span>Add job</span>

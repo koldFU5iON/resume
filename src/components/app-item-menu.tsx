@@ -2,14 +2,12 @@ import Link from "next/link"
 import {
   Archive,
   FileText,
-  FilePlus,
   Inspect,
   LucideIcon,
   Mail,
   MoreHorizontal,
   NotebookPen,
-  Pencil,
-  Trash
+  Pencil
 } from "lucide-react"
 import {
   DropdownMenu,
@@ -18,7 +16,6 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
-  DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { DeprecatingSoonBadge } from "@/components/legacy-editors/deprecation"
@@ -49,7 +46,6 @@ export function AppControls({ id, cvDocumentId, coverLetterDocumentId, onEdit, o
             Icon={Inspect}
             label="View"
             action={`/dashboard/job-applications/view/${id}`}
-            shortcut="V"
           />
         </DropdownMenuGroup>
 
@@ -63,7 +59,6 @@ export function AppControls({ id, cvDocumentId, coverLetterDocumentId, onEdit, o
               label="View CV"
               deprecated
               action={`/dashboard/cv-builder/${cvDocumentId}`}
-              shortcut="⌘D"
             />
           ) : (
             <AppControlsItem
@@ -72,7 +67,6 @@ export function AppControls({ id, cvDocumentId, coverLetterDocumentId, onEdit, o
               deprecated
               onSelect={onGenerateCV}
               action={onGenerateCV ? undefined : `/dashboard/cv-builder/new?jobId=${id}`}
-              shortcut="⌘D"
             />
           )}
           {coverLetterDocumentId ? (
@@ -97,17 +91,10 @@ export function AppControls({ id, cvDocumentId, coverLetterDocumentId, onEdit, o
             action={`/dashboard/job-applications/view/${id}/writing`}
           />
           <AppControlsItem
-            Icon={FilePlus}
-            label="Add File"
-            disabled
-            shortcut="⌘F"
-          />
-          <AppControlsItem
             Icon={Pencil}
             label="Edit"
             onSelect={onEdit}
             disabled={!onEdit}
-            shortcut="⌘E"
           />
           <AppControlsItem
             Icon={Archive}
@@ -117,16 +104,6 @@ export function AppControls({ id, cvDocumentId, coverLetterDocumentId, onEdit, o
           />
         </DropdownMenuGroup>
 
-        <DropdownMenuSeparator />
-
-        <DropdownMenuGroup>
-          <AppControlsItem
-            Icon={Trash}
-            label="Delete Job"
-            color="red"
-            disabled
-          />
-        </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>
   )
@@ -137,20 +114,17 @@ type AppControlsItemProps = {
   label: string
   /** Opens a legacy editor that Writing Desk documents replace (#379). */
   deprecated?: boolean
-  color?: string
   action?: string
   onSelect?: () => void
   disabled?: boolean
-  shortcut?: string
 }
 
-function AppControlsItem({ Icon, color, label, deprecated, action, onSelect, disabled, shortcut }: AppControlsItemProps) {
+function AppControlsItem({ Icon, label, deprecated, action, onSelect, disabled }: AppControlsItemProps) {
   const content = (
     <>
-      {Icon && <Icon color={color} className="size-4" />}
+      <Icon className="size-4" />
       <span className="flex-1 whitespace-nowrap">{label}</span>
       {deprecated && <DeprecatingSoonBadge />}
-      {shortcut && <DropdownMenuShortcut>{shortcut}</DropdownMenuShortcut>}
     </>
   )
 

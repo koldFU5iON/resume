@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { JobFitSchema, SalaryEstimateSchema } from "./schema"
+import { JobFitSchema, SalaryEstimateSchema, createJobSchema, updateJobSchema } from "./schema"
 
 const base = { rating: 7, justification: "Strong match." }
 
@@ -71,5 +71,61 @@ describe("SalaryEstimateSchema", () => {
     expect(
       SalaryEstimateSchema.safeParse({ ...estimated, confidence: "very-high" }).success
     ).toBe(false)
+  })
+})
+
+describe("createJobSchema", () => {
+  const ok = { title: "PM", company: "Acme", applicationSource: "cold" as const }
+  const issues = (input: unknown) =>
+    createJobSchema.safeParse(input).error?.issues.map(i => i.path.join(".")) ?? []
+
+  it("rejects a whitespace-only title", () => {
+    expect(issues({ ...ok, title: "   " })).toEqual(["title"])
+  })
+
+  it("trims text fields but not the description", () => {
+    const res = createJobSchema.parse({
+      ...ok, title: " PM ", company: " Acme ", url: " https://x.com/j ", location: " UK ",
+      jobNumber: " J1 ", salaryBand: " £1 ", recruiterName: " Hays ", jobDescription: "  JD  ",
+    })
+    expect(res).toMatchObject({
+      title: "PM", company: "Acme", url: "https://x.com/j", location: "UK",
+      jobNumber: "J1", salaryBand: "£1", recruiterName: "Hays", jobDescription: "  JD  ",
+    })
+  })
+
+  it("requires company unless via an agency, on the company field", () => {
+    expect(issues({ ...ok, company: "  " })).toEqual(["company"])
+    expect(issues({ ...ok, company: undefined, isRecruitmentAgency: true })).toEqual([])
+  })
+
+  it("reports the company and title errors together", () => {
+    expect(issues({ ...ok, title: "", company: "" }).sort()).toEqual(["company", "title"])
+  })
+
+  it.each(["", "http://intranet/jobs/1", "https://boards.greenhouse.io/x/jobs/1"])(
+    "accepts URL %j",
+    (url) => { expect(issues({ ...ok, url })).toEqual([]) },
+  )
+
+  it.each(["javascript:alert(1)", "data:text/html,hi", "ftp://x.com", "not a url", "//x.com"])(
+    "rejects URL %j",
+    (url) => { expect(issues({ ...ok, url })).toEqual(["url"]) },
+  )
+})
+
+describe("updateJobSchema", () => {
+  it("accepts an empty or single-field patch", () => {
+    expect(updateJobSchema.safeParse({}).success).toBe(true)
+    expect(updateJobSchema.safeParse({ salaryBand: "£1" }).success).toBe(true)
+  })
+
+  it("keeps the URL scheme rule, so a legacy URL must be fixed or cleared", () => {
+    expect(updateJobSchema.safeParse({ url: "javascript:alert(1)" }).success).toBe(false)
+    expect(updateJobSchema.safeParse({ url: "" }).success).toBe(true)
+  })
+
+  it("does not require company", () => {
+    expect(updateJobSchema.safeParse({ company: "" }).success).toBe(true)
   })
 })

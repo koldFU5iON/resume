@@ -36,6 +36,10 @@ export const DEFAULT_FILTER: FilterState = {
 
 export const DEFAULT_SORT: SortState = { field: 'dateApplied', direction: 'desc' }
 
+export function selectSortField(current: SortState, field: SortField): SortState {
+  return field === current.field ? current : { field, direction: field === 'company' ? 'asc' : 'desc' }
+}
+
 export function isFilterActive(f: FilterState) {
   return f.status.size > 0 || f.source.size > 0 || f.fit.size > 0 || f.early.size > 0
 }
@@ -224,7 +228,7 @@ function SortDropdown({ sort, options, onSortChange }: SortDropdownProps) {
             <div key={opt.value} className="flex items-center rounded hover:bg-muted transition-colors">
               <button
                 type="button"
-                onClick={() => onSortChange({ field: opt.value, direction: sort.direction })}
+                onClick={() => onSortChange(selectSortField(sort, opt.value))}
                 className={cn(
                   "flex-1 px-2 py-1.5 text-left text-sm",
                   isActive && "font-medium text-foreground",

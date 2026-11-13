@@ -21,6 +21,7 @@ import { Badge } from "@/components/ui/badge"
 import { FreshnessChip } from "./freshness-chip"
 import { PostingAge } from "./posting-age"
 import clsx from "clsx"
+import { isHttpUrl } from "@/modules/jobs/form-utils"
 
 type JobRowProps = {
   job: Job
@@ -100,7 +101,7 @@ export function JobRow({ job, selected, busyLabel, onToggleSelect, onEdit, onArc
           >
             {title}
           </Link>
-          {url && (
+          {isHttpUrl(url) && (
             <a
               href={url}
               target="_blank"

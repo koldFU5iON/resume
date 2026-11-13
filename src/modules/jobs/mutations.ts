@@ -51,21 +51,30 @@ const STATUS_TRANSITIONS: Record<ApplicationStatusType, StatusTransition> = {
 
 export async function createJobApplication(data: z.infer<typeof createJobSchema>) {
   const { profile } = await requireProfile()
-  const { location, url, ...rest } = data
-  const countries = location
-    ? location.split(',').map(s => s.trim()).filter(Boolean)
+  // Runtime parse: a hand-made call can't set other columns, and blanks are trimmed.
+  const v = createJobSchema.parse(data)
+  const countries = v.location
+    ? v.location.split(',').map(s => s.trim()).filter(Boolean)
     : []
   const job = await prisma.jobApplication.create({
     data: {
-      ...rest,
-      company: rest.company || null,
-      url: url || undefined,
+      title: v.title,
+      company: v.company || null,
+      url: v.url || null,
+      jobNumber: v.jobNumber || null,
+      salaryBand: v.salaryBand || null,
+      jobDescription: v.jobDescription?.trim() ? v.jobDescription : null,
+      datePublished: v.datePublished ?? null,
+      applicationSource: v.applicationSource,
+      isRecruitmentAgency: v.isRecruitmentAgency ?? false,
+      recruiterName: v.isRecruitmentAgency ? v.recruiterName || null : null,
       countries,
       profileId: profile.id,
     },
   })
   await linkJobCompany(profile.id, job.id)
   await queueJobAssessmentSafely(profile.id, job.id, { reason: 'created' })
+  revalidatePath('/dashboard/job-applications')
   return job
 }
 
@@ -301,6 +310,17 @@ export async function restoreJobApplication(id: string): Promise<void> {
   })
   revalidatePath('/dashboard/job-applications')
   revalidatePath(`/dashboard/job-applications/view/${id}`)
+}
+
+export async function bulkRestoreJobApplications(ids: string[]) {
+  if (ids.length === 0) return { restored: 0 }
+  const { profile } = await requireProfile()
+  const result = await prisma.jobApplication.updateMany({
+    where: { id: { in: ids }, profileId: profile.id, archivedAt: { not: null } },
+    data: { archivedAt: null },
+  })
+  revalidatePath('/dashboard/job-applications')
+  return { restored: result.count }
 }
 
 export async function getArchivedJobsAction(): Promise<Job[]> {

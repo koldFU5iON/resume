@@ -1,6 +1,7 @@
 'use client'
 
 import { useTransition } from "react"
+import { toast } from "sonner"
 import {
   APPLICATION_STATUS_LABEL,
   ClosedStatuses,
@@ -47,8 +48,12 @@ export function StatusDropdown({ jobId, status, onChanged, className, triggerId 
   const handleSelect = (next: ApplicationStatusType) => {
     if (next === status) return
     startTransition(async () => {
-      await updateJobStatus(jobId, next)
-      onChanged?.()
+      try {
+        await updateJobStatus(jobId, next)
+        onChanged?.()
+      } catch {
+        toast.error('Could not update status. Please try again.')
+      }
     })
   }
 

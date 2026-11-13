@@ -53,7 +53,7 @@ export function PipelineCard({ byStatus, totalActive }: Props) {
         {totalActive === 0 ? (
           <p className="text-sm text-muted-foreground py-4 text-center">
             No active applications yet.{" "}
-            <Link href="/dashboard/job-applications" className="underline underline-offset-4 hover:text-foreground transition-colors">
+            <Link href="/dashboard/job-applications?create=1" className="underline underline-offset-4 hover:text-foreground transition-colors">
               Add your first job
             </Link>
           </p>

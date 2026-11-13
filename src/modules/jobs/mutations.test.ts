@@ -9,15 +9,18 @@ vi.mock('@/lib/db', () => ({
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 vi.mock('./queries', () => ({ getArchivedJobs: vi.fn() }))
 vi.mock('@/modules/cv/acceptance', () => ({ acceptLatestCVForAppliedJob: vi.fn() }))
+vi.mock('@/modules/companies/match', () => ({ linkJobCompany: vi.fn() }))
 vi.mock('@/modules/job-assessment/queue', () => ({
   queueJobAssessmentSafely: vi.fn(),
   assessmentMaybeEnabled: vi.fn(() => true),
 }))
 
 import { prisma } from '@/lib/db'
+import { revalidatePath } from 'next/cache'
 import { assessmentMaybeEnabled, queueJobAssessmentSafely } from '@/modules/job-assessment/queue'
 import { acceptLatestCVForAppliedJob } from '@/modules/cv/acceptance'
-import { createJobApplication, updateJobApplication, updateJobSalaryBand, updateJobStatus } from './mutations'
+import { linkJobCompany } from '@/modules/companies/match'
+import { createJobApplication, updateJobApplication, updateJobSalaryBand, updateJobStatus, bulkRestoreJobApplications } from './mutations'
 
 const mockCreate = vi.mocked(prisma.jobApplication.create)
 const mockFind = vi.mocked(prisma.jobApplication.findFirst)
@@ -50,13 +53,84 @@ beforeEach(() => {
   mockUpdate.mockResolvedValue({ count: 1 })
 })
 
+describe('bulkRestoreJobApplications', () => {
+  it('restores only archived jobs belonging to the signed-in profile', async () => {
+    expect(await bulkRestoreJobApplications(['job-1', 'job-2'])).toEqual({ restored: 1 })
+    expect(mockUpdate).toHaveBeenCalledWith({
+      where: { id: { in: ['job-1', 'job-2'] }, profileId: 'p1', archivedAt: { not: null } },
+      data: { archivedAt: null },
+    })
+  })
+
+  it('does not query the database for an empty undo', async () => {
+    expect(await bulkRestoreJobApplications([])).toEqual({ restored: 0 })
+    expect(mockUpdate).not.toHaveBeenCalled()
+  })
+
+  it('propagates a database failure so the UI can offer recovery', async () => {
+    mockUpdate.mockRejectedValueOnce(new Error('database unavailable'))
+    await expect(bulkRestoreJobApplications(['job-1'])).rejects.toThrow('database unavailable')
+  })
+})
+
 describe('createJobApplication', () => {
   it('queues an assessment for the new job and returns it unchanged', async () => {
     const job = { id: 'job-1', title: 'PM' }
     mockCreate.mockResolvedValueOnce(job as never)
-    const res = await createJobApplication({ title: 'PM', applicationSource: 'cold' })
+    const res = await createJobApplication({ title: 'PM', company: 'Acme', applicationSource: 'cold' })
     expect(res).toBe(job)
+    expect(linkJobCompany).toHaveBeenCalledWith('p1', 'job-1')
     expect(mockQueue).toHaveBeenCalledWith('p1', 'job-1', { reason: 'created' })
+  })
+
+  it('rejects invalid input before any write', async () => {
+    await expect(createJobApplication({ title: '  ', company: 'Acme', applicationSource: 'cold' })).rejects.toThrow()
+    await expect(createJobApplication({ title: 'PM', applicationSource: 'cold' })).rejects.toThrow() // no company
+    await expect(createJobApplication({ title: 'PM', company: 'A', url: 'javascript:alert(1)', applicationSource: 'cold' })).rejects.toThrow()
+    expect(mockCreate).not.toHaveBeenCalled()
+    expect(mockQueue).not.toHaveBeenCalled()
+  })
+
+  it('writes only known columns, trimmed, with null for blanks', async () => {
+    mockCreate.mockResolvedValueOnce({ id: 'job-1' } as never)
+    await createJobApplication({
+      title: ' PM ', company: ' Acme ', url: '', location: ' London , UK ', jobNumber: ' ',
+      salaryBand: '', jobDescription: '  ', recruiterName: 'Hays', applicationSource: 'cold',
+      profileId: 'someone-else', status: 'accepted',
+    } as never)
+    expect(mockCreate).toHaveBeenCalledWith({
+      data: {
+        title: 'PM', company: 'Acme', url: null, jobNumber: null, salaryBand: null,
+        jobDescription: null, datePublished: null, applicationSource: 'cold',
+        isRecruitmentAgency: false, recruiterName: null,
+        countries: ['London', 'UK'], profileId: 'p1',
+      },
+    })
+  })
+
+  it('keeps the recruiter for agency jobs without a company', async () => {
+    mockCreate.mockResolvedValueOnce({ id: 'job-1' } as never)
+    const date = new Date('2026-01-02')
+    await createJobApplication({
+      title: 'PM', isRecruitmentAgency: true, recruiterName: ' Hays ', datePublished: date,
+      url: 'https://x.com/j', applicationSource: 'recruiter_outreach',
+    })
+    expect(mockCreate.mock.calls[0][0].data).toMatchObject({
+      company: null, recruiterName: 'Hays', isRecruitmentAgency: true, datePublished: date, url: 'https://x.com/j',
+    })
+  })
+
+  it('revalidates the list after queueing', async () => {
+    mockCreate.mockResolvedValueOnce({ id: 'job-1' } as never)
+    await createJobApplication({ title: 'PM', company: 'Acme', applicationSource: 'cold' })
+    expect(revalidatePath).toHaveBeenCalledWith('/dashboard/job-applications')
+  })
+
+  it('does not queue or revalidate when the write fails', async () => {
+    mockCreate.mockRejectedValueOnce(new Error('db down'))
+    await expect(createJobApplication({ title: 'PM', company: 'Acme', applicationSource: 'cold' })).rejects.toThrow('db down')
+    expect(mockQueue).not.toHaveBeenCalled()
+    expect(revalidatePath).not.toHaveBeenCalled()
   })
 })
 

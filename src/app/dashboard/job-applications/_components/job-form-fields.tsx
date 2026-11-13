@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label'
 import { FormField } from '../create/_components/form-field'
 import { SalaryPopover } from './salary-popover'
 import { SOURCE_OPTIONS } from '@/modules/jobs/schema'
+import { isHttpUrl } from '@/modules/jobs/form-utils'
 import { cn } from '@/lib/utils'
 import type { SalaryEstimate } from '@/app/types/job-application'
 
@@ -35,9 +36,11 @@ export function JobFormFields({
   showOpenLink = false,
   salaryPopoverProps,
 }: JobFormFieldsProps) {
-  const { control, watch } = useFormContext()
+  const { control, watch, formState } = useFormContext()
   const isRecruitmentAgency = useWatch({ control, name: 'isRecruitmentAgency' })
   const urlValue = watch('url')
+  // Legacy rows may hold another scheme: show it so it can be fixed, never link it.
+  const linkUrl = typeof urlValue === 'string' && isHttpUrl(urlValue.trim()) ? urlValue.trim() : undefined
 
   return (
     <div className="space-y-4">
@@ -57,14 +60,15 @@ export function JobFormFields({
               <InputGroupAddon align="inline-end">
                 {showOpenLink && (
                   <a
-                    href={urlValue || undefined}
+                    href={linkUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     aria-label="Open job listing"
-                    tabIndex={urlValue ? 0 : -1}
+                    tabIndex={linkUrl ? 0 : -1}
+                    aria-disabled={!linkUrl}
                     className={cn(
                       'inline-flex size-6 items-center justify-center rounded-[calc(var(--radius)-3px)] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
-                      !urlValue && 'pointer-events-none opacity-40',
+                      !linkUrl && 'pointer-events-none opacity-40',
                     )}
                   >
                     <SquareArrowOutUpRight size={13} />
@@ -73,7 +77,7 @@ export function JobFormFields({
                 <InputGroupButton
                   type="button"
                   onClick={onExtract}
-                  disabled={isExtracting || !urlValue}
+                  disabled={isExtracting || formState.isSubmitting || !urlValue}
                   className="gap-1"
                 >
                   {isExtracting ? (
@@ -91,7 +95,7 @@ export function JobFormFields({
         )}
       />
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <FormField name="title" label="Job Title" placeholder="e.g. Senior Product Manager" required />
         <FormField
           name="company"
@@ -122,12 +126,12 @@ export function JobFormFields({
         <FormField name="recruiterName" label="Recruiter / Agency Name" placeholder="e.g. Hays, Michael Page…" />
       )}
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <FormField name="location" label="Location" placeholder="e.g. London, UK or Remote" />
         <FormField name="jobNumber" label="Job Number" placeholder="e.g. JOB-123" />
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <FormField name="datePublished" label="Date Published" type="date" />
         <Controller
           name="salaryBand"

@@ -20,6 +20,7 @@ import { cn, formatShortDate } from "@/lib/utils"
 import { FreshnessChip } from "./freshness-chip"
 import { PostingAge } from "./posting-age"
 import { JobCompletenessDot } from "./job-completeness-dot"
+import { isHttpUrl } from "@/modules/jobs/form-utils"
 
 type JobRowCardProps = {
   job: Job
@@ -92,7 +93,7 @@ export function JobRowCard({ job, selected, busyLabel, onToggleSelect, onEdit, o
             >
               {title}
             </Link>
-            {url && (
+            {isHttpUrl(url) && (
               <a
                 href={url}
                 target="_blank"
