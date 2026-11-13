@@ -83,7 +83,7 @@ export function JobRow({ job, selected, busyLabel, onToggleSelect, onEdit, onArc
       )}
 
       {/* Checkbox */}
-      <div className="flex items-center justify-center pl-3 pr-2 py-2">
+      <div className="flex items-center justify-center px-2 py-3">
         <Checkbox
           checked={selected}
           onCheckedChange={() => onToggleSelect(id)}
@@ -92,12 +92,12 @@ export function JobRow({ job, selected, busyLabel, onToggleSelect, onEdit, onArc
         />
       </div>
       {/* Title / company */}
-      <div className="min-w-0 px-3 py-2">
+      <div className="min-w-0 px-3 py-3">
         <div className="flex min-w-0 items-center gap-1.5">
           <JobCompletenessDot job={job} />
           <Link
             href={`/dashboard/job-applications/view/${id}`}
-            className="truncate text-sm font-semibold leading-snug hover:underline"
+            className="min-w-0 line-clamp-2 text-sm font-semibold leading-snug hover:underline"
           >
             {title}
           </Link>
@@ -138,61 +138,45 @@ export function JobRow({ job, selected, busyLabel, onToggleSelect, onEdit, onArc
             </Badge>
           )}
         </div>
-        <p className="mt-0.5 truncate text-xs text-muted-foreground">
-          {company}
-          {countries.length > 0 && ` · ${countries.join(", ")}`}
-          {jobNumber && <span className="font-mono"> · {jobNumber}</span>}
-        </p>
+        <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-4">
+          <p className="min-w-0 max-w-full truncate text-xs text-muted-foreground">
+            {company}
+            {countries.length > 0 && ` · ${countries.join(", ")}`}
+            {jobNumber && <span className="font-mono"> · {jobNumber}</span>}
+          </p>
+          <div className="flex min-w-0 max-w-full items-center gap-2">
+            <span className="shrink-0 text-xs text-muted-foreground">Salary</span>
+            <SalaryBandCell salaryBand={salaryBand ?? null} jobId={id} />
+          </div>
+        </div>
       </div>
 
-      {/* Status */}
-      <div className="py-2">
+      {/* Application status and progress share a compact, fixed-width column. */}
+      <div className="flex flex-col items-start px-2 py-3">
         <StatusDropdown jobId={id} status={status} />
-      </div>
-
-      {/* Progress */}
-      <div className="hidden lg:block px-3 py-2">
-        <AppProgressBar progress={progress} jobId={id} />
-      </div>
-
-      {/* Salary band */}
-      <div className="px-3 py-2">
-        <SalaryBandCell salaryBand={salaryBand ?? null} jobId={id} />
+        <AppProgressBar progress={progress} jobId={id} compact />
       </div>
 
       {/* Job fit */}
-      <div className="flex items-center gap-0.5 py-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-0.5 px-2 py-3">
         {/* JobFit is deprecated: shown only while the early assessment is off for this user. */}
         {!earlyEnabled && <JobFit jobId={id} jobFit={jobFit ?? null} canAssess={!!jobDescription?.trim()} hasLLMKey={hasLLMKey} deepDive={job.deepDive} company={company ?? undefined} jdSnippet={jobDescription ? jobDescription.slice(0, 800) : undefined} />}
         <EarlyAssessment jobId={id} assessment={job.earlyAssessment ?? null} enabled={earlyEnabled} editHref={`/dashboard/job-applications/view/${id}`} deepDive={job.deepDive} />
       </div>
 
-      {/* Applied date */}
-      <div className="hidden lg:block px-3 py-2">
-        <ApplicationDateBlock label="Applied" date={dateApplied} jobId={id} />
-      </div>
-
-      {/* Published date */}
-      <div className="hidden xl:block px-3 py-2">
-        <PostingAge
-          datePublished={datePublished ?? null}
-          dateApplied={dateApplied ?? null}
-          status={status}
-        />
-      </div>
-
-      {/* Notes */}
-      <div className="hidden xl:flex items-center justify-center py-2">
-        <JobNotes jobId={id} initialNotes={notes ?? null} initialIncludeInFit={notesIncludeInFit} />
-      </div>
-
-      {/* Last updated */}
-      <div className="hidden xl:block px-3 py-2">
+      {/* Dates stay together, with the same alignment in every row. */}
+      <div className="grid grid-cols-[3.75rem_minmax(0,1fr)] items-center justify-items-start gap-x-1 px-2 py-3 text-xs text-muted-foreground">
+        <span>Applied</span>
+        <ApplicationDateBlock label="Applied" date={dateApplied} jobId={id} compact />
+        <span>Published</span>
+        <PostingAge datePublished={datePublished ?? null} dateApplied={dateApplied ?? null} status={status} />
+        <span>Updated</span>
         <FreshnessChip lastUpdated={lastUpdated} status={status} />
       </div>
 
       {/* Controls */}
-      <div className="flex items-center justify-center px-2 py-2">
+      <div className="flex items-center justify-end gap-1 px-2 py-3">
+        <JobNotes jobId={id} initialNotes={notes ?? null} initialIncludeInFit={notesIncludeInFit} />
         <AppControls
           id={id}
           cvDocumentId={cvDocumentId}

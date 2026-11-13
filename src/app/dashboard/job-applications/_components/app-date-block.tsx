@@ -18,9 +18,10 @@ type ApplicationDateBlockProps = {
   label: string
   // When set, the block becomes editable and saves to this job's dateApplied.
   jobId?: string
+  compact?: boolean
 }
 
-export function ApplicationDateBlock({ label, date, jobId }: ApplicationDateBlockProps) {
+export function ApplicationDateBlock({ label, date, jobId, compact = false }: ApplicationDateBlockProps) {
   const [open, setOpen] = useState(false)
   const [isPending, startTransition] = useTransition()
   const [value, setValue] = useState("")
@@ -55,7 +56,7 @@ export function ApplicationDateBlock({ label, date, jobId }: ApplicationDateBloc
           <Popover open={open} onOpenChange={handleOpenChange}>
             <PopoverTrigger
               aria-label={`${date ? 'Edit' : 'Add'} ${label.toLowerCase()} date`}
-              className="inline-flex size-8 items-center justify-center cursor-pointer rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className={`${compact ? 'size-6' : 'size-8'} inline-flex shrink-0 items-center justify-center cursor-pointer rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
             >
               <Pencil size={10} />
             </PopoverTrigger>
@@ -76,7 +77,7 @@ export function ApplicationDateBlock({ label, date, jobId }: ApplicationDateBloc
           </Popover>
         )}
       </div>
-      {days !== null && (
+      {!compact && days !== null && (
         <div className="text-[10px] text-muted-foreground/50">
           {days === 0 ? "today" : `${days}d ago`}
         </div>

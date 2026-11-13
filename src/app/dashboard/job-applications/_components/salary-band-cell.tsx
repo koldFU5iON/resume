@@ -39,14 +39,14 @@ export function SalaryBandCell({ salaryBand, jobId }: SalaryBandCellProps) {
   }
 
   return (
-    <div className="flex items-center gap-1.5 group/salary">
-      <span className={salaryBand ? "text-xs text-muted-foreground" : "text-xs text-muted-foreground/30"}>
+    <div className="flex min-w-0 items-center gap-1.5 group/salary">
+      <span title={salaryBand ?? undefined} className={salaryBand ? "truncate text-xs text-muted-foreground" : "text-xs text-muted-foreground/30"}>
         {salaryBand ?? "—"}
       </span>
       <Popover open={open} onOpenChange={handleOpenChange}>
         <PopoverTrigger
           aria-label="Edit salary band"
-          className="inline-flex size-8 items-center justify-center cursor-pointer rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="inline-flex size-8 shrink-0 items-center justify-center cursor-pointer rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <Pencil size={10} />
         </PopoverTrigger>

@@ -21,9 +21,11 @@ type NodeState = "past" | "active" | "future"
 export function AppProgressBar({
   progress,
   jobId,
+  compact = false,
 }: {
   progress: ApplicationProgressType
   jobId: string
+  compact?: boolean
 }) {
   const [isPending, startTransition] = useTransition()
   const activeIndex = stages.indexOf(progress)
@@ -43,9 +45,10 @@ export function AppProgressBar({
     <DropdownMenu>
       <DropdownMenuTrigger
         disabled={isPending}
-        className="flex flex-col items-center justify-center cursor-pointer"
+        aria-label={`Application progress: ${progress}`}
+        className={clsx("flex min-h-8 flex-col justify-center cursor-pointer", compact ? "items-start" : "items-center")}
       >
-        <span className="text-xs text-muted-foreground">progress:</span>
+        <span className={compact ? "sr-only" : "text-xs text-muted-foreground"}>Progress</span>
         <div className="flex items-center w-28">
           {stages.map((stage, index) => {
             const state: NodeState = index < activeIndex ? "past" : index === activeIndex ? "active" : "future"

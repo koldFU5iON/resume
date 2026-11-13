@@ -85,11 +85,11 @@ export function JobRowCard({ job, selected, busyLabel, onToggleSelect, onEdit, o
           className="mt-0.5 shrink-0"
         />
         <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-1.5 flex-wrap">
+          <div className="flex min-w-0 items-center gap-1.5">
             <JobCompletenessDot job={job} />
             <Link
               href={`/dashboard/job-applications/view/${id}`}
-              className="text-sm font-semibold leading-snug hover:underline truncate"
+              className="min-w-0 flex-1 line-clamp-2 text-sm font-semibold leading-snug hover:underline"
             >
               {title}
             </Link>
