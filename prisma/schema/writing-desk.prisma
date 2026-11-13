@@ -2,10 +2,13 @@
 // WRITING DESK
 // ------------------------------------------------------------
 
+// A job can hold several named documents (#370). The oldest (createdAt, id)
+// is the job's primary document: the one job-scoped links resolve to.
 model WritingDeskDocument {
   id                 String    @id @default(cuid())
   profileId          String
-  jobApplicationId   String    @unique
+  jobApplicationId   String
+  name               String    @default("Untitled document")
   documentType       String?
   content            String    @default("")
   revision           Int       @default(1)
@@ -24,6 +27,7 @@ model WritingDeskDocument {
   draftEvents    WritingDeskDraftEvent[]
 
   @@index([profileId])
+  @@index([jobApplicationId, createdAt])
   @@index([sourceCvDocumentId])
 }
 

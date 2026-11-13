@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition, useEffect, Fragment } from 'react'
-import { RotateCcw, Download, MessageSquare, Loader2, RefreshCw, X } from 'lucide-react'
+import { RotateCcw, Download, MessageSquare, Loader2, RefreshCw, X, CheckCircle2, Undo2 } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { usePageContext, useWorkspaceContext } from '@/lib/context/page-context'
@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/dialog'
 import { DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable'
-import { updateSection, toggleVisibility, regenerateCVContent, addCustomSection, reorderSections } from '@/modules/cv/actions'
+import { updateSection, toggleVisibility, regenerateCVContent, addCustomSection, reorderSections, markCVAccepted, unmarkCVAccepted } from '@/modules/cv/actions'
 import { runATSScore } from '@/modules/cv/ats-score-action'
 import type { ATSScoreResult } from '@/modules/cv/ats-score-schema'
 import { toMarkdown, toText, sectionToPlainText } from '@/modules/cv/export'
@@ -61,6 +61,9 @@ type Props = { cv: CVWithMeta; stale?: boolean }
 
 export function CvEditor({ cv, stale = false }: Props) {
   const [content, setContent] = useState<CVDocumentContent>(cv.content)
+  const [status, setStatus] = useState(cv.status)
+  const [acceptPending, setAcceptPending] = useState(false)
+  const isAccepted = status === 'accepted'
   const [, startTransition] = useTransition()
   const [isRegenerating, setIsRegenerating] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
@@ -197,8 +200,15 @@ export function CvEditor({ cv, stale = false }: Props) {
     setIsRegenerating(true)
     startTransition(async () => {
       try {
-        const newContent = await regenerateCVContent(cv.id)
-        setContent(newContent)
+        const res = await regenerateCVContent(cv.id)
+        if (res.id !== cv.id) {
+          // The accepted CV is kept as is; the regeneration is a new draft.
+          toast.success('New draft created. Your accepted CV is unchanged.')
+          router.push(`/dashboard/cv-builder/${res.id}`)
+          return
+        }
+        setContent(res.content)
+        setStatus('draft')
         toast.success('CV regenerated successfully')
       } catch (err) {
         toast.error(err instanceof Error ? err.message : 'Regeneration failed')
@@ -206,6 +216,25 @@ export function CvEditor({ cv, stale = false }: Props) {
         setIsRegenerating(false)
       }
     })
+  }
+
+  async function handleToggleAccepted() {
+    setAcceptPending(true)
+    try {
+      if (isAccepted) {
+        await unmarkCVAccepted(cv.id)
+        setStatus('draft')
+        toast.success('CV moved back to draft')
+      } else {
+        await markCVAccepted(cv.id)
+        setStatus('accepted')
+        toast.success('CV marked as accepted')
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not update the CV')
+    } finally {
+      setAcceptPending(false)
+    }
   }
 
   function downloadFile(fileContent: string, filename: string, mime: string) {
@@ -226,8 +255,9 @@ export function CvEditor({ cv, stale = false }: Props) {
           <DialogHeader>
             <DialogTitle>Regenerate CV?</DialogTitle>
             <DialogDescription>
-              This will overwrite your current edits with a freshly generated version.
-              This action cannot be undone.
+              {isAccepted
+                ? 'This CV is accepted, so it stays as it is. A freshly generated version will be saved as a new draft CV.'
+                : 'This will overwrite your current edits with a freshly generated version. This action cannot be undone.'}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -253,15 +283,28 @@ export function CvEditor({ cv, stale = false }: Props) {
           {/* Mobile: title on its own line to prevent squash */}
           <div className="mb-1.5 flex items-center gap-2 min-w-0 sm:hidden">
             <span className="text-sm font-semibold truncate">{displayTitle}</span>
-            <Badge variant="outline" className="text-xs capitalize shrink-0">{cv.status}</Badge>
+            <Badge variant="outline" className="text-xs capitalize shrink-0">{status}</Badge>
           </div>
           <div className="flex items-center justify-between">
             {/* Desktop-only title */}
             <div className="hidden sm:flex items-center gap-2">
               <span className="text-sm font-semibold">{displayTitle}</span>
-              <Badge variant="outline" className="text-xs capitalize">{cv.status}</Badge>
+              <Badge variant="outline" className="text-xs capitalize">{status}</Badge>
             </div>
           <div className="flex items-center gap-2">
+            {cv.jobApplicationId && (isAccepted || status === 'draft') && (
+              <button
+                onClick={handleToggleAccepted}
+                disabled={acceptPending || isRegenerating}
+                title={isAccepted ? 'Move this CV back to draft' : 'Mark this as the CV you are sending for this job'}
+                className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted disabled:opacity-50"
+              >
+                {acceptPending
+                  ? <Loader2 className="size-3.5 animate-spin" />
+                  : isAccepted ? <Undo2 className="size-3.5" /> : <CheckCircle2 className="size-3.5" />}
+                {isAccepted ? 'Back to draft' : 'Mark accepted'}
+              </button>
+            )}
             <button
               onClick={() => setShowConfirm(true)}
               disabled={isRegenerating}

@@ -37,6 +37,17 @@ export const FEATURE_LABELS: Record<string, string> = {
   'job-assessment-judge':                'Early assessment — judge (Jev)',
   'job-assessment-enrich':               'Early assessment — fetch details',
   'job-assessment-facts':                'Early assessment — extract facts',
+  'deep-dive-research-company':        'Deep dive — company research',
+  'deep-dive-research-pay':            'Deep dive — pay research',
+  'deep-dive-research-practicalities': 'Deep dive — practicalities research',
+  'deep-dive-structure':               'Deep dive — structure findings',
+  'deep-dive-synthesis':               'Deep dive — report',
+  // Tags of the first deep dive builds (before the rename to kebab-case).
+  'deep-dive:research:company':        'Deep dive — company research',
+  'deep-dive:research:pay':            'Deep dive — pay research',
+  'deep-dive:research:practicalities': 'Deep dive — practicalities research',
+  'deep-dive:structure':               'Deep dive — structure findings',
+  'deep-dive:synthesis':               'Deep dive — report',
   'chat-turn':      'Chat — career coach',
   'chat-summarize': 'Chat — session summary',
 }

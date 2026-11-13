@@ -7,6 +7,7 @@ import { requireProfile } from '@/lib/session'
 import { encrypt, decrypt } from '@/lib/encryption'
 import { SUPPORTED_PROVIDERS } from './client'
 import { fetchProviderModels, type ProviderModel } from './models'
+import { availableModelIds, isConfigurableRole, normalizeModelRoleChoices, type ConfigurableRole } from './roles'
 
 export type SaveLLMApiKeyInput = {
   provider: string
@@ -31,10 +32,18 @@ export async function saveLLMApiKey(
 
   const models = await fetchProviderModels(provider, input.apiKey.trim())
 
+  // Per-task model choices name another provider's models after a switch.
+  const existing = await prisma.userSettings.findUnique({
+    where: { profileId: profile.id },
+    select: { llmProvider: true },
+  })
+  const providerChanged = existing !== null && existing.llmProvider !== provider
+
   await prisma.userSettings.upsert({
     where: { profileId: profile.id },
     update: {
       llmProvider: provider,
+      ...(providerChanged ? { llmModelRoles: Prisma.JsonNull } : {}),
       llmApiKey: encrypt(input.apiKey.trim()),
       availableModels: models,
       availableModelsUpdatedAt: new Date(),
@@ -59,6 +68,39 @@ export async function saveLLMModel(model: string): Promise<void> {
   await prisma.userSettings.update({
     where: { profileId: profile.id },
     data: { llmModel: model.trim() },
+  })
+
+  revalidatePath('/dashboard/settings/llm')
+}
+
+/**
+ * Sets the model for one task role, or clears it (null = "Same as my default
+ * model" — the recommended model, if any, still applies). The model must be in
+ * the user's cached model list when one is cached.
+ */
+export async function saveLLMModelRole(role: ConfigurableRole, model: string | null): Promise<void> {
+  const { profile } = await requireProfile()
+  if (!isConfigurableRole(role)) throw new Error(`Unknown model role "${role}"`)
+
+  const settings = await prisma.userSettings.findUnique({
+    where: { profileId: profile.id },
+    select: { llmModelRoles: true, availableModels: true },
+  })
+  if (!settings) throw new Error('No LLM settings yet. Save an API key first.')
+
+  const id = model?.trim() || null
+  const ids = availableModelIds(settings.availableModels)
+  if (id && ids) {
+    if (!ids.includes(id)) throw new Error('That model is not available for your key. Refresh the model list.')
+  }
+
+  const choices = normalizeModelRoleChoices(settings.llmModelRoles)
+  if (id) choices[role] = id
+  else delete choices[role]
+
+  await prisma.userSettings.update({
+    where: { profileId: profile.id },
+    data: { llmModelRoles: Object.keys(choices).length > 0 ? choices : Prisma.JsonNull },
   })
 
   revalidatePath('/dashboard/settings/llm')

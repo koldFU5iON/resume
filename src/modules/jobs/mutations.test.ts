@@ -8,6 +8,8 @@ vi.mock('@/lib/db', () => ({
 }))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 vi.mock('./queries', () => ({ getArchivedJobs: vi.fn() }))
+vi.mock('@/modules/cv/acceptance', () => ({ acceptLatestCVForAppliedJob: vi.fn() }))
+vi.mock('@/modules/companies/match', () => ({ linkJobCompany: vi.fn() }))
 vi.mock('@/modules/job-assessment/queue', () => ({
   queueJobAssessmentSafely: vi.fn(),
   assessmentMaybeEnabled: vi.fn(() => true),
@@ -16,7 +18,9 @@ vi.mock('@/modules/job-assessment/queue', () => ({
 import { prisma } from '@/lib/db'
 import { revalidatePath } from 'next/cache'
 import { assessmentMaybeEnabled, queueJobAssessmentSafely } from '@/modules/job-assessment/queue'
-import { createJobApplication, updateJobApplication, updateJobSalaryBand, bulkRestoreJobApplications } from './mutations'
+import { acceptLatestCVForAppliedJob } from '@/modules/cv/acceptance'
+import { linkJobCompany } from '@/modules/companies/match'
+import { createJobApplication, updateJobApplication, updateJobSalaryBand, updateJobStatus, bulkRestoreJobApplications } from './mutations'
 
 const mockCreate = vi.mocked(prisma.jobApplication.create)
 const mockFind = vi.mocked(prisma.jobApplication.findFirst)
@@ -75,6 +79,7 @@ describe('createJobApplication', () => {
     mockCreate.mockResolvedValueOnce(job as never)
     const res = await createJobApplication({ title: 'PM', company: 'Acme', applicationSource: 'cold' })
     expect(res).toBe(job)
+    expect(linkJobCompany).toHaveBeenCalledWith('p1', 'job-1')
     expect(mockQueue).toHaveBeenCalledWith('p1', 'job-1', { reason: 'created' })
   })
 
@@ -197,5 +202,38 @@ describe('updateJobSalaryBand', () => {
   it('does not queue when the band is the same', async () => {
     await updateJobSalaryBand('job-1', '£80k')
     expect(mockQueue).not.toHaveBeenCalled()
+  })
+})
+
+describe('updateJobStatus: accepting the CV used to apply', () => {
+  const mockAccept = vi.mocked(acceptLatestCVForAppliedJob)
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockUpdate.mockResolvedValue({ count: 1 })
+  })
+
+  it.each(['applied', 'interviewing'] as const)("accepts the job's latest CV on %s, scoped to the profile", async (status) => {
+    mockAccept.mockResolvedValueOnce('cv-1')
+    await updateJobStatus('job-1', status)
+    expect(mockAccept).toHaveBeenCalledWith('p1', 'job-1')
+  })
+
+  it.each(['not started', 'in-progress', 'accepted', 'rejected'] as const)('leaves CVs alone on %s', async (status) => {
+    await updateJobStatus('job-1', status)
+    expect(mockAccept).not.toHaveBeenCalled()
+  })
+
+  it("doesn't accept anything for a job the profile doesn't own", async () => {
+    mockUpdate.mockResolvedValueOnce({ count: 0 })
+    await expect(updateJobStatus('job-x', 'applied')).rejects.toThrow('Job not found')
+    expect(mockAccept).not.toHaveBeenCalled()
+  })
+
+  it('still changes the status when accepting the CV fails', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockAccept.mockRejectedValueOnce(new Error('db down'))
+    await expect(updateJobStatus('job-1', 'applied')).resolves.toBeUndefined()
+    expect(mockUpdate).toHaveBeenCalledWith({ where: { id: 'job-1', profileId: 'p1' }, data: { status: 'applied' } })
+    err.mockRestore()
   })
 })

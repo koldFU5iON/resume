@@ -1,0 +1,285 @@
+// Read-only per-job usage summary built from explicitly attributed
+// LlmUsageLog rows (see ./attribution.ts). Rows written before attribution
+// existed have no job id and are never matched here — nothing is inferred
+// from timestamps.
+
+import { prisma } from '@/lib/db'
+import { JEV_FAILED_FEATURE_SUFFIX, JEV_PROVIDER } from '@/modules/jev/constants'
+import { CV_STATUS } from '@/modules/cv/acceptance'
+import {
+  estimateRowCostUsd,
+  PRICING_CURRENCY,
+  PRICING_RATES_AS_OF,
+  PRICING_SOURCE,
+  rateFor,
+} from './pricing'
+
+/** The feature tag of the call that writes a CV draft. */
+export const CV_GENERATION_FEATURE = 'cv-generate'
+
+export type UsageRow = {
+  provider: string
+  model: string
+  feature: string | null
+  promptTokens: number
+  completionTokens: number
+  cacheReadTokens: number | null
+  cacheWriteTokens: number | null
+  serverToolCalls: number | null
+  usageKnown: boolean
+  /** 'ok' | 'error'. */
+  status: string
+  errorKind: string | null
+  latencyMs: number
+  cvDocumentId: string | null
+  runId: string | null
+}
+
+export type UsageBucket = {
+  requests: number
+  /** Calls that failed (status 'error'; older Jev rows marked `:failed`). */
+  failedRequests: number
+  /** Failed calls by error kind, e.g. { timeout: 2 }. */
+  failuresByKind: Record<string, number>
+  /** Rows whose token counts are placeholders, not provider-reported. */
+  unknownUsageRequests: number
+  inputTokens: number
+  outputTokens: number
+  /** Sums of reported values; null when no row in the bucket reported any. */
+  cacheReadTokens: number | null
+  cacheWriteTokens: number | null
+  serverToolCalls: number | null
+  runs: number
+  latencyMs: { total: number; avg: number }
+  /** Estimate from list prices (see `pricing`); never an actual charge. */
+  estimatedCostUsd: number
+  /**
+   * False when the estimate is missing something: unpriced models, rows with
+   * unknown usage, or server tool calls (web search/fetch) that have no rate.
+   */
+  estimateComplete: boolean
+  unpricedModels: string[]
+}
+
+export type JobCostSummary = {
+  jobApplicationId: string
+  /** Full workflow: every attributed call for the job (assessment, fit, CVs, letters, …). */
+  workflow: UsageBucket
+  /** Only the CV draft calls (`cv-generate`), across all CVs and attempts. */
+  generationCalls: UsageBucket
+  byFeature: (UsageBucket & { feature: string })[]
+  /** Per CV; `cvDocumentId: null` holds job-level calls not tied to a CV. */
+  byCv: (UsageBucket & {
+    cvDocumentId: string | null
+    status: string | null
+    acceptedAt: Date | null
+    /** 'manual' | 'applied'; null when not accepted. */
+    acceptedVia: string | null
+  })[]
+  /** CVs of this job with status 'accepted'. */
+  acceptedCvCount: number
+  /**
+   * Estimated full workflow cost divided by the number of accepted CVs. Null
+   * when the job has no accepted CV: drafts and failed CVs never count. The
+   * cost of CVs that weren't accepted stays in the numerator, since it was
+   * spent getting to the accepted one. Inherits `workflow.estimateComplete`.
+   */
+  costPerAcceptedCv: { estimatedCostUsd: number; estimateComplete: boolean } | null
+  /** Actual charges are not known: BYOK calls are billed by the provider to the user. */
+  actualChargesUsd: null
+  pricing: { kind: 'estimate'; source: string; currency: typeof PRICING_CURRENCY; ratesAsOf: string; notes: string[] }
+}
+
+function baseFeature(feature: string | null): string {
+  const f = feature ?? 'unknown'
+  return f.endsWith(JEV_FAILED_FEATURE_SUFFIX) ? f.slice(0, -JEV_FAILED_FEATURE_SUFFIX.length) : f
+}
+
+const addNullable = (a: number | null, b: number | null) => (b === null ? a : (a ?? 0) + b)
+
+/** Pure aggregation of usage rows into one bucket. */
+export function summarizeRows(rows: readonly UsageRow[]): UsageBucket {
+  const unpriced = new Set<string>()
+  const runs = new Set<string>()
+  let cost = 0
+  let complete = true
+  const b: UsageBucket = {
+    requests: 0, failedRequests: 0, failuresByKind: {}, unknownUsageRequests: 0,
+    inputTokens: 0, outputTokens: 0,
+    cacheReadTokens: null, cacheWriteTokens: null, serverToolCalls: null,
+    runs: 0, latencyMs: { total: 0, avg: 0 },
+    estimatedCostUsd: 0, estimateComplete: true, unpricedModels: [],
+  }
+  for (const r of rows) {
+    b.requests++
+    if (r.status === 'error' || r.feature?.endsWith(JEV_FAILED_FEATURE_SUFFIX)) {
+      b.failedRequests++
+      const kind = r.errorKind ?? 'unknown'
+      b.failuresByKind[kind] = (b.failuresByKind[kind] ?? 0) + 1
+    }
+    if (!r.usageKnown) { b.unknownUsageRequests++; complete = false }
+    b.inputTokens += r.promptTokens
+    b.outputTokens += r.completionTokens
+    b.cacheReadTokens = addNullable(b.cacheReadTokens, r.cacheReadTokens)
+    b.cacheWriteTokens = addNullable(b.cacheWriteTokens, r.cacheWriteTokens)
+    b.serverToolCalls = addNullable(b.serverToolCalls, r.serverToolCalls)
+    if (r.serverToolCalls) complete = false // per-call tool fees have no rate here
+    b.latencyMs.total += r.latencyMs
+    if (r.runId) runs.add(r.runId)
+    const rowCost = estimateRowCostUsd(r)
+    if (rowCost === null) {
+      unpriced.add(`${r.provider}/${r.model}`)
+      complete = false
+    } else {
+      cost += rowCost
+    }
+  }
+  b.runs = runs.size
+  b.latencyMs.avg = b.requests ? Math.round(b.latencyMs.total / b.requests) : 0
+  b.estimatedCostUsd = cost
+  b.estimateComplete = complete
+  b.unpricedModels = [...unpriced].sort()
+  return b
+}
+
+function groupBy<K>(rows: readonly UsageRow[], key: (r: UsageRow) => K): Map<K, UsageRow[]> {
+  const m = new Map<K, UsageRow[]>()
+  for (const r of rows) {
+    const k = key(r)
+    const list = m.get(k)
+    if (list) list.push(r)
+    else m.set(k, [r])
+  }
+  return m
+}
+
+export type JobCv = { id: string; status: string; acceptedAt: Date | null; acceptedVia: string | null }
+
+/** Pure: builds the summary from a job's rows and its CVs. */
+export function buildJobCostSummary(
+  jobApplicationId: string,
+  rows: readonly UsageRow[],
+  cvs: readonly JobCv[],
+): JobCostSummary {
+  const cvById = new Map(cvs.map((c) => [c.id, c]))
+  const byCvRows = groupBy(rows, (r) => r.cvDocumentId)
+  // Every CV of the job appears, even ones with no attributed usage yet.
+  for (const c of cvs) if (!byCvRows.has(c.id)) byCvRows.set(c.id, [])
+
+  const notes = [
+    'Estimated from list prices; not an invoice. Your provider bills your own API key directly.',
+    'Web search/fetch calls are counted but not priced.',
+    ...new Set(rows.map((r) => rateFor(r.provider, r.model)?.note).filter((n): n is string => Boolean(n))),
+  ]
+
+  const workflow = summarizeRows(rows)
+  const acceptedCvCount = cvs.filter((c) => c.status === CV_STATUS.Accepted).length
+
+  return {
+    jobApplicationId,
+    workflow,
+    generationCalls: summarizeRows(rows.filter((r) => baseFeature(r.feature) === CV_GENERATION_FEATURE)),
+    byFeature: [...groupBy(rows, (r) => baseFeature(r.feature))]
+      .map(([feature, list]) => ({ feature, ...summarizeRows(list) }))
+      .sort((a, b) => b.estimatedCostUsd - a.estimatedCostUsd || a.feature.localeCompare(b.feature)),
+    byCv: [...byCvRows]
+      .map(([cvDocumentId, list]) => {
+        const cv = cvDocumentId ? cvById.get(cvDocumentId) : undefined
+        return {
+          cvDocumentId,
+          status: cv?.status ?? null,
+          acceptedAt: cv?.acceptedAt ?? null,
+          acceptedVia: cv?.acceptedVia ?? null,
+          ...summarizeRows(list),
+        }
+      })
+      .sort((a, b) => (a.cvDocumentId === null ? 1 : b.cvDocumentId === null ? -1 : a.cvDocumentId.localeCompare(b.cvDocumentId))),
+    acceptedCvCount,
+    costPerAcceptedCv: acceptedCvCount
+      ? { estimatedCostUsd: workflow.estimatedCostUsd / acceptedCvCount, estimateComplete: workflow.estimateComplete }
+      : null,
+    actualChargesUsd: null,
+    pricing: { kind: 'estimate', source: PRICING_SOURCE, currency: PRICING_CURRENCY, ratesAsOf: PRICING_RATES_AS_OF, notes },
+  }
+}
+
+/**
+ * Usage and estimated cost for one job, grouped by feature and CV. Returns
+ * null when the job doesn't belong to the profile. Read-only.
+ */
+export async function getJobCostSummary(profileId: string, jobId: string): Promise<JobCostSummary | null> {
+  const job = await prisma.jobApplication.findFirst({ where: { id: jobId, profileId }, select: { id: true } })
+  if (!job) return null
+
+  const [rows, cvs] = await Promise.all([
+    prisma.llmUsageLog.findMany({
+      where: { profileId, jobApplicationId: jobId },
+      select: {
+        provider: true, model: true, feature: true,
+        promptTokens: true, completionTokens: true,
+        cacheReadTokens: true, cacheWriteTokens: true, serverToolCalls: true,
+        usageKnown: true, status: true, errorKind: true, latencyMs: true, cvDocumentId: true, runId: true,
+      },
+    }),
+    prisma.cVDocument.findMany({ where: { profileId, jobApplicationId: jobId }, select: { id: true, status: true, acceptedAt: true, acceptedVia: true } }),
+  ])
+  return buildJobCostSummary(jobId, rows, cvs)
+}
+
+// ── Spend on one job (job page sidebar) ─────────────────────────────────────
+
+export type JobSpendFeature = {
+  feature: string
+  /** Paid by the app (Jev), not the user's own key. */
+  appBilled: boolean
+  requests: number
+  estimatedCostUsd: number
+  estimateComplete: boolean
+}
+
+export type JobSpend = {
+  /** Calls billed to the user's own LLM key. */
+  yourKey: UsageBucket
+  /** Calls the app pays for (Jev, early assessment). */
+  appBilled: UsageBucket
+  /** Most expensive first. */
+  byFeature: JobSpendFeature[]
+}
+
+/** Pure: a job's attributed rows split by who pays, and by feature. */
+export function buildJobSpend(rows: readonly UsageRow[]): JobSpend {
+  const isApp = (r: UsageRow) => r.provider === JEV_PROVIDER
+  const byFeature = [...groupBy(rows, (r) => `${isApp(r) ? 'app' : 'key'}\u0000${baseFeature(r.feature)}`)]
+    .map(([key, list]): JobSpendFeature => {
+      const b = summarizeRows(list)
+      return {
+        feature: key.slice(key.indexOf('\u0000') + 1),
+        appBilled: key.startsWith('app'),
+        requests: b.requests,
+        estimatedCostUsd: b.estimatedCostUsd,
+        estimateComplete: b.estimateComplete,
+      }
+    })
+    .sort((a, b) => b.estimatedCostUsd - a.estimatedCostUsd || a.feature.localeCompare(b.feature))
+  return {
+    yourKey: summarizeRows(rows.filter((r) => !isApp(r))),
+    appBilled: summarizeRows(rows.filter(isApp)),
+    byFeature,
+  }
+}
+
+/** Estimated spend on one job, across every feature. Null when the job isn't the profile's. */
+export async function getJobSpend(profileId: string, jobId: string): Promise<JobSpend | null> {
+  const job = await prisma.jobApplication.findFirst({ where: { id: jobId, profileId }, select: { id: true } })
+  if (!job) return null
+  const rows = await prisma.llmUsageLog.findMany({
+    where: { profileId, jobApplicationId: jobId },
+    select: {
+      provider: true, model: true, feature: true,
+      promptTokens: true, completionTokens: true,
+      cacheReadTokens: true, cacheWriteTokens: true, serverToolCalls: true,
+      usageKnown: true, status: true, errorKind: true, latencyMs: true, cvDocumentId: true, runId: true,
+    },
+  })
+  return buildJobSpend(rows)
+}

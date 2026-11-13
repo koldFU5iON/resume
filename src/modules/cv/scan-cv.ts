@@ -1,5 +1,5 @@
 import * as z from 'zod'
-import { completeStructured } from '@/modules/llm/client'
+import { completeStructured, type LlmAttribution } from '@/modules/llm/client'
 import { loadCVScanPrompt, composeSystem } from '@/modules/llm/prompt-context'
 import type { CVDocumentContent } from './schema'
 
@@ -78,6 +78,7 @@ export async function scanCV(
   content: CVDocumentContent,
   positioningStrategy?: string,
   mustHave?: string[],
+  attribution?: LlmAttribution,
 ): Promise<RecruiterScan | null> {
   const cvText = serializeCVForScan(content)
 
@@ -101,6 +102,7 @@ export async function scanCV(
       {
         system: composeSystem(systemPrompt),
         feature: 'cv-recruiter-scan',
+        ...(attribution ? { attribution } : {}),
         maxOutputTokens: 400,
         temperature: 0.2,
       },

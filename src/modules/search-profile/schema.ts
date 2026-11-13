@@ -178,7 +178,7 @@ export const SearchSuggestionSchema = z.object({
   field:          z.enum(SEARCH_PROFILE_FIELDS),
   suggestedValue: z.unknown(),
   reason:         z.string(),
-  source:         z.enum(['job-fit', 'chat', 'cover-letter', 'interview-prep']),
+  source:         z.enum(['job-fit', 'deep-dive', 'chat', 'cover-letter', 'interview-prep']),
   createdAt:      z.string(),
 })
 

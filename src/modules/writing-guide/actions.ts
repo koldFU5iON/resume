@@ -2,7 +2,7 @@
 
 import { prisma } from '@/lib/db'
 import { requireProfile } from '@/lib/session'
-import { complete, completeStructured } from '@/modules/llm/client'
+import { complete, completeStructured, type LlmAttribution } from '@/modules/llm/client'
 import { LLMError, type LLMErrorKind } from '@/modules/llm/errors'
 import { buildProfileSnapshot, serializeProfileForLLM } from '@/modules/profile/snapshot'
 import { loadWritingContext, composeSystem } from '@/modules/llm/prompt-context'
@@ -102,6 +102,11 @@ async function gatherInputs(profileId: string, letterId: string) {
 
 type GatherInputsResult = NonNullable<Awaited<ReturnType<typeof gatherInputs>>>
 
+/** Cover-letter calls are attributed to the letter's job (none for a standalone letter). */
+function letterAttribution(inputs: GatherInputsResult): LlmAttribution {
+  return { jobApplicationId: inputs.letter.jobApplicationId }
+}
+
 function buildGeneratePrompt(inputs: GatherInputsResult): string {
   const { letter, snapshot, cvMarkdown } = inputs
   const job = letter.jobApplication
@@ -141,6 +146,7 @@ export async function analyseRole(letterId: string): Promise<Stage1Result> {
     const result = await completeStructured(profile.id, userPrompt, Stage1BriefSchema, {
       system,
       feature: 'cover-letter-analyse',
+      attribution: letterAttribution(inputs),
       temperature: 0,
       maxOutputTokens: 600,
     })
@@ -193,6 +199,7 @@ export async function buildLetterArchitecture(
     const result = await completeStructured(profile.id, userPrompt, Stage2ArchitectureSchema, {
       system,
       feature: 'cover-letter-architect',
+      attribution: letterAttribution(inputs),
       temperature: 0.3,
       maxOutputTokens: 600,
     })
@@ -224,6 +231,7 @@ export async function draftFromArchitecture(
     const result = await complete(profile.id, userPrompt, {
       system,
       feature: 'cover-letter-draft',
+      attribution: letterAttribution(inputs),
       temperature: 0.5,
       maxOutputTokens: 1200,
     })
@@ -261,6 +269,7 @@ export async function reviewDraftPass(
     const result = await completeStructured(profile.id, userPrompt, Stage4IssuesSchema, {
       system,
       feature: 'cover-letter-review-pass',
+      attribution: letterAttribution(inputs),
       temperature: 0,
       maxOutputTokens: 800,
     })
@@ -300,6 +309,7 @@ export async function finaliseFromReview(
     const result = await complete(profile.id, userPrompt, {
       system,
       feature: 'cover-letter-finalise',
+      attribution: letterAttribution(inputs),
       temperature: 0.2,
       maxOutputTokens: 1200,
     })
@@ -339,6 +349,7 @@ export async function buildWithMe(
     const result = await complete(profile.id, userPrompt, {
       system,
       feature: 'cover-letter-build',
+      attribution: letterAttribution(inputs),
       temperature: 0.7,
       maxOutputTokens: 1200,
     })
@@ -379,6 +390,7 @@ export async function reviewLetter(letterId: string): Promise<ReviewResult> {
     const result = await completeStructured(profile.id, userPrompt, ReviewOutputSchema, {
       system,
       feature: 'cover-letter-review',
+      attribution: letterAttribution(inputs),
       temperature: 0,
       maxOutputTokens: 800,
     })

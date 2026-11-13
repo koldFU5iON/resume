@@ -12,6 +12,7 @@ const ctx = { profileId: 'p1', tokenId: 't1' }
 const state = (over = {}) => ({
   deskId: 'd',
   jobId: 'j1',
+  documentName: 'CV',
   content: '# A',
   draftRevision: 3,
   liveRevision: 1,
@@ -38,7 +39,7 @@ describe('get_draft tool', () => {
   it('returns sections, revision, warnings and issues for the token profile', async () => {
     vi.mocked(getDraft).mockResolvedValue({ ok: true, value: state() } as never)
     const result = (await getDraftTool.handler(ctx, { jobId: 'j1' })) as Record<string, unknown>
-    expect(getDraft).toHaveBeenCalledWith('p1', 'j1')
+    expect(getDraft).toHaveBeenCalledWith('p1', { jobId: 'j1' })
     expect(result.draftRevision).toBe(3)
     expect(result.sections).toEqual([{ id: 'a', hash: 'h1', text: '# A' }])
     expect(result.warnings).toHaveLength(1)

@@ -70,6 +70,8 @@ Every schema change, no exceptions:
 src/
   modules/                  ← all domain/business logic lives here
     api-tokens/             ← bearer-token issuance + verification for /api/jobs/capture
+    companies/              ← shared Company records, UK sponsor register import, job↔company matching
+    deep-dive/              ← job deep dive: gather → research (no profile data) → synthesis; JobDeepDive runs
     mcp/                    ← MCP tools, OAuth verification/discovery, consent and connected apps
     jobs/                   ← job URL extraction, application records, AI job-fit scoring
     llm/                    ← provider-agnostic LLM layer (client.ts, actions.ts, errors.ts)
@@ -180,6 +182,8 @@ SENDER_EMAIL="no-reply@yourdomain.com"
 TYPESAFE_API_KEY=""
 JOB_ASSESSMENT_V2="admin"          # off | admin | all
 JEV_DAILY_CALL_LIMIT="300"         # max Jev calls per profile per day
+
+CRON_SECRET=""                     # Vercel Cron bearer token; blank = cron routes refuse (no sponsor register import)
 ```
 
 The LLM layer is bring-your-own-key — each user enters their own provider API key at `/dashboard/settings/llm`. No app-level LLM env vars; costs land on the user, not the app owner.
@@ -205,6 +209,8 @@ Update the Vercel `DATABASE_URL` env var (Production scope) via dashboard or `ve
 
 - `POST /api/jobs/capture` — bearer-token-authed endpoint for agents/scripts/bookmarklets to submit a job URL. Tokens minted at `/dashboard/settings/api-tokens`. See `docs/api-jobs-capture.md` for the full spec, and `docs/api-integrations.md` for copy-pasteable recipes (curl shell function, Claude Code skill, Hermes skill, browser bookmarklet).
 - `GET /api/integrations/skills/<agent>` — public endpoint that returns a templated SKILL.md for the given agent (`claude-code` or `hermes`). `{{RESUME_URL}}` placeholder in `src/lib/integrations/skills/<agent>.md` is substituted with `BETTER_AUTH_URL` (or the request origin as fallback) at request time. Whitelist + dashboard download UI live in `src/app/api/integrations/skills/[agent]/route.ts` and `src/app/dashboard/settings/api-tokens/_components/integrations-list.tsx`. Sources are kept in the function bundle via `outputFileTracingIncludes` in `next.config.ts`.
+- `GET /api/internal/sponsor-register/import` — daily Vercel Cron (`vercel.json`), `CRON_SECRET` bearer. Reads the UK register of licensed sponsors, stores entries only for companies named in jobs, and links jobs to companies. Matching is exact only; see `docs/companies.md`.
+- `POST`/`GET /api/jobs/[id]/deep-dive` — start a deep dive (202, runs in `after()`, user's own LLM key) or read the newest run. Session or bearer token with `deep-dive:run`. Researchers never get profile data; one `role: 'analysis'` synthesis call judges. A complete run writes `jobAnalysis`. Report page: `/dashboard/job-applications/view/[id]/deep-dive`. See `docs/deep-dive.md`.
 - `GET /api/llm/ping` — session-authed sanity check that runs a tiny `pong` round-trip using the signed-in user's saved LLM key. Useful right after wiring up their key in `/dashboard/settings/llm`.
 
 ## Jev (TypeSafe) — app-billed
@@ -224,6 +230,8 @@ abstraction in `src/modules/llm/`:
 - `completeStructured(profileId, prompt, zodSchema, opts)` — typed JSON output via `Output.object`
 - All errors normalize to `LLMError` with a `kind` field; product code branches on `kind` instead of provider-specific SDK errors
 - `getLLMConfigStatus(profileId)` — cheap read-only check for "is this user set up?"
+- `role: 'fast' | 'research' | 'analysis'` (default `'default'`) — feature code says what kind of work a call is; the user's "Models by task" settings pick the model. **No feature module names a model id**: only `ROLE_RECOMMENDATIONS` in `src/modules/llm/roles.ts` does. `opts.model` is for tests and admin tools only.
+- `webSearch: { maxUses, allowedDomains? }` — provider-side web search (Anthropic, OpenAI, Google); a provider without one throws `LLMError` kind `unsupported`
 
 Providers wired in: Anthropic, OpenAI, Google. Adding more is a single entry in
 the `PROVIDERS` map in `client.ts`. See `docs/llm-layer.md` for usage examples.
@@ -251,6 +259,8 @@ When adding a new LLM-powered feature, also add its label to `FEATURE_LABELS` in
 - `docs/api-integrations.md` — integration recipes for the capture endpoint (curl, Claude Code skill, bookmarklet)
 - `docs/llm-layer.md` — LLM layer usage examples
 - `docs/llm-usage-tracking.md` — usage logging system, feature registry, cost estimates
+- `docs/deep-dive.md` — job deep dive backend: pipeline, code-side checks, limits, API, usage tags
+- `docs/companies.md` — companies, job↔company matching, UK sponsor register import and cron
 - `docs/job-assessment.md` — early job assessment (Jev): pipeline, scoring, queue, usage tracking, tuning, troubleshooting
 - `src/lib/integrations/skills/claude-code.md` — canonical Claude Code skill source. Served by `GET /api/integrations/skills/claude-code`; downloaded SKILL.md goes in `~/.claude/skills/capture-job/`.
 - `src/lib/integrations/skills/hermes.md` — canonical Hermes skill source. Served by `GET /api/integrations/skills/hermes`; downloaded SKILL.md goes in `~/.hermes/skills/job-search/capture-job/`.

@@ -108,7 +108,7 @@ describe('extractWithLLM', () => {
     const res = await extractWithLLM('<p>job</p>', 'p1')
     expect(res).toMatchObject({ ok: true, data: { title: 'PM' } })
     const opts = vi.mocked(completeStructured).mock.calls.at(-1)![3]
-    expect(opts).toEqual({ maxOutputTokens: 400, temperature: 0, feature: 'job-extract' })
+    expect(opts).toEqual({ maxOutputTokens: 400, temperature: 0, feature: 'job-extract', role: 'fast' })
   })
 
   it('forwards the timeout and redaction, and reports a timeout', async () => {
@@ -121,11 +121,11 @@ describe('extractWithLLM', () => {
     expect(opts).toMatchObject({ timeoutMs: 30_000, redactInvalidOutput: true })
   })
 
-  it('forwards feature, model and output cap overrides', async () => {
+  it('forwards feature and output cap overrides, always on the fast role', async () => {
     const { completeStructured } = await import('@/modules/llm/client')
     vi.mocked(completeStructured).mockResolvedValueOnce({ object: { title: 'PM' } } as never)
-    await extractWithLLM('<p>job</p>', 'p1', { feature: 'job-assessment-enrich', model: 'fast', maxOutputTokens: 4000 })
+    await extractWithLLM('<p>job</p>', 'p1', { feature: 'job-assessment-enrich', maxOutputTokens: 4000 })
     const opts = vi.mocked(completeStructured).mock.calls.at(-1)![3]
-    expect(opts).toEqual({ maxOutputTokens: 4000, temperature: 0, feature: 'job-assessment-enrich', model: 'fast' })
+    expect(opts).toEqual({ maxOutputTokens: 4000, temperature: 0, feature: 'job-assessment-enrich', role: 'fast' })
   })
 })

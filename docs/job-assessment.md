@@ -12,8 +12,10 @@ The early assessment gives every captured job a fast 1–10 score and a level (w
 moment it is saved, with blockers, strengths, gaps and "check these" notes. It reads the job description and the user's
 profile and answers a fixed set of typed questions with Jev, TypeSafe's System One model.
 
-**JobFit** (`src/modules/jobs/job-fit.ts`) is the older, on-demand assessment: one Claude call on the user's own key,
-rated 0–10, stored on `JobApplication.jobFit`. **JobFit is deprecated:** wherever the early assessment is on for a user,
+**JobFit** is the older, on-demand assessment: one Claude call on the user's own key, rated 0–10, stored on
+`JobApplication.jobFit`. **Nothing writes JobFit any more:** `assessJobFit` was removed in #363, the pill's Assess
+and Re-assess start a job deep dive (`docs/deep-dive.md`) instead, and the pill is hidden once the job has a complete
+deep dive. Before that, **JobFit was deprecated:** wherever the early assessment is on for a user,
 the early assessment is the fit score in the UI and JobFit is hidden, apart from a collapsed "Legacy fit score
 (deprecated)" section on the job page kept for reference. Users with the early assessment off still see JobFit. The
 stored `jobFit` is still shown in the CV editor's job panel and read by the chat job tools; those move over before JobFit
@@ -46,7 +48,7 @@ queued → checking → verify ── fail + URL ──► fetching (enrich) ─
    model fill fields that are empty or placeholders (title, company, description, countries, salary band). It never
    overwrites a value the user entered, and writes only if those fields are unchanged since they were read. Then verify
    runs once more (`verifyRetry`).
-3. **Facts** (`facts.ts`). The user's cheap model (`resolveFastModel`, temperature 0) turns the description into
+3. **Facts** (`facts.ts`). The user's `fast` model role (temperature 0) turns the description into
    `JobFacts`: requirements (kind, must/nice, years, parts), location, salary, seniority, employment type. Results are
    cached by `factsHash` (version, title, company, description and hints), so re-running after a profile change costs
    Jev calls only.

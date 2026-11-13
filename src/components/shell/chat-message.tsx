@@ -151,7 +151,7 @@ export function ChatMessage({ message, onToolOutput }: ChatMessageProps) {
         {isUser ? <User className="size-3.5" /> : <Bot className="size-3.5" />}
       </div>
 
-      <div className={cn('flex max-w-[85%] flex-col gap-2', isUser && 'items-end')}>
+      <div className={cn('flex min-w-0 max-w-[85%] flex-col gap-2', isUser && 'items-end')}>
         {message.parts?.map((part, i) => {
           if (isTextUIPart(part)) {
             const { content, isThinking } = isUser
@@ -168,7 +168,8 @@ export function ChatMessage({ message, onToolOutput }: ChatMessageProps) {
                 {content && (
                   <div
                     className={cn(
-                      'rounded-2xl px-3.5 py-2 text-sm leading-relaxed',
+                      // Long URLs and code must wrap or scroll inside the bubble, never widen the panel.
+                      'min-w-0 max-w-full rounded-2xl px-3.5 py-2 text-sm leading-relaxed [overflow-wrap:anywhere] [&_pre]:overflow-x-auto [&_table]:block [&_table]:overflow-x-auto',
                       isUser
                         ? 'bg-primary text-primary-foreground'
                         : 'bg-muted text-foreground',

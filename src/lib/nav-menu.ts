@@ -16,9 +16,31 @@ export type NavItem = {
   destination: string
   label: string
   Icon: LucideIcon
+  /** A legacy editor being replaced by Writing Desk documents: marked "Deprecating soon" (#379). */
+  deprecated?: true
 }
 
-export const navGroups: { label: string; items: NavItem[] }[] = [
+/**
+ * The legacy structured editors, being replaced by Writing Desk documents
+ * (#379). The sidebar keeps them under one collapsible "Old system" item,
+ * after its group's own items, headed by a single "Deprecating soon" note.
+ */
+export const OLD_SYSTEM_LABEL = 'Old system'
+
+export const legacyNav: NavItem[] = [
+  { destination: '/dashboard/cv-builder', label: 'CV Builder', Icon: FileText, deprecated: true },
+  { destination: '/dashboard/cover-letters', label: 'Cover Letters', Icon: Mail, deprecated: true },
+  { destination: '/dashboard/interview-prep', label: 'Interview Prep', Icon: MessageSquare, deprecated: true },
+]
+
+export type NavGroup = {
+  label: string
+  items: NavItem[]
+  /** Legacy tools shown in this group under the "Old system" item. */
+  legacy?: NavItem[]
+}
+
+export const navGroups: NavGroup[] = [
   {
     label: 'Career',
     items: [
@@ -38,13 +60,11 @@ export const navGroups: { label: string; items: NavItem[] }[] = [
   {
     label: 'Application Tools',
     items: [
-      { destination: '/dashboard/cv-builder', label: 'CV Builder', Icon: FileText },
-      { destination: '/dashboard/cover-letters', label: 'Cover Letters', Icon: Mail },
       { destination: '/dashboard/writing-desk', label: 'Writing Desk', Icon: NotebookPen },
-      { destination: '/dashboard/interview-prep', label: 'Interview Prep', Icon: MessageSquare },
     ],
+    legacy: legacyNav,
   },
 ]
 
 // Backwards-compatibility export — other files import mainNav and we don't want to break them
-export const mainNav = navGroups.flatMap(g => g.items)
+export const mainNav = navGroups.flatMap(g => [...g.items, ...(g.legacy ?? [])])

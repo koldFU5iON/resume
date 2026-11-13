@@ -6,30 +6,45 @@ vi.mock("@/lib/session", () => ({
 vi.mock("@/lib/db", () => ({
   prisma: {
     writingDeskDocument: {
-      upsert: vi.fn(),
+      create: vi.fn(),
+      count: vi.fn(),
       updateMany: vi.fn(),
       findFirst: vi.fn(),
+      findMany: vi.fn(),
+      deleteMany: vi.fn(),
     },
     jobApplication: { findFirst: vi.fn() },
     cVDocument: { findFirst: vi.fn() },
+    $transaction: vi.fn(),
+    $executeRaw: vi.fn(),
   },
 }))
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }))
+vi.mock("next/navigation", () => ({
+  RedirectType: { push: "push", replace: "replace" },
+  redirect: vi.fn(() => { throw new Error("NEXT_REDIRECT") }),
+}))
 vi.mock("@/modules/cv/schema", () => ({ parseCVContent: vi.fn() }))
 vi.mock("@/modules/cv/export", () => ({ toMarkdown: vi.fn() }))
 
 import { prisma } from "@/lib/db"
 import { revalidatePath } from "next/cache"
+import { redirect } from "next/navigation"
 import { parseCVContent } from "@/modules/cv/schema"
 import { toMarkdown } from "@/modules/cv/export"
 import {
-  getOrCreateWritingDesk,
+  createWritingDeskDocumentAction,
+  deleteWritingDeskDocumentAction,
+  getWritingDeskLiveStateAction,
+  renameWritingDeskDocumentAction,
   setWritingDeskDocumentType,
   setWritingDeskSource,
   updateWritingDeskContent,
 } from "./actions"
 
-const mockDeskUpsert = vi.mocked(prisma.writingDeskDocument.upsert)
+const mockDeskCreate = vi.mocked(prisma.writingDeskDocument.create)
+const mockDeskCount = vi.mocked(prisma.writingDeskDocument.count)
+const mockTransaction = vi.mocked(prisma.$transaction)
 const mockDeskUpdateMany = vi.mocked(prisma.writingDeskDocument.updateMany)
 const mockDeskFindFirst = vi.mocked(prisma.writingDeskDocument.findFirst)
 const mockJobFindFirst = vi.mocked(prisma.jobApplication.findFirst)
@@ -38,33 +53,32 @@ const mockParseCVContent = vi.mocked(parseCVContent)
 const mockToMarkdown = vi.mocked(toMarkdown)
 const mockRevalidatePath = vi.mocked(revalidatePath)
 
-describe("getOrCreateWritingDesk", () => {
-  beforeEach(() => vi.clearAllMocks())
-
-  it("creates or retrieves a desk only after finding the owned job", async () => {
-    mockJobFindFirst.mockResolvedValue({ id: "job-1" } as never)
-    mockDeskUpsert.mockResolvedValue({ id: "desk-1" } as never)
-
-    await expect(getOrCreateWritingDesk("job-1")).resolves.toEqual({ id: "desk-1" })
-
-    expect(mockJobFindFirst).toHaveBeenCalledWith({
-      where: { id: "job-1", profileId: "profile-1" },
-      select: { id: true },
-    })
-    expect(mockDeskUpsert).toHaveBeenCalledWith({
-      where: { jobApplicationId: "job-1" },
-      update: {},
-      create: { profileId: "profile-1", jobApplicationId: "job-1" },
-      select: { id: true },
-    })
+describe("createWritingDeskDocumentAction", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockTransaction.mockImplementation((async (fn: (tx: typeof prisma) => unknown) => fn(prisma)) as never)
   })
 
-  it("does not create a desk for another profile's or missing job", async () => {
+  it("creates on the signed-in profile's job and refreshes the job's document tabs", async () => {
+    mockJobFindFirst.mockResolvedValue({ id: "job-1" } as never)
+    mockDeskCount.mockResolvedValue(2)
+    mockDeskCreate.mockResolvedValue({ id: "desk-3" } as never)
+
+    await expect(createWritingDeskDocumentAction({ jobId: "job-1", name: "Second CV", documentType: "cv" }))
+      .resolves.toEqual({ ok: true, id: "desk-3" })
+
+    expect(mockJobFindFirst).toHaveBeenCalledWith({ where: { id: "job-1", profileId: "profile-1" }, select: { id: true } })
+    expect(mockDeskCreate.mock.calls[0][0].data).toMatchObject({ profileId: "profile-1", jobApplicationId: "job-1", name: "Second CV" })
+    expect(mockRevalidatePath).toHaveBeenCalledWith("/dashboard/job-applications/view/[id]", "layout")
+  })
+
+  it("refuses another profile's job without creating or revalidating", async () => {
     mockJobFindFirst.mockResolvedValue(null)
 
-    await expect(getOrCreateWritingDesk("job-other-profile")).rejects.toThrow("Job not found")
-
-    expect(mockDeskUpsert).not.toHaveBeenCalled()
+    await expect(createWritingDeskDocumentAction({ jobId: "job-other", name: "CV" }))
+      .resolves.toMatchObject({ ok: false, reason: "job_not_found" })
+    expect(mockDeskCreate).not.toHaveBeenCalled()
+    expect(mockRevalidatePath).not.toHaveBeenCalled()
   })
 })
 
@@ -103,7 +117,7 @@ describe("updateWritingDeskContent", () => {
 
     expect(mockDeskFindFirst).toHaveBeenCalledWith({
       where: { id: "desk-1", profileId: "profile-1" },
-      select: { id: true, jobApplicationId: true, revision: true, content: true },
+      select: { id: true, revision: true, content: true },
     })
   })
 })
@@ -111,7 +125,7 @@ describe("updateWritingDeskContent", () => {
 describe("setWritingDeskDocumentType", () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it("updates an owned document type with its expected revision and revalidates its job", async () => {
+  it("updates an owned document type with its expected revision and revalidates the job's tabs", async () => {
     mockDeskUpdateMany.mockResolvedValue({ count: 1 } as never)
     mockDeskFindFirst.mockResolvedValue({
       id: "desk-1",
@@ -129,7 +143,7 @@ describe("setWritingDeskDocumentType", () => {
       where: { id: "desk-1", profileId: "profile-1", revision: 2 },
       data: { documentType: "cover-letter", revision: { increment: 1 } },
     })
-    expect(mockRevalidatePath).toHaveBeenCalledWith("/dashboard/job-applications/view/job-1/writing")
+    expect(mockRevalidatePath).toHaveBeenCalledWith("/dashboard/job-applications/view/[id]", "layout")
   })
 
   it("does not write an invalid document type", async () => {
@@ -220,5 +234,90 @@ describe("setWritingDeskSource", () => {
         revision: { increment: 1 },
       },
     })
+  })
+})
+
+describe("renameWritingDeskDocumentAction", () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it("renames the signed-in profile's document and refreshes the job's tabs", async () => {
+    mockDeskUpdateMany.mockResolvedValue({ count: 1 })
+
+    await expect(renameWritingDeskDocumentAction({ documentId: "desk-1", name: " Letter to Acme " }))
+      .resolves.toEqual({ ok: true, name: "Letter to Acme" })
+    expect(mockDeskUpdateMany).toHaveBeenCalledWith({
+      where: { id: "desk-1", profileId: "profile-1" },
+      data: { name: "Letter to Acme" },
+    })
+    expect(revalidatePath).toHaveBeenCalledWith("/dashboard/job-applications/view/[id]", "layout")
+  })
+
+  it("doesn't revalidate when the document isn't the profile's", async () => {
+    mockDeskUpdateMany.mockResolvedValue({ count: 0 })
+
+    await expect(renameWritingDeskDocumentAction({ documentId: "other", name: "Hijack" }))
+      .resolves.toMatchObject({ ok: false, reason: "not_found" })
+    expect(revalidatePath).not.toHaveBeenCalled()
+  })
+})
+
+describe("getWritingDeskLiveStateAction", () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it("reads only the signed-in profile's document", async () => {
+    mockDeskFindFirst.mockResolvedValue({ content: "Saved", revision: 7 } as never)
+
+    await expect(getWritingDeskLiveStateAction("desk-1")).resolves.toEqual({ content: "Saved", revision: 7 })
+    expect(mockDeskFindFirst).toHaveBeenCalledWith({
+      where: { id: "desk-1", profileId: "profile-1" },
+      select: { content: true, revision: true },
+    })
+  })
+
+  it("rejects a malformed id without querying", async () => {
+    await expect(getWritingDeskLiveStateAction({ id: "desk-1" })).resolves.toBeNull()
+    expect(mockDeskFindFirst).not.toHaveBeenCalled()
+  })
+})
+
+describe("deleteWritingDeskDocumentAction", () => {
+  const mockJob = vi.mocked(prisma.jobApplication.findFirst)
+  const mockFindMany = vi.mocked(prisma.writingDeskDocument.findMany)
+  const mockDeleteMany = vi.mocked(prisma.writingDeskDocument.deleteMany)
+  const input = { jobId: "job-1", documentId: "desk-a" }
+
+  beforeEach(() => {
+    vi.mocked(prisma.$transaction).mockImplementation((async (fn: (tx: typeof prisma) => unknown) => fn(prisma)) as never)
+    mockJob.mockResolvedValue({ id: "job-1" } as never)
+    mockFindMany.mockResolvedValue([{ id: "desk-a" }, { id: "desk-b" }] as never)
+    mockDeleteMany.mockResolvedValue({ count: 1 })
+    vi.mocked(revalidatePath).mockClear()
+    vi.mocked(redirect).mockClear()
+  })
+
+  it("deletes for the session's profile and refreshes the job's tabs", async () => {
+    await expect(deleteWritingDeskDocumentAction(input)).resolves.toEqual({ ok: true, nextDocumentId: "desk-b" })
+    expect(mockDeleteMany).toHaveBeenCalledWith({ where: { id: "desk-a", profileId: "profile-1", jobApplicationId: "job-1" } })
+    expect(revalidatePath).toHaveBeenCalledWith("/dashboard/job-applications/view/[id]", "layout")
+    expect(redirect).not.toHaveBeenCalled()
+  })
+
+  it("opens the next document in place of the deleted one", async () => {
+    await expect(deleteWritingDeskDocumentAction(input, { openNext: true })).rejects.toThrow("NEXT_REDIRECT")
+    expect(redirect).toHaveBeenCalledWith("/dashboard/job-applications/view/job-1/writing/desk-b", "replace")
+  })
+
+  it("opens Job Description when no document remains", async () => {
+    mockFindMany.mockResolvedValue([{ id: "desk-a" }] as never)
+    await expect(deleteWritingDeskDocumentAction(input, { openNext: true })).rejects.toThrow("NEXT_REDIRECT")
+    expect(redirect).toHaveBeenCalledWith("/dashboard/job-applications/view/job-1", "replace")
+  })
+
+  it("neither revalidates nor moves on when nothing was deleted", async () => {
+    mockJob.mockResolvedValue(null)
+    await expect(deleteWritingDeskDocumentAction(input, { openNext: true }))
+      .resolves.toMatchObject({ ok: false, reason: "not_found" })
+    expect(revalidatePath).not.toHaveBeenCalled()
+    expect(redirect).not.toHaveBeenCalled()
   })
 })

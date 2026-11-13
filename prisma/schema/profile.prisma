@@ -42,6 +42,7 @@ model Profile {
   manualJobBoards ManualJobBoard[]
   careerVertical CareerVertical?
   jobAssessments JobAssessment[]
+  jobDeepDives   JobDeepDive[]
 }
 
 // One table for every capability: skills, tools and competencies (kind).

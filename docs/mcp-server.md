@@ -72,7 +72,7 @@ ChatGPT's hosted connector uses OAuth rather than these static tokens.
 | Tool | Scope | Purpose |
 | --- | --- | --- |
 | `list_jobs` | `mcp:read` | List job applications; active jobs by default |
-| `get_job_context` | `mcp:read` | Job, profile, master CV, supported blocks, and writing guidance |
+| `get_job_context` | `mcp:read` | Job, its Writing Desk documents, profile, master CV, supported blocks, and writing guidance |
 | `profile_map` | `mcp:read` | Index of the whole profile (one line per note), completeness and gaps |
 | `profile_get_note` | `mcp:read` | One profile note in full, with links to follow |
 | `profile_list` | `mcp:read` | Every note of one type, e.g. certifications or tools |
@@ -81,7 +81,7 @@ ChatGPT's hosted connector uses OAuth rather than these static tokens.
 | `profile_gaps` | `mcp:read` | Missing or weak areas, phrased as questions |
 | `get_draft` | `mcp:read` | Read sections, hashes, and diagnostics |
 | `validate_draft` | `mcp:read` | Validate the draft and return advisory fact warnings |
-| `create_draft` | `mcp:write` | Create a CV draft for a job |
+| `create_draft` | `mcp:write` | Create a CV draft in one of a job's Writing Desk documents |
 | `replace_section` | `mcp:write` | Replace a section using its current hash |
 | `insert_section` | `mcp:write` | Insert a draft section |
 | `remove_section` | `mcp:write` | Remove a section using its current hash |
@@ -94,9 +94,42 @@ No tool returns your contact details (email, phone, LinkedIn, GitHub, website).
 Agents write `{{contact}}` in the CV header instead, and the app replaces it
 with your contact line when you accept the draft.
 
+### Which document a draft goes to
+
+A job can hold several named Writing Desk documents (for example two CVs and a
+note). Each has its own content, revisions and draft. `get_job_context` lists
+them (`documents`: id, name, type, whether a draft is pending; primary/oldest
+first), and every draft tool (`get_draft`, `validate_draft`, `create_draft`,
+`replace_section`, `insert_section`, `remove_section`) takes an optional
+`documentId`. Draft results return the `documentId` and `documentName` they
+used. Agents never land on an arbitrarily chosen document:
+
+- **With `documentId`:** the call uses exactly that document. It must belong to
+  your account and to the given job; otherwise it fails with "No Writing Desk
+  document with that id belongs to this job" and nothing is read or written.
+- **Without `documentId`, one document:** the call uses it when it's a CV, or
+  has no type and still has a default name ("CV" or "Untitled document"), as
+  before documents had names. Any other single document (say "Interview
+  notes") is refused with nothing written; pass its `documentId` only if the
+  user wants a CV draft there.
+- **Without `documentId`, no document:** reads report that there is no draft;
+  `create_draft` creates the job's first document, named "CV".
+- **Without `documentId`, several documents:** the call is refused and nothing
+  is written. The error lists each document's id, name and type so the agent
+  can retry with `documentId`.
+
+Agent drafts are CVs only: a document with another type refuses
+`create_draft`.
+
+Only the user can delete a document (from its header in the job workspace);
+there is no MCP tool for it. Deleting removes the document's pending draft and
+draft history with it, and its id then fails like any other unknown id
+(`document_not_found`). Without `documentId`, the rules above apply to the
+documents that remain.
+
 Ask the client to read job context first, draft a CV, and revise its sections.
-Then open that job's **Writing Desk** to compare the draft with the live
-document. You can edit it manually and **Accept** or **Discard** it. MCP cannot
+Then open that document in the job's **Writing Desk** to compare the draft with
+the live document. You can edit it manually and **Accept** or **Discard** it. MCP cannot
 accept drafts, change job status, edit your profile, or access other accounts.
 Fact checks are advisory; review claims yourself before accepting.
 

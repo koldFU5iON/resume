@@ -25,7 +25,13 @@ model CVDocument {
   jobTitle          String?
   company           String?
   generatedContent  String   @default("{}")
+  /// generating | draft | failed | accepted. `accepted` marks the CV that was
+  /// (or will be) sent for the job; see src/modules/cv/acceptance.ts.
   status            String   @default("draft")
+  /// When the CV was accepted; null unless status is "accepted".
+  acceptedAt        DateTime?
+  /// How it was accepted: "manual" (CV builder) or "applied" (job moved to applied).
+  acceptedVia       String?
   masterCvUpdatedAt DateTime?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
@@ -36,6 +42,8 @@ model CVDocument {
   careerVertical  CareerVertical? @relation(fields: [careerVerticalId], references: [id])
   coverLetters    CoverLetterDocument[]
   writingDeskSources WritingDeskDocument[] @relation("WritingDeskSourceCV")
+  llmUsageLogs       LlmUsageLog[]
 
   @@index([profileId])
+  @@index([jobApplicationId, status])
 }

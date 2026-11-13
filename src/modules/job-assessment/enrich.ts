@@ -22,7 +22,8 @@
  */
 
 import { prisma } from '@/lib/db'
-import { resolveFastModel } from '@/modules/llm/client'
+import { linkJobCompany } from '@/modules/companies/match'
+import { assertLLMConfigured } from '@/modules/llm/client'
 import { fetchPageContent } from '@/modules/jobs/extract-fetch'
 import { extractWithLLM } from '@/modules/jobs/extract-llm'
 import { ASSESSMENT_CONFIG } from './schema'
@@ -57,6 +58,8 @@ export const REPLACE_DESCRIPTION_MIN_RATIO = 1.5
 export interface EnrichOptions {
   /** Verification found the description incomplete: a non-empty one may be replaced (see file header). */
   replaceDescription?: boolean
+  /** Groups the call with the rest of the assessment run in usage logs. */
+  runId?: string
 }
 
 export interface EnrichResult {
@@ -113,17 +116,17 @@ export async function enrichJob(profileId: string, job: EnrichJob, opts: EnrichO
   const missing = missingFields(job)
   const mayReplaceDescription = Boolean(opts.replaceDescription) && !missing.includes('jobDescription')
 
-  const model = await resolveFastModel(profileId)
+  await assertLLMConfigured(profileId)
 
   const page = await fetchPageContent(job.url)
   if (!page.ok) return { filled: [], job, error: 'Could not fetch the job page' }
 
   const extracted = await extractWithLLM(page.html, profileId, {
     feature: 'job-assessment-enrich',
-    model,
     maxOutputTokens: ENRICH_MAX_OUTPUT_TOKENS,
     timeoutMs: ENRICH_TIMEOUT_MS,
     redactInvalidOutput: true,
+    attribution: { jobApplicationId: job.id, runId: opts.runId },
   })
   if (!extracted.ok) {
     return {
@@ -171,6 +174,7 @@ export async function enrichJob(profileId: string, job: EnrichJob, opts: EnrichO
     data: updates,
   })
   if (res.count === 0) return { filled: [], job, error: 'The job was edited while details were fetched' }
+  if (updates.company !== undefined) await linkJobCompany(profileId, job.id)
 
   return { filled, job: { ...job, ...updates } }
 }

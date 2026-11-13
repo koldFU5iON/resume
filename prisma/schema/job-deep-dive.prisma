@@ -1,0 +1,44 @@
+// ------------------------------------------------------------
+// JOB DEEP DIVE — user-triggered research + synthesis report on a job
+// Design: docs/superpowers/specs/2026-11-11-job-deep-dive-design.md
+// ------------------------------------------------------------
+
+/// One row per deep-dive run. Never updated after it reaches `complete` or
+/// `failed`; the newest row per job is the current deep dive. The row id is
+/// the `runId` on every LLM usage row of the run.
+model JobDeepDive {
+  id                 String    @id @default(cuid())
+  profileId          String
+  jobApplicationId   String
+  /// The complete JobAssessment the run built on
+  sourceAssessmentId String?
+  /// queued | gathering | researching | synthesising | complete | failed
+  status             String
+  /// no_llm_key | no_description | timeout | rate_limited | overloaded | refusal | error
+  failureKind        String?
+  failureMessage     String?
+  /// sha256 of (profile, search profile, job description, salaryBand, sourceAssessmentId); set by the gather stage
+  inputsHash         String?
+  researchModel      String?
+  synthesisModel     String?
+  /// Findings per researcher, plus which were skipped or failed, and why (DeepDiveResearch)
+  research           Json?
+  /// DeepDiveReport (src/modules/deep-dive/schema.ts)
+  report             Json?
+  /// apply | apply_with_caveats | long_shot | dont_apply (copied from report)
+  verdict            String?
+  worthTailoredCv    Boolean?
+  startedAt          DateTime?
+  completedAt        DateTime?
+  /// { gather, research: { company, pay, practicalities }, synthesis } in ms
+  stageTimings       Json?
+  createdAt          DateTime  @default(now())
+
+  profile          Profile        @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  jobApplication   JobApplication @relation(fields: [jobApplicationId], references: [id], onDelete: Cascade)
+  sourceAssessment JobAssessment? @relation(fields: [sourceAssessmentId], references: [id], onDelete: SetNull)
+
+  @@index([jobApplicationId, createdAt])
+  @@index([profileId, status])
+  @@index([sourceAssessmentId])
+}

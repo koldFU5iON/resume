@@ -1,7 +1,9 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { Settings, KeyRound, Plus, Sparkles, UserCog } from "lucide-react"
+import { guardedNavigate } from "@/components/job-workspace/navigation-guard"
+import { useTheme } from "next-themes"
+import { Settings, KeyRound, Plus, Sparkles, SunMoon, UserCog } from "lucide-react"
 
 import {
   CommandDialog,
@@ -12,6 +14,7 @@ import {
   CommandList,
 } from "@/components/ui/command"
 import { mainNav } from "@/lib/nav-menu"
+import { DeprecatingSoonBadge } from "@/components/legacy-editors/deprecation"
 import { usePageContext } from "@/lib/context/page-context"
 
 type SettingsItem = {
@@ -35,10 +38,11 @@ type CommandPaletteProps = {
 export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const router = useRouter()
   const { togglePanel } = usePageContext()
+  const { resolvedTheme, setTheme } = useTheme()
 
   const go = (href: string) => {
     onOpenChange(false)
-    router.push(href)
+    void guardedNavigate(() => router.push(href))
   }
 
   return (
@@ -61,6 +65,13 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
             <Plus />
             <span>Add job</span>
           </CommandItem>
+          <CommandItem
+            value="Switch theme light dark"
+            onSelect={() => { onOpenChange(false); setTheme(resolvedTheme === "dark" ? "light" : "dark") }}
+          >
+            <SunMoon />
+            <span>Switch theme</span>
+          </CommandItem>
         </CommandGroup>
         <CommandGroup heading="Navigation">
           {mainNav.map((item) => (
@@ -71,6 +82,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
             >
               <item.Icon />
               <span>{item.label}</span>
+              {item.deprecated && <DeprecatingSoonBadge className="ml-auto" />}
             </CommandItem>
           ))}
         </CommandGroup>

@@ -107,7 +107,8 @@ export function JobRowCard({ job, selected, busyLabel, onToggleSelect, onEdit, o
             {job.cvDocumentId && (
               <Link
                 href={`/dashboard/cv-builder/${job.cvDocumentId}`}
-                aria-label="View CV"
+                aria-label="View CV in the CV Builder (deprecating soon)"
+                title="CV Builder · Deprecating soon"
                 className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
               >
                 <FileText size={12} />
@@ -116,7 +117,8 @@ export function JobRowCard({ job, selected, busyLabel, onToggleSelect, onEdit, o
             {job.coverLetterDocumentId && (
               <Link
                 href={`/dashboard/cover-letters/${job.coverLetterDocumentId}`}
-                aria-label="View cover letter"
+                aria-label="View cover letter in the cover letter editor (deprecating soon)"
+                title="Cover letter editor · Deprecating soon"
                 className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
               >
                 <Mail size={12} />
@@ -160,8 +162,8 @@ export function JobRowCard({ job, selected, busyLabel, onToggleSelect, onEdit, o
         </span>
         <span className="inline-flex items-center gap-0.5">
           {/* JobFit is deprecated: shown only while the early assessment is off for this user. */}
-          {!earlyEnabled && <JobFit jobId={id} jobFit={jobFit ?? null} canAssess={!!jobDescription?.trim()} hasLLMKey={hasLLMKey} company={company ?? undefined} jdSnippet={jobDescription ? jobDescription.slice(0, 800) : undefined} />}
-          <EarlyAssessment jobId={id} assessment={job.earlyAssessment ?? null} enabled={earlyEnabled} editHref={`/dashboard/job-applications/view/${id}`} />
+          {!earlyEnabled && <JobFit jobId={id} jobFit={jobFit ?? null} canAssess={!!jobDescription?.trim()} hasLLMKey={hasLLMKey} deepDive={job.deepDive} company={company ?? undefined} jdSnippet={jobDescription ? jobDescription.slice(0, 800) : undefined} />}
+          <EarlyAssessment jobId={id} assessment={job.earlyAssessment ?? null} enabled={earlyEnabled} editHref={`/dashboard/job-applications/view/${id}`} deepDive={job.deepDive} />
         </span>
         {dateApplied && (
           <span className="text-xs text-muted-foreground">{formatShortDate(dateApplied)}</span>

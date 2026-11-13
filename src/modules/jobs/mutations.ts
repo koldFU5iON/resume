@@ -14,6 +14,8 @@ import type { Job } from '@/app/types/job-application'
 import { requireProfile } from '@/lib/session'
 import { getArchivedJobs } from './queries'
 import { assessmentMaybeEnabled, queueJobAssessmentSafely } from '@/modules/job-assessment/queue'
+import { linkJobCompany } from '@/modules/companies/match'
+import { acceptLatestCVForAppliedJob } from '@/modules/cv/acceptance'
 
 // Progress stages in funnel order. Used to compute "everything before stage X"
 // for the auto-advance logic below.
@@ -23,9 +25,12 @@ const PROGRESS_ORDER = Object.values(ApplicationProgress)
 // auto-advance floor) is now a one-line edit instead of another if-arm.
 //   minProgress: floor to bump progress to (never rewinds further-along jobs)
 //   setDateApplied: backfill dateApplied if it's still null
+//   acceptLatestCv: the job has been applied for, so accept its most recent
+//                   draft CV if none is accepted yet (see modules/cv/acceptance)
 type StatusTransition = {
   minProgress?: ApplicationProgressType
   setDateApplied?: boolean
+  acceptLatestCv?: boolean
 }
 const STATUS_TRANSITIONS: Record<ApplicationStatusType, StatusTransition> = {
   [ApplicationStatus.NotStarted]: {},
@@ -33,10 +38,12 @@ const STATUS_TRANSITIONS: Record<ApplicationStatusType, StatusTransition> = {
   [ApplicationStatus.Applied]: {
     minProgress: ApplicationProgress.Pending,
     setDateApplied: true,
+    acceptLatestCv: true,
   },
   [ApplicationStatus.Interviewing]: {
     minProgress: ApplicationProgress.Recruiter,
     setDateApplied: true,
+    acceptLatestCv: true,
   },
   [ApplicationStatus.Accepted]: { minProgress: ApplicationProgress.Offer },
   [ApplicationStatus.Rejected]: {},
@@ -65,6 +72,7 @@ export async function createJobApplication(data: z.infer<typeof createJobSchema>
       profileId: profile.id,
     },
   })
+  await linkJobCompany(profile.id, job.id)
   await queueJobAssessmentSafely(profile.id, job.id, { reason: 'created' })
   revalidatePath('/dashboard/job-applications')
   return job
@@ -119,6 +127,16 @@ export async function updateJobStatus(id: string, status: ApplicationStatusType)
       where: { id, profileId: profile.id, dateApplied: null },
       data: { dateApplied: new Date() },
     })
+  }
+
+  // Best effort: a failure here must not undo or fail the status change.
+  if (transition.acceptLatestCv) {
+    try {
+      const acceptedCvId = await acceptLatestCVForAppliedJob(profile.id, id)
+      if (acceptedCvId) revalidatePath(`/dashboard/cv-builder/${acceptedCvId}`)
+    } catch (err) {
+      console.error('[updateJobStatus] could not accept the latest CV', err)
+    }
   }
 
   // Auto-advance progress to the floor for this status. The `progress in [stages before]`
@@ -203,6 +221,8 @@ export async function updateJobApplication(
     data: payload,
   })
   if (result.count === 0) throw new Error('Job not found')
+
+  if (payload.company !== undefined) await linkJobCompany(profile.id, id)
 
   if (checkAssessedFields && current && assessedFieldsChanged(current, payload)) {
     await queueJobAssessmentSafely(profile.id, id, { reason: 'edited' })
@@ -289,6 +309,7 @@ export async function restoreJobApplication(id: string): Promise<void> {
     data: { archivedAt: null },
   })
   revalidatePath('/dashboard/job-applications')
+  revalidatePath(`/dashboard/job-applications/view/${id}`)
 }
 
 export async function bulkRestoreJobApplications(ids: string[]) {

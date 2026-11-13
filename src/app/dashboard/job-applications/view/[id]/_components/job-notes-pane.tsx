@@ -39,65 +39,49 @@ export function JobNotesPane({ jobId, notes, notesIncludeInFit }: Props) {
   }
 
   return (
-    <div className="flex flex-col overflow-hidden">
-      {/* Sticky header */}
-      <div className="flex shrink-0 items-center justify-between border-b bg-background px-4 py-2.5">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Notes
-        </h2>
-        <div className="flex items-center gap-2">
-          {isPending && (
-            <span className="text-[10px] text-muted-foreground">Saving…</span>
-          )}
-          {saved && !isPending && (
-            <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-              <Check className="size-3" /> Saved
-            </span>
-          )}
-          <button
-            onClick={mode === 'preview' ? enterEdit : exitEdit}
-            className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-            title={mode === 'preview' ? 'Edit notes' : 'Preview notes'}
-          >
-            {mode === 'preview' ? <Pencil className="size-3.5" /> : <Eye className="size-3.5" />}
-          </button>
-        </div>
+    <div>
+      <div className="mb-2 flex items-center justify-end gap-2">
+        {isPending && (
+          <span className="text-xs text-muted-foreground" role="status">Saving…</span>
+        )}
+        {saved && !isPending && (
+          <span className="flex items-center gap-1 text-xs text-muted-foreground" role="status">
+            <Check className="size-3" aria-hidden="true" /> Saved
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={mode === 'preview' ? enterEdit : exitEdit}
+          className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {mode === 'preview'
+            ? <><Pencil className="size-3.5" aria-hidden="true" /> Edit notes</>
+            : <><Eye className="size-3.5" aria-hidden="true" /> Done</>}
+        </button>
       </div>
 
-      {/* Scrollable body */}
-      <div className="flex-1 overflow-y-auto">
-        {mode === 'edit' ? (
-          <textarea
-            ref={textareaRef}
-            value={draft}
-            onChange={e => setDraft(e.target.value)}
-            onBlur={exitEdit}
-            placeholder="Add notes in Markdown…"
-            className={cn(
-              'h-full min-h-full w-full resize-none bg-background p-4 text-sm leading-relaxed',
-              'focus:outline-none',
-            )}
-          />
-        ) : draft.trim() ? (
-          <div
-            className="cursor-text px-4 py-4"
-            onClick={enterEdit}
-            title="Click to edit"
-          >
-            <MarkdownProse content={draft} />
-          </div>
-        ) : (
-          <div
-            className="cursor-text px-4 py-4"
-            onClick={enterEdit}
-            title="Click to add notes"
-          >
-            <p className="text-sm text-muted-foreground">
-              No notes yet. Click to add.
-            </p>
-          </div>
-        )}
-      </div>
+      {mode === 'edit' ? (
+        <textarea
+          ref={textareaRef}
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onBlur={exitEdit}
+          aria-label="Job notes (Markdown)"
+          placeholder="Add notes in Markdown…"
+          className={cn(
+            'min-h-48 w-full resize-y rounded-lg border bg-background p-3 text-sm leading-relaxed',
+            'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          )}
+        />
+      ) : draft.trim() ? (
+        <div className="cursor-text" onClick={enterEdit} title="Click to edit">
+          <MarkdownProse content={draft} />
+        </div>
+      ) : (
+        <p className="cursor-text text-sm text-muted-foreground" onClick={enterEdit}>
+          No notes yet.
+        </p>
+      )}
     </div>
   )
 }

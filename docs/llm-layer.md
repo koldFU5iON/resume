@@ -92,6 +92,63 @@ const { object } = await completeStructured(
 // object is typed as z.infer<typeof JobFitSchema>
 ```
 
+### Model roles: say what kind of work, not which model
+
+Feature code never names a model id. Pass a `role` and the layer picks the
+model from the user's settings (`src/modules/llm/roles.ts`):
+
+| Role | Used for |
+|---|---|
+| `default` (when omitted) | Writing and generation: CVs, cover letters, chat. The user's `llmModel`. |
+| `fast` | Extraction, structuring, classification, high-volume steps (job facts, reading job pages) |
+| `research` | Gathering facts from the web, no judgement (pair with `webSearch`) |
+| `analysis` | Long reasoning over a lot of context |
+
+```ts
+await completeStructured(profileId, prompt, JobFactsSchema, { feature: 'job-assessment-facts', role: 'fast' })
+```
+
+Resolution, per call:
+
+1. The user's choice for the role (`UserSettings.llmModelRoles`, set under
+   "Models by task" on `/dashboard/settings/llm`), if it's still in their
+   cached `availableModels`
+2. Otherwise `ROLE_RECOMMENDATIONS[provider][role]`, if their key has it
+3. Otherwise the user's default model
+
+`ROLE_RECOMMENDATIONS` is the only place model ids live. An entry stays `null`
+until a model has been checked for that role. An explicit `opts.model` still
+overrides the role, but only tests and admin tools may use it. Every usage row
+records the role (`LlmUsageLog.role`).
+
+### Web search
+
+```ts
+const { text } = await complete(profileId, prompt, {
+  feature: 'deep-dive-research',
+  role: 'research',
+  webSearch: { maxUses: 5, allowedDomains: ['glassdoor.com'] }, // allowedDomains optional
+})
+```
+
+`webSearch` turns on the provider's server-side search tool
+(`src/modules/llm/web-search.ts`). Searches run on the provider and are counted
+in the usage row's `serverToolCalls`.
+
+| Provider | Tools | `maxUses` | `allowedDomains` | Live-tested |
+|---|---|---|---|---|
+| Anthropic | `webSearch_20260209` + `webFetch_20260209` | yes, per tool (up to 2 × `maxUses` billed uses) | yes | not yet |
+| OpenAI | `webSearch` (Responses API) | not supported, ignored | yes (`filters.allowedDomains`) | not yet |
+| Google | `googleSearch` (grounding) | not supported, ignored | not supported, ignored | not yet |
+
+Google reports searches in grounding metadata rather than as tool calls; the
+layer counts `webSearchQueries` for `serverToolCalls`. A provider without a
+search tool throws `LLMError` kind `unsupported`. `webSearch` works with
+`complete` only: `completeStructured` throws `unsupported` for it, because
+Gemini rejects search grounding with a JSON schema and other providers don't
+combine them reliably. Search with `complete`, then structure the notes with a
+separate `role: 'fast'` call.
+
 ### Cheap config check (no LLM call)
 
 For UIs that need to know "has this user finished setup yet?" without paying
@@ -101,7 +158,10 @@ for a ping:
 import { getLLMConfigStatus } from '@/modules/llm/client'
 
 const status = await getLLMConfigStatus(profile.id)
-// { configured: boolean, provider: string | null, model: string | null }
+// { configured, provider, model, availableModels, availableModelsUpdatedAt, modelRoles }
+
+// Or, to fail early before other work (throws LLMError 'not_configured'):
+await assertLLMConfigured(profile.id)
 ```
 
 ## Error handling
@@ -117,6 +177,8 @@ All thrown errors are `LLMError` instances with a `kind` field:
 | `unavailable` | 5xx from provider | Generic "try again shortly" |
 | `safety` | Provider refused to generate output | Offer a fallback path |
 | `invalid_output` | Structured output didn't match the schema | Internal error — retry or fallback |
+| `timeout` | The caller's `timeoutMs` elapsed | Retry or skip |
+| `unsupported` | The provider can't do what was asked (e.g. `webSearch`) | Skip the step, or ask for another provider |
 | `unknown` | Anything else | Log the cause; show generic error |
 
 ```ts
@@ -152,8 +214,9 @@ const PROVIDERS: Record<string, ProviderFactory> = {
 }
 ```
 
-Then add the option to the settings form's `PROVIDERS` list. No other code
-needs to change.
+Then add the option to the settings form's `PROVIDERS` list, a column in
+`ROLE_RECOMMENDATIONS` (all `null` until tested), and, if the provider has a
+search tool, an entry in `SEARCH_TOOLS` in `web-search.ts`.
 
 ## Encryption
 

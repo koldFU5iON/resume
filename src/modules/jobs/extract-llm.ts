@@ -1,7 +1,7 @@
 import * as z from 'zod'
 import { Readability } from '@mozilla/readability'
 import { parseHTML } from 'linkedom'
-import { completeStructured } from '@/modules/llm/client'
+import { completeStructured, type LlmAttribution } from '@/modules/llm/client'
 import { LLMError } from '@/modules/llm/errors'
 import type { ExtractedJob, ExtractionResult } from './extract-utils'
 
@@ -49,14 +49,14 @@ const NO_KEY_ERROR = 'No job details found. Add an LLM key in Settings to enable
 export type ExtractWithLLMOptions = {
   /** Usage feature tag. Default 'job-extract' (the capture/extract flows). */
   feature?: string
-  /** Model override, e.g. resolveFastModel(profileId). Default: the user's model. */
-  model?: string
   /** Default 400 (the capture/extract flows). */
   maxOutputTokens?: number
   /** Abort after this many ms; a timeout returns `{ ok: false, timedOut: true }`. */
   timeoutMs?: number
   /** Log only zod issue paths on invalid output (the raw output echoes page text). */
   redactInvalidOutput?: boolean
+  /** Set when the job row already exists (e.g. assessment enrichment); capture flows have none. */
+  attribution?: LlmAttribution
 }
 
 /**
@@ -79,9 +79,10 @@ export async function extractWithLLM(
       maxOutputTokens: opts.maxOutputTokens ?? 400,
       temperature: 0,
       feature: opts.feature ?? 'job-extract',
-      ...(opts.model ? { model: opts.model } : {}),
+      role: 'fast',
       ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
       ...(opts.redactInvalidOutput ? { redactInvalidOutput: true } : {}),
+      ...(opts.attribution ? { attribution: opts.attribution } : {}),
     })
     const raw = result.object
     const parsedDate = raw.datePublished ? new Date(raw.datePublished) : undefined

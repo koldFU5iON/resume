@@ -35,7 +35,7 @@ export async function analyseDocument(
 
   const doc = await prisma.prepDocument.findFirst({
     where: { id: documentId, profileId: profile.id },
-    select: { id: true, name: true, content: true, session: { select: { title: true, company: true, jobTitle: true } } },
+    select: { id: true, name: true, content: true, session: { select: { title: true, company: true, jobTitle: true, jobApplicationId: true } } },
   })
   if (!doc) return { ok: false, error: 'not_found', message: 'Document not found.' }
   if (!doc.content.trim()) return { ok: false, error: 'no_content', message: 'Document has no text content to analyse.' }
@@ -49,6 +49,7 @@ export async function analyseDocument(
   try {
     const result = await complete(profile.id, prompt, {
       feature: 'interview-prep-doc-analysis',
+      attribution: { jobApplicationId: doc.session.jobApplicationId },
       system: DOC_SYSTEM,
     })
     const content = result.text
@@ -81,7 +82,7 @@ export async function analyseInterviewer(
     where: { id: interviewerId, profileId: profile.id },
     select: {
       id: true, name: true, role: true, linkedInText: true, notes: true,
-      session: { select: { title: true, company: true, jobTitle: true } },
+      session: { select: { title: true, company: true, jobTitle: true, jobApplicationId: true } },
     },
   })
   if (!interviewer) return { ok: false, error: 'not_found', message: 'Interviewer not found.' }
@@ -99,6 +100,7 @@ export async function analyseInterviewer(
   try {
     const result = await complete(profile.id, prompt, {
       feature: 'interview-prep-interviewer-analysis',
+      attribution: { jobApplicationId: interviewer.session.jobApplicationId },
       system: INTERVIEWER_SYSTEM,
     })
     const content = result.text

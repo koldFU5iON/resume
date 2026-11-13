@@ -5,13 +5,16 @@ vi.mock('@/lib/session', () => ({
 }))
 vi.mock('@/lib/db', () => ({
   prisma: {
-    cVDocument: { findFirst: vi.fn(), update: vi.fn() },
+    cVDocument: { findFirst: vi.fn(), update: vi.fn(), create: vi.fn(), updateMany: vi.fn() },
+    jobApplication: { findFirst: vi.fn() },
   },
 }))
+vi.mock('./generate', () => ({ generateCVContent: vi.fn() }))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 
-import { addCustomSection, reorderSections, patchCVSectionData } from './actions'
+import { addCustomSection, reorderSections, patchCVSectionData, regenerateCVContent, markCVAccepted, createAndGenerateCV } from './actions'
 import { prisma } from '@/lib/db'
+import { generateCVContent } from './generate'
 import type { CVDocumentContent } from './schema'
 
 const mockFindFirst = vi.mocked(prisma.cVDocument.findFirst)
@@ -166,5 +169,82 @@ describe('patchCVSectionData', () => {
     mockFindFirst.mockResolvedValue({ id: 'cv-1', generatedContent: contentWith([header]) } as never)
 
     await expect(patchCVSectionData('cv-1', 'nope', {})).rejects.toThrow('Section not found')
+  })
+})
+
+describe('regenerateCVContent', () => {
+  const generated = { version: 1, sections: [header] } as unknown as CVDocumentContent
+  const base = {
+    id: 'cv-1', jobApplicationId: 'job-1', careerVerticalId: null, templateId: 'default',
+    jobDescription: 'JD', jobTitle: 'PM', company: 'Acme',
+  }
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(generateCVContent).mockResolvedValue({ content: generated, masterUpdatedAt: null } as never)
+  })
+
+  it('overwrites a draft CV in place', async () => {
+    mockFindFirst.mockResolvedValue({ ...base, status: 'draft' } as never)
+    mockUpdate.mockResolvedValue({ id: 'cv-1' } as never)
+
+    const res = await regenerateCVContent('cv-1')
+
+    expect(res.id).toBe('cv-1')
+    expect(prisma.cVDocument.create).not.toHaveBeenCalled()
+    expect(generateCVContent).toHaveBeenCalledWith('profile-1', 'job-1', { cvDocumentId: 'cv-1' })
+  })
+
+  it('leaves an accepted CV untouched and generates into a new draft for the same job', async () => {
+    mockFindFirst.mockResolvedValue({ ...base, status: 'accepted' } as never)
+    vi.mocked(prisma.cVDocument.create).mockResolvedValue({ id: 'cv-2' } as never)
+    mockUpdate.mockResolvedValue({} as never)
+
+    const res = await regenerateCVContent('cv-1')
+
+    expect(res).toEqual({ id: 'cv-2', content: generated })
+    expect(vi.mocked(prisma.cVDocument.create).mock.calls[0][0].data).toMatchObject({
+      profileId: 'profile-1', jobApplicationId: 'job-1', templateId: 'default', status: 'generating',
+    })
+    expect(generateCVContent).toHaveBeenCalledWith('profile-1', 'job-1', { cvDocumentId: 'cv-2' })
+    // Every write goes to the new CV; the accepted one is never updated.
+    for (const [args] of mockUpdate.mock.calls) expect(args.where).toMatchObject({ id: 'cv-2', profileId: 'profile-1' })
+  })
+
+  it("marks the new draft failed (not the accepted CV) when generation fails", async () => {
+    mockFindFirst.mockResolvedValue({ ...base, status: 'accepted' } as never)
+    vi.mocked(prisma.cVDocument.create).mockResolvedValue({ id: 'cv-2' } as never)
+    vi.mocked(generateCVContent).mockRejectedValueOnce(new Error('boom'))
+
+    await expect(regenerateCVContent('cv-1')).rejects.toThrow('boom')
+    expect(mockUpdate).toHaveBeenCalledWith({ where: { id: 'cv-2', profileId: 'profile-1' }, data: { status: 'failed' } })
+  })
+})
+
+describe('markCVAccepted', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it("accepts the signed-in profile's CV", async () => {
+    vi.mocked(prisma.cVDocument.updateMany).mockResolvedValue({ count: 1 })
+    await markCVAccepted('cv-1')
+    expect(vi.mocked(prisma.cVDocument.updateMany).mock.calls[0][0].where).toMatchObject({ id: 'cv-1', profileId: 'profile-1' })
+  })
+
+  it('throws a readable error when the CV is still a draft without a job', async () => {
+    vi.mocked(prisma.cVDocument.updateMany).mockResolvedValue({ count: 0 })
+    mockFindFirst.mockResolvedValue({ status: 'draft', jobApplication: null } as never)
+    await expect(markCVAccepted('cv-1')).rejects.toThrow('Only a CV for a job can be accepted.')
+  })
+})
+
+describe('createAndGenerateCV', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it("refuses to link a CV to a job the profile doesn't own", async () => {
+    mockFindFirst.mockResolvedValue(null as never)
+    vi.mocked(prisma.jobApplication.findFirst).mockResolvedValue(null as never)
+
+    await expect(createAndGenerateCV({ jobApplicationId: 'foreign-job' })).rejects.toThrow('Job not found')
+    expect(vi.mocked(prisma.jobApplication.findFirst).mock.calls[0][0]?.where).toEqual({ id: 'foreign-job', profileId: 'profile-1' })
+    expect(prisma.cVDocument.create).not.toHaveBeenCalled()
   })
 })

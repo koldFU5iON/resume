@@ -2,10 +2,11 @@ import * as z from 'zod'
 import { getDraft } from '@/modules/writing-desk/draft'
 import { validateDraftMarkdown } from '@/modules/writing-desk/validate'
 import type { McpToolDefinition } from '../registry'
-import { draftView, unwrapDraft } from './draft-view'
+import { deskRef, documentIdInput, draftView, unwrapDraft } from './draft-view'
 
 const inputSchema = z.object({
   jobId: z.string().min(1).max(100).describe('The job id returned by list_jobs.'),
+  documentId: documentIdInput,
 })
 
 export const validateDraftTool: McpToolDefinition = {
@@ -17,7 +18,7 @@ export const validateDraftTool: McpToolDefinition = {
     'claims (see get_job_context). The owner reviews and accepts the draft in the app.',
   inputSchema,
   async handler(ctx, args: z.infer<typeof inputSchema>) {
-    const state = unwrapDraft(await getDraft(ctx.profileId, args.jobId))
+    const state = unwrapDraft(await getDraft(ctx.profileId, deskRef(args)))
     const { ok } = validateDraftMarkdown(state.content)
     const { issues, warnings, truncated, notice } = draftView(state)
     return { ok, issues, warnings, ...(truncated ? { truncated, notice } : {}) }

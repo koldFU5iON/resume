@@ -1,3 +1,4 @@
+import { cache } from "react"
 import { headers } from "next/headers"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/db"
@@ -12,7 +13,7 @@ export async function requireSession() {
   return session
 }
 
-export async function requireProfile() {
+async function requireProfileUncached() {
   const session = await requireSession()
   const profile = await prisma.profile.findUnique({
     where: { userId: session.user.id },
@@ -28,3 +29,7 @@ export async function isAdminUser(userId: string): Promise<boolean> {
   })
   return user?.role === 'admin'
 }
+
+
+/** Deduplicated per request: the job workspace layout and its pages both call this. */
+export const requireProfile = cache(requireProfileUncached)

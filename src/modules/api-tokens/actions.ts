@@ -24,7 +24,7 @@ export async function createApiTokenAction(
 ): Promise<CreatedToken> {
   const input = z.object({
     name: z.string().trim().min(1).max(80),
-    scopes: z.array(z.enum(API_TOKEN_SCOPES)).min(1).max(3).optional(),
+    scopes: z.array(z.enum(API_TOKEN_SCOPES)).min(1).max(API_TOKEN_SCOPES.length).optional(),
     expiresInDays: z.number().int().min(1).max(36500).nullish(),
   }).parse({ name, scopes, expiresInDays })
   const { profile } = await requireProfile()

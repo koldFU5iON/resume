@@ -1,4 +1,4 @@
-import { completeStructured } from '@/modules/llm/client'
+import { completeStructured, type LlmAttribution } from '@/modules/llm/client'
 import { loadATSContextPrompt } from '@/modules/llm/prompt-context'
 import { ATSContextSchema, type ATSContextResult } from './ats-context-schema'
 
@@ -6,6 +6,7 @@ export async function buildATSContext(
   profileId: string,
   jobDescription: string,
   profileText: string,
+  attribution?: LlmAttribution,
 ): Promise<ATSContextResult> {
   const systemPrompt = await loadATSContextPrompt(profileId)
 
@@ -20,6 +21,7 @@ export async function buildATSContext(
   const result = await completeStructured(profileId, userMessage, ATSContextSchema, {
     system: systemPrompt,
     feature: 'ats-context',
+    ...(attribution ? { attribution } : {}),
     maxOutputTokens: 600,
     temperature: 0.1,
   })

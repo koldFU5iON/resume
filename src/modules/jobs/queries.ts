@@ -1,8 +1,25 @@
+import { cache } from "react"
 import type { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db"
 import { ApplicationStatus, type ApplicationStatusType, type Job } from "@/app/types/job-application"
 import { requireProfile } from "@/lib/session"
-import { getEarlyAssessmentForJob, getEarlyAssessmentsForJobs } from "@/modules/job-assessment/queries"
+import { getEarlyAssessmentForJob, getEarlyAssessmentsForJobs, isEarlyAssessmentEnabled, type AssessmentView } from "@/modules/job-assessment/queries"
+import { getDeepDiveSummaries, getDeepDiveSummary, type DeepDiveSummary } from "@/modules/deep-dive/queries"
+import { getDeepDiveAccess, type DeepDiveAccess } from "@/modules/deep-dive/access"
+import {
+  WRITING_DESK_DOCUMENT_ORDER,
+  parseWritingDeskDocumentType,
+} from "@/modules/writing-desk/schema"
+import type { JobDocumentAssets } from "@/modules/jobs/workspace-nav"
+
+/**
+ * The legacy JobFit as the UI shows it: hidden (null) once the job has a
+ * complete deep dive, which replaces it (spec §10). Done here once so rows,
+ * filters, sorts and the sidebar all agree.
+ */
+function visibleJobFit<T>(jobFit: T, deepDive: DeepDiveSummary | null | undefined): T | null {
+  return deepDive?.hasReport ? null : jobFit
+}
 
 export type DashboardJobSlim = {
   id: string
@@ -97,13 +114,19 @@ export async function getActiveJobs(): Promise<Job[]> {
     },
   })
   // One more query for all jobs (not one per job); {} when the feature is off.
-  const early = await getEarlyAssessmentsForJobs(profile.id, jobs.map(j => j.id))
+  const ids = jobs.map(j => j.id)
+  const [early, deepDives] = await Promise.all([
+    getEarlyAssessmentsForJobs(profile.id, ids),
+    getDeepDiveSummaries(profile.id, ids),
+  ])
   return jobs.map(j => ({
     ...j,
     cvDocumentId: j.cvDocuments[0]?.id ?? null,
     coverLetterDocumentId: j.coverLetters[0]?.id ?? null,
     interviewPrepSessionId: j.interviewPrepSessions[0]?.id ?? null,
     earlyAssessment: early[j.id] ?? null,
+    deepDive: deepDives[j.id] ?? null,
+    jobFit: visibleJobFit(j.jobFit, deepDives[j.id]),
   })) as Job[]
 }
 
@@ -126,7 +149,7 @@ export async function listActiveJobsForPicker(profileId: string): Promise<JobPic
 
 export async function getJobApplicationById(id: string): Promise<Job | null> {
   const { profile } = await requireProfile()
-  const [job, earlyAssessment] = await Promise.all([prisma.jobApplication.findFirst({
+  const [job, earlyAssessment, deepDive] = await Promise.all([prisma.jobApplication.findFirst({
     where: { id, profileId: profile.id },
     include: {
       cvDocuments: {
@@ -145,7 +168,7 @@ export async function getJobApplicationById(id: string): Promise<Job | null> {
         orderBy: { createdAt: 'desc' },
       },
     },
-  }), getEarlyAssessmentForJob(profile.id, id)])
+  }), getEarlyAssessmentForJob(profile.id, id), getDeepDiveSummary(profile.id, id)])
   if (!job) return null
   return {
     ...job,
@@ -153,6 +176,8 @@ export async function getJobApplicationById(id: string): Promise<Job | null> {
     coverLetterDocumentId: job.coverLetters[0]?.id ?? null,
     interviewPrepSessionId: job.interviewPrepSessions[0]?.id ?? null,
     earlyAssessment,
+    deepDive,
+    jobFit: visibleJobFit(job.jobFit, deepDive),
   } as Job
 }
 
@@ -160,6 +185,8 @@ export type JobAssets = {
   jobId: string
   company: string | null
   title: string
+  /** The job ad's URL, when known. */
+  url: string | null
   cvDocumentId: string | null
   coverLetterDocumentId: string | null
   interviewPrepSessionId: string | null
@@ -173,6 +200,7 @@ export async function getJobAssets(jobId: string, profileId: string): Promise<Jo
       id: true,
       company: true,
       title: true,
+      url: true,
       cvDocuments: {
         select: { id: true },
         take: 1,
@@ -195,10 +223,105 @@ export async function getJobAssets(jobId: string, profileId: string): Promise<Jo
     jobId: job.id,
     company: job.company,
     title: job.title,
+    url: job.url,
     cvDocumentId: job.cvDocuments[0]?.id ?? null,
     coverLetterDocumentId: job.coverLetters[0]?.id ?? null,
     interviewPrepSessionId: job.interviewPrepSessions[0]?.id ?? null,
   }
+}
+
+export type JobWorkspace = {
+  jobId: string
+  title: string
+  company: string | null
+  url: string | null
+  status: ApplicationStatusType
+  archivedAt: Date | null
+  /** Newest early assessment; null when there is none or the feature is off for the user. */
+  earlyAssessment: AssessmentView | null
+  earlyEnabled: boolean
+  deepDive: DeepDiveSummary | null
+  deepDiveAccess: DeepDiveAccess
+  assets: JobDocumentAssets
+}
+
+/**
+ * What the persistent job workspace header and document navigation need
+ * (#369): identity, status, archive state, fit/Deep Dive access and the job's
+ * documents. Scoped to the profile; null when the job isn't theirs.
+ */
+async function getJobWorkspaceUncached(profileId: string, jobId: string): Promise<JobWorkspace | null> {
+  const job = await prisma.jobApplication.findFirst({
+    where: { id: jobId, profileId },
+    select: {
+      id: true,
+      title: true,
+      company: true,
+      url: true,
+      status: true,
+      archivedAt: true,
+      cvDocuments: { select: { id: true }, take: 1, orderBy: { createdAt: 'desc' } },
+      coverLetters: { select: { id: true }, take: 1, orderBy: { updatedAt: 'desc' } },
+      interviewPrepSessions: { select: { id: true }, take: 1, orderBy: { createdAt: 'desc' } },
+      writingDesks: {
+        select: { id: true, name: true, documentType: true },
+        orderBy: WRITING_DESK_DOCUMENT_ORDER,
+      },
+    },
+  })
+  if (!job) return null
+
+  const [earlyAssessment, earlyEnabled, deepDive, deepDiveAccess] = await Promise.all([
+    getEarlyAssessmentForJob(profileId, jobId),
+    isEarlyAssessmentEnabled(profileId),
+    getDeepDiveSummary(profileId, jobId),
+    getDeepDiveAccess(profileId),
+  ])
+
+  return {
+    jobId: job.id,
+    title: job.title,
+    company: job.company,
+    url: job.url,
+    status: job.status as ApplicationStatusType,
+    archivedAt: job.archivedAt,
+    earlyAssessment,
+    earlyEnabled,
+    deepDive,
+    deepDiveAccess,
+    assets: {
+      jobId: job.id,
+      cvDocumentId: job.cvDocuments[0]?.id ?? null,
+      coverLetterDocumentId: job.coverLetters[0]?.id ?? null,
+      interviewPrepSessionId: job.interviewPrepSessions[0]?.id ?? null,
+      writingDesks: job.writingDesks.map((desk) => ({
+        id: desk.id,
+        name: desk.name,
+        documentType: parseWritingDeskDocumentType(desk.documentType),
+      })),
+    },
+  }
+}
+
+export type JobContactItem = { id: string; name: string; role: string | null; email: string | null; linkedIn: string | null; notes: string | null }
+export type JobEventItem = { id: string; type: string; title: string; description: string | null; scheduledAt: Date | null; completedAt: Date | null; createdAt: Date }
+
+/** The job's contacts and events (newest first), for the Job Description's history section. Scoped to the profile. */
+export async function getJobContactsAndEvents(profileId: string, jobId: string): Promise<{ contacts: JobContactItem[]; events: JobEventItem[] }> {
+  const where = { applicationId: jobId, application: { profileId } }
+  const [contacts, events] = await Promise.all([
+    prisma.applicationContact.findMany({
+      where,
+      select: { id: true, name: true, role: true, email: true, linkedIn: true, notes: true },
+      orderBy: { name: 'asc' },
+    }),
+    prisma.applicationEvent.findMany({
+      where,
+      select: { id: true, type: true, title: true, description: true, scheduledAt: true, completedAt: true, createdAt: true },
+      orderBy: { createdAt: 'desc' },
+    }),
+  ])
+  return { contacts, events }
 }
 
 export type AgentJobInclude = 'active' | 'rejected' | 'archived' | 'all'
@@ -299,3 +422,7 @@ export async function getArchivedJobs(): Promise<Job[]> {
     interviewPrepSessionId: j.interviewPrepSessions[0]?.id ?? null,
   })) as Job[]
 }
+
+
+/** Deduplicated per request: the job workspace layout and its pages both call this. */
+export const getJobWorkspace = cache(getJobWorkspaceUncached)

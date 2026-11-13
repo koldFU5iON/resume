@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
+import { useNavigationGuard } from "@/components/job-workspace/navigation-guard"
 import { Check, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -74,6 +75,20 @@ function DraftReviewPanel({ desk, draft }: { desk: WritingDeskWithJob; draft: Pe
   useEffect(() => () => {
     if (timerRef.current) clearTimeout(timerRef.current)
   }, [])
+
+  // Leaving the job's document (tabs, switcher, sidebar) saves the draft edits first.
+  useNavigationGuard({
+    isDirty: () => pendingValueRef.current !== null || savingRef.current,
+    settle: async () => {
+      if (timerRef.current) clearTimeout(timerRef.current)
+      for (let waited = 0; savingRef.current && waited < 5000; waited += 100) {
+        await new Promise(resolve => setTimeout(resolve, 100))
+      }
+      if (pendingValueRef.current !== null && !conflictRef.current) await flushSave()
+      if (pendingValueRef.current === null && !savingRef.current) return true
+      return window.confirm("Your edits to the agent's draft haven't saved. Leave anyway? They'll be lost.")
+    },
+  })
 
   useEffect(() => {
     function warnOnPendingChanges(event: BeforeUnloadEvent) {

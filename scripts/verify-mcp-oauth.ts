@@ -171,7 +171,7 @@ async function main() {
     const section = draft.sections.find((item: { id: string }) => item.id === 'profile')
     const edit = await json(await rpc(tokens.access_token, 'tools/call', { name: 'replace_section', arguments: { jobId: job.id, sectionId: section.id, expectedHash: section.hash, content: '## Profile\n\nRevised profile.' } }))
     assert(!edit.result.isError, JSON.stringify(edit.result))
-    const desk = await prisma.writingDeskDocument.findUniqueOrThrow({ where: { jobApplicationId: job.id } })
+    const desk = await prisma.writingDeskDocument.findFirstOrThrow({ where: { jobApplicationId: job.id } })
     assert.equal(desk.content, '')
     assert(desk.draftContent?.includes('Revised profile'))
     assert((await acceptDraft(profile.id, desk.id, desk.revision, desk.draftRevision)).ok)

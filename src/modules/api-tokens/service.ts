@@ -23,7 +23,7 @@ function hashToken(raw: string): string {
   return createHash('sha256').update(raw).digest('hex')
 }
 
-export const API_TOKEN_SCOPES = ['capture', 'mcp:read', 'mcp:write'] as const
+export const API_TOKEN_SCOPES = ['capture', 'mcp:read', 'mcp:write', 'deep-dive:run'] as const
 export type ApiTokenScope = (typeof API_TOKEN_SCOPES)[number]
 
 export type VerifiedToken = {
