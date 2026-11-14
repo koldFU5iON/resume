@@ -138,10 +138,10 @@ describe('mergeProjects', () => {
     expect(prisma.project.update).toHaveBeenCalledWith({ where: { id: 'keep' }, data: { endDate: d2, repoUrl: 'https://git.test/r' } })
   })
 
-  it('takes the other project\'s description and notes only when asked', async () => {
+  it('takes the other project\'s description and notes only when asked, bumping the note revision', async () => {
     rows({}, {})
     vi.mocked(prisma.projectSkill.findMany).mockResolvedValue([])
     await mergeProjects('p1', { keepId: 'keep', removeId: 'gone', body: 'remove' })
-    expect(prisma.project.update).toHaveBeenCalledWith({ where: { id: 'keep' }, data: { description: 'R desc', notes: 'R notes' } })
+    expect(prisma.project.update).toHaveBeenCalledWith({ where: { id: 'keep' }, data: { description: 'R desc', notes: 'R notes', revision: { increment: 1 } } })
   })
 })

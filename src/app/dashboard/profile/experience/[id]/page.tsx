@@ -48,6 +48,8 @@ export default async function ExperienceDetailPage({
       <NotesEditor
         experienceId={experience.id}
         initialNotes={experience.summary ?? ''}
+        initialRevision={experience.revision}
+        name={`${experience.role} at ${experience.company}`}
         existingActivities={experience.activities}
         existingSkills={skills}
       />

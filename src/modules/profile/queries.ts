@@ -24,6 +24,7 @@ export async function getExperienceWithSuggestionContext(
       startDate: true,
       endDate: true,
       summary: true,
+      revision: true,
       activities: {
         select: { id: true, description: true, kind: true },
         orderBy: { order: 'asc' },
