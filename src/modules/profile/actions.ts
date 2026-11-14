@@ -5,7 +5,7 @@ import { requireProfile } from '@/lib/session'
 import { revalidatePath } from 'next/cache'
 import * as z from 'zod'
 import { activityOwnedBy } from './ownership'
-import { saveExperienceNote, saveProjectNote, type NoteSaveResult } from './note-revision'
+import { readNote, saveExperienceNote, saveProjectNote, type NoteSaveResult } from './note-revision'
 import { mergeProjects } from './project-merge'
 import { ActivityInputSchema, ACTIVITY_KINDS, DEFAULT_SKILL_CATEGORY, MAX_SUMMARY_LENGTH, SkillInputSchema, normalizeSkillLevel } from './schema'
 
@@ -20,7 +20,7 @@ export async function updateContactField(field: ContactField, value: string) {
     where: { id: profile.id },
     data: { [field]: trimmed || null },
   })
-  revalidatePath('/dashboard/profile')
+  revalidatePath('/dashboard/profile', 'layout')
 }
 
 export async function updateProfileSummary(summary: string) {
@@ -32,7 +32,7 @@ export async function updateProfileSummary(summary: string) {
     where: { id: profile.id },
     data: { summary: summary.trim() || null },
   })
-  revalidatePath('/dashboard/profile')
+  revalidatePath('/dashboard/profile', 'layout')
 }
 
 const CONTACT_FIELDS: ContactField[] = ['name', 'email', 'phone', 'location', 'website', 'linkedIn', 'github', 'headline']
@@ -68,7 +68,7 @@ export async function createActivity(owner: ActivityOwner, data: ActivityData) {
   const activity = await prisma.roleActivity.create({
     data: { ...ActivityInputSchema.parse(data), ...ownerData, tags: '[]', order: 0 },
   })
-  revalidatePath('/dashboard/profile')
+  revalidatePath('/dashboard/profile', 'layout')
   return activity
 }
 
@@ -79,7 +79,7 @@ export async function updateActivity(id: string, data: ActivityData) {
   })
   if (!existing) throw new Error('Activity not found')
   const activity = await prisma.roleActivity.update({ where: { id }, data: ActivityInputSchema.parse(data) })
-  revalidatePath('/dashboard/profile')
+  revalidatePath('/dashboard/profile', 'layout')
   return activity
 }
 
@@ -88,7 +88,7 @@ export async function deleteActivity(id: string) {
   await prisma.roleActivity.deleteMany({
     where: { id, ...activityOwnedBy(profile.id) },
   })
-  revalidatePath('/dashboard/profile')
+  revalidatePath('/dashboard/profile', 'layout')
 }
 
 // ── Experience ────────────────────────────────────────────────────────────────
@@ -108,7 +108,7 @@ export async function createExperience(data: ExperienceData) {
   const experience = await prisma.experience.create({
     data: { ...data, profileId: profile.id },
   })
-  revalidatePath('/dashboard/profile')
+  revalidatePath('/dashboard/profile', 'layout')
   return experience
 }
 
@@ -126,8 +126,7 @@ export async function updateExperience(id: string, data: ExperienceData) {
       ...(notesChanged ? { notesUpdatedAt: new Date(), revision: { increment: 1 } } : {}),
     },
   })
-  revalidatePath('/dashboard/profile')
-  revalidatePath(`/dashboard/profile/experience/${id}`)
+  revalidatePath('/dashboard/profile', 'layout')
   return experience
 }
 
@@ -164,7 +163,7 @@ export async function deleteExperience(id: string, options: { projects: 'keep' |
       await prisma.experience.deleteMany({ where: { id, profileId: profile.id } })
     }
   }
-  revalidatePath('/dashboard/profile')
+  revalidatePath('/dashboard/profile', 'layout')
 }
 
 type ExperienceDetailsData = {
@@ -182,8 +181,7 @@ export async function updateExperienceDetails(id: string, data: ExperienceDetail
     where: { id, profileId: profile.id },
     data,
   })
-  revalidatePath('/dashboard/profile')
-  revalidatePath(`/dashboard/profile/experience/${id}`)
+  revalidatePath('/dashboard/profile', 'layout')
   return experience
 }
 
@@ -192,8 +190,7 @@ export async function updateExperienceNotes(id: string, summary: string, expecte
   const { profile } = await requireProfile()
   const result = await saveExperienceNote(profile.id, id, summary, expectedRevision)
   if (result.ok) {
-    revalidatePath('/dashboard/profile')
-    revalidatePath(`/dashboard/profile/experience/${id}`)
+    revalidatePath('/dashboard/profile', 'layout')
   }
   return result
 }
@@ -273,8 +270,7 @@ export async function acceptSuggestions(payload: AcceptSuggestionsPayload) {
     ),
   ])
 
-  revalidatePath('/dashboard/profile')
-  revalidatePath(`/dashboard/profile/experience/${payload.experienceId}`)
+  revalidatePath('/dashboard/profile', 'layout')
 }
 
 // ── Skills ────────────────────────────────────────────────────────────────────
@@ -286,21 +282,21 @@ export async function createSkill(data: SkillData) {
   const skill = await prisma.skill.create({
     data: { ...SkillInputSchema.parse(data), profileId: profile.id, tags: '[]' },
   })
-  revalidatePath('/dashboard/profile')
+  revalidatePath('/dashboard/profile', 'layout')
   return skill
 }
 
 export async function updateSkill(id: string, data: SkillData) {
   const { profile } = await requireProfile()
   const skill = await prisma.skill.update({ where: { id, profileId: profile.id }, data: SkillInputSchema.parse(data) })
-  revalidatePath('/dashboard/profile')
+  revalidatePath('/dashboard/profile', 'layout')
   return skill
 }
 
 export async function deleteSkill(id: string) {
   const { profile } = await requireProfile()
   await prisma.skill.deleteMany({ where: { id, profileId: profile.id } })
-  revalidatePath('/dashboard/profile')
+  revalidatePath('/dashboard/profile', 'layout')
 }
 
 // ── Languages ─────────────────────────────────────────────────────────────────
@@ -312,7 +308,7 @@ export async function createLanguage(data: LanguageData) {
   const language = await prisma.language.create({
     data: { ...data, proficiency: data.proficiency?.trim() || null, profileId: profile.id },
   })
-  revalidatePath('/dashboard/profile')
+  revalidatePath('/dashboard/profile', 'layout')
   return language
 }
 
@@ -322,14 +318,14 @@ export async function updateLanguage(id: string, data: LanguageData) {
     where: { id, profileId: profile.id },
     data: { ...data, proficiency: data.proficiency?.trim() || null },
   })
-  revalidatePath('/dashboard/profile')
+  revalidatePath('/dashboard/profile', 'layout')
   return language
 }
 
 export async function deleteLanguage(id: string) {
   const { profile } = await requireProfile()
   await prisma.language.deleteMany({ where: { id, profileId: profile.id } })
-  revalidatePath('/dashboard/profile')
+  revalidatePath('/dashboard/profile', 'layout')
 }
 
 // ── Tools and competencies ───────────────────────────────────────────────────
@@ -361,7 +357,7 @@ export async function createTool(data: ToolData) {
   const tool = await prisma.skill.create({
     data: { profileId: profile.id, kind: 'tool', name: data.name, category: data.category ?? null, order: await nextOrder(profile.id, 'tool') },
   })
-  revalidatePath('/dashboard/profile')
+  revalidatePath('/dashboard/profile', 'layout')
   return asTool(tool)
 }
 
@@ -371,14 +367,14 @@ export async function updateTool(id: string, data: ToolData) {
     where: { id, profileId: profile.id, kind: 'tool' },
     data: { name: data.name, category: data.category ?? null },
   })
-  revalidatePath('/dashboard/profile')
+  revalidatePath('/dashboard/profile', 'layout')
   return asTool(tool)
 }
 
 export async function deleteTool(id: string) {
   const { profile } = await requireProfile()
   await prisma.skill.deleteMany({ where: { id, profileId: profile.id, kind: 'tool' } })
-  revalidatePath('/dashboard/profile')
+  revalidatePath('/dashboard/profile', 'layout')
 }
 
 export async function createCompetency(data: CompetencyData) {
@@ -386,7 +382,7 @@ export async function createCompetency(data: CompetencyData) {
   const competency = await prisma.skill.create({
     data: { profileId: profile.id, kind: 'competency', name: data.name, origin: 'manual', order: await nextOrder(profile.id, 'competency') },
   })
-  revalidatePath('/dashboard/profile')
+  revalidatePath('/dashboard/profile', 'layout')
   return asCompetency(competency)
 }
 
@@ -396,14 +392,14 @@ export async function updateCompetency(id: string, data: CompetencyData) {
     where: { id, profileId: profile.id, kind: 'competency' },
     data: { name: data.name },
   })
-  revalidatePath('/dashboard/profile')
+  revalidatePath('/dashboard/profile', 'layout')
   return asCompetency(competency)
 }
 
 export async function deleteCompetency(id: string) {
   const { profile } = await requireProfile()
   await prisma.skill.deleteMany({ where: { id, profileId: profile.id, kind: 'competency' } })
-  revalidatePath('/dashboard/profile')
+  revalidatePath('/dashboard/profile', 'layout')
 }
 
 // ── Projects ─────────────────────────────────────────────────────────────────
@@ -442,7 +438,7 @@ export async function createProject(data: ProjectData) {
       tags: JSON.stringify(tags ?? []),
     },
   })
-  revalidatePath('/dashboard/profile')
+  revalidatePath('/dashboard/profile', 'layout')
   return project
 }
 
@@ -465,22 +461,28 @@ export async function updateProject(id: string, data: ProjectData) {
       ...(tags !== undefined ? { tags: JSON.stringify(tags) } : {}),
     },
   })
-  revalidatePath('/dashboard/profile')
+  revalidatePath('/dashboard/profile', 'layout')
   return project
+}
+
+/** The note's current saved version, so an editor can tell a restored page is stale. */
+export async function getNoteLiveState(kind: 'experience' | 'project', id: string) {
+  const { profile } = await requireProfile()
+  return readNote(profile.id, kind, id)
 }
 
 /** Saves a project's note. Refused (not overwritten) when the note moved on since `expectedRevision`. */
 export async function updateProjectNotes(id: string, notes: string, expectedRevision: number): Promise<NoteSaveResult> {
   const { profile } = await requireProfile()
   const result = await saveProjectNote(profile.id, id, notes, expectedRevision)
-  if (result.ok) revalidatePath('/dashboard/profile')
+  if (result.ok) revalidatePath('/dashboard/profile', 'layout')
   return result
 }
 
 export async function deleteProject(id: string) {
   const { profile } = await requireProfile()
   await prisma.project.deleteMany({ where: { id, profileId: profile.id } })
-  revalidatePath('/dashboard/profile')
+  revalidatePath('/dashboard/profile', 'layout')
 }
 
 // ── Education ─────────────────────────────────────────────────────────────────
@@ -499,21 +501,21 @@ export async function createEducation(data: EducationData) {
   const education = await prisma.education.create({
     data: { ...data, profileId: profile.id, tags: '[]' },
   })
-  revalidatePath('/dashboard/profile')
+  revalidatePath('/dashboard/profile', 'layout')
   return education
 }
 
 export async function updateEducation(id: string, data: EducationData) {
   const { profile } = await requireProfile()
   const education = await prisma.education.update({ where: { id, profileId: profile.id }, data })
-  revalidatePath('/dashboard/profile')
+  revalidatePath('/dashboard/profile', 'layout')
   return education
 }
 
 export async function deleteEducation(id: string) {
   const { profile } = await requireProfile()
   await prisma.education.deleteMany({ where: { id, profileId: profile.id } })
-  revalidatePath('/dashboard/profile')
+  revalidatePath('/dashboard/profile', 'layout')
 }
 
 // ── Certifications ────────────────────────────────────────────────────────────
@@ -531,21 +533,21 @@ export async function createCertification(data: CertificationData) {
   const cert = await prisma.certification.create({
     data: { ...data, profileId: profile.id, tags: '[]' },
   })
-  revalidatePath('/dashboard/profile')
+  revalidatePath('/dashboard/profile', 'layout')
   return cert
 }
 
 export async function updateCertification(id: string, data: CertificationData) {
   const { profile } = await requireProfile()
   const cert = await prisma.certification.update({ where: { id, profileId: profile.id }, data })
-  revalidatePath('/dashboard/profile')
+  revalidatePath('/dashboard/profile', 'layout')
   return cert
 }
 
 export async function deleteCertification(id: string) {
   const { profile } = await requireProfile()
   await prisma.certification.deleteMany({ where: { id, profileId: profile.id } })
-  revalidatePath('/dashboard/profile')
+  revalidatePath('/dashboard/profile', 'layout')
 }
 
 // ── Duplicate project merge ───────────────────────────────────────────────────
@@ -561,5 +563,5 @@ export async function mergeDuplicateProjects(input: { keepId: string; removeId: 
   const parsed = MergeProjectsSchema.parse(input)
   const { profile } = await requireProfile()
   await mergeProjects(profile.id, parsed)
-  revalidatePath('/dashboard/profile')
+  revalidatePath('/dashboard/profile', 'layout')
 }

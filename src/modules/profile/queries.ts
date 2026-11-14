@@ -1,3 +1,4 @@
+import { cache } from "react"
 import { prisma } from "@/lib/db"
 import { requireProfile } from "@/lib/session"
 import { parseJsonField } from "@/lib/utils"
@@ -44,7 +45,7 @@ export async function getExperienceWithSuggestionContext(
 
 // Loads the signed-in user's whole profile context store as domain types:
 // JSON `tags` columns are parsed; String enum columns are narrowed.
-export async function getFullProfile(): Promise<FullProfile> {
+export const getFullProfile = cache(async (): Promise<FullProfile> => {
   const { profile } = await requireProfile()
 
   const row = await prisma.profile.findUniqueOrThrow({
@@ -107,4 +108,4 @@ export async function getFullProfile(): Promise<FullProfile> {
       })),
     })),
   }
-}
+})

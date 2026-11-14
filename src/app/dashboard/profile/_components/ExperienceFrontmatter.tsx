@@ -19,6 +19,8 @@ type Props = {
   onBack?: () => void
   onEditClick?: () => void
   onDeleteClick?: () => void
+  /** The note's own title already shows the company and role; they stay editable under "Edit details". */
+  hideNameFields?: boolean
   onFieldSaved?: (field: keyof ReturnType<typeof getDetailsFields>, value: string | boolean) => void
 }
 
@@ -42,6 +44,7 @@ export function ExperienceFrontmatter({
   onBack,
   onEditClick,
   onDeleteClick,
+  hideNameFields,
   onFieldSaved,
 }: Props) {
   const router = useRouter()
@@ -99,16 +102,20 @@ export function ExperienceFrontmatter({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <InlineField
-        label="Company"
-        value={experience.company}
-        onSave={v => saveField('company', v)}
-      />
-      <InlineField
-        label="Role"
-        value={experience.role}
-        onSave={v => saveField('role', v)}
-      />
+      {!hideNameFields && (
+        <>
+          <InlineField
+            label="Company"
+            value={experience.company}
+            onSave={v => saveField('company', v)}
+          />
+          <InlineField
+            label="Role"
+            value={experience.role}
+            onSave={v => saveField('role', v)}
+          />
+        </>
+      )}
       <span className="text-muted-foreground">
         {fmtDate(experience.startDate)} –{' '}
         {experience.endDate ? fmtDate(experience.endDate) : 'Present'}

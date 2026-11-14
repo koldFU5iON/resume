@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import Link from 'next/link'
 import { toast } from 'sonner'
 import { ChevronDown, ChevronUp, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -24,6 +23,12 @@ type Props = {
 
 export function ActivitiesTray({ experienceId, initialActivities }: Props) {
   const [activities, setActivities] = useState(initialActivities)
+  // The server's list is the truth: follow it when a refresh brings a new one (extraction accepted, another tab).
+  const [seen, setSeen] = useState(initialActivities)
+  if (seen !== initialActivities) {
+    setSeen(initialActivities)
+    setActivities(initialActivities)
+  }
   const [expanded, setExpanded] = useState(false)
   const [formVisible, setFormVisible] = useState(false)
   const [editing, setEditing] = useState<RoleActivity | null>(null)
@@ -127,13 +132,6 @@ export function ActivitiesTray({ experienceId, initialActivities }: Props) {
           </span>
         )}
         <div className="ml-auto flex items-center gap-3">
-          <Link
-            href={`/dashboard/profile/experience/${experienceId}`}
-            className="text-[10px] text-primary/70 hover:text-primary"
-            onClick={e => e.stopPropagation()}
-          >
-            ✦ Extract
-          </Link>
           {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
         </div>
       </div>
