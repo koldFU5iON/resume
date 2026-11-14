@@ -3,6 +3,7 @@
 // that presents them as linked notes.
 
 import { parseJsonField } from '@/lib/utils'
+import { evidenceLine, projectHighlights } from '@/modules/profile/project-highlights'
 import { normalizeSearchProfile } from '@/modules/search-profile/schema'
 import { formatMonth, formatSpan, normalizeName, oneLine } from './format'
 import { findMentions, parseWikilinks, stripWikilinks } from './links'
@@ -166,22 +167,22 @@ export function buildVault(row: VaultSource): Vault {
     return links
   }
 
-  // ── Experiences and their evidence ──
-  for (const e of row.experiences) {
-    const evidenceIds: string[] = []
-    for (const a of e.activities) {
+  // ── Evidence: atoms owned by an experience or a project ──
+  const addEvidence = (activities: VaultSource['experiences'][number]['activities'], parentId: string): string[] => {
+    const ids: string[] = []
+    for (const a of activities) {
       const kind = a.kind === 'achievement' ? 'achievement' : 'responsibility'
       const note: EvidenceNote = {
         id: a.id,
         type: 'evidence',
         title: oneLine(a.description, 80),
-        gist: oneLine(a.impact ? `${a.description} (${a.impact})` : a.description),
+        gist: oneLine(evidenceLine(a)),
         props: {
           kind,
           description: a.description,
           impact: a.impact,
           highlighted: a.highlighted,
-          parentId: e.id,
+          parentId,
         },
         links: derivedLinks(
           a.id,
@@ -194,10 +195,21 @@ export function buildVault(row: VaultSource): Vault {
         updatedAt: a.updatedAt,
       }
       add(note)
-      evidenceIds.push(a.id)
+      ids.push(a.id)
     }
+    return ids
+  }
+
+  // ── Experiences and their evidence ──
+  for (const e of row.experiences) {
+    const evidenceIds = addEvidence(e.activities, e.id)
     const projectIds = row.projects.filter((p) => p.experienceId === e.id).map((p) => p.id)
     const achievements = e.activities.filter((a) => a.kind === 'achievement').length
+    // findGaps counts contained projects' evidence toward the role; say so here too.
+    const projectEvidence = row.projects.reduce((n, p) => (p.experienceId === e.id ? n + p.activities.length : n), 0)
+    const evidenceGist = e.activities.length
+      ? evidenceCounts(achievements, e.activities.length - achievements) + (projectEvidence ? ` (+${projectEvidence} from projects)` : '')
+      : projectEvidence ? `${projectEvidence} evidence from projects` : null
     const span = formatSpan(e.startDate, e.endDate)
     const note: ExperienceNote = {
       id: e.id,
@@ -206,7 +218,7 @@ export function buildVault(row: VaultSource): Vault {
       gist: [
         `${e.role} at ${e.company}`,
         span,
-        e.activities.length ? evidenceCounts(achievements, e.activities.length - achievements) : null,
+        evidenceGist,
       ].filter(Boolean).join(' · '),
       props: {
         company: e.company,
@@ -230,13 +242,14 @@ export function buildVault(row: VaultSource): Vault {
 
   // ── Projects: description + notes collapse into one body ──
   for (const p of row.projects) {
-    const highlights = parseJsonField<unknown>(p.highlights, [])
+    const evidenceIds = addEvidence(p.activities, p.id)
+    const highlights = projectHighlights(p.activities, parseJsonField<unknown>(p.highlights, []))
     const body = [p.description.trim(), p.notes.trim()].filter(Boolean).join('\n\n')
     const note: ProjectNote = {
       id: p.id,
       type: 'project',
       title: p.name,
-      gist: oneLine(p.description || (Array.isArray(highlights) ? String(highlights[0] ?? '') : '') || p.name),
+      gist: oneLine(p.description || String(highlights[0] ?? '') || p.name),
       props: {
         name: p.name,
         description: p.description,
@@ -245,11 +258,14 @@ export function buildVault(row: VaultSource): Vault {
         endDate: p.endDate,
         url: p.url,
         repoUrl: p.repoUrl,
-        highlights: Array.isArray(highlights) ? highlights.filter((h): h is string => typeof h === 'string') : [],
+        highlights,
         experienceId: p.experienceId,
       },
       body: body || undefined,
-      links: derivedLinks(p.id, body, 'uses', capLinks(p.skills, 'uses')),
+      links: [
+        ...evidenceIds.map((id) => ({ type: 'has' as const, id })),
+        ...derivedLinks(p.id, body, 'uses', capLinks(p.skills, 'uses')),
+      ],
       backlinks: [],
       updatedAt: p.updatedAt,
     }

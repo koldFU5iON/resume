@@ -3,8 +3,8 @@ import { toProfileSnapshot, serializeProfileForLLM } from '@/modules/profile/sna
 import { buildVault, notesOf, PREFERENCES_NOTE_ID } from './build'
 import { profileMap } from './map'
 import { renderNote } from './render'
-import { d, vaultSource } from './__fixtures__/source'
-import type { CapabilityNote, EvidenceNote, ExperienceNote } from './types'
+import { d, t, vaultSource } from './__fixtures__/source'
+import type { CapabilityNote, EvidenceNote, ExperienceNote, ProjectNote } from './types'
 
 const source = vaultSource
 
@@ -72,6 +72,122 @@ describe('buildVault', () => {
 
   it('collapses project description and notes into one body', () => {
     expect(vault.notes.get('pr1')!.body).toBe('Quarterly release train.\n\nNotes about the train.')
+  })
+})
+
+describe('project-owned evidence', () => {
+  const base = vaultSource()
+  const act = (id: string, description: string, order: number, over = {}) => ({
+    id, experienceId: null, projectId: 'pr1', kind: 'achievement', description, impact: null, highlighted: false,
+    order, tags: '[]', createdAt: t, updatedAt: t, skills: [], ...over,
+  })
+  const withEvidence = () => buildVault(vaultSource({
+    projects: [{
+      ...base.projects[0],
+      highlights: '["Shipped 4 releases"]',
+      activities: [act('pa1', 'Shipped 4 releases', 0), act('pa2', 'Ran Jira boards for the train', 1)],
+    }],
+  }) as never)
+
+  it('builds evidence notes owned by the project, with derived links', () => {
+    const v = withEvidence()
+    expect(v.byType.evidence).toEqual(['a1', 'a2', 'pa1', 'pa2'])
+    expect((v.notes.get('pa1') as EvidenceNote).props.parentId).toBe('pr1')
+    // "Jira" is mentioned in the text, so the derived link exists.
+    expect(v.notes.get('pa2')!.links).toEqual([{ type: 'demonstrates', id: 's2', via: 'exact' }])
+  })
+
+  it('links the project to its own evidence and keeps role edges to its own evidence only', () => {
+    const v = withEvidence()
+    expect(v.notes.get('pr1')!.links.filter((l) => l.type === 'has')).toEqual([
+      { type: 'has', id: 'pa1' }, { type: 'has', id: 'pa2' },
+    ])
+    expect(v.notes.get('e1')!.links.filter((l) => l.type === 'has')).toEqual([
+      { type: 'has', id: 'a1' }, { type: 'has', id: 'a2' },
+    ])
+    expect(v.notes.get('pa1')!.backlinks).toEqual([{ type: 'has', id: 'pr1' }])
+  })
+
+  it('uses evidence descriptions as project highlights, else the legacy column', () => {
+    expect((withEvidence().notes.get('pr1') as ProjectNote).props.highlights).toEqual(['Shipped 4 releases', 'Ran Jira boards for the train'])
+    expect((buildVault(source()).notes.get('pr1') as ProjectNote).props.highlights).toEqual(['Shipped 4 releases'])
+    const bad = buildVault(vaultSource({ projects: [{ ...base.projects[0], highlights: '["ok", 3, "x"]' }] }))
+    expect((bad.notes.get('pr1') as ProjectNote).props.highlights).toEqual(['ok', 'x'])
+  })
+
+  it('renders context, project evidence once under the project and role', () => {
+    const v = withEvidence()
+    expect(renderNote(v, 'pa1')).toContain('(Release train — Program Manager at Fictional Freight, Mar 2021 – present)')
+    const project = renderNote(v, 'pr1')!
+    expect(project).toContain('### Evidence\n- [achievement] Shipped 4 releases')
+    expect(project.match(/Shipped 4 releases/g)).toHaveLength(1)
+    const role = renderNote(v, 'e1')!
+    expect(role).toContain('### Evidence from projects\n- [achievement] Shipped 4 releases')
+    expect(role.match(/Shipped 4 releases/g)).toHaveLength(1)
+    // Standalone project context is just its title.
+    const standalone = buildVault(vaultSource({
+      projects: [{ ...base.projects[0], experienceId: null, activities: [act('pa1', 'Shipped', 0)] }],
+    }) as never)
+    expect(renderNote(standalone, 'pa1')).toContain('(Release train)')
+  })
+
+  it('counts project achievements for the role and does not call role and project evidence duplicates', () => {
+    const e1 = base.experiences[0]
+    const v = buildVault(vaultSource({
+      experiences: [{ ...e1, activities: [] }],
+      projects: [{ ...base.projects[0], activities: [act('pa1', 'Launched the annual awards programme across four regions', 0)] }],
+    }) as never)
+    const messages = profileMap(v).gaps.map((g) => g.message)
+    expect(messages.some((m) => m.includes('What did you achieve as Program Manager'))).toBe(false)
+    const dup = buildVault(vaultSource({
+      experiences: [{ ...e1, activities: [{ ...e1.activities[0], description: 'Launched the annual awards programme across four regions' }] }],
+      projects: [{ ...base.projects[0], activities: [act('pa1', 'Launched the annual awards programme across four regions', 0)] }],
+    }) as never)
+    expect(profileMap(dup).gaps.map((g) => g.message).some((m) => m.includes('appears under both'))).toBe(false)
+  })
+
+  it('says in the role gist and map line when evidence comes from its projects', () => {
+    const e1 = base.experiences[0]
+    const pa = [act('pa1', 'Shipped', 0), act('pa2', 'Scaled', 1)]
+    const withOwn = buildVault(vaultSource({ projects: [{ ...base.projects[0], activities: pa }] }) as never)
+    expect(withOwn.notes.get('e1')!.gist).toContain('(+2 from projects)')
+    const onlyProjects = buildVault(vaultSource({
+      experiences: [{ ...e1, activities: [] }],
+      projects: [{ ...base.projects[0], activities: pa }],
+    }) as never)
+    expect(onlyProjects.notes.get('e1')!.gist).toContain('2 evidence from projects')
+    expect(profileMap(onlyProjects).entries.find((e) => e.id === 'e1')!.gist).toContain('2 evidence from projects')
+    expect(buildVault(source()).notes.get('e1')!.gist).not.toContain('from projects')
+  })
+
+  it('words a duplicate between a standalone project and a role by what each parent is', () => {
+    const e1 = base.experiences[0]
+    const text = 'Launched the annual awards programme across four regions'
+    const v = buildVault(vaultSource({
+      experiences: [{ ...e1, activities: [{ ...e1.activities[0], description: text }] }],
+      projects: [{ ...base.projects[0], experienceId: null, activities: [act('pa1', text, 0)] }],
+    }) as never)
+    const message = profileMap(v).gaps.map((g) => g.message).find((m) => m.includes('appears under both'))!
+    expect(message).toContain('the project Release train')
+    expect(message).toContain('Program Manager — Fictional Freight')
+    expect(message).toContain('Which one does it belong to?')
+    expect(message).not.toContain('Which role')
+  })
+
+  it('keeps the CV snapshot and its ## Projects text unchanged when evidence equals the old highlights', () => {
+    const legacy = serializeProfileForLLM(toProfileSnapshot(buildVault(source())))
+    const copied = serializeProfileForLLM(toProfileSnapshot(buildVault(vaultSource({
+      projects: [{ ...base.projects[0], activities: [act('pa1', 'Shipped 4 releases', 0)] }],
+    }) as never)))
+    const section = (md: string) => md.slice(md.indexOf('## Projects'))
+    expect(section(copied)).toBe(section(legacy))
+    expect(copied).toBe(legacy)
+    expect(section(copied)).toContain('- Shipped 4 releases')
+    // Role activities stay role-owned: project evidence never appears under experience.
+    const snap = toProfileSnapshot(buildVault(vaultSource({
+      projects: [{ ...base.projects[0], activities: [act('pa1', 'Shipped 4 releases', 0)] }],
+    }) as never))
+    expect(snap.experiences[0].activities.map((a) => a.description)).toEqual(['Cut release time', 'Ran standups'])
   })
 })
 

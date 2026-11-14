@@ -16,6 +16,7 @@ import {
   createProject, updateProject, deleteProject,
 } from '@/modules/profile/actions'
 import { extractProjectInsights } from '@/modules/profile/project-extract'
+import { projectHighlights } from '@/modules/profile/project-highlights'
 import { SectionHelp } from './SectionHelp'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -42,6 +43,7 @@ function ProjectCard({
   onEdit: () => void
   onDelete: () => void
 }) {
+  const shown = projectHighlights(project.activities ?? [], project.highlights)
   return (
     <div className="group relative rounded-lg border bg-card p-4 space-y-2 hover:border-border/80 transition-colors">
       {/* Top row: name + controls */}
@@ -84,10 +86,10 @@ function ProjectCard({
         <p className="text-xs text-muted-foreground line-clamp-2">{project.description}</p>
       )}
 
-      {/* Highlights */}
-      {project.highlights.length > 0 && (
+      {/* Evidence the project owns, falling back to the legacy highlights */}
+      {shown.length > 0 && (
         <ul className="space-y-0.5">
-          {project.highlights.slice(0, 3).map((h, i) => (
+          {shown.slice(0, 3).map((h, i) => (
             <li key={i} className="text-xs text-muted-foreground flex gap-1.5">
               <span className="shrink-0 mt-0.5">•</span>
               <span>{h}</span>
@@ -122,13 +124,17 @@ type ProjectDialogProps = {
 
 function ProjectDialog({ open, onOpenChange, editing, onSave, saving, saveError, hasLLMKey }: ProjectDialogProps) {
   const [highlights, setHighlights] = useState<string[]>(editing?.highlights ?? [])
+  const evidence = (editing?.activities ?? []).map(a => a.description)
   const [tags, setTags] = useState<string[]>(editing?.tags ?? [])
   const [extractState, setExtractState] = useState<ExtractState>({ status: 'idle' })
   const [nameValue, setNameValue] = useState(editing?.name ?? '')
   const [descValue, setDescValue] = useState(editing?.description ?? '')
 
+  // Extract writes the legacy highlights column, which nothing shows once the project owns evidence.
+  const hasEvidence = evidence.length > 0
+
   const handleExtract = async () => {
-    if (!nameValue.trim() || !descValue.trim()) return
+    if (hasEvidence || !nameValue.trim() || !descValue.trim()) return
     setExtractState({ status: 'extracting' })
     const result = await extractProjectInsights(nameValue, descValue)
     if (result.ok) {
@@ -197,20 +203,41 @@ function ProjectDialog({ open, onOpenChange, editing, onSave, saving, saveError,
                 variant="outline"
                 size="sm"
                 className="gap-1.5"
-                disabled={extractState.status === 'extracting' || !descValue.trim() || !nameValue.trim() || !hasLLMKey}
+                disabled={hasEvidence || extractState.status === 'extracting' || !descValue.trim() || !nameValue.trim() || !hasLLMKey}
                 onClick={handleExtract}
                 title={!hasLLMKey ? 'Configure an LLM API key in Settings to use extraction' : undefined}
+                aria-describedby={hasEvidence ? 'proj-extract-note' : undefined}
               >
                 <Sparkles size={13} />
                 {extractState.status === 'extracting' ? 'Extracting…' : 'Extract Insights'}
               </Button>
+              {hasEvidence && (
+                <p id="proj-extract-note" className="mt-1.5 text-xs text-muted-foreground">
+                  Extract is off because this project has evidence. Edit its evidence instead.
+                </p>
+              )}
               {extractState.status === 'error' && (
                 <p className="mt-1.5 text-xs text-destructive">{extractState.message}</p>
               )}
             </div>
 
+            {/* Project-owned evidence is read-only here; it is edited with the Evidence tab. */}
+            {evidence.length > 0 && (
+              <div className="space-y-1.5">
+                <Label>Evidence</Label>
+                <div className="space-y-1">
+                  {evidence.map((h, i) => (
+                    <div key={i} className="flex items-start gap-2 text-sm">
+                      <span className="shrink-0 mt-0.5 text-muted-foreground">•</span>
+                      <span className="flex-1">{h}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Highlights — show if any exist */}
-            {highlights.length > 0 && (
+            {evidence.length === 0 && highlights.length > 0 && (
               <div className="space-y-1.5">
                 <Label>Highlights</Label>
                 <div className="space-y-1">
@@ -337,7 +364,7 @@ export function ProjectBlock({ initial, hasLLMKey }: ProjectBlockProps) {
       if (editing) {
         const updated = await updateProject(editing.id, data)
         setProjects(p => p.map(item => item.id === editing.id
-          ? { ...updated, highlights: data.highlights ?? [], tags: data.tags ?? [] }
+          ? { ...updated, activities: item.activities, highlights: data.highlights ?? [], tags: data.tags ?? [] }
           : item
         ))
       } else {

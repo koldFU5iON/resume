@@ -18,14 +18,14 @@ export function vaultSource(over: Partial<VaultSource> = {}): VaultSource {
       createdAt: t, updatedAt: t,
       skills: [{ skillId: 's2' }],
       activities: [
-        { id: 'a1', experienceId: 'e1', kind: 'achievement', description: 'Cut release time', impact: '6 weeks → 2 weeks', highlighted: true, order: 0, tags: '[]', createdAt: t, updatedAt: t, skills: [{ skillId: 's1', status: 'confirmed' }] },
-        { id: 'a2', experienceId: 'e1', kind: 'oddity', description: 'Ran standups', impact: null, highlighted: false, order: 1, tags: '[]', createdAt: t, updatedAt: t, skills: [] },
+        { id: 'a1', experienceId: 'e1', projectId: null, kind: 'achievement', description: 'Cut release time', impact: '6 weeks → 2 weeks', highlighted: true, order: 0, tags: '[]', createdAt: t, updatedAt: t, skills: [{ skillId: 's1', status: 'confirmed' }] },
+        { id: 'a2', experienceId: 'e1', projectId: null, kind: 'oddity', description: 'Ran standups', impact: null, highlighted: false, order: 1, tags: '[]', createdAt: t, updatedAt: t, skills: [] },
       ],
     }],
     projects: [{
       id: 'pr1', profileId: 'p1', experienceId: 'e1', name: 'Release train', description: 'Quarterly release train.',
       notes: 'Notes about the train.', url: null, repoUrl: null, startDate: d('2022-01'), endDate: null,
-      status: 'active', highlights: '["Shipped 4 releases"]', tags: '[]', createdAt: t, updatedAt: t, skills: [],
+      status: 'active', highlights: '["Shipped 4 releases"]', tags: '[]', createdAt: t, updatedAt: t, skills: [], activities: [],
     }],
     skills: [
       // Listed before the skills on purpose: the skill still wins the "Jira" clash.

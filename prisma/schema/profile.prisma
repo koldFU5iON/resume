@@ -100,7 +100,8 @@ model Experience {
 
 model RoleActivity {
   id           String   @id @default(cuid())
-  experienceId String
+  experienceId String?
+  projectId    String?
   kind         String // "responsibility" | "achievement"
   description  String
   impact       String?
@@ -110,10 +111,12 @@ model RoleActivity {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  experience Experience          @relation(fields: [experienceId], references: [id], onDelete: Cascade)
+  experience Experience?         @relation(fields: [experienceId], references: [id], onDelete: Cascade)
+  project    Project?            @relation(fields: [projectId], references: [id], onDelete: Cascade)
   skills     RoleActivitySkill[]
 
   @@index([experienceId])
+  @@index([projectId])
 }
 
 model Project {
@@ -136,6 +139,7 @@ model Project {
   profile    Profile     @relation(fields: [profileId], references: [id], onDelete: Cascade)
   experience Experience? @relation(fields: [experienceId], references: [id], onDelete: SetNull)
   skills     ProjectSkill[]
+  activities RoleActivity[]
 
   @@index([profileId])
   @@index([experienceId])

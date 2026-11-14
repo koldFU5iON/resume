@@ -58,7 +58,10 @@ export async function getFullProfile(): Promise<FullProfile> {
       educations: { orderBy: { startDate: "desc" } },
       certifications: { orderBy: { issueDate: "desc" } },
       languages: { orderBy: { order: "asc" } },
-      projects: { orderBy: { startDate: "desc" } },
+      projects: {
+        orderBy: { startDate: "desc" },
+        include: { activities: { orderBy: { order: "asc" } } },
+      },
     },
   })
 
@@ -96,6 +99,11 @@ export async function getFullProfile(): Promise<FullProfile> {
       ...p,
       highlights: parseJsonField<string[]>(p.highlights, []),
       tags: parseJsonField<string[]>(p.tags, []),
+      activities: p.activities.map((act) => ({
+        ...act,
+        kind: act.kind as RoleActivityKindType,
+        tags: parseJsonField<string[]>(act.tags, []),
+      })),
     })),
   }
 }

@@ -42,6 +42,8 @@ export type Tool = ToolRow
 export type Project = Omit<ProjectRow, "highlights" | "tags"> & {
   highlights: string[]
   tags: string[]
+  /** Evidence the project owns (read-only in the profile UI for now). */
+  activities?: RoleActivity[]
 }
 
 // --- composites: the loaded shapes the UI consumes ---

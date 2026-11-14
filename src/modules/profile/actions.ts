@@ -3,6 +3,8 @@
 import { prisma } from '@/lib/db'
 import { requireProfile } from '@/lib/session'
 import { revalidatePath } from 'next/cache'
+import * as z from 'zod'
+import { activityOwnedBy } from './ownership'
 import { ActivityInputSchema, ACTIVITY_KINDS, DEFAULT_SKILL_CATEGORY, MAX_SUMMARY_LENGTH, SkillInputSchema, normalizeSkillLevel } from './schema'
 
 export type ContactField = 'name' | 'email' | 'phone' | 'location' | 'website' | 'linkedIn' | 'github' | 'headline'
@@ -46,12 +48,23 @@ export async function patchProfileField(field: string, value: string): Promise<v
 
 type ActivityData = { kind: string; description: string; impact?: string }
 
-export async function createActivity(experienceId: string, data: ActivityData) {
+/** Evidence belongs to exactly one owner: a role or a project. */
+export type ActivityOwner = { experienceId: string } | { projectId: string }
+
+export async function createActivity(owner: ActivityOwner, data: ActivityData) {
   const { profile } = await requireProfile()
-  const experience = await prisma.experience.findFirst({ where: { id: experienceId, profileId: profile.id } })
-  if (!experience) throw new Error('Experience not found')
+  let ownerData: ActivityOwner
+  if ('projectId' in owner) {
+    const project = await prisma.project.findFirst({ where: { id: owner.projectId, profileId: profile.id }, select: { id: true } })
+    if (!project) throw new Error('Project not found')
+    ownerData = { projectId: project.id }
+  } else {
+    const experience = await prisma.experience.findFirst({ where: { id: owner.experienceId, profileId: profile.id }, select: { id: true } })
+    if (!experience) throw new Error('Experience not found')
+    ownerData = { experienceId: experience.id }
+  }
   const activity = await prisma.roleActivity.create({
-    data: { ...ActivityInputSchema.parse(data), experienceId, tags: '[]', order: 0 },
+    data: { ...ActivityInputSchema.parse(data), ...ownerData, tags: '[]', order: 0 },
   })
   revalidatePath('/dashboard/profile')
   return activity
@@ -60,7 +73,7 @@ export async function createActivity(experienceId: string, data: ActivityData) {
 export async function updateActivity(id: string, data: ActivityData) {
   const { profile } = await requireProfile()
   const existing = await prisma.roleActivity.findFirst({
-    where: { id, experience: { profileId: profile.id } },
+    where: { id, ...activityOwnedBy(profile.id) },
   })
   if (!existing) throw new Error('Activity not found')
   const activity = await prisma.roleActivity.update({ where: { id }, data: ActivityInputSchema.parse(data) })
@@ -71,7 +84,7 @@ export async function updateActivity(id: string, data: ActivityData) {
 export async function deleteActivity(id: string) {
   const { profile } = await requireProfile()
   await prisma.roleActivity.deleteMany({
-    where: { id, experience: { profileId: profile.id } },
+    where: { id, ...activityOwnedBy(profile.id) },
   })
   revalidatePath('/dashboard/profile')
 }
@@ -116,9 +129,39 @@ export async function updateExperience(id: string, data: ExperienceData) {
   return experience
 }
 
-export async function deleteExperience(id: string) {
+const DeleteExperienceOptionsSchema = z.object({ projects: z.enum(['keep', 'delete']) })
+
+/** What deleting a role takes with it, counted from the database rather than client state. */
+export async function getExperienceDeleteImpact(id: string) {
   const { profile } = await requireProfile()
-  await prisma.experience.deleteMany({ where: { id, profileId: profile.id } })
+  const [evidence, projects, projectEvidence] = await Promise.all([
+    prisma.roleActivity.count({ where: { experienceId: id, experience: { profileId: profile.id } } }),
+    prisma.project.count({ where: { experienceId: id, profileId: profile.id } }),
+    prisma.roleActivity.count({ where: { project: { experienceId: id, profileId: profile.id } } }),
+  ])
+  return { evidence, projects, projectEvidence }
+}
+
+/**
+ * `projects: 'keep'` leaves the role's projects standalone (experienceId set
+ * null by the foreign key); `'delete'` removes them, and their evidence, too.
+ * No default: the caller must choose. Idempotent: a role that is already gone
+ * (a double click, another tab) is a no-op, not an error.
+ */
+export async function deleteExperience(id: string, options: { projects: 'keep' | 'delete' }) {
+  const { projects } = DeleteExperienceOptionsSchema.parse(options)
+  const { profile } = await requireProfile()
+  const experience = await prisma.experience.findFirst({ where: { id, profileId: profile.id }, select: { id: true } })
+  if (experience) {
+    if (projects === 'delete') {
+      await prisma.$transaction([
+        prisma.project.deleteMany({ where: { experienceId: id, profileId: profile.id } }),
+        prisma.experience.deleteMany({ where: { id, profileId: profile.id } }),
+      ])
+    } else {
+      await prisma.experience.deleteMany({ where: { id, profileId: profile.id } })
+    }
+  }
   revalidatePath('/dashboard/profile')
 }
 

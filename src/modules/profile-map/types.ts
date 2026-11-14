@@ -111,7 +111,7 @@ export type EvidenceNote = NoteBase<'evidence', {
   description: string
   impact: string | null
   highlighted: boolean
-  /** The narrative note that owns this atom. */
+  /** The narrative note that owns this atom: an experience id, or a project id. */
   parentId: string
 }>
 

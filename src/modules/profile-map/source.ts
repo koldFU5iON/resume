@@ -3,21 +3,24 @@
 
 import type { Prisma } from '@prisma/client'
 
+// Evidence owned by a role or a project. Stored link decisions: confirmed,
+// suggested (ignored here) or rejected.
+const ACTIVITIES_INCLUDE = {
+  orderBy: [{ highlighted: 'desc' }, { order: 'asc' }],
+  include: { skills: { select: { skillId: true, status: true } } },
+} satisfies Prisma.Experience$activitiesArgs
+
 export const VAULT_INCLUDE = {
   experiences: {
     orderBy: { startDate: 'desc' },
     include: {
-      activities: {
-        orderBy: [{ highlighted: 'desc' }, { order: 'asc' }],
-        // Stored link decisions: confirmed, suggested (ignored here) or rejected.
-        include: { skills: { select: { skillId: true, status: true } } },
-      },
+      activities: ACTIVITIES_INCLUDE,
       skills: { select: { skillId: true } },
     },
   },
   projects: {
     orderBy: [{ startDate: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }],
-    include: { skills: { select: { skillId: true } } },
+    include: { skills: { select: { skillId: true } }, activities: ACTIVITIES_INCLUDE },
   },
   // Skills, tools and competencies (Skill.kind).
   skills: { orderBy: [{ order: 'asc' }, { category: 'asc' }, { name: 'asc' }] },
