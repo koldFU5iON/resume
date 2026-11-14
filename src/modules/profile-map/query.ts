@@ -69,14 +69,15 @@ export function renderMapText(vault: Vault, opts: QueryOptions = {}): string {
     const gist = raw && raw !== note.title ? ` — ${scrub(raw)}` : ''
     return `${indent}- ${note.id} · ${tag}${scrub(note.title)}${gist}`
   }
-  const children = (parentId: string): string[] => {
+  // Evidence and projects nest under their parent; a project's own evidence nests under it.
+  const children = (parentId: string, indent = '  '): string[] => {
     const parent = vault.notes.get(parentId)
     if (!parent) return []
     return parent.links
       .filter((l) => l.type === 'has' || l.type === 'contains')
       .map((l) => vault.notes.get(l.id))
       .filter((n): n is Note => Boolean(n))
-      .map((n) => line(n, '  '))
+      .flatMap((n) => [line(n, indent), ...(n.type === 'project' ? children(n.id, `${indent}  `) : [])])
   }
 
   const out: string[] = []

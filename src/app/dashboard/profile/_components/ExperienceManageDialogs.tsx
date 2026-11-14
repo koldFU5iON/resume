@@ -16,7 +16,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { deleteExperience, updateExperienceDetails } from '@/modules/profile/actions'
-import type { ExperienceWithActivities } from '@/app/types/profile'
+import type { ExperienceWithActivities, Project } from '@/app/types/profile'
 
 type EditData = {
   company: string
@@ -142,25 +142,30 @@ export function EditExperienceDialog({
 
 export function DeleteExperienceDialog({
   experience,
+  projects,
   open,
   onOpenChange,
   onDeleted,
 }: {
   experience: ExperienceWithActivities
+  projects: Project[]
   open: boolean
   onOpenChange: (o: boolean) => void
-  onDeleted: () => void
+  onDeleted: (projects: 'keep' | 'delete') => void
 }) {
   const [typed, setTyped] = useState('')
   const [deleting, setDeleting] = useState(false)
+  const [projectChoice, setProjectChoice] = useState<'keep' | 'delete'>('keep')
   const target = experience.company
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
+  const projectEvidence = projects.reduce((n, p) => n + (p.activities?.length ?? 0), 0)
 
   async function handleDelete() {
     if (typed !== target) return
     setDeleting(true)
     try {
-      await deleteExperience(experience.id)
-      onDeleted()
+      await deleteExperience(experience.id, { projects: projectChoice })
+      onDeleted(projectChoice)
     } finally {
       setDeleting(false)
     }
@@ -172,11 +177,41 @@ export function DeleteExperienceDialog({
         <DialogHeader>
           <DialogTitle>Delete {target}?</DialogTitle>
           <DialogDescription>
-            This will permanently remove this work experience, all its activities, notes, and linked
-            projects. This cannot be undone.
+            This will permanently remove this work experience, its notes, and its{' '}
+            {plural(experience.activities.length, 'evidence item')}. This cannot be undone.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
+          {projects.length > 0 && (
+            <fieldset className="space-y-2 text-sm">
+              <legend className="mb-1 text-muted-foreground">
+                This role has {plural(projects.length, 'project')}.
+              </legend>
+              <label className="flex items-start gap-2">
+                <input
+                  type="radio"
+                  name="delete-projects"
+                  className="mt-1"
+                  checked={projectChoice === 'keep'}
+                  onChange={() => setProjectChoice('keep')}
+                />
+                <span>Keep {plural(projects.length, 'project')} as standalone</span>
+              </label>
+              <label className="flex items-start gap-2">
+                <input
+                  type="radio"
+                  name="delete-projects"
+                  className="mt-1"
+                  checked={projectChoice === 'delete'}
+                  onChange={() => setProjectChoice('delete')}
+                />
+                <span>
+                  Delete them too
+                  {projectEvidence > 0 && ` (and their ${plural(projectEvidence, 'evidence item')})`}
+                </span>
+              </label>
+            </fieldset>
+          )}
           <p className="text-sm text-muted-foreground">
             Type{' '}
             <span className="font-semibold text-foreground">{target}</span>

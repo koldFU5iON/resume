@@ -23,7 +23,10 @@ async function ownedPairs(profileId: string, pairs: LinkPair[]): Promise<LinkPai
   if (pairs.length === 0) return []
   const [evidence, capabilities] = await Promise.all([
     prisma.roleActivity.findMany({
-      where: { id: { in: [...new Set(pairs.map((p) => p.evidenceId))] }, experience: { profileId } },
+      where: {
+        id: { in: [...new Set(pairs.map((p) => p.evidenceId))] },
+        OR: [{ experience: { profileId } }, { project: { profileId } }],
+      },
       select: { id: true },
     }),
     prisma.skill.findMany({
@@ -59,24 +62,35 @@ export function rejectLinks(profileId: string, pairs: LinkPair[]): Promise<numbe
 /** AI suggestions awaiting review, with enough text to decide on each. */
 export async function listPendingSuggestions(profileId: string): Promise<PendingSuggestion[]> {
   const rows = await prisma.roleActivitySkill.findMany({
-    where: { status: 'suggested', skill: { profileId }, roleActivity: { experience: { profileId } } },
+    where: { status: 'suggested', skill: { profileId }, roleActivity: { OR: [{ experience: { profileId } }, { project: { profileId } }] } },
     select: {
       roleActivityId: true,
       skillId: true,
       reason: true,
       skill: { select: { name: true } },
-      roleActivity: { select: { description: true, experience: { select: { role: true, company: true } } } },
+      roleActivity: {
+        select: {
+          description: true,
+          experience: { select: { role: true, company: true } },
+          project: { select: { name: true, experience: { select: { role: true, company: true } } } },
+        },
+      },
     },
     orderBy: [{ skill: { name: 'asc' } }, { createdAt: 'asc' }],
   })
-  return rows.map((r) => ({
-    evidenceId: r.roleActivityId,
-    capabilityId: r.skillId,
-    evidence: r.roleActivity.description,
-    role: `${r.roleActivity.experience.role} at ${r.roleActivity.experience.company}`,
-    capability: r.skill.name,
-    reason: r.reason,
-  }))
+  return rows.map((r) => {
+    const { experience, project } = r.roleActivity
+    const owner = experience ?? project?.experience
+    const role = owner ? `${owner.role} at ${owner.company}` : ''
+    return {
+      evidenceId: r.roleActivityId,
+      capabilityId: r.skillId,
+      evidence: r.roleActivity.description,
+      role: project ? [project.name, role].filter(Boolean).join(' — ') : role,
+      capability: r.skill.name,
+      reason: r.reason,
+    }
+  })
 }
 
 export type SuggestResult = { links: number; newCapabilities: CapabilitySuggestion[] }

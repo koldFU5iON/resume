@@ -84,7 +84,8 @@ function findGaps(vault: Vault): { gaps: Gap[]; checks: number; passed: number }
   const experiences = notesOf(vault, 'experience')
   check(experiences.length > 0, { area: 'experience', message: 'Add your work experience, starting with your current or most recent role.' })
   for (const exp of experiences) {
-    const evidence = exp.links.filter((l) => l.type === 'has').map((l) => vault.notes.get(l.id))
+    const ownedBy = [exp.id, ...exp.links.filter((l) => l.type === 'contains').map((l) => l.id)]
+    const evidence = ownedBy.flatMap((id) => (vault.notes.get(id)?.links ?? []).filter((l) => l.type === 'has').map((l) => vault.notes.get(l.id)))
     const achievements = evidence.filter((n) => n?.type === 'evidence' && n.props.kind === 'achievement')
     check(achievements.length > 0, {
       noteId: exp.id, area: 'experience',
@@ -193,6 +194,16 @@ const MAX_EVIDENCE_FOR_DUPLICATES = 400
 /** Bound token-set work as well as pair count, including legacy unbounded descriptions. */
 const MAX_DUPLICATE_TEXT_CHARS = 100_000
 
+/** Two parents are the same when equal, or when one is a project under the other role. */
+function sameParent(vault: Vault, a: string, b: string): boolean {
+  if (a === b) return true
+  const roleOf = (id: string) => {
+    const n = vault.notes.get(id)
+    return n?.type === 'project' ? n.props.experienceId ?? id : id
+  }
+  return roleOf(a) === roleOf(b)
+}
+
 /** Near-identical evidence filed under two different roles. */
 function duplicatedEvidence(vault: Vault): Gap[] {
   const atoms = notesOf(vault, 'evidence')
@@ -206,7 +217,7 @@ function duplicatedEvidence(vault: Vault): Gap[] {
   for (let i = 0; i < atoms.length; i++) {
     for (let j = i + 1; j < atoms.length; j++) {
       const a = atoms[i], b = atoms[j]
-      if (a.props.parentId === b.props.parentId || reported.has(a.id) || reported.has(b.id)) continue
+      if (sameParent(vault, a.props.parentId, b.props.parentId) || reported.has(a.id) || reported.has(b.id)) continue
       const wa = words[i], wb = words[j]
       if (wa.size < 3 || wb.size < 3) continue
       let shared = 0

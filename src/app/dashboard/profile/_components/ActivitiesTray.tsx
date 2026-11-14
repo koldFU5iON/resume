@@ -74,7 +74,7 @@ export function ActivitiesTray({ experienceId, initialActivities }: Props) {
           prev.map(a => a.id === editing.id ? updatedActivity : a)
         )
       } else {
-        const created = await createActivity(experienceId, data)
+        const created = await createActivity({ experienceId }, data)
         const newActivity: RoleActivity = {
           ...created,
           kind: created.kind as RoleActivityKindType,

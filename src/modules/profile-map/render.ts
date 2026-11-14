@@ -64,7 +64,10 @@ export function contextOf(vault: Vault, note: Note): string | null {
     : null
   const parent = parentId ? vault.notes.get(parentId) : undefined
   if (parent?.type === 'experience') return roleContext(parent)
-  if (parent?.type === 'project') return parent.title
+  if (parent?.type === 'project') {
+    const role = parent.props.experienceId ? vault.notes.get(parent.props.experienceId) : undefined
+    return role?.type === 'experience' ? `${parent.title} — ${roleContext(role)}` : parent.title
+  }
   return null
 }
 
@@ -74,6 +77,14 @@ export function renderNote(vault: Vault, id: string, opts: RenderOptions = {}): 
   const pii = opts.pii ?? 'scrub'
   const scrub = pii === 'scrub' ? makeContactScrubber(vault.identity.props.contact) : (s: string) => s
   const lines: string[] = []
+  const pushEvidence = (heading: string, items: (Note | undefined)[]) => {
+    const evidence = items.filter((e): e is Extract<Note, { type: 'evidence' }> => e?.type === 'evidence')
+    if (!evidence.length) return
+    lines.push('', heading)
+    for (const e of evidence) {
+      lines.push(`- [${e.props.kind}] ${scrub(e.props.description)}${e.props.impact ? ` (impact: ${scrub(e.props.impact)})` : ''}`)
+    }
+  }
   const list = (label: string, items: string[]) => {
     if (items.length) lines.push(`${label}: ${items.join(', ')}`)
   }
@@ -98,14 +109,12 @@ export function renderNote(vault: Vault, id: string, opts: RenderOptions = {}): 
       const place = [note.props.location, note.props.remote ? 'Remote' : null].filter(Boolean).join(' · ')
       lines.push(`## ${note.title}`, `*${roleContext(note)}${place ? ` · ${place}` : ''}*`)
       if (note.body) lines.push('', scrub(note.body))
-      const evidence = note.links.filter((l) => l.type === 'has').map((l) => vault.notes.get(l.id))
-      if (evidence.length) {
-        lines.push('', '### Evidence')
-        for (const e of evidence) {
-          if (e?.type !== 'evidence') continue
-          lines.push(`- [${e.props.kind}] ${scrub(e.props.description)}${e.props.impact ? ` (impact: ${scrub(e.props.impact)})` : ''}`)
-        }
-      }
+      pushEvidence('### Evidence', note.links.filter((l) => l.type === 'has').map((l) => vault.notes.get(l.id)))
+      // Evidence owned by contained projects, so a role note stays self-contained.
+      const projectEvidence = note.links
+        .filter((l) => l.type === 'contains')
+        .flatMap((l) => (vault.notes.get(l.id)?.links ?? []).filter((pl) => pl.type === 'has').map((pl) => vault.notes.get(pl.id)))
+      pushEvidence('### Evidence from projects', projectEvidence)
       list('Projects', linkedTitles(vault, note, 'contains'))
       list('Uses', linkedTitles(vault, note, 'uses'))
       break
@@ -124,7 +133,9 @@ export function renderNote(vault: Vault, id: string, opts: RenderOptions = {}): 
       const meta = [ctx, span, note.props.status !== 'active' ? note.props.status : null, note.props.url].filter(Boolean)
       if (meta.length) lines.push(`*${meta.join(' · ')}*`)
       if (note.body) lines.push('', scrub(note.body))
-      if (note.props.highlights.length) lines.push('', ...note.props.highlights.map((h) => `- ${scrub(h)}`))
+      const ownEvidence = note.links.filter((l) => l.type === 'has').map((l) => vault.notes.get(l.id))
+      if (ownEvidence.length) pushEvidence('### Evidence', ownEvidence)
+      else if (note.props.highlights.length) lines.push('', ...note.props.highlights.map((h) => `- ${scrub(h)}`))
       list('Uses', linkedTitles(vault, note, 'uses'))
       break
     }

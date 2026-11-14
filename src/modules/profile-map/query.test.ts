@@ -31,6 +31,30 @@ describe('getMap', () => {
   })
 })
 
+describe('project evidence in queries', () => {
+  const base = vaultSource()
+  const v = buildVault(vaultSource({
+    projects: [{
+      ...base.projects[0],
+      activities: [{
+        id: 'pa1', experienceId: null, projectId: 'pr1', kind: 'achievement', description: 'Cut hotfix turnaround to an hour',
+        impact: null, highlighted: false, order: 0, tags: '[]', createdAt: base.createdAt, updatedAt: base.updatedAt, skills: [],
+      }],
+    }],
+  }) as never)
+
+  it('nests project evidence under the project in the map', () => {
+    const lines = getMap(v).map.split('\n')
+    const project = lines.findIndex((l) => l.startsWith('  - pr1 · '))
+    expect(lines[project + 1]).toMatch(/^ {4}- pa1 · \[achievement\] /)
+  })
+
+  it('searches project evidence and gives it its project and role as context', () => {
+    const hit = searchVault(v, 'hotfix').find((h) => h.id === 'pa1')
+    expect(hit?.context).toBe('Release train — Program Manager at Fictional Freight, Mar 2021 – present')
+  })
+})
+
 describe('getNote', () => {
   it('returns the self-contained render with followable links', () => {
     const note = getNote(vault, 'a1')!

@@ -42,6 +42,8 @@ function ProjectCard({
   onEdit: () => void
   onDelete: () => void
 }) {
+  const evidence = (project.activities ?? []).map(a => a.description)
+  const shown = evidence.length > 0 ? evidence : project.highlights
   return (
     <div className="group relative rounded-lg border bg-card p-4 space-y-2 hover:border-border/80 transition-colors">
       {/* Top row: name + controls */}
@@ -84,10 +86,10 @@ function ProjectCard({
         <p className="text-xs text-muted-foreground line-clamp-2">{project.description}</p>
       )}
 
-      {/* Highlights */}
-      {project.highlights.length > 0 && (
+      {/* Evidence the project owns, falling back to the legacy highlights */}
+      {shown.length > 0 && (
         <ul className="space-y-0.5">
-          {project.highlights.slice(0, 3).map((h, i) => (
+          {shown.slice(0, 3).map((h, i) => (
             <li key={i} className="text-xs text-muted-foreground flex gap-1.5">
               <span className="shrink-0 mt-0.5">•</span>
               <span>{h}</span>
@@ -122,6 +124,7 @@ type ProjectDialogProps = {
 
 function ProjectDialog({ open, onOpenChange, editing, onSave, saving, saveError, hasLLMKey }: ProjectDialogProps) {
   const [highlights, setHighlights] = useState<string[]>(editing?.highlights ?? [])
+  const evidence = (editing?.activities ?? []).map(a => a.description)
   const [tags, setTags] = useState<string[]>(editing?.tags ?? [])
   const [extractState, setExtractState] = useState<ExtractState>({ status: 'idle' })
   const [nameValue, setNameValue] = useState(editing?.name ?? '')
@@ -209,8 +212,23 @@ function ProjectDialog({ open, onOpenChange, editing, onSave, saving, saveError,
               )}
             </div>
 
+            {/* Project-owned evidence is read-only here; it is edited with the Evidence tab. */}
+            {evidence.length > 0 && (
+              <div className="space-y-1.5">
+                <Label>Evidence</Label>
+                <div className="space-y-1">
+                  {evidence.map((h, i) => (
+                    <div key={i} className="flex items-start gap-2 text-sm">
+                      <span className="shrink-0 mt-0.5 text-muted-foreground">•</span>
+                      <span className="flex-1">{h}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Highlights — show if any exist */}
-            {highlights.length > 0 && (
+            {evidence.length === 0 && highlights.length > 0 && (
               <div className="space-y-1.5">
                 <Label>Highlights</Label>
                 <div className="space-y-1">
@@ -337,7 +355,7 @@ export function ProjectBlock({ initial, hasLLMKey }: ProjectBlockProps) {
       if (editing) {
         const updated = await updateProject(editing.id, data)
         setProjects(p => p.map(item => item.id === editing.id
-          ? { ...updated, highlights: data.highlights ?? [], tags: data.tags ?? [] }
+          ? { ...updated, activities: item.activities, highlights: data.highlights ?? [], tags: data.tags ?? [] }
           : item
         ))
       } else {

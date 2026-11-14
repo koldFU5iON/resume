@@ -127,7 +127,10 @@ export function ExperienceWorkspace({ profile }: Props) {
     router.refresh()
   }
 
-  function handleExperienceDeleted() {
+  function handleExperienceDeleted(projects: 'keep' | 'delete') {
+    setAllProjects(prev => projects === 'delete'
+      ? prev.filter(p => p.experienceId !== selectedExperienceId)
+      : prev.map(p => (p.experienceId === selectedExperienceId ? { ...p, experienceId: null } : p)))
     const remaining = experiences.filter(e => e.id !== selectedExperienceId)
     setExperiences(remaining)
     setDeleteOpen(false)
@@ -326,6 +329,7 @@ export function ExperienceWorkspace({ profile }: Props) {
       {selectedExperience && deleteOpen && (
         <DeleteExperienceDialog
           experience={selectedExperience}
+          projects={allProjects.filter(p => p.experienceId === selectedExperience.id)}
           open={deleteOpen}
           onOpenChange={setDeleteOpen}
           onDeleted={handleExperienceDeleted}

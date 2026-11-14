@@ -166,10 +166,10 @@ export function buildVault(row: VaultSource): Vault {
     return links
   }
 
-  // ── Experiences and their evidence ──
-  for (const e of row.experiences) {
-    const evidenceIds: string[] = []
-    for (const a of e.activities) {
+  // ── Evidence: atoms owned by an experience or a project ──
+  const addEvidence = (activities: VaultSource['experiences'][number]['activities'], parentId: string): string[] => {
+    const ids: string[] = []
+    for (const a of activities) {
       const kind = a.kind === 'achievement' ? 'achievement' : 'responsibility'
       const note: EvidenceNote = {
         id: a.id,
@@ -181,7 +181,7 @@ export function buildVault(row: VaultSource): Vault {
           description: a.description,
           impact: a.impact,
           highlighted: a.highlighted,
-          parentId: e.id,
+          parentId,
         },
         links: derivedLinks(
           a.id,
@@ -194,8 +194,14 @@ export function buildVault(row: VaultSource): Vault {
         updatedAt: a.updatedAt,
       }
       add(note)
-      evidenceIds.push(a.id)
+      ids.push(a.id)
     }
+    return ids
+  }
+
+  // ── Experiences and their evidence ──
+  for (const e of row.experiences) {
+    const evidenceIds = addEvidence(e.activities, e.id)
     const projectIds = row.projects.filter((p) => p.experienceId === e.id).map((p) => p.id)
     const achievements = e.activities.filter((a) => a.kind === 'achievement').length
     const span = formatSpan(e.startDate, e.endDate)
@@ -230,13 +236,17 @@ export function buildVault(row: VaultSource): Vault {
 
   // ── Projects: description + notes collapse into one body ──
   for (const p of row.projects) {
-    const highlights = parseJsonField<unknown>(p.highlights, [])
+    const evidenceIds = addEvidence(p.activities, p.id)
+    const legacy = parseJsonField<unknown>(p.highlights, [])
+    const highlights: unknown[] = p.activities.length
+      ? p.activities.map((a) => (a.impact ? `${a.description} (${a.impact})` : a.description))
+      : Array.isArray(legacy) ? legacy : []
     const body = [p.description.trim(), p.notes.trim()].filter(Boolean).join('\n\n')
     const note: ProjectNote = {
       id: p.id,
       type: 'project',
       title: p.name,
-      gist: oneLine(p.description || (Array.isArray(highlights) ? String(highlights[0] ?? '') : '') || p.name),
+      gist: oneLine(p.description || String(highlights[0] ?? '') || p.name),
       props: {
         name: p.name,
         description: p.description,
@@ -245,11 +255,14 @@ export function buildVault(row: VaultSource): Vault {
         endDate: p.endDate,
         url: p.url,
         repoUrl: p.repoUrl,
-        highlights: Array.isArray(highlights) ? highlights.filter((h): h is string => typeof h === 'string') : [],
+        highlights: highlights.filter((h): h is string => typeof h === 'string'),
         experienceId: p.experienceId,
       },
       body: body || undefined,
-      links: derivedLinks(p.id, body, 'uses', capLinks(p.skills, 'uses')),
+      links: [
+        ...evidenceIds.map((id) => ({ type: 'has' as const, id })),
+        ...derivedLinks(p.id, body, 'uses', capLinks(p.skills, 'uses')),
+      ],
       backlinks: [],
       updatedAt: p.updatedAt,
     }
