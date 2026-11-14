@@ -82,7 +82,7 @@ export function ArchivedTab() {
           value={query}
           onChange={e => handleQueryChange(e.target.value)}
           placeholder="Search archived jobs…"
-          className="pl-8 h-8 text-sm"
+          className="pl-8 h-11 text-base md:h-8 md:text-sm"
         />
       </div>
 
@@ -112,7 +112,7 @@ export function ArchivedTab() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-7 w-7"
+                  className="size-11 md:size-7"
                   onClick={() => setPage(p => Math.max(1, p - 1))}
                   disabled={safePage === 1}
                   aria-label="Previous page"
@@ -125,7 +125,7 @@ export function ArchivedTab() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-7 w-7"
+                  className="size-11 md:size-7"
                   onClick={() => setPage(p => Math.min(totalPages, p + 1))}
                   disabled={safePage === totalPages}
                   aria-label="Next page"
@@ -159,8 +159,8 @@ function ArchivedRow({ job, onRestored }: { job: Job; onRestored: (id: string) =
   return (
     <div className="flex items-center gap-3 px-3 py-3 hover:bg-muted/30 transition-colors">
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium truncate">{job.title}</p>
-        <p className="text-xs text-muted-foreground truncate">
+        <p className="text-sm font-medium md:truncate">{job.title}</p>
+        <p className="text-sm text-muted-foreground md:truncate md:text-xs">
           {job.company}
           {job.countries.length > 0 && ` · ${job.countries.join(', ')}`}
           <span className="ml-2 opacity-60">{APPLICATION_STATUS_LABEL[job.status]}</span>
@@ -174,7 +174,7 @@ function ArchivedRow({ job, onRestored }: { job: Job; onRestored: (id: string) =
         variant="ghost"
         onClick={handleRestore}
         disabled={isPending}
-        className="shrink-0 gap-1.5"
+        className="min-h-11 shrink-0 gap-1.5 md:min-h-0"
       >
         {isPending
           ? <Loader2 size={13} className="animate-spin" />

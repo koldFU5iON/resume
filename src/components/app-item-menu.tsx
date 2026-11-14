@@ -1,4 +1,5 @@
 import Link from "next/link"
+import { cn } from "@/lib/utils"
 import {
   Archive,
   FileText,
@@ -22,6 +23,7 @@ import { DeprecatingSoonBadge } from "@/components/legacy-editors/deprecation"
 
 type AppControlsProps = {
   id: string
+  className?: string
   cvDocumentId?: string | null
   coverLetterDocumentId?: string | null
   onEdit?: () => void
@@ -30,12 +32,12 @@ type AppControlsProps = {
   onCreateCoverLetter?: () => void
 }
 
-export function AppControls({ id, cvDocumentId, coverLetterDocumentId, onEdit, onArchive, onGenerateCV, onCreateCoverLetter }: AppControlsProps) {
+export function AppControls({ id, className, cvDocumentId, coverLetterDocumentId, onEdit, onArchive, onGenerateCV, onCreateCoverLetter }: AppControlsProps) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
         aria-label="Job actions"
-        className="flex size-8 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className={cn("flex size-8 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", className)}
       >
         <MoreHorizontal size={16} />
       </DropdownMenuTrigger>
@@ -143,7 +145,7 @@ function AppControlsItem({ Icon, label, deprecated, action, onSelect, disabled }
     <DropdownMenuItem
       disabled={disabled}
       onClick={onSelect}
-      className={!disabled ? "cursor-pointer" : ""}
+      className={cn("max-md:min-h-11", !disabled && "cursor-pointer")}
     >
       {content}
     </DropdownMenuItem>

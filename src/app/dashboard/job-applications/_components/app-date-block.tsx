@@ -56,11 +56,11 @@ export function ApplicationDateBlock({ label, date, jobId, compact = false }: Ap
           <Popover open={open} onOpenChange={handleOpenChange}>
             <PopoverTrigger
               aria-label={`${date ? 'Edit' : 'Add'} ${label.toLowerCase()} date`}
-              className={`${compact ? 'size-6' : 'size-8'} inline-flex shrink-0 items-center justify-center cursor-pointer rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
+              className={`${compact ? 'size-6' : 'size-8'} max-md:size-11 inline-flex shrink-0 items-center justify-center cursor-pointer rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
             >
               <Pencil size={10} />
             </PopoverTrigger>
-            <PopoverContent className="w-auto">
+            <PopoverContent className="w-auto [&_input]:max-md:min-h-11 [&_input]:max-md:text-base [&_button]:max-md:min-h-11">
               <form action={handleSubmit} className="flex flex-col gap-2">
                 <span className="text-xs font-medium">{date ? "Change" : "Add"} {label.toLowerCase()} date</span>
                 <Input

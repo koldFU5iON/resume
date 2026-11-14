@@ -22,6 +22,8 @@ interface ContentContainerProps {
   description?: string,
   /** Stretch content edge-to-edge instead of the centered readable width. */
   fullWidth?: boolean,
+  /** Keep a task page's mobile header short so its controls are immediately reachable. */
+  compactHeaderOnMobile?: boolean,
   /** Override labels for unusual/dynamic path segments (e.g. an entity name). */
   segmentLabels?: Record<string, string>,
 }
@@ -31,6 +33,7 @@ export function ContentContainer({
   title,
   description,
   fullWidth,
+  compactHeaderOnMobile,
   segmentLabels,
 }: ContentContainerProps) {
   const pathname = usePathname()
@@ -40,7 +43,7 @@ export function ContentContainer({
     <div className="flex flex-1 flex-col">
       <div className={clsx("w-full px-4 py-6 md:px-6", !fullWidth && "mx-auto max-w-4xl")}>
         <header>
-          <Breadcrumb className="mb-3">
+          <Breadcrumb className={clsx("mb-3", compactHeaderOnMobile && "hidden md:block")}>
             <BreadcrumbList>
               {crumbs.map((crumb, index) => {
                 const isLast = index === crumbs.length - 1
@@ -64,7 +67,7 @@ export function ContentContainer({
 
           <H size={1}>{title}</H>
           {description && (
-            <div className="mt-2 text-md text-primary/80">{description}</div>
+            <div className={clsx("mt-2 text-md text-primary/80", compactHeaderOnMobile && "hidden md:block")}>{description}</div>
           )}
         </header>
 

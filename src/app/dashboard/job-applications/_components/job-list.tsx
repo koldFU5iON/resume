@@ -1,6 +1,7 @@
 'use client'
 
 import { useRouter, useSearchParams } from "next/navigation"
+import { createPortal } from "react-dom"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Archive, ArrowDown, ArrowUp, ListPlus, Plus, SearchIcon, X } from "lucide-react"
 import {
@@ -13,6 +14,7 @@ import {
 } from "@/app/types/job-application"
 import {
   FilterBar,
+  MobileListControls,
   DEFAULT_FILTER,
   DEFAULT_SORT,
   isFilterActive,
@@ -418,7 +420,7 @@ export function JobList({ jobs, hasLLMKey, deepDiveAccess, earlyEnabled = false 
   useEffect(() => { bulkArchiveRef.current = handleBulkArchive })
 
   const content = (
-    <div className="@container w-full border-t border-accent pt-3 mt-2">
+    <div className={cn("@container w-full border-t border-accent pt-3 mt-2", visibleSelected.size > 0 && "pb-24 md:pb-0")}>
       <AssessmentPoller signature={pendingRuns} />
       <ToolBar
         query={query}
@@ -563,8 +565,24 @@ function ToolBar({
   earlyEnabled,
 }: ToolBarProps) {
   return (
-    <div className="flex flex-col space-y-1">
-      <div className="flex flex-wrap gap-2 items-center">
+    <div className="flex flex-col gap-3 md:gap-1">
+      <div className="space-y-3 md:hidden">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-sm text-muted-foreground" role="status">{visibleCount === totalCount ? `${totalCount} ${totalCount === 1 ? 'job' : 'jobs'}` : `${visibleCount} of ${totalCount} jobs`}</span>
+          <Button className="min-h-11 px-4" onClick={onCreateOpen}><Plus className="size-4" />Add Job</Button>
+        </div>
+        <JobSearchBar value={query} onChange={onQueryChange} />
+        <MobileListControls filter={filter} sort={sort} onFilterChange={onFilterChange} onSortChange={onSortChange} earlyEnabled={earlyEnabled} viewMode={viewMode} onViewModeChange={onViewModeChange} onBatchOpen={onBatchOpen} resultCount={visibleCount} />
+        {selectedCount > 0 && createPortal(
+          <div role="region" aria-label="Selected job actions" className="fixed inset-x-3 bottom-[calc(3rem+env(safe-area-inset-bottom))] z-30 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-background p-3 md:hidden">
+            <span className="mr-auto text-sm" role="status">{selectedCount} selected</span>
+            <Button variant="outline" className="min-h-11" onClick={onClearSelection}>Deselect</Button>
+            <Button className="min-h-11" onClick={onBulkArchive}><Archive className="size-4" />Archive</Button>
+          </div>,
+          document.body,
+        )}
+      </div>
+      <div className="hidden flex-wrap gap-2 items-center md:flex">
         <JobSearchBar value={query} onChange={onQueryChange} />
         <Separator orientation="vertical" className="h-8" />
         <ViewModeToggle value={viewMode} onChange={onViewModeChange} />
@@ -609,7 +627,7 @@ function ToolBar({
           </kbd>
         </Button>
       </div>
-      <div className="text-xs text-muted-foreground">
+      <div className="hidden text-xs text-muted-foreground md:block">
         {selectedCount > 0
           ? `${selectedCount} selected`
           : visibleCount === totalCount
@@ -660,12 +678,13 @@ type JobSearchBarProps = {
 
 function JobSearchBar({ value, onChange }: JobSearchBarProps) {
   return (
-    <div className="w-full sm:w-auto sm:max-w-sm">
-      <InputGroup className="w-full sm:w-80">
+    <div className="w-full md:w-auto md:max-w-sm">
+      <InputGroup className="h-12 w-full md:h-8 md:w-80">
         <InputGroupInput
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          placeholder="Search for job..."
+          className="h-full text-base md:h-auto md:text-sm"
+          placeholder="Search jobs"
           aria-label="Search jobs"
         />
         <InputGroupAddon>

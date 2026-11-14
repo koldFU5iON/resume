@@ -62,7 +62,7 @@ export function StatusDropdown({ jobId, status, onChanged, className, triggerId 
       <DropdownMenuItem
         key={state}
         onClick={() => handleSelect(state)}
-        className="gap-2"
+        className="gap-2 max-md:min-h-11"
       >
         <span className={cn("size-2 shrink-0 rounded-full", statusDotColor(state))} aria-hidden />
         {APPLICATION_STATUS_LABEL[state]}

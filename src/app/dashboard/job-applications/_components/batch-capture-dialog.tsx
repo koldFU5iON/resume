@@ -126,21 +126,23 @@ export function BatchCaptureDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="w-[calc(100%-2rem)] min-w-0 max-w-lg grid-cols-[minmax(0,1fr)] max-h-[90dvh] overflow-x-hidden overflow-y-auto max-md:[&_button]:min-h-11 max-md:[&_[data-slot=dialog-close]]:size-11">
         <DialogHeader>
           <DialogTitle>Batch Add Jobs</DialogTitle>
         </DialogHeader>
 
         {step === 'input' && (
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-4">
             <Textarea
               placeholder="Paste job URLs, one per line or comma-separated"
               value={text}
               onChange={e => setText(e.target.value)}
               rows={8}
-              className="font-mono text-xs resize-none"
+              aria-label="Job URLs"
+              wrap="soft"
+              className="field-sizing-fixed h-48 min-h-40 min-w-0 max-w-full resize-none overflow-y-auto text-base [overflow-wrap:anywhere] md:font-mono md:text-xs"
             />
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <span className="text-xs text-muted-foreground">
                 {parsedCount === 0
                   ? 'No URLs detected'
@@ -161,7 +163,7 @@ export function BatchCaptureDialog({
         )}
 
         {step === 'processing' && (
-          <div className="space-y-3">
+          <div className="min-w-0 space-y-3">
             <Progress value={urls.length > 0 ? (processedCount / urls.length) * 100 : 0} />
             <p className="text-xs text-muted-foreground text-right">
               {processedCount} / {urls.length} processed
@@ -175,10 +177,10 @@ export function BatchCaptureDialog({
                     <div className="flex-1 min-w-0">
                       <p className="truncate font-mono text-muted-foreground">{url}</p>
                       {s.status === 'success' && (
-                        <p className="text-foreground">{s.job.title} — {s.job.company}</p>
+                        <p className="text-foreground [overflow-wrap:anywhere]">{s.job.title} — {s.job.company}</p>
                       )}
                       {s.status === 'failed' && (
-                        <p className="text-destructive">{s.error}</p>
+                        <p className="text-destructive [overflow-wrap:anywhere]">{s.error}</p>
                       )}
                     </div>
                   </div>
@@ -189,7 +191,7 @@ export function BatchCaptureDialog({
         )}
 
         {step === 'done' && summary && (
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-4">
             <p className="text-sm">
               <span className="font-medium">{summary.added} added</span>
               {summary.existing > 0 && (
@@ -206,7 +208,9 @@ export function BatchCaptureDialog({
                   readOnly
                   value={failedUrls.join('\n')}
                   rows={Math.min(failedUrls.length + 1, 5)}
-                  className="font-mono text-xs resize-none"
+                  aria-label="Failed job URLs"
+                  wrap="soft"
+                  className="field-sizing-fixed h-32 min-w-0 max-w-full resize-none overflow-y-auto text-base [overflow-wrap:anywhere] md:font-mono md:text-xs"
                 />
               </div>
             )}

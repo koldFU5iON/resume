@@ -1,6 +1,9 @@
 'use client'
 
-import { ChevronDown, X } from 'lucide-react'
+import { useState } from 'react'
+import { ChevronDown, ListPlus, SlidersHorizontal, X } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerFooter, DrawerClose, DrawerTrigger } from '@/components/ui/drawer'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Checkbox } from '@/components/ui/checkbox'
 import { cn } from '@/lib/utils'
@@ -52,7 +55,7 @@ function sortOptions(earlyEnabled: boolean): { value: SortField; label: string }
   return [
     { value: 'dateApplied',   label: 'Date applied' },
     { value: 'datePublished', label: 'Date published' },
-    { value: 'company',       label: 'Company A–Z' },
+    { value: 'company',       label: 'Company' },
     { value: earlyEnabled ? 'earlyScore' : 'fitRating', label: 'Fit score' },
     { value: 'lastUpdated',   label: 'Last updated' },
   ]
@@ -145,6 +148,85 @@ export function FilterBar({ filter, sort, onFilterChange, onSortChange, earlyEna
         </button>
       )}
     </div>
+  )
+}
+
+export function MobileListControls({ filter, sort, onFilterChange, onSortChange, earlyEnabled = false, viewMode, onViewModeChange, onBatchOpen, resultCount }: FilterBarProps & {
+  viewMode: 'grouped' | 'all'
+  onViewModeChange: (mode: 'grouped' | 'all') => void
+  onBatchOpen: () => void
+  resultCount: number
+}) {
+  const [open, setOpen] = useState(false)
+  const count = filter.status.size + filter.source.size + (earlyEnabled ? filter.early.size : filter.fit.size)
+  const selectClass = 'h-11 w-full rounded-md border border-input bg-background px-3 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+
+  return (
+    <Drawer open={open} onOpenChange={setOpen}>
+      <DrawerTrigger className="flex min-h-11 w-full items-center justify-between gap-2 rounded-md border border-border px-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <span className="flex items-center gap-2"><SlidersHorizontal className="size-4" />Filters & sort{count > 0 && <span className="rounded bg-muted px-2 tabular-nums">{count}</span>}</span>
+        <ChevronDown className="size-4 text-muted-foreground" />
+      </DrawerTrigger>
+      <DrawerContent>
+        <DrawerHeader className="text-left!">
+          <DrawerTitle>Organize jobs</DrawerTitle>
+          <DrawerDescription>Choose what to see and how to order it.</DrawerDescription>
+        </DrawerHeader>
+        <div className="space-y-6 overflow-y-auto overscroll-contain px-4 pb-4">
+          <div className="grid grid-cols-2 gap-3">
+            <label className="space-y-2 text-sm font-medium">View
+              <select className={selectClass} value={viewMode} onChange={e => onViewModeChange(e.target.value as 'grouped' | 'all')}>
+                <option value="grouped">By status</option><option value="all">All jobs</option>
+              </select>
+            </label>
+            <label className="space-y-2 text-sm font-medium">Sort by
+              <select className={selectClass} value={sort.field} onChange={e => onSortChange(selectSortField(sort, e.target.value as SortField))}>
+                {sortOptions(earlyEnabled).map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+            </label>
+          </div>
+          <label className="block space-y-2 text-sm font-medium">Sort direction
+            <select className={selectClass} value={sort.direction} onChange={e => onSortChange({ ...sort, direction: e.target.value as SortDirection })}>
+              <option value="desc">{sort.field === 'company' ? 'Z to A' : sort.field === 'earlyScore' || sort.field === 'fitRating' ? 'Highest first' : 'Newest first'}</option>
+              <option value="asc">{sort.field === 'company' ? 'A to Z' : sort.field === 'earlyScore' || sort.field === 'fitRating' ? 'Lowest first' : 'Oldest first'}</option>
+            </select>
+          </label>
+          <MobileFilterOptions label="Status" options={STATUS_OPTIONS} selected={filter.status} onChange={status => onFilterChange({ ...filter, status })} />
+          <MobileFilterOptions label="Source" options={SOURCE_OPTIONS} selected={filter.source} onChange={source => onFilterChange({ ...filter, source })} />
+          {earlyEnabled
+            ? <MobileFilterOptions label="Fit" options={EARLY_FILTER_OPTIONS} selected={filter.early} onChange={early => onFilterChange({ ...filter, early })} />
+            : <MobileFilterOptions label="Fit" options={FIT_OPTIONS} selected={filter.fit} onChange={fit => onFilterChange({ ...filter, fit })} />}
+          <Button variant="outline" className="min-h-11 w-full" onClick={() => { setOpen(false); onBatchOpen() }}><ListPlus className="size-4" />Batch Add jobs</Button>
+        </div>
+        <DrawerFooter className="border-t border-border pb-[max(1rem,env(safe-area-inset-bottom))]">
+          <div className="flex gap-3">
+            <Button variant="outline" className="min-h-11" disabled={!count} onClick={() => onFilterChange({ status: new Set(), source: new Set(), fit: new Set(), early: new Set() })}>Clear filters</Button>
+            <DrawerClose asChild><Button className="min-h-11 flex-1">Show {resultCount} {resultCount === 1 ? 'job' : 'jobs'}</Button></DrawerClose>
+          </div>
+        </DrawerFooter>
+      </DrawerContent>
+    </Drawer>
+  )
+}
+
+function MobileFilterOptions<T extends string>({ label, options, selected, onChange }: FilterDropdownProps<T>) {
+  return (
+    <fieldset className="space-y-2">
+      <legend className="text-sm font-medium">{label}</legend>
+      <div className="grid grid-cols-2 gap-2">
+        {options.map(option => (
+          <label key={option.value} className={cn('flex min-h-11 cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm', selected.has(option.value) ? 'border-primary bg-primary/10' : 'border-border')}>
+            <input type="checkbox" className="size-5 shrink-0 accent-primary" checked={selected.has(option.value)} onChange={() => {
+              const next = new Set(selected)
+              if (next.has(option.value)) next.delete(option.value)
+              else next.add(option.value)
+              onChange(next)
+            }} />
+            {option.label}
+          </label>
+        ))}
+      </div>
+    </fieldset>
   )
 }
 

@@ -52,7 +52,7 @@ export function JobGroup({
           aria-expanded={!collapsed}
           className={cn(
             "flex items-center gap-1.5 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground transition-colors border-b border-border/30 cursor-pointer w-full",
-            !isMobile && "col-span-full",
+            isMobile ? "min-h-12 px-4 text-sm" : "col-span-full",
           )}
         >
           {isCollapsible && (collapsed

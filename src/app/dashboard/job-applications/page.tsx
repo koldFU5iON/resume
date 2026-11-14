@@ -35,11 +35,11 @@ export default async function Page({
   const hasLLMKey = llmConfig.configured
 
   return (
-    <ContentContainer fullWidth title="Job Applications" description={JOB_APPLICATIONS_DESCRIPTION}>
+    <ContentContainer fullWidth compactHeaderOnMobile title="Job Applications" description={JOB_APPLICATIONS_DESCRIPTION}>
       <ApplicationTabs initialTab={create !== '1' && cookieStore.get('jobs-tab')?.value === 'archived' ? 'archived' : 'active'}>
-        <TabsList className="mb-3">
-          <TabsTrigger value="active">Active</TabsTrigger>
-          <TabsTrigger value="archived">Archived</TabsTrigger>
+        <TabsList className="mb-1 min-h-[50px] w-full md:mb-3 md:min-h-0 md:w-fit">
+          <TabsTrigger value="active" className="min-h-11 text-base md:min-h-0 md:text-sm">Active</TabsTrigger>
+          <TabsTrigger value="archived" className="min-h-11 text-base md:min-h-0 md:text-sm">Archived</TabsTrigger>
         </TabsList>
         <TabsContent value="active">
           <JobList
