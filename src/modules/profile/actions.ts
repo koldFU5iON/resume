@@ -5,6 +5,7 @@ import { requireProfile } from '@/lib/session'
 import { revalidatePath } from 'next/cache'
 import * as z from 'zod'
 import { activityOwnedBy } from './ownership'
+import { mergeProjects } from './project-merge'
 import { ActivityInputSchema, ACTIVITY_KINDS, DEFAULT_SKILL_CATEGORY, MAX_SUMMARY_LENGTH, SkillInputSchema, normalizeSkillLevel } from './schema'
 
 export type ContactField = 'name' | 'email' | 'phone' | 'location' | 'website' | 'linkedIn' | 'github' | 'headline'
@@ -545,5 +546,21 @@ export async function updateCertification(id: string, data: CertificationData) {
 export async function deleteCertification(id: string) {
   const { profile } = await requireProfile()
   await prisma.certification.deleteMany({ where: { id, profileId: profile.id } })
+  revalidatePath('/dashboard/profile')
+}
+
+// ── Duplicate project merge ───────────────────────────────────────────────────
+
+const MergeProjectsSchema = z.object({
+  keepId: z.string().min(1),
+  removeId: z.string().min(1),
+  body: z.enum(['keep', 'remove']),
+})
+
+/** Merges one standalone project into the role project it copies. Only ever called from a click. */
+export async function mergeDuplicateProjects(input: { keepId: string; removeId: string; body: 'keep' | 'remove' }) {
+  const parsed = MergeProjectsSchema.parse(input)
+  const { profile } = await requireProfile()
+  await mergeProjects(profile.id, parsed)
   revalidatePath('/dashboard/profile')
 }

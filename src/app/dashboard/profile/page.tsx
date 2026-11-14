@@ -11,15 +11,18 @@ import { requireProfile } from "@/lib/session"
 import { notesOf } from "@/modules/profile-map/build"
 import { loadVault } from "@/modules/profile-map/load"
 import { listPendingSuggestions } from "@/modules/profile-map/link-store"
+import { findDuplicateProjects } from "@/modules/profile/project-merge"
+import { DuplicateProjectsNotice } from "./_components/DuplicateProjectsNotice"
 import { EvidenceLinksSection, type EvidenceLinkStats } from "./_components/EvidenceLinksSection"
 
 export default async function Page() {
   const { profile: sessionProfile } = await requireProfile()
-  const [profile, { configured: hasLLMKey }, vault, pendingLinks] = await Promise.all([
+  const [profile, { configured: hasLLMKey }, vault, pendingLinks, duplicateProjects] = await Promise.all([
     getFullProfile(),
     getLLMConfigStatus(sessionProfile.id),
     loadVault(sessionProfile.id),
     listPendingSuggestions(sessionProfile.id),
+    findDuplicateProjects(sessionProfile.id),
   ])
   const capabilities = notesOf(vault, "capability")
   const linkStats: EvidenceLinkStats = {
@@ -53,6 +56,7 @@ export default async function Page() {
   return (
     <ContentContainer title="Professional Profile" fullWidth>
       <ProfileHeader name={profile.name} headline={profile.headline ?? undefined} />
+      <DuplicateProjectsNotice pairs={duplicateProjects} />
 
       {/* 3-column workspace grid */}
       <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[256px_1fr_288px]">
