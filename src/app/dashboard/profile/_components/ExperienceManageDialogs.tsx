@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
@@ -15,8 +15,8 @@ import { Field, FieldGroup } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
-import { deleteExperience, updateExperienceDetails } from '@/modules/profile/actions'
-import type { ExperienceWithActivities, Project } from '@/app/types/profile'
+import { deleteExperience, getExperienceDeleteImpact, updateExperienceDetails } from '@/modules/profile/actions'
+import type { ExperienceWithActivities } from '@/app/types/profile'
 
 type EditData = {
   company: string
@@ -140,32 +140,46 @@ export function EditExperienceDialog({
   )
 }
 
+type DeleteImpact = Awaited<ReturnType<typeof getExperienceDeleteImpact>>
+
 export function DeleteExperienceDialog({
   experience,
-  projects,
   open,
   onOpenChange,
   onDeleted,
 }: {
   experience: ExperienceWithActivities
-  projects: Project[]
   open: boolean
   onOpenChange: (o: boolean) => void
   onDeleted: (projects: 'keep' | 'delete') => void
 }) {
   const [typed, setTyped] = useState('')
   const [deleting, setDeleting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [projectChoice, setProjectChoice] = useState<'keep' | 'delete'>('keep')
+  // Counts come from the database, not client state: the server deletes what it holds.
+  const [impact, setImpact] = useState<DeleteImpact | null>(null)
   const target = experience.company
   const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
-  const projectEvidence = projects.reduce((n, p) => n + (p.activities?.length ?? 0), 0)
+
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    getExperienceDeleteImpact(experience.id)
+      .then(result => { if (!cancelled) setImpact(result) })
+      .catch(() => { if (!cancelled) setError('Could not check what this role contains. Close and try again.') })
+    return () => { cancelled = true }
+  }, [open, experience.id])
 
   async function handleDelete() {
-    if (typed !== target) return
+    if (typed !== target || !impact) return
     setDeleting(true)
+    setError(null)
     try {
       await deleteExperience(experience.id, { projects: projectChoice })
       onDeleted(projectChoice)
+    } catch {
+      setError('Failed to delete this experience. Please try again.')
     } finally {
       setDeleting(false)
     }
@@ -178,14 +192,14 @@ export function DeleteExperienceDialog({
           <DialogTitle>Delete {target}?</DialogTitle>
           <DialogDescription>
             This will permanently remove this work experience, its notes, and its{' '}
-            {plural(experience.activities.length, 'evidence item')}. This cannot be undone.
+            {impact ? plural(impact.evidence, 'evidence item') : 'evidence'}. This cannot be undone.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
-          {projects.length > 0 && (
+          {impact && impact.projects > 0 && (
             <fieldset className="space-y-2 text-sm">
               <legend className="mb-1 text-muted-foreground">
-                This role has {plural(projects.length, 'project')}.
+                This role has {plural(impact.projects, 'project')}.
               </legend>
               <label className="flex items-start gap-2">
                 <input
@@ -195,7 +209,7 @@ export function DeleteExperienceDialog({
                   checked={projectChoice === 'keep'}
                   onChange={() => setProjectChoice('keep')}
                 />
-                <span>Keep {plural(projects.length, 'project')} as standalone</span>
+                <span>Keep {plural(impact.projects, 'project')} as standalone</span>
               </label>
               <label className="flex items-start gap-2">
                 <input
@@ -207,7 +221,7 @@ export function DeleteExperienceDialog({
                 />
                 <span>
                   Delete them too
-                  {projectEvidence > 0 && ` (and their ${plural(projectEvidence, 'evidence item')})`}
+                  {impact.projectEvidence > 0 && ` (and their ${plural(impact.projectEvidence, 'evidence item')})`}
                 </span>
               </label>
             </fieldset>
@@ -223,12 +237,13 @@ export function DeleteExperienceDialog({
             placeholder={target}
             onPaste={e => e.preventDefault()}
           />
+          {error && <p className="text-sm text-destructive">{error}</p>}
         </div>
         <DialogFooter className="mt-2">
           <DialogClose render={<Button type="button" variant="secondary">Cancel</Button>} />
           <Button
             variant="destructive"
-            disabled={typed !== target || deleting}
+            disabled={typed !== target || deleting || !impact}
             onClick={handleDelete}
           >
             {deleting ? 'Deleting…' : 'Delete permanently'}

@@ -5,6 +5,7 @@
 
 import { prisma } from '@/lib/db'
 import { completeStructured } from '@/modules/llm/client'
+import { activityOwnedBy } from '@/modules/profile/ownership'
 import { loadVault } from './load'
 import { buildSuggestionPrompt, pairKey, resolveSuggestions, SuggestionSchema, type CapabilitySuggestion } from './suggest'
 import type { CapabilityKind } from './types'
@@ -25,7 +26,7 @@ async function ownedPairs(profileId: string, pairs: LinkPair[]): Promise<LinkPai
     prisma.roleActivity.findMany({
       where: {
         id: { in: [...new Set(pairs.map((p) => p.evidenceId))] },
-        OR: [{ experience: { profileId } }, { project: { profileId } }],
+        ...activityOwnedBy(profileId),
       },
       select: { id: true },
     }),
@@ -62,7 +63,7 @@ export function rejectLinks(profileId: string, pairs: LinkPair[]): Promise<numbe
 /** AI suggestions awaiting review, with enough text to decide on each. */
 export async function listPendingSuggestions(profileId: string): Promise<PendingSuggestion[]> {
   const rows = await prisma.roleActivitySkill.findMany({
-    where: { status: 'suggested', skill: { profileId }, roleActivity: { OR: [{ experience: { profileId } }, { project: { profileId } }] } },
+    where: { status: 'suggested', skill: { profileId }, roleActivity: activityOwnedBy(profileId) },
     select: {
       roleActivityId: true,
       skillId: true,

@@ -329,7 +329,6 @@ export function ExperienceWorkspace({ profile }: Props) {
       {selectedExperience && deleteOpen && (
         <DeleteExperienceDialog
           experience={selectedExperience}
-          projects={allProjects.filter(p => p.experienceId === selectedExperience.id)}
           open={deleteOpen}
           onOpenChange={setDeleteOpen}
           onDeleted={handleExperienceDeleted}

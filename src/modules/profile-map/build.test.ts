@@ -146,6 +146,34 @@ describe('project-owned evidence', () => {
     expect(profileMap(dup).gaps.map((g) => g.message).some((m) => m.includes('appears under both'))).toBe(false)
   })
 
+  it('says in the role gist and map line when evidence comes from its projects', () => {
+    const e1 = base.experiences[0]
+    const pa = [act('pa1', 'Shipped', 0), act('pa2', 'Scaled', 1)]
+    const withOwn = buildVault(vaultSource({ projects: [{ ...base.projects[0], activities: pa }] }) as never)
+    expect(withOwn.notes.get('e1')!.gist).toContain('(+2 from projects)')
+    const onlyProjects = buildVault(vaultSource({
+      experiences: [{ ...e1, activities: [] }],
+      projects: [{ ...base.projects[0], activities: pa }],
+    }) as never)
+    expect(onlyProjects.notes.get('e1')!.gist).toContain('2 evidence from projects')
+    expect(profileMap(onlyProjects).entries.find((e) => e.id === 'e1')!.gist).toContain('2 evidence from projects')
+    expect(buildVault(source()).notes.get('e1')!.gist).not.toContain('from projects')
+  })
+
+  it('words a duplicate between a standalone project and a role by what each parent is', () => {
+    const e1 = base.experiences[0]
+    const text = 'Launched the annual awards programme across four regions'
+    const v = buildVault(vaultSource({
+      experiences: [{ ...e1, activities: [{ ...e1.activities[0], description: text }] }],
+      projects: [{ ...base.projects[0], experienceId: null, activities: [act('pa1', text, 0)] }],
+    }) as never)
+    const message = profileMap(v).gaps.map((g) => g.message).find((m) => m.includes('appears under both'))!
+    expect(message).toContain('the project Release train')
+    expect(message).toContain('Program Manager — Fictional Freight')
+    expect(message).toContain('Which one does it belong to?')
+    expect(message).not.toContain('Which role')
+  })
+
   it('keeps the CV snapshot and its ## Projects text unchanged when evidence equals the old highlights', () => {
     const legacy = serializeProfileForLLM(toProfileSnapshot(buildVault(source())))
     const copied = serializeProfileForLLM(toProfileSnapshot(buildVault(vaultSource({

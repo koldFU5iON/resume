@@ -16,6 +16,7 @@ import {
   createProject, updateProject, deleteProject,
 } from '@/modules/profile/actions'
 import { extractProjectInsights } from '@/modules/profile/project-extract'
+import { projectHighlights } from '@/modules/profile/project-highlights'
 import { SectionHelp } from './SectionHelp'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -42,8 +43,7 @@ function ProjectCard({
   onEdit: () => void
   onDelete: () => void
 }) {
-  const evidence = (project.activities ?? []).map(a => a.description)
-  const shown = evidence.length > 0 ? evidence : project.highlights
+  const shown = projectHighlights(project.activities ?? [], project.highlights)
   return (
     <div className="group relative rounded-lg border bg-card p-4 space-y-2 hover:border-border/80 transition-colors">
       {/* Top row: name + controls */}
@@ -130,8 +130,11 @@ function ProjectDialog({ open, onOpenChange, editing, onSave, saving, saveError,
   const [nameValue, setNameValue] = useState(editing?.name ?? '')
   const [descValue, setDescValue] = useState(editing?.description ?? '')
 
+  // Extract writes the legacy highlights column, which nothing shows once the project owns evidence.
+  const hasEvidence = evidence.length > 0
+
   const handleExtract = async () => {
-    if (!nameValue.trim() || !descValue.trim()) return
+    if (hasEvidence || !nameValue.trim() || !descValue.trim()) return
     setExtractState({ status: 'extracting' })
     const result = await extractProjectInsights(nameValue, descValue)
     if (result.ok) {
@@ -200,13 +203,19 @@ function ProjectDialog({ open, onOpenChange, editing, onSave, saving, saveError,
                 variant="outline"
                 size="sm"
                 className="gap-1.5"
-                disabled={extractState.status === 'extracting' || !descValue.trim() || !nameValue.trim() || !hasLLMKey}
+                disabled={hasEvidence || extractState.status === 'extracting' || !descValue.trim() || !nameValue.trim() || !hasLLMKey}
                 onClick={handleExtract}
                 title={!hasLLMKey ? 'Configure an LLM API key in Settings to use extraction' : undefined}
+                aria-describedby={hasEvidence ? 'proj-extract-note' : undefined}
               >
                 <Sparkles size={13} />
                 {extractState.status === 'extracting' ? 'Extracting…' : 'Extract Insights'}
               </Button>
+              {hasEvidence && (
+                <p id="proj-extract-note" className="mt-1.5 text-xs text-muted-foreground">
+                  Extract is off because this project has evidence. Edit its evidence instead.
+                </p>
+              )}
               {extractState.status === 'error' && (
                 <p className="mt-1.5 text-xs text-destructive">{extractState.message}</p>
               )}

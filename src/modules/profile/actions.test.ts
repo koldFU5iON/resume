@@ -5,14 +5,14 @@ vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 vi.mock('@/lib/db', () => ({
   prisma: {
     experience: { findFirst: vi.fn(), deleteMany: vi.fn((x) => x) },
-    project: { findFirst: vi.fn(), deleteMany: vi.fn((x) => x) },
-    roleActivity: { create: vi.fn(async (x) => x), findFirst: vi.fn(), update: vi.fn(async (x) => x), deleteMany: vi.fn(async (x) => x), updateMany: vi.fn() },
+    project: { findFirst: vi.fn(), count: vi.fn(), deleteMany: vi.fn((x) => x) },
+    roleActivity: { count: vi.fn(), create: vi.fn(async (x) => x), findFirst: vi.fn(), update: vi.fn(async (x) => x), deleteMany: vi.fn(async (x) => x), updateMany: vi.fn() },
     $transaction: vi.fn(async (ops) => ops),
   },
 }))
 
 import { prisma } from '@/lib/db'
-import { acceptSuggestions, createActivity, deleteActivity, deleteExperience, updateActivity } from './actions'
+import { acceptSuggestions, createActivity, deleteActivity, deleteExperience, getExperienceDeleteImpact, updateActivity } from './actions'
 
 const data = { kind: 'achievement', description: 'Shipped A' }
 const OWNED = { OR: [{ experience: { profileId: 'p1' } }, { project: { profileId: 'p1' } }] }
@@ -81,9 +81,9 @@ describe('deleteExperience', () => {
     expect(prisma.experience.deleteMany).not.toHaveBeenCalled()
   })
 
-  it('refuses a foreign experience', async () => {
+  it('is a no-op for a missing or foreign experience, and deletes nothing', async () => {
     vi.mocked(prisma.experience.findFirst).mockResolvedValue(null)
-    await expect(deleteExperience('foreign', { projects: 'delete' })).rejects.toThrow('Experience not found')
+    await expect(deleteExperience('foreign', { projects: 'delete' })).resolves.toBeUndefined()
     expect(prisma.project.deleteMany).not.toHaveBeenCalled()
     expect(prisma.experience.deleteMany).not.toHaveBeenCalled()
   })
@@ -104,5 +104,16 @@ describe('deleteExperience', () => {
       { where: { id: 'e1', profileId: 'p1' } },
     ])
     expect(prisma.project.deleteMany).toHaveBeenCalledWith({ where: { experienceId: 'e1', profileId: 'p1' } })
+  })
+})
+
+describe('getExperienceDeleteImpact', () => {
+  it('counts the role\'s evidence, projects and project evidence, scoped to the profile', async () => {
+    vi.mocked(prisma.roleActivity.count).mockResolvedValueOnce(4).mockResolvedValueOnce(7)
+    vi.mocked(prisma.project.count).mockResolvedValue(2)
+    await expect(getExperienceDeleteImpact('e1')).resolves.toEqual({ evidence: 4, projects: 2, projectEvidence: 7 })
+    expect(prisma.roleActivity.count).toHaveBeenCalledWith({ where: { experienceId: 'e1', experience: { profileId: 'p1' } } })
+    expect(prisma.roleActivity.count).toHaveBeenCalledWith({ where: { project: { experienceId: 'e1', profileId: 'p1' } } })
+    expect(prisma.project.count).toHaveBeenCalledWith({ where: { experienceId: 'e1', profileId: 'p1' } })
   })
 })

@@ -3,6 +3,7 @@
 // that presents them as linked notes.
 
 import { parseJsonField } from '@/lib/utils'
+import { evidenceLine, projectHighlights } from '@/modules/profile/project-highlights'
 import { normalizeSearchProfile } from '@/modules/search-profile/schema'
 import { formatMonth, formatSpan, normalizeName, oneLine } from './format'
 import { findMentions, parseWikilinks, stripWikilinks } from './links'
@@ -175,7 +176,7 @@ export function buildVault(row: VaultSource): Vault {
         id: a.id,
         type: 'evidence',
         title: oneLine(a.description, 80),
-        gist: oneLine(a.impact ? `${a.description} (${a.impact})` : a.description),
+        gist: oneLine(evidenceLine(a)),
         props: {
           kind,
           description: a.description,
@@ -204,6 +205,11 @@ export function buildVault(row: VaultSource): Vault {
     const evidenceIds = addEvidence(e.activities, e.id)
     const projectIds = row.projects.filter((p) => p.experienceId === e.id).map((p) => p.id)
     const achievements = e.activities.filter((a) => a.kind === 'achievement').length
+    // findGaps counts contained projects' evidence toward the role; say so here too.
+    const projectEvidence = row.projects.reduce((n, p) => (p.experienceId === e.id ? n + p.activities.length : n), 0)
+    const evidenceGist = e.activities.length
+      ? evidenceCounts(achievements, e.activities.length - achievements) + (projectEvidence ? ` (+${projectEvidence} from projects)` : '')
+      : projectEvidence ? `${projectEvidence} evidence from projects` : null
     const span = formatSpan(e.startDate, e.endDate)
     const note: ExperienceNote = {
       id: e.id,
@@ -212,7 +218,7 @@ export function buildVault(row: VaultSource): Vault {
       gist: [
         `${e.role} at ${e.company}`,
         span,
-        e.activities.length ? evidenceCounts(achievements, e.activities.length - achievements) : null,
+        evidenceGist,
       ].filter(Boolean).join(' · '),
       props: {
         company: e.company,
@@ -237,10 +243,7 @@ export function buildVault(row: VaultSource): Vault {
   // ── Projects: description + notes collapse into one body ──
   for (const p of row.projects) {
     const evidenceIds = addEvidence(p.activities, p.id)
-    const legacy = parseJsonField<unknown>(p.highlights, [])
-    const highlights: unknown[] = p.activities.length
-      ? p.activities.map((a) => (a.impact ? `${a.description} (${a.impact})` : a.description))
-      : Array.isArray(legacy) ? legacy : []
+    const highlights = projectHighlights(p.activities, parseJsonField<unknown>(p.highlights, []))
     const body = [p.description.trim(), p.notes.trim()].filter(Boolean).join('\n\n')
     const note: ProjectNote = {
       id: p.id,
@@ -255,7 +258,7 @@ export function buildVault(row: VaultSource): Vault {
         endDate: p.endDate,
         url: p.url,
         repoUrl: p.repoUrl,
-        highlights: highlights.filter((h): h is string => typeof h === 'string'),
+        highlights,
         experienceId: p.experienceId,
       },
       body: body || undefined,

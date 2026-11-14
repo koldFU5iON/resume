@@ -204,7 +204,11 @@ function sameParent(vault: Vault, a: string, b: string): boolean {
   return roleOf(a) === roleOf(b)
 }
 
-/** Near-identical evidence filed under two different roles. */
+/**
+ * Near-identical evidence filed under two different roles or projects. A
+ * project and the role it sits under count as one place, so those pairs are
+ * not reported here; they are merged separately.
+ */
 function duplicatedEvidence(vault: Vault): Gap[] {
   const atoms = notesOf(vault, 'evidence')
   if (atoms.length > MAX_EVIDENCE_FOR_DUPLICATES ||
@@ -212,6 +216,12 @@ function duplicatedEvidence(vault: Vault): Gap[] {
     return [{ area: 'evidence', message: 'Duplicate evidence check omitted for a large evidence collection. Review repeated achievements manually.' }]
   }
   const words = atoms.map((e) => new Set(normalize(e.props.description).split(' ').filter((w) => w.length > 2)))
+  const where = (parentId: string, fallback: string) => {
+    const parent = vault.notes.get(parentId)
+    if (!parent) return fallback
+    const title = parent.title.slice(0, GAP_LABEL_CHARS)
+    return parent.type === 'project' ? `the project ${title}` : title
+  }
   const gaps: Gap[] = []
   const reported = new Set<string>()
   for (let i = 0; i < atoms.length; i++) {
@@ -224,11 +234,9 @@ function duplicatedEvidence(vault: Vault): Gap[] {
       for (const w of wa) if (wb.has(w)) shared++
       if (shared / (wa.size + wb.size - shared) < DUPLICATE_SIMILARITY) continue
       reported.add(a.id).add(b.id)
-      const roleA = vault.notes.get(a.props.parentId)?.title.slice(0, GAP_LABEL_CHARS) ?? 'one role'
-      const roleB = vault.notes.get(b.props.parentId)?.title.slice(0, GAP_LABEL_CHARS) ?? 'another'
       gaps.push({
         noteId: a.id, area: 'evidence',
-        message: `"${a.title}" appears under both ${roleA} and ${roleB}. Which role does it belong to?`,
+        message: `"${a.title}" appears under both ${where(a.props.parentId, 'one role')} and ${where(b.props.parentId, 'another')}. Which one does it belong to?`,
       })
     }
   }
