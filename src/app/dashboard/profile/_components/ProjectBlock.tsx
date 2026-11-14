@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, type FormEvent } from 'react'
+import { useRouter } from 'next/navigation'
 import type { FullProfile } from '@/app/types/profile'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -11,20 +12,12 @@ import { Field, FieldGroup } from '@/components/ui/field'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose,
 } from '@/components/ui/dialog'
-import { ExternalLink, GitFork, Pencil, Plus, Sparkles, Trash2, X } from 'lucide-react'
-import {
-  createProject, updateProject, deleteProject,
-} from '@/modules/profile/actions'
+import { ExternalLink, GitFork, Pencil, Sparkles, Trash2, X } from 'lucide-react'
+import { updateProject, deleteProject } from '@/modules/profile/actions'
 import { extractProjectInsights } from '@/modules/profile/project-extract'
 import { projectHighlights } from '@/modules/profile/project-highlights'
-import { SectionHelp } from './SectionHelp'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-
-type ProjectBlockProps = {
-  initial: FullProfile['projects']
-  hasLLMKey: boolean
-}
 
 type ExtractState =
   | { status: 'idle' }
@@ -116,7 +109,7 @@ type ProjectDialogProps = {
   open: boolean
   onOpenChange: ((o: boolean) => void) | undefined
   editing: FullProfile['projects'][number] | null
-  onSave: (data: Parameters<typeof createProject>[0]) => void
+  onSave: (data: Parameters<typeof updateProject>[1]) => void
   saving: boolean
   saveError: string | null
   hasLLMKey: boolean
@@ -333,45 +326,44 @@ function ProjectDialog({ open, onOpenChange, editing, onSave, saving, saveError,
   )
 }
 
-// ── ProjectBlock ──────────────────────────────────────────────────────────────
+// ── ProjectDetails ────────────────────────────────────────────────────────────
 
-export function ProjectBlock({ initial, hasLLMKey }: ProjectBlockProps) {
-  const [projects, setProjects] = useState(initial)
+/** One project's card with its edit dialog: the details region of a project note. */
+export function ProjectDetails({
+  project: initial,
+  hasLLMKey,
+  onDeleted,
+}: {
+  project: FullProfile['projects'][number]
+  hasLLMKey: boolean
+  /** Called after the project is deleted; the page it lived on no longer exists. */
+  onDeleted: () => void
+}) {
+  const router = useRouter()
+  const [project, setProject] = useState(initial)
   const [open, setOpen] = useState(false)
-  const [editing, setEditing] = useState<FullProfile['projects'][number] | null>(null)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
-  const openAdd = () => { setEditing(null); setSaveError(null); setOpen(true) }
-  const openEdit = (p: FullProfile['projects'][number]) => { setEditing(p); setSaveError(null); setOpen(true) }
-
-  const handleDelete = async (id: string) => {
-    const prev = projects
-    setProjects(p => p.filter(item => item.id !== id))
+  const handleDelete = async () => {
     setDeleteError(null)
-    try { await deleteProject(id) } catch {
-      setProjects(prev)
+    try {
+      await deleteProject(project.id)
+      onDeleted()
+    } catch {
       setDeleteError('Failed to delete project. Please try again.')
-      setTimeout(() => setDeleteError(null), 4000)
     }
   }
 
-  const handleSave = async (data: Parameters<typeof createProject>[0]) => {
+  const handleSave = async (data: Parameters<typeof updateProject>[1]) => {
     setSaving(true)
     setSaveError(null)
     try {
-      if (editing) {
-        const updated = await updateProject(editing.id, data)
-        setProjects(p => p.map(item => item.id === editing.id
-          ? { ...updated, activities: item.activities, highlights: data.highlights ?? [], tags: data.tags ?? [] }
-          : item
-        ))
-      } else {
-        const created = await createProject(data)
-        setProjects(p => [...p, { ...created, highlights: data.highlights ?? [], tags: data.tags ?? [] }])
-      }
+      const updated = await updateProject(project.id, data)
+      setProject({ ...updated, activities: project.activities, highlights: data.highlights ?? [], tags: data.tags ?? [] })
       setOpen(false)
+      router.refresh()
     } catch {
       setSaveError('Failed to save. Please try again.')
     } finally {
@@ -380,42 +372,18 @@ export function ProjectBlock({ initial, hasLLMKey }: ProjectBlockProps) {
   }
 
   return (
-    <div>
-      {/* Section header */}
-      <div className="flex items-center gap-1.5 mb-4">
-        <h2 className="text-sm font-semibold flex-1">Projects</h2>
-        <SectionHelp text="Personal or professional projects that demonstrate your abilities. Write a freeform description and use Extract to pull out key wins, impact, and skills." />
-        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={openAdd} aria-label="Add project">
-          <Plus size={13} />
-        </Button>
-      </div>
-
-      {deleteError && <p className="mb-2 text-sm text-destructive">{deleteError}</p>}
-
-      {/* Project cards grid */}
-      {projects.length === 0 ? (
-        <div className="py-8 text-center space-y-2">
-          <p className="text-sm text-muted-foreground">No projects added yet.</p>
-          <Button variant="outline" size="sm" onClick={openAdd}>Add your first project</Button>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {projects.map(project => (
-            <ProjectCard
-              key={project.id}
-              project={project}
-              onEdit={() => openEdit(project)}
-              onDelete={() => handleDelete(project.id)}
-            />
-          ))}
-        </div>
-      )}
-
+    <div className="space-y-2">
+      {deleteError && <p className="text-sm text-destructive">{deleteError}</p>}
+      <ProjectCard
+        project={project}
+        onEdit={() => { setSaveError(null); setOpen(true) }}
+        onDelete={() => void handleDelete()}
+      />
       <ProjectDialog
-        key={editing?.id ?? 'new'}
+        key={project.id}
         open={open}
         onOpenChange={saving ? undefined : setOpen}
-        editing={editing}
+        editing={project}
         onSave={handleSave}
         saving={saving}
         saveError={saveError}

@@ -105,7 +105,7 @@ export async function commitImportedProfile(payload: ExtractedProfile): Promise<
     ),
   ])
 
-  revalidatePath("/dashboard/profile")
+  revalidatePath("/dashboard/profile", "layout")
 
   return {
     created: {

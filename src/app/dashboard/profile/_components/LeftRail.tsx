@@ -878,17 +878,27 @@ type LeftRailProps = {
   educations: FullProfile['educations']
   certifications: FullProfile['certifications']
   careerYears: number
+  /** Which records to list: capabilities (skills, tools, languages, competencies), credentials (education, certifications), or all. */
+  show?: 'capabilities' | 'credentials' | 'all'
 }
 
-export function LeftRail({ skills, tools, languages, competencies, educations, certifications, careerYears }: LeftRailProps) {
+export function LeftRail({ skills, tools, languages, competencies, educations, certifications, careerYears, show = 'all' }: LeftRailProps) {
   return (
     <div className="space-y-6">
-      <SkillsSection initial={skills} careerYears={careerYears} />
-      <ToolsSection initial={tools} />
-      <LanguagesSection initial={languages} />
-      <CompetenciesSection initial={competencies} />
-      <EducationSection initial={educations} />
-      <CertificationsSection initial={certifications} />
+      {show !== 'credentials' && (
+        <>
+          <SkillsSection initial={skills} careerYears={careerYears} />
+          <ToolsSection initial={tools} />
+          <LanguagesSection initial={languages} />
+          <CompetenciesSection initial={competencies} />
+        </>
+      )}
+      {show !== 'capabilities' && (
+        <>
+          <EducationSection initial={educations} />
+          <CertificationsSection initial={certifications} />
+        </>
+      )}
     </div>
   )
 }

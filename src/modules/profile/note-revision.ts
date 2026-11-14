@@ -49,3 +49,17 @@ export async function saveProjectNote(
   if (!current) throw new Error('Project not found')
   return { ok: false, reason: 'conflict', revision: current.revision, content: current.notes }
 }
+
+/** A note's current saved text and revision, or null when it isn't the caller's. Read-only. */
+export async function readNote(
+  profileId: string,
+  kind: 'experience' | 'project',
+  id: string,
+): Promise<{ content: string; revision: number } | null> {
+  if (kind === 'experience') {
+    const row = await prisma.experience.findFirst({ where: { id, profileId }, select: { summary: true, revision: true } })
+    return row ? { content: row.summary, revision: row.revision } : null
+  }
+  const row = await prisma.project.findFirst({ where: { id, profileId }, select: { notes: true, revision: true } })
+  return row ? { content: row.notes, revision: row.revision } : null
+}

@@ -8,7 +8,7 @@ vi.mock('@/lib/db', () => ({
 }))
 
 import { prisma } from '@/lib/db'
-import { saveExperienceNote, saveProjectNote } from './note-revision'
+import { readNote, saveExperienceNote, saveProjectNote } from './note-revision'
 
 beforeEach(() => vi.clearAllMocks())
 
@@ -65,5 +65,25 @@ describe('saveProjectNote', () => {
     vi.mocked(prisma.project.updateMany).mockResolvedValue({ count: 0 })
     vi.mocked(prisma.project.findFirst).mockResolvedValue(null)
     await expect(saveProjectNote('p1', 'foreign', 'x', 1)).rejects.toThrow('Project not found')
+  })
+})
+
+describe('readNote', () => {
+  it('reads a role\'s text and revision, scoped to the profile', async () => {
+    vi.mocked(prisma.experience.findFirst).mockResolvedValue({ summary: 'role text', revision: 3 } as never)
+    expect(await readNote('p1', 'experience', 'e1')).toEqual({ content: 'role text', revision: 3 })
+    expect(prisma.experience.findFirst).toHaveBeenCalledWith({ where: { id: 'e1', profileId: 'p1' }, select: { summary: true, revision: true } })
+  })
+
+  it('reads a project\'s notes and revision', async () => {
+    vi.mocked(prisma.project.findFirst).mockResolvedValue({ notes: 'project text', revision: 2 } as never)
+    expect(await readNote('p1', 'project', 'pr1')).toEqual({ content: 'project text', revision: 2 })
+  })
+
+  it('is null for a note that is not the caller\'s', async () => {
+    vi.mocked(prisma.experience.findFirst).mockResolvedValue(null)
+    vi.mocked(prisma.project.findFirst).mockResolvedValue(null)
+    expect(await readNote('p1', 'experience', 'x')).toBeNull()
+    expect(await readNote('p1', 'project', 'x')).toBeNull()
   })
 })
