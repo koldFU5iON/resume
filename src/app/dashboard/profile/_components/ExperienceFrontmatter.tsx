@@ -3,7 +3,6 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Menu, Pencil, Trash2 } from 'lucide-react'
-import { cn } from '@/lib/utils'
 import { updateExperienceDetails } from '@/modules/profile/actions'
 import {
   DropdownMenu,
@@ -13,11 +12,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import type { ExperienceWithActivities } from '@/app/types/profile'
-import type { SaveState } from './NoteEditor'
 
 type Props = {
   experience: ExperienceWithActivities
-  saveState: SaveState
   projectName?: string
   onBack?: () => void
   onEditClick?: () => void
@@ -41,7 +38,6 @@ function getDetailsFields(exp: ExperienceWithActivities) {
 
 export function ExperienceFrontmatter({
   experience,
-  saveState,
   projectName,
   onBack,
   onEditClick,
@@ -65,9 +61,6 @@ export function ExperienceFrontmatter({
         <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400">
           Project
         </span>
-        <div className="ml-auto">
-          <SaveIndicator state={saveState} />
-        </div>
       </div>
     )
   }
@@ -126,9 +119,6 @@ export function ExperienceFrontmatter({
           {experience.remote && ' · Remote'}
         </span>
       )}
-      <div className="ml-auto">
-        <SaveIndicator state={saveState} />
-      </div>
     </div>
   )
 }
@@ -198,21 +188,5 @@ function InlineField({
         {draft}
       </span>
     </div>
-  )
-}
-
-function SaveIndicator({ state }: { state: SaveState }) {
-  if (state === 'idle') return null
-  return (
-    <span
-      className={cn(
-        'text-[10px]',
-        state === 'saving' && 'text-muted-foreground',
-        state === 'saved' && 'text-emerald-600 dark:text-emerald-400',
-        state === 'error' && 'text-destructive',
-      )}
-    >
-      {state === 'saving' ? 'Saving…' : state === 'saved' ? 'Saved' : 'Save failed'}
-    </span>
   )
 }

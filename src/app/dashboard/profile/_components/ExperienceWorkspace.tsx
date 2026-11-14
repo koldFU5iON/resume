@@ -14,7 +14,6 @@ import {
 } from '@/modules/profile/actions'
 import type { FullProfile, Project } from '@/app/types/profile'
 import { NoteEditor } from './NoteEditor'
-import type { SaveState } from './NoteEditor'
 import { ExperienceFrontmatter } from './ExperienceFrontmatter'
 import { ActivitiesTray } from './ActivitiesTray'
 import { ProjectsPanel } from './ProjectsPanel'
@@ -40,7 +39,6 @@ export function ExperienceWorkspace({ profile }: Props) {
   const [addOpen, setAddOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
-  const [saveState, setSaveState] = useState<SaveState>('idle')
 
   // Tab bar scroll state
   const tabBarRef = useRef<HTMLDivElement>(null)
@@ -93,12 +91,10 @@ export function ExperienceWorkspace({ profile }: Props) {
   function selectExperience(id: string) {
     setSelectedExperienceId(id)
     setActiveContext({ type: 'experience' })
-    setSaveState('idle')
   }
 
   function selectProject(projectId: string) {
     setActiveContext({ type: 'project', projectId })
-    setSaveState('idle')
   }
 
   async function handleAddExperience(data: Parameters<typeof createExperience>[0]) {
@@ -162,10 +158,43 @@ export function ExperienceWorkspace({ profile }: Props) {
       ? (selectedProject?.notes ?? '')
       : (selectedExperience?.summary ?? '')
 
+  const noteRevision =
+    activeContext.type === 'project'
+      ? (selectedProject?.revision ?? 1)
+      : (selectedExperience?.revision ?? 1)
+
+  const noteRecoveryKey =
+    activeContext.type === 'project'
+      ? `profile-note-recovery-project-${activeContext.projectId}`
+      : `profile-note-recovery-experience-${selectedExperienceId}`
+
+  const noteName =
+    activeContext.type === 'project'
+      ? (selectedProject?.name ?? 'this project')
+      : selectedExperience
+        ? `${selectedExperience.role} at ${selectedExperience.company}`
+        : 'this role'
+
+  // The workspace keeps the latest version the server has told it about, so an
+  // editor remounted after a tab switch starts from it instead of from the page
+  // load. Updated here, not in the editor: a save that finishes as the editor
+  // unmounts still lands.
   const noteSave =
     activeContext.type === 'project'
-      ? (content: string) => updateProjectNotes(activeContext.projectId, content)
-      : (content: string) => updateExperienceNotes(selectedExperienceId, content)
+      ? async (content: string, expectedRevision: number) => {
+          const projectId = activeContext.projectId
+          const result = await updateProjectNotes(projectId, content, expectedRevision)
+          const notes = result.ok ? content : result.content
+          setAllProjects(prev => prev.map(p => (p.id === projectId ? { ...p, notes, revision: result.revision } : p)))
+          return result
+        }
+      : async (content: string, expectedRevision: number) => {
+          const experienceId = selectedExperienceId
+          const result = await updateExperienceNotes(experienceId, content, expectedRevision)
+          const summary = result.ok ? content : result.content
+          setExperiences(prev => prev.map(e => (e.id === experienceId ? { ...e, summary, revision: result.revision } : e)))
+          return result
+        }
 
   const notePlaceholder =
     activeContext.type === 'project'
@@ -261,7 +290,6 @@ export function ExperienceWorkspace({ profile }: Props) {
       {selectedExperience && (
         <ExperienceFrontmatter
           experience={selectedExperience}
-          saveState={saveState}
           projectName={selectedProject?.name}
           onBack={() => setActiveContext({ type: 'experience' })}
           onEditClick={() => setEditOpen(true)}
@@ -280,9 +308,11 @@ export function ExperienceWorkspace({ profile }: Props) {
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <NoteEditor
             key={noteKey}
+            recoveryKey={noteRecoveryKey}
+            name={noteName}
             initialContent={noteContent}
+            initialRevision={noteRevision}
             onSave={noteSave}
-            onSaveStateChange={setSaveState}
             placeholder={notePlaceholder}
             className="flex-1"
           />

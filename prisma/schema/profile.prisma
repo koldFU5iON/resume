@@ -86,6 +86,8 @@ model Experience {
   // under no recognized heading feeds the LLM extraction step. Issue #26.
   summary         String
   notesUpdatedAt  DateTime?
+  // Bumped by every save of the note (summary), so an editor can tell its copy is stale.
+  revision        Int       @default(1)
   tags            String    @default("[]")
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -126,6 +128,8 @@ model Project {
   name         String
   description  String
   notes        String    @default("")
+  // Bumped by every save of the note (notes), so an editor can tell its copy is stale.
+  revision     Int       @default(1)
   url          String?
   repoUrl      String?
   startDate    DateTime?

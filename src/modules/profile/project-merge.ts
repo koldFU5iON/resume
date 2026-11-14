@@ -146,7 +146,8 @@ export async function mergeProjects(profileId: string, { keepId, removeId, body 
     await tx.project.update({
       where: { id: keepId },
       data: {
-        ...(body === 'remove' ? { description: remove.description, notes: remove.notes } : {}),
+        // A changed note bumps its revision, so an editor open on the kept project sees the conflict.
+        ...(body === 'remove' ? { description: remove.description, notes: remove.notes, revision: { increment: 1 } } : {}),
         ...(isEmpty(keep.startDate) && remove.startDate ? { startDate: remove.startDate } : {}),
         ...(isEmpty(keep.endDate) && remove.endDate ? { endDate: remove.endDate } : {}),
         ...(isEmpty(keep.url) && remove.url ? { url: remove.url } : {}),

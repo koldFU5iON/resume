@@ -5,6 +5,7 @@ import { requireProfile } from '@/lib/session'
 import { revalidatePath } from 'next/cache'
 import * as z from 'zod'
 import { activityOwnedBy } from './ownership'
+import { saveExperienceNote, saveProjectNote, type NoteSaveResult } from './note-revision'
 import { mergeProjects } from './project-merge'
 import { ActivityInputSchema, ACTIVITY_KINDS, DEFAULT_SKILL_CATEGORY, MAX_SUMMARY_LENGTH, SkillInputSchema, normalizeSkillLevel } from './schema'
 
@@ -122,7 +123,7 @@ export async function updateExperience(id: string, data: ExperienceData) {
     where: { id, profileId: profile.id },
     data: {
       ...data,
-      ...(notesChanged ? { notesUpdatedAt: new Date() } : {}),
+      ...(notesChanged ? { notesUpdatedAt: new Date(), revision: { increment: 1 } } : {}),
     },
   })
   revalidatePath('/dashboard/profile')
@@ -186,15 +187,15 @@ export async function updateExperienceDetails(id: string, data: ExperienceDetail
   return experience
 }
 
-export async function updateExperienceNotes(id: string, summary: string) {
+/** Saves a role's note. Refused (not overwritten) when the note moved on since `expectedRevision`. */
+export async function updateExperienceNotes(id: string, summary: string, expectedRevision: number): Promise<NoteSaveResult> {
   const { profile } = await requireProfile()
-  const experience = await prisma.experience.update({
-    where: { id, profileId: profile.id },
-    data: { summary, notesUpdatedAt: new Date() },
-  })
-  revalidatePath('/dashboard/profile')
-  revalidatePath(`/dashboard/profile/experience/${id}`)
-  return experience
+  const result = await saveExperienceNote(profile.id, id, summary, expectedRevision)
+  if (result.ok) {
+    revalidatePath('/dashboard/profile')
+    revalidatePath(`/dashboard/profile/experience/${id}`)
+  }
+  return result
 }
 
 // ── Accept suggestions (bulk transactional) ───────────────────────────────────
@@ -468,14 +469,12 @@ export async function updateProject(id: string, data: ProjectData) {
   return project
 }
 
-export async function updateProjectNotes(id: string, notes: string) {
+/** Saves a project's note. Refused (not overwritten) when the note moved on since `expectedRevision`. */
+export async function updateProjectNotes(id: string, notes: string, expectedRevision: number): Promise<NoteSaveResult> {
   const { profile } = await requireProfile()
-  const project = await prisma.project.update({
-    where: { id, profileId: profile.id },
-    data: { notes },
-  })
-  revalidatePath('/dashboard/profile')
-  return project
+  const result = await saveProjectNote(profile.id, id, notes, expectedRevision)
+  if (result.ok) revalidatePath('/dashboard/profile')
+  return result
 }
 
 export async function deleteProject(id: string) {

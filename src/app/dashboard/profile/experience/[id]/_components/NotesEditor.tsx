@@ -1,11 +1,12 @@
 'use client'
 
-import { useState, useTransition } from 'react'
-import { Button } from '@/components/ui/button'
+import { toast } from 'sonner'
 import { Label } from '@/components/ui/label'
 import { updateExperienceNotes } from '@/modules/profile/actions'
+import { useDocumentSave } from '@/components/document-editor/use-document-save'
+import { SaveStatus } from '@/components/document-editor/save-status'
+import { DocumentSaveDialogs } from '@/components/document-editor/document-save-dialogs'
 import { ExtractionPanel } from './ExtractionPanel'
-import { Loader2, Save } from 'lucide-react'
 
 // Shapes passed down from the server component — used by ExtractionPanel later.
 type ExistingActivity = { id: string; description: string; kind: string }
@@ -14,6 +15,9 @@ type ExistingSkill = { id: string; name: string }
 type Props = {
   experienceId: string
   initialNotes: string
+  initialRevision: number
+  /** For the leave prompt, e.g. "Engineer at Acme". */
+  name: string
   existingActivities: ExistingActivity[]
   existingSkills: ExistingSkill[]
 }
@@ -28,23 +32,26 @@ const TAG_LEGEND = [
 export function NotesEditor({
   experienceId,
   initialNotes,
+  initialRevision,
+  name,
   existingActivities,
   existingSkills,
 }: Props) {
-  const [notes, setNotes] = useState(initialNotes)
-  const [saved, setSaved] = useState(true)
-  const [isPending, startTransition] = useTransition()
+  const save = useDocumentSave({
+    recoveryKey: `profile-note-recovery-experience-${experienceId}`,
+    initialContent: initialNotes,
+    initialRevision,
+    save: (content, expectedRevision) => updateExperienceNotes(experienceId, content, expectedRevision),
+    noun: 'note',
+  })
 
-  const handleChange = (value: string) => {
-    setNotes(value)
-    setSaved(false)
-  }
-
-  const handleSave = () => {
-    startTransition(async () => {
-      await updateExperienceNotes(experienceId, notes)
-      setSaved(true)
-    })
+  async function copyText(value: string, label: string) {
+    try {
+      await navigator.clipboard.writeText(value)
+      toast.success(`${label} copied`)
+    } catch {
+      toast.error('Could not copy to the clipboard')
+    }
   }
 
   return (
@@ -54,26 +61,13 @@ export function NotesEditor({
           <Label htmlFor="notes-textarea" className="text-base font-medium">
             Workspace
           </Label>
-          <Button
-            size="sm"
-            variant={saved ? 'secondary' : 'default'}
-            disabled={isPending || saved}
-            onClick={handleSave}
-            className="gap-1.5"
-          >
-            {isPending ? (
-              <Loader2 size={13} className="animate-spin" />
-            ) : (
-              <Save size={13} />
-            )}
-            {isPending ? 'Saving…' : saved ? 'Saved' : 'Save'}
-          </Button>
+          <SaveStatus state={save.saveState} onRetry={save.retry} onResolve={() => save.setConflictOpen(true)} />
         </div>
 
         <textarea
           id="notes-textarea"
-          value={notes}
-          onChange={(e) => handleChange(e.target.value)}
+          value={save.content}
+          onChange={(e) => save.onChange(e.target.value)}
           rows={18}
           spellCheck
           className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono leading-relaxed placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-y"
@@ -99,6 +93,8 @@ export function NotesEditor({
           </p>
         </div>
       </div>
+
+      <DocumentSaveDialogs save={save} name={name} noun="note" onCopy={(value, label) => void copyText(value, label)} />
 
       <ExtractionPanel
         experienceId={experienceId}

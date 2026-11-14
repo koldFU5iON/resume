@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 export function SaveConflictDialog({
   open,
   reason = "elsewhere",
+  noun = "document",
   onOpenChange,
   mine,
   saved,
@@ -25,6 +26,8 @@ export function SaveConflictDialog({
   open: boolean
   /** "accepted": the saved version is a draft just accepted from the Coach or the review. */
   reason?: "elsewhere" | "accepted"
+  /** What is being edited, for the wording: "document", "note". */
+  noun?: string
   onOpenChange: (open: boolean) => void
   mine: string
   saved: string
@@ -45,7 +48,7 @@ export function SaveConflictDialog({
     <Dialog open={open} onOpenChange={next => { if (!busy) onOpenChange(next) }}>
       <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle>{accepted ? "You have edits that aren't saved" : "This document changed elsewhere"}</DialogTitle>
+          <DialogTitle>{accepted ? "You have edits that aren't saved" : `This ${noun} changed elsewhere`}</DialogTitle>
           <DialogDescription>
             {accepted
               ? "The draft you accepted is now the saved version, but your latest edits here hadn't saved yet. They're kept. Choose which version to keep."
