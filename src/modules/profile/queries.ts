@@ -1,4 +1,5 @@
 import { cache } from "react"
+import { ACTIVITY_ORDER } from "./activity-order"
 import { prisma } from "@/lib/db"
 import { requireProfile } from "@/lib/session"
 import { parseJsonField } from "@/lib/utils"
@@ -28,7 +29,7 @@ export async function getExperienceWithSuggestionContext(
       revision: true,
       activities: {
         select: { id: true, description: true, kind: true },
-        orderBy: { order: 'asc' },
+        orderBy: ACTIVITY_ORDER,
       },
     },
   })
@@ -43,6 +44,34 @@ export async function getExperienceWithSuggestionContext(
   return { experience, skills }
 }
 
+// Same, for a project: its description and notes, its role (for context) and
+// its own evidence.
+export async function getProjectWithSuggestionContext(projectId: string, profileId: string) {
+  const project = await prisma.project.findFirst({
+    where: { id: projectId, profileId },
+    select: {
+      id: true,
+      name: true,
+      description: true,
+      notes: true,
+      experience: { select: { role: true, company: true } },
+      activities: {
+        select: { id: true, description: true, kind: true },
+        orderBy: ACTIVITY_ORDER,
+      },
+    },
+  })
+  if (!project) return null
+
+  const skills = await prisma.skill.findMany({
+    where: { profileId },
+    select: { id: true, name: true },
+    orderBy: { name: 'asc' },
+  })
+
+  return { project, skills }
+}
+
 // Loads the signed-in user's whole profile context store as domain types:
 // JSON `tags` columns are parsed; String enum columns are narrowed.
 export const getFullProfile = cache(async (): Promise<FullProfile> => {
@@ -53,7 +82,7 @@ export const getFullProfile = cache(async (): Promise<FullProfile> => {
     include: {
       experiences: {
         orderBy: { startDate: "desc" },
-        include: { activities: { orderBy: { order: "asc" } } },
+        include: { activities: { orderBy: ACTIVITY_ORDER } },
       },
       // Skills, tools and competencies, told apart by kind.
       skills: { orderBy: [{ order: "asc" }, { name: "asc" }] },
@@ -62,7 +91,7 @@ export const getFullProfile = cache(async (): Promise<FullProfile> => {
       languages: { orderBy: { order: "asc" } },
       projects: {
         orderBy: { startDate: "desc" },
-        include: { activities: { orderBy: { order: "asc" } } },
+        include: { activities: { orderBy: ACTIVITY_ORDER } },
       },
     },
   })

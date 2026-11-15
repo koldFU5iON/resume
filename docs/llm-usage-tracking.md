@@ -69,7 +69,7 @@ Use a short kebab-case string. Established values:
 | `cv-import` | Parsing a pasted CV into structured profile data |
 | `profile-summary` | Generating the career profile summary |
 | `profile-extract` | Extracting structured suggestions from an experience entry |
-| `project-extract` | Extracting insights from a project entry |
+| `project-extract` | Retired: it wrote a project's legacy highlights. A project's Extract now creates evidence and is tagged `profile-extract`. Old usage rows keep this tag. |
 | `ping` | Sanity-check round-trip from `/api/llm/ping` |
 
 When you add a new LLM-powered feature, choose a value from the pattern above and add it to `FEATURE_LABELS` in `src/app/dashboard/settings/usage/_components/feature-labels.ts` so it displays a human-readable label in the usage UI rather than the raw key.

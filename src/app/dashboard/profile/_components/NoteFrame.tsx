@@ -23,7 +23,7 @@ export function NoteFrame({ header, children, details, detailsLabel = 'Details' 
         aria-label={detailsLabel}
         className="border-t min-[1100px]:min-h-0 min-[1100px]:w-80 min-[1100px]:shrink-0 min-[1100px]:overflow-y-auto min-[1100px]:border-l min-[1100px]:border-t-0"
       >
-        <div className="space-y-4 p-4">{details}</div>
+        {details}
       </aside>
     </div>
   )

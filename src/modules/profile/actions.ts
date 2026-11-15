@@ -5,6 +5,7 @@ import { requireProfile } from '@/lib/session'
 import { revalidatePath } from 'next/cache'
 import * as z from 'zod'
 import { activityOwnedBy } from './ownership'
+import { saveExperienceProperties, saveProjectProperties, type ExperienceProperties, type ProjectProperties } from './properties'
 import { readNote, saveExperienceNote, saveProjectNote, type NoteSaveResult } from './note-revision'
 import { mergeProjects } from './project-merge'
 import { ActivityInputSchema, ACTIVITY_KINDS, DEFAULT_SKILL_CATEGORY, MAX_SUMMARY_LENGTH, SkillInputSchema, normalizeSkillLevel } from './schema'
@@ -53,6 +54,12 @@ type ActivityData = { kind: string; description: string; impact?: string }
 /** Evidence belongs to exactly one owner: a role or a project. */
 export type ActivityOwner = { experienceId: string } | { projectId: string }
 
+/** The slot after the owner's last evidence, so new items land at the end instead of tying at 0. */
+async function nextActivityOrder(owner: ActivityOwner): Promise<number> {
+  const last = await prisma.roleActivity.findFirst({ where: owner, orderBy: { order: 'desc' }, select: { order: true } })
+  return (last?.order ?? -1) + 1
+}
+
 export async function createActivity(owner: ActivityOwner, data: ActivityData) {
   const { profile } = await requireProfile()
   let ownerData: ActivityOwner
@@ -66,7 +73,7 @@ export async function createActivity(owner: ActivityOwner, data: ActivityData) {
     ownerData = { experienceId: experience.id }
   }
   const activity = await prisma.roleActivity.create({
-    data: { ...ActivityInputSchema.parse(data), ...ownerData, tags: '[]', order: 0 },
+    data: { ...ActivityInputSchema.parse(data), ...ownerData, tags: '[]', order: await nextActivityOrder(ownerData) },
   })
   revalidatePath('/dashboard/profile', 'layout')
   return activity
@@ -112,24 +119,6 @@ export async function createExperience(data: ExperienceData) {
   return experience
 }
 
-export async function updateExperience(id: string, data: ExperienceData) {
-  const { profile } = await requireProfile()
-  const existing = await prisma.experience.findFirst({
-    where: { id, profileId: profile.id },
-    select: { summary: true },
-  })
-  const notesChanged = existing?.summary !== data.summary
-  const experience = await prisma.experience.update({
-    where: { id, profileId: profile.id },
-    data: {
-      ...data,
-      ...(notesChanged ? { notesUpdatedAt: new Date(), revision: { increment: 1 } } : {}),
-    },
-  })
-  revalidatePath('/dashboard/profile', 'layout')
-  return experience
-}
-
 const DeleteExperienceOptionsSchema = z.object({ projects: z.enum(['keep', 'delete']) })
 
 /** What deleting a role takes with it, counted from the database rather than client state. */
@@ -166,23 +155,11 @@ export async function deleteExperience(id: string, options: { projects: 'keep' |
   revalidatePath('/dashboard/profile', 'layout')
 }
 
-type ExperienceDetailsData = {
-  company: string
-  role: string
-  location?: string
-  remote: boolean
-  startDate: Date
-  endDate?: Date
-}
-
-export async function updateExperienceDetails(id: string, data: ExperienceDetailsData) {
+/** Saves a role's facts from the Properties tab. Refused input throws with a message the form shows. */
+export async function updateExperienceProperties(id: string, input: ExperienceProperties) {
   const { profile } = await requireProfile()
-  const experience = await prisma.experience.update({
-    where: { id, profileId: profile.id },
-    data,
-  })
+  await saveExperienceProperties(profile.id, id, input)
   revalidatePath('/dashboard/profile', 'layout')
-  return experience
 }
 
 /** Saves a role's note. Refused (not overwritten) when the note moved on since `expectedRevision`. */
@@ -211,8 +188,7 @@ type AcceptedSkill = {
   replaceId?: string // if set, update existing row instead of creating
 }
 
-export type AcceptSuggestionsPayload = {
-  experienceId: string
+export type AcceptSuggestionsPayload = ActivityOwner & {
   activities: AcceptedActivity[]
   skills: AcceptedSkill[]
 }
@@ -221,30 +197,32 @@ export async function acceptSuggestions(payload: AcceptSuggestionsPayload) {
   const { profile } = await requireProfile()
 
   // Verify ownership before writing anything
-  const experience = await prisma.experience.findFirst({
-    where: { id: payload.experienceId, profileId: profile.id },
-    select: { id: true },
-  })
-  if (!experience) throw new Error('Experience not found')
+  const owner: ActivityOwner = 'projectId' in payload ? { projectId: payload.projectId } : { experienceId: payload.experienceId }
+  const found = 'projectId' in owner
+    ? await prisma.project.findFirst({ where: { id: owner.projectId, profileId: profile.id }, select: { id: true } })
+    : await prisma.experience.findFirst({ where: { id: owner.experienceId, profileId: profile.id }, select: { id: true } })
+  if (!found) throw new Error('projectId' in owner ? 'Project not found' : 'Experience not found')
   if (payload.activities.some((a) => !(ACTIVITY_KINDS as readonly string[]).includes(a.kind))) {
     throw new Error('Invalid activity kind')
   }
 
+  // New items go after the owner's last one, in the order they were accepted.
+  let order = await nextActivityOrder(owner)
   await prisma.$transaction([
     ...payload.activities.map((a) =>
       a.replaceId
         ? prisma.roleActivity.update({
-            where: { id: a.replaceId, experienceId: payload.experienceId },
+            where: { id: a.replaceId, ...owner },
             data: { description: a.description, impact: a.impact ?? undefined, kind: a.kind },
           })
         : prisma.roleActivity.create({
             data: {
-              experienceId: payload.experienceId,
+              ...owner,
               kind: a.kind,
               description: a.description,
               impact: a.impact ?? undefined,
               tags: '[]',
-              order: 0,
+              order: order++,
             },
           }),
     ),
@@ -413,13 +391,11 @@ type ProjectData = {
   startDate?: Date
   endDate?: Date
   status?: string
-  highlights?: string[]
-  tags?: string[]
 }
 
 export async function createProject(data: ProjectData) {
   const { profile } = await requireProfile()
-  const { highlights, tags, experienceId, ...rest } = data
+  const { experienceId, ...rest } = data
 
   if (experienceId) {
     const experience = await prisma.experience.findFirst({
@@ -434,35 +410,17 @@ export async function createProject(data: ProjectData) {
       ...rest,
       experienceId,
       profileId: profile.id,
-      highlights: JSON.stringify(highlights ?? []),
-      tags: JSON.stringify(tags ?? []),
     },
   })
   revalidatePath('/dashboard/profile', 'layout')
   return project
 }
 
-export async function updateProject(id: string, data: ProjectData) {
+/** Saves a project's facts from the Properties tab, including which role it is part of. */
+export async function updateProjectProperties(id: string, input: ProjectProperties) {
   const { profile } = await requireProfile()
-  const { highlights, tags, ...rest } = data
-  // Re-linking a project must stay within the caller's own experiences.
-  if (rest.experienceId) {
-    const experience = await prisma.experience.findFirst({
-      where: { id: rest.experienceId, profileId: profile.id },
-      select: { id: true },
-    })
-    if (!experience) throw new Error('Experience not found')
-  }
-  const project = await prisma.project.update({
-    where: { id, profileId: profile.id },
-    data: {
-      ...rest,
-      ...(highlights !== undefined ? { highlights: JSON.stringify(highlights) } : {}),
-      ...(tags !== undefined ? { tags: JSON.stringify(tags) } : {}),
-    },
-  })
+  await saveProjectProperties(profile.id, id, input)
   revalidatePath('/dashboard/profile', 'layout')
-  return project
 }
 
 /** The note's current saved version, so an editor can tell a restored page is stale. */

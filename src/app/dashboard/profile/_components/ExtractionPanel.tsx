@@ -4,7 +4,7 @@ import { useState, useTransition } from 'react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
-import { extractFromNotes, type ExtractionSource } from '@/modules/profile/extract'
+import { extractFromNotes, type ExtractionOwner, type ExtractionSource } from '@/modules/profile/extract'
 import {
   acceptSuggestions,
   type AcceptSuggestionsPayload,
@@ -257,7 +257,8 @@ function SkillSuggestionRow({
 // ── Main panel ────────────────────────────────────────────────────────────────
 
 type Props = {
-  experienceId: string
+  /** The role or project whose note is read, and whose evidence the accepted items join. */
+  owner: ExtractionOwner
   existingActivities: { id: string; description: string; kind: string }[]
   existingSkills: { id: string; name: string }[]
 }
@@ -272,15 +273,22 @@ type PanelState =
       llmError?: string
       activityRows: ActivityRow[]
       skillRows: SkillRow[]
+      acceptError?: string
     }
 
-export function ExtractionPanel({ experienceId, existingActivities, existingSkills }: Props) {
+export function ExtractionPanel({ owner, existingActivities, existingSkills }: Props) {
   const [panel, setPanel] = useState<PanelState>({ stage: 'idle' })
   const [isAccepting, startAccepting] = useTransition()
 
   const runExtract = async () => {
     setPanel({ stage: 'extracting' })
-    const result = await extractFromNotes(experienceId)
+    let result: Awaited<ReturnType<typeof extractFromNotes>>
+    try {
+      result = await extractFromNotes(owner)
+    } catch {
+      setPanel({ stage: 'error', message: 'Could not extract. Check your connection and try again.' })
+      return
+    }
 
     if (!result.ok) {
       setPanel({ stage: 'error', message: result.message })
@@ -325,7 +333,7 @@ export function ExtractionPanel({ experienceId, existingActivities, existingSkil
     if (panel.stage !== 'review') return
     startAccepting(async () => {
       const payload: AcceptSuggestionsPayload = {
-        experienceId,
+        ...owner,
         activities: panel.activityRows
           .filter((r) => r.decision !== 'skip' && r.editedDescription.trim())
           .map((r) => ({
@@ -348,8 +356,12 @@ export function ExtractionPanel({ experienceId, existingActivities, existingSkil
           })),
       }
 
-      await acceptSuggestions(payload)
-      setPanel({ stage: 'idle' })
+      try {
+        await acceptSuggestions(payload)
+        setPanel({ stage: 'idle' })
+      } catch {
+        setPanel((prev) => (prev.stage === 'review' ? { ...prev, acceptError: 'Could not add the suggestions. Nothing was changed; try again.' } : prev))
+      }
     })
   }
 
@@ -433,6 +445,8 @@ export function ExtractionPanel({ experienceId, existingActivities, existingSkil
               No suggestions found. Try adding more detail to your notes.
             </p>
           )}
+
+          {panel.acceptError && <p role="alert" className="text-sm text-destructive">{panel.acceptError}</p>}
 
           {(panel.activityRows.length > 0 || panel.skillRows.length > 0) && (
             <div className="flex items-center justify-end gap-2">

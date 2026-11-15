@@ -49,6 +49,18 @@ describe('project evidence in queries', () => {
     expect(lines[project + 1]).toMatch(/^ {4}- pa1 · \[achievement\] /)
   })
 
+  it('does not also hit the project for the lines its evidence already supplies', () => {
+    const hits = searchVault(v, 'hotfix')
+    expect(hits.map((h) => h.id)).toEqual(['pa1'])
+  })
+
+  it('still finds legacy highlights on a project with no evidence', () => {
+    const legacy = buildVault(vaultSource({
+      projects: [{ ...base.projects[0], highlights: JSON.stringify(['Cut hotfix turnaround to an hour']), activities: [] }],
+    }) as never)
+    expect(searchVault(legacy, 'hotfix').map((h) => h.id)).toEqual(['pr1'])
+  })
+
   it('searches project evidence and gives it its project and role as context', () => {
     const hit = searchVault(v, 'hotfix').find((h) => h.id === 'pa1')
     expect(hit?.context).toBe('Release train — Program Manager at Fictional Freight, Mar 2021 – present')

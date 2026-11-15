@@ -191,7 +191,8 @@ function haystack(note: Note): string {
   const parts = [note.title, note.gist, note.body ?? '']
   switch (note.type) {
     case 'evidence': parts.push(note.props.description, note.props.impact ?? ''); break
-    case 'project': parts.push(note.props.highlights.join('\n')); break
+    // A project that owns evidence already has those lines as evidence notes, which are searched in their own right.
+    case 'project': if (!note.links.some((l) => l.type === 'has')) parts.push(note.props.highlights.join('\n')); break
     case 'capability': parts.push(note.props.category ?? ''); break
     case 'experience': parts.push(note.props.company, note.props.role, note.props.location ?? ''); break
     case 'education': parts.push(note.props.institution, note.props.qualification, note.props.field ?? ''); break

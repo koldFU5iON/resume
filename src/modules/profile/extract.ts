@@ -1,9 +1,9 @@
 'use server'
 
-// Two-tier extraction pipeline for Experience notes (markdown stored in
-// Experience.summary). Mirrors the 5-step shape of the retired job-fit.ts:
+// Two-tier extraction pipeline for a role's or a project's note (markdown in
+// Experience.summary or Project.notes). Mirrors the 5-step shape of the retired job-fit.ts:
 //
-// 1. Gather   — load experience + existing activities + profile skills
+// 1. Gather   — load the role or project + its existing evidence + profile skills
 // 2. Parse    — local tag parser bucketizes recognized H2 headings (free, offline)
 // 3. LLM      — optional; only if unparsed prose is non-empty AND key is set
 // 4. Merge    — combine parser + LLM outputs; annotate with duplicate hints
@@ -20,7 +20,8 @@ import {
   type ExtractedActivity,
   type ExtractedSkill,
 } from './extract-schema'
-import { getExperienceWithSuggestionContext } from './queries'
+import { getExperienceWithSuggestionContext, getProjectWithSuggestionContext } from './queries'
+import { EXTRACTION_SYSTEM, extractionPrompt, noNotesMessage, projectSubject, roleSubject } from './extraction-context'
 
 export type ExtractionSource =
   | 'parser'
@@ -32,26 +33,29 @@ type ExtractResult =
   | { ok: true; suggestions: SuggestionsWithMatches; meta: { source: ExtractionSource; llmError?: string } }
   | { ok: false; error: 'no_notes' | 'not_found' | LLMErrorKind; message: string }
 
-export async function extractFromNotes(experienceId: string): Promise<ExtractResult> {
+/** What to extract from: a role's note or a project's note. */
+export type ExtractionOwner = { experienceId: string } | { projectId: string }
+
+export async function extractFromNotes(owner: ExtractionOwner): Promise<ExtractResult> {
   const { profile } = await requireProfile()
 
   // 1. Gather — profile-owned to prevent cross-account read
-  const ctx = await getExperienceWithSuggestionContext(experienceId, profile.id)
+  const ctx = 'projectId' in owner
+    ? await getProjectWithSuggestionContext(owner.projectId, profile.id)
+    : await getExperienceWithSuggestionContext(owner.experienceId, profile.id)
   if (!ctx) {
-    return { ok: false, error: 'not_found', message: 'Experience not found' }
+    return { ok: false, error: 'not_found', message: 'projectId' in owner ? 'Project not found' : 'Experience not found' }
   }
-  const { experience, skills: existingSkills } = ctx
+  const subject = 'project' in ctx ? projectSubject({ ...ctx.project, role: ctx.project.experience }) : roleSubject(ctx.experience)
+  const { skills: existingSkills } = ctx
+  const existingActivities = 'project' in ctx ? ctx.project.activities : ctx.experience.activities
 
-  if (!experience.summary?.trim()) {
-    return {
-      ok: false,
-      error: 'no_notes',
-      message: 'Add some notes first — paste anything about this role and click Extract.',
-    }
+  if (!subject.body.trim()) {
+    return { ok: false, error: 'no_notes', message: noNotesMessage(subject.noun) }
   }
 
   // 2. Parse — deterministic, always runs
-  const parsed = parseNotes(experience.summary)
+  const parsed = parseNotes(subject.body)
 
   // 3. LLM — only when there is unparsed prose AND the user has a key
   let llmActivities: ExtractedActivity[] = []
@@ -65,26 +69,8 @@ export async function extractFromNotes(experienceId: string): Promise<ExtractRes
     if (!llmStatus.configured) {
       source = 'parser-only-no-key'
     } else {
-      const system = `You are an experienced career writer extracting structured resume material from messy notes.
-
-Be conservative — prefer fewer high-confidence items over many noisy ones. Only extract content that clearly came from the person's own work at this role. Do not fabricate metrics or outcomes. If a bullet is ambiguous between a responsibility and an achievement, classify it as a responsibility.
-
-Output only the JSON schema — no prose, no commentary.`
-
-      const startDateStr = experience.startDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
-      const endDateStr = experience.endDate
-        ? experience.endDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
-        : 'Present'
-
-      const prompt = `# Role context (already structured — do not re-extract these facts)
-
-**${experience.role}** at ${experience.company} (${startDateStr} → ${endDateStr})
-
-# Unstructured notes to extract from
-
-${parsed.unparsed}
-
-Extract activities (responsibilities and achievements) and skills from the notes above. Set source to "llm" for every item. Return a JSON object matching the schema.`
+      const system = EXTRACTION_SYSTEM(subject.noun)
+      const prompt = extractionPrompt(subject, parsed.unparsed)
 
       try {
         const result = await completeStructured(profile.id, prompt, ExtractedSuggestionsSchema, {
@@ -118,7 +104,7 @@ Extract activities (responsibilities and achievements) and skills from the notes
   }
 
   const suggestions = annotateMatches(merged, {
-    activities: experience.activities,
+    activities: existingActivities,
     skills: existingSkills,
   })
 
