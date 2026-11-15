@@ -1,6 +1,9 @@
 'use client'
 
 import { useState, useMemo, type FormEvent } from 'react'
+import { useRouter } from 'next/navigation'
+import { cn } from '@/lib/utils'
+import { toast } from 'sonner'
 import type { FullProfile } from '@/app/types/profile'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -24,6 +27,11 @@ import {
   createCertification, updateCertification, deleteCertification,
 } from '@/modules/profile/actions'
 import { SKILL_LEVELS } from '@/modules/profile/schema'
+import { STATUS_LABEL, type CapabilityMeta } from '@/modules/profile-map/capability-meta'
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { SectionHelp } from './SectionHelp'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -58,27 +66,59 @@ function SectionHeader({ title, helpText, onAdd }: { title: string; helpText: st
         {title}
       </h3>
       <SectionHelp text={helpText} />
-      <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onAdd} aria-label={`Add ${title}`}>
+      <Button variant="ghost" size="icon" className="h-6 w-6 max-md:size-11" onClick={onAdd} aria-label={`Add ${title}`}>
         <Plus size={12} />
       </Button>
     </div>
   )
 }
 
-// ── Row hover controls ────────────────────────────────────────────────────────
+// ── Row controls ──────────────────────────────────────────────────────────────
 
-function RowControls({ onEdit, onDelete, label }: { onEdit: () => void; onDelete: () => void; label: string }) {
+/** Edit and delete for a row. Delete asks first; `detail` says what else goes with it. */
+function RowControls({ onEdit, onDelete, label, detail }: { onEdit: () => void; onDelete: () => void; label: string; detail?: string }) {
+  const [confirming, setConfirming] = useState(false)
   return (
-    <div className="absolute right-0 inset-y-0 flex items-center gap-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity bg-card pl-1 rounded-r">
-      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onEdit} aria-label={`Edit ${label}`}>
-        <Pencil size={11} />
-      </Button>
-      <Button variant="ghost" size="icon" className="h-7 w-7 hover:text-destructive" onClick={onDelete} aria-label={`Delete ${label}`}>
-        <Trash2 size={11} />
-      </Button>
-    </div>
+    <>
+      <div className="absolute right-0 inset-y-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100 max-sm:opacity-100 transition-opacity bg-card pl-1 rounded-r">
+        <Button variant="ghost" size="icon" className="h-7 w-7 max-md:size-11" onClick={onEdit} aria-label={`Edit ${label}`}>
+          <Pencil size={11} />
+        </Button>
+        <Button variant="ghost" size="icon" className="h-7 w-7 max-md:size-11 hover:text-destructive" onClick={() => setConfirming(true)} aria-label={`Delete ${label}`}>
+          <Trash2 size={11} />
+        </Button>
+      </div>
+      <AlertDialog open={confirming} onOpenChange={setConfirming}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {label}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes it from your profile{detail ? `, ${detail}` : ''}. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep it</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={() => { setConfirming(false); onDelete() }}>Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   )
 }
+
+/** What a capability row says under its name: whether it is backed up, and by how much. */
+function CapabilityStatusLine({ meta }: { meta?: CapabilityMeta }) {
+  if (!meta) return null
+  return (
+    <span className="block text-xs text-muted-foreground">
+      {STATUS_LABEL[meta.status]}
+      {meta.evidence > 0 && ` · ${meta.evidence} evidence item${meta.evidence === 1 ? '' : 's'}`}
+    </span>
+  )
+}
+
+const linkedDetail = (meta?: CapabilityMeta) =>
+  meta && meta.evidence > 0 ? `along with its links to ${meta.evidence} evidence item${meta.evidence === 1 ? '' : 's'}` : undefined
 
 // ── Radial gauge ─────────────────────────────────────────────────────────────
 
@@ -142,15 +182,16 @@ function EmptySection({ noun, onAdd }: { noun: string; onAdd: () => void }) {
   return (
     <div className="py-5 text-center space-y-2">
       <p className="text-sm text-muted-foreground">No {noun} added yet.</p>
-      <Button variant="outline" size="sm" onClick={onAdd}>Add your first {noun.replace(/s$/, '')}</Button>
+      <Button variant="outline" size="sm" className="max-md:h-11" onClick={onAdd}>Add your first {noun.replace(/s$/, '')}</Button>
     </div>
   )
 }
 
 // ── Skills ────────────────────────────────────────────────────────────────────
 
-function SkillsSection({ initial, careerYears }: { initial: SkillType[]; careerYears: number }) {
-  const [skills, setSkills] = useState(initial)
+function SkillsSection({ initial, careerYears, meta }: { initial: SkillType[]; careerYears: number; meta: Record<string, CapabilityMeta> }) {
+  const skills = initial
+  const router = useRouter()
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<SkillType | null>(null)
   const [saving, setSaving] = useState(false)
@@ -160,22 +201,19 @@ function SkillsSection({ initial, careerYears }: { initial: SkillType[]; careerY
   const openEdit = (s: SkillType) => { setEditing(s); setSaveError(null); setOpen(true) }
 
   const handleDelete = async (id: string) => {
-    const prev = skills
-    setSkills(prev => prev.filter(item => item.id !== id))
-    try { await deleteSkill(id) } catch { setSkills(prev) }
+    try { await deleteSkill(id); router.refresh() } catch { toast.error('Could not delete. It is still there.') }
   }
 
   const handleSave = async (data: Parameters<typeof createSkill>[0]) => {
     setSaving(true)
     try {
       if (editing) {
-        const updated = await updateSkill(editing.id, data)
-        setSkills(prev => prev.map(x => x.id === editing.id ? updated as unknown as SkillType : x))
+        await updateSkill(editing.id, data)
       } else {
-        const created = await createSkill(data)
-        setSkills(prev => [...prev, created as unknown as SkillType])
+        await createSkill(data)
       }
       setOpen(false)
+      router.refresh()
     } catch {
       setSaveError('Failed to save. Please try again.')
     } finally {
@@ -191,13 +229,16 @@ function SkillsSection({ initial, careerYears }: { initial: SkillType[]; careerY
         : (
           <div className="space-y-1">
             {skills.map(skill => (
-              <div key={skill.id} className="group relative flex items-center gap-2 py-0.5">
-                <span className="text-sm font-medium flex-1">{skill.name}</span>
+              <div key={skill.id} className="group relative flex items-center gap-2 py-0.5 max-md:min-h-11">
+                <div className="min-w-0 flex-1">
+                  <span className="text-sm font-medium">{skill.name}</span>
+                  <CapabilityStatusLine meta={meta[skill.id]} />
+                </div>
                 {skill.yearsOfExperience != null && (
                   <RadialGauge years={skill.yearsOfExperience} totalYears={careerYears} />
                 )}
                 <Badge variant="outline" className="text-xs shrink-0 capitalize">{skill.level}</Badge>
-                <RowControls label={skill.name} onEdit={() => openEdit(skill)} onDelete={() => handleDelete(skill.id)} />
+                <RowControls label={skill.name} detail={linkedDetail(meta[skill.id])} onEdit={() => openEdit(skill)} onDelete={() => handleDelete(skill.id)} />
               </div>
             ))}
           </div>
@@ -277,8 +318,9 @@ function SkillDialog({
 
 // ── Tools ─────────────────────────────────────────────────────────────────────
 
-function ToolsSection({ initial }: { initial: ToolType[] }) {
-  const [tools, setTools] = useState(initial)
+function ToolsSection({ initial, meta }: { initial: ToolType[]; meta: Record<string, CapabilityMeta> }) {
+  const tools = initial
+  const router = useRouter()
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<ToolType | null>(null)
   const [saving, setSaving] = useState(false)
@@ -288,22 +330,19 @@ function ToolsSection({ initial }: { initial: ToolType[] }) {
   const openEdit = (t: ToolType) => { setEditing(t); setSaveError(null); setOpen(true) }
 
   const handleDelete = async (id: string) => {
-    const prev = tools
-    setTools(prev => prev.filter(item => item.id !== id))
-    try { await deleteTool(id) } catch { setTools(prev) }
+    try { await deleteTool(id); router.refresh() } catch { toast.error('Could not delete. It is still there.') }
   }
 
   const handleSave = async (data: Parameters<typeof createTool>[0]) => {
     setSaving(true)
     try {
       if (editing) {
-        const updated = await updateTool(editing.id, data)
-        setTools(prev => prev.map(x => x.id === editing.id ? updated as unknown as ToolType : x))
+        await updateTool(editing.id, data)
       } else {
-        const created = await createTool(data)
-        setTools(prev => [...prev, created as unknown as ToolType])
+        await createTool(data)
       }
       setOpen(false)
+      router.refresh()
     } catch {
       setSaveError('Failed to save. Please try again.')
     } finally {
@@ -319,10 +358,13 @@ function ToolsSection({ initial }: { initial: ToolType[] }) {
         : (
           <div className="space-y-1">
             {tools.map(tool => (
-              <div key={tool.id} className="group relative flex items-center gap-2 py-0.5">
-                <span className="text-sm font-medium flex-1">{tool.name}</span>
+              <div key={tool.id} className="group relative flex items-center gap-2 py-0.5 max-md:min-h-11">
+                <div className="min-w-0 flex-1">
+                  <span className="text-sm font-medium">{tool.name}</span>
+                  <CapabilityStatusLine meta={meta[tool.id]} />
+                </div>
                 {tool.category && <Badge variant="secondary" className="text-xs">{tool.category}</Badge>}
-                <RowControls label={tool.name} onEdit={() => openEdit(tool)} onDelete={() => handleDelete(tool.id)} />
+                <RowControls label={tool.name} detail={linkedDetail(meta[tool.id])} onEdit={() => openEdit(tool)} onDelete={() => handleDelete(tool.id)} />
               </div>
             ))}
           </div>
@@ -384,7 +426,8 @@ function ToolDialog({
 // ── Languages ─────────────────────────────────────────────────────────────────
 
 function LanguagesSection({ initial }: { initial: LanguageType[] }) {
-  const [languages, setLanguages] = useState(initial)
+  const languages = initial
+  const router = useRouter()
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<LanguageType | null>(null)
   const [saving, setSaving] = useState(false)
@@ -394,22 +437,19 @@ function LanguagesSection({ initial }: { initial: LanguageType[] }) {
   const openEdit = (l: LanguageType) => { setEditing(l); setSaveError(null); setOpen(true) }
 
   const handleDelete = async (id: string) => {
-    const prev = languages
-    setLanguages(prev => prev.filter(item => item.id !== id))
-    try { await deleteLanguage(id) } catch { setLanguages(prev) }
+    try { await deleteLanguage(id); router.refresh() } catch { toast.error('Could not delete. It is still there.') }
   }
 
   const handleSave = async (data: Parameters<typeof createLanguage>[0]) => {
     setSaving(true)
     try {
       if (editing) {
-        const updated = await updateLanguage(editing.id, data)
-        setLanguages(prev => prev.map(x => x.id === editing.id ? updated as unknown as LanguageType : x))
+        await updateLanguage(editing.id, data)
       } else {
-        const created = await createLanguage(data)
-        setLanguages(prev => [...prev, created as unknown as LanguageType])
+        await createLanguage(data)
       }
       setOpen(false)
+      router.refresh()
     } catch {
       setSaveError('Failed to save. Please try again.')
     } finally {
@@ -425,7 +465,7 @@ function LanguagesSection({ initial }: { initial: LanguageType[] }) {
         : (
           <div className="space-y-1">
             {languages.map(lang => (
-              <div key={lang.id} className="group relative flex items-center justify-between py-1.5 border-b border-border last:border-0">
+              <div key={lang.id} className="group relative flex items-center justify-between py-1.5 max-md:min-h-11 border-b border-border last:border-0">
                 <span className="text-sm font-medium">{lang.name}</span>
                 {lang.proficiency && <Badge variant="secondary" className="text-xs">{lang.proficiency}</Badge>}
                 <RowControls label={lang.name} onEdit={() => openEdit(lang)} onDelete={() => handleDelete(lang.id)} />
@@ -485,8 +525,9 @@ function LanguageDialog({
 
 // ── Core Competencies ─────────────────────────────────────────────────────────
 
-function CompetenciesSection({ initial }: { initial: CompetencyType[] }) {
-  const [competencies, setCompetencies] = useState(initial)
+function CompetenciesSection({ initial, meta }: { initial: CompetencyType[]; meta: Record<string, CapabilityMeta> }) {
+  const competencies = initial
+  const router = useRouter()
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<CompetencyType | null>(null)
   const [saving, setSaving] = useState(false)
@@ -496,22 +537,19 @@ function CompetenciesSection({ initial }: { initial: CompetencyType[] }) {
   const openEdit = (c: CompetencyType) => { setEditing(c); setSaveError(null); setOpen(true) }
 
   const handleDelete = async (id: string) => {
-    const prev = competencies
-    setCompetencies(prev => prev.filter(item => item.id !== id))
-    try { await deleteCompetency(id) } catch { setCompetencies(prev) }
+    try { await deleteCompetency(id); router.refresh() } catch { toast.error('Could not delete. It is still there.') }
   }
 
   const handleSave = async (data: Parameters<typeof createCompetency>[0]) => {
     setSaving(true)
     try {
       if (editing) {
-        const updated = await updateCompetency(editing.id, data)
-        setCompetencies(prev => prev.map(x => x.id === editing.id ? updated as unknown as CompetencyType : x))
+        await updateCompetency(editing.id, data)
       } else {
-        const created = await createCompetency(data)
-        setCompetencies(prev => [...prev, created as unknown as CompetencyType])
+        await createCompetency(data)
       }
       setOpen(false)
+      router.refresh()
     } catch {
       setSaveError('Failed to save. Please try again.')
     } finally {
@@ -527,9 +565,12 @@ function CompetenciesSection({ initial }: { initial: CompetencyType[] }) {
         : (
           <div className="space-y-1">
             {competencies.map(c => (
-              <div key={c.id} className="group relative flex items-center gap-2 py-0.5">
-                <span className="text-sm flex-1">{c.name}</span>
-                <RowControls label={c.name} onEdit={() => openEdit(c)} onDelete={() => handleDelete(c.id)} />
+              <div key={c.id} className="group relative flex items-center gap-2 py-0.5 max-md:min-h-11">
+                <div className="min-w-0 flex-1">
+                  <span className="text-sm">{c.name}</span>
+                  <CapabilityStatusLine meta={meta[c.id]} />
+                </div>
+                <RowControls label={c.name} detail={linkedDetail(meta[c.id])} onEdit={() => openEdit(c)} onDelete={() => handleDelete(c.id)} />
               </div>
             ))}
           </div>
@@ -583,7 +624,8 @@ function CompetencyDialog({
 // ── Education ─────────────────────────────────────────────────────────────────
 
 function EducationSection({ initial }: { initial: EducationType[] }) {
-  const [educations, setEducations] = useState(initial)
+  const educations = initial
+  const router = useRouter()
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<EducationType | null>(null)
   const [saving, setSaving] = useState(false)
@@ -593,22 +635,19 @@ function EducationSection({ initial }: { initial: EducationType[] }) {
   const openEdit = (e: EducationType) => { setEditing(e); setSaveError(null); setOpen(true) }
 
   const handleDelete = async (id: string) => {
-    const prev = educations
-    setEducations(prev => prev.filter(item => item.id !== id))
-    try { await deleteEducation(id) } catch { setEducations(prev) }
+    try { await deleteEducation(id); router.refresh() } catch { toast.error('Could not delete. It is still there.') }
   }
 
   const handleSave = async (data: Parameters<typeof createEducation>[0]) => {
     setSaving(true)
     try {
       if (editing) {
-        const updated = await updateEducation(editing.id, data)
-        setEducations(prev => prev.map(x => x.id === editing.id ? updated as unknown as EducationType : x))
+        await updateEducation(editing.id, data)
       } else {
-        const created = await createEducation(data)
-        setEducations(prev => [...prev, created as unknown as EducationType])
+        await createEducation(data)
       }
       setOpen(false)
+      router.refresh()
     } catch {
       setSaveError('Failed to save. Please try again.')
     } finally {
@@ -728,7 +767,8 @@ function EducationDialog({
 // ── Certifications ────────────────────────────────────────────────────────────
 
 function CertificationsSection({ initial }: { initial: CertType[] }) {
-  const [certs, setCerts] = useState(initial)
+  const certs = initial
+  const router = useRouter()
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<CertType | null>(null)
   const [saving, setSaving] = useState(false)
@@ -744,22 +784,19 @@ function CertificationsSection({ initial }: { initial: CertType[] }) {
   const openEdit = (c: CertType) => { setEditing(c); setSaveError(null); setOpen(true) }
 
   const handleDelete = async (id: string) => {
-    const prev = certs
-    setCerts(prev => prev.filter(item => item.id !== id))
-    try { await deleteCertification(id) } catch { setCerts(prev) }
+    try { await deleteCertification(id); router.refresh() } catch { toast.error('Could not delete. It is still there.') }
   }
 
   const handleSave = async (data: Parameters<typeof createCertification>[0]) => {
     setSaving(true)
     try {
       if (editing) {
-        const updated = await updateCertification(editing.id, data)
-        setCerts(prev => prev.map(x => x.id === editing.id ? updated as unknown as CertType : x))
+        await updateCertification(editing.id, data)
       } else {
-        const created = await createCertification(data)
-        setCerts(prev => [...prev, created as unknown as CertType])
+        await createCertification(data)
       }
       setOpen(false)
+      router.refresh()
     } catch {
       setSaveError('Failed to save. Please try again.')
     } finally {
@@ -880,17 +917,49 @@ type LeftRailProps = {
   careerYears: number
   /** Which records to list: capabilities (skills, tools, languages, competencies), credentials (education, certifications), or all. */
   show?: 'capabilities' | 'credentials' | 'all'
+  /** Status and evidence count per capability id. */
+  capabilityMeta?: Record<string, CapabilityMeta>
 }
 
-export function LeftRail({ skills, tools, languages, competencies, educations, certifications, careerYears, show = 'all' }: LeftRailProps) {
+const KINDS = [
+  { id: 'all', label: 'All' },
+  { id: 'skill', label: 'Skills' },
+  { id: 'tool', label: 'Tools' },
+  { id: 'competency', label: 'Competencies' },
+] as const
+type KindFilter = (typeof KINDS)[number]['id']
+
+export function LeftRail({ skills, tools, languages, competencies, educations, certifications, careerYears, show = 'all', capabilityMeta = {} }: LeftRailProps) {
+  // View state only: which kind of capability to list. The records themselves always come from the server.
+  const [kind, setKind] = useState<KindFilter>('all')
+  const filtering = show === 'capabilities'
+  const shows = (k: Exclude<KindFilter, 'all'>) => !filtering || kind === 'all' || kind === k
   return (
     <div className="space-y-6">
       {show !== 'credentials' && (
         <>
-          <SkillsSection initial={skills} careerYears={careerYears} />
-          <ToolsSection initial={tools} />
-          <LanguagesSection initial={languages} />
-          <CompetenciesSection initial={competencies} />
+          {filtering && (
+            <div role="group" aria-label="Kind of capability" className="flex flex-wrap gap-1">
+              {KINDS.map(k => (
+                <button
+                  key={k.id}
+                  type="button"
+                  aria-pressed={kind === k.id}
+                  onClick={() => setKind(k.id)}
+                  className={cn(
+                    'min-h-9 min-w-11 rounded-md border px-3 text-sm max-md:min-h-11',
+                    kind === k.id ? 'border-transparent bg-foreground text-background' : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  {k.label}
+                </button>
+              ))}
+            </div>
+          )}
+          {shows('skill') && <SkillsSection initial={skills} careerYears={careerYears} meta={capabilityMeta} />}
+          {shows('tool') && <ToolsSection initial={tools} meta={capabilityMeta} />}
+          {(!filtering || kind === 'all') && <LanguagesSection initial={languages} />}
+          {shows('competency') && <CompetenciesSection initial={competencies} meta={capabilityMeta} />}
         </>
       )}
       {show !== 'capabilities' && (

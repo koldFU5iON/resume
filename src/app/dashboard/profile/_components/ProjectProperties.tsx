@@ -73,7 +73,7 @@ export function ProjectProperties({ project, roles }: {
   return (
     <>
       <div className="space-y-3">
-        <PropertyRow id="project-name" label="Name" problem={problems.name}><Input {...text('name')} /></PropertyRow>
+        <PropertyRow id="project-name" label="Name" problem={problems.name}><Input className="max-md:h-11" {...text('name')} /></PropertyRow>
         <PropertyRow id="project-part-of" label="Part of">
           <select
             id="project-part-of"
@@ -95,21 +95,21 @@ export function ProjectProperties({ project, roles }: {
             placeholder="One or two lines: what it is and your part in it"
           />
         </PropertyRow>
-        <PropertyRow id="project-url" label="Live URL" problem={problems.url}><Input {...text('url')} type="url" placeholder="https://…" /></PropertyRow>
-        <PropertyRow id="project-repoUrl" label="Repository URL" problem={problems.repoUrl}><Input {...text('repoUrl')} type="url" placeholder="https://github.com/…" /></PropertyRow>
+        <PropertyRow id="project-url" label="Live URL" problem={problems.url}><Input className="max-md:h-11" {...text('url')} type="url" placeholder="https://…" /></PropertyRow>
+        <PropertyRow id="project-repoUrl" label="Repository URL" problem={problems.repoUrl}><Input className="max-md:h-11" {...text('repoUrl')} type="url" placeholder="https://github.com/…" /></PropertyRow>
         <div className="grid grid-cols-2 gap-3">
           <PropertyRow id="project-start" label="Start date" problem={problems.startDate}>
-            <Input id="project-start" type="date" value={values.startDate as string} onChange={e => set('startDate', e.target.value)} onBlur={commit} />
+            <Input className="max-md:h-11" id="project-start" type="date" value={values.startDate as string} onChange={e => set('startDate', e.target.value)} onBlur={commit} />
           </PropertyRow>
           <PropertyRow id="project-end" label="End date" problem={problems.endDate}>
-            <Input id="project-end" type="date" value={values.endDate as string} onChange={e => set('endDate', e.target.value)} onBlur={commit} aria-invalid={problems.endDate ? true : undefined} />
+            <Input className="max-md:h-11" id="project-end" type="date" value={values.endDate as string} onChange={e => set('endDate', e.target.value)} onBlur={commit} aria-invalid={problems.endDate ? true : undefined} />
           </PropertyRow>
         </div>
         <PropertiesStatus status={form.status} failure={form.failure} />
       </div>
 
       <div className="border-t pt-4">
-        <Button variant="outline" size="sm" className="gap-1.5 text-destructive hover:text-destructive" onClick={() => { setDeleteError(null); setDeleteOpen(true) }}>
+        <Button variant="outline" size="sm" className="gap-1.5 text-destructive hover:text-destructive max-md:h-11" onClick={() => { setDeleteError(null); setDeleteOpen(true) }}>
           <Trash2 size={13} aria-hidden="true" />
           Delete this project…
         </Button>

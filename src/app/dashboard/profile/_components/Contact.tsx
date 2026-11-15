@@ -45,6 +45,15 @@ function EditableField({ icon, field, value, label, isLink }: EditableFieldProps
   const [current, setCurrent] = useState(value)
   const [draft, setDraft] = useState(value ?? '')
   const [error, setError] = useState(false)
+  // Follow the server when the value changes elsewhere, unless this field is being edited.
+  const [seen, setSeen] = useState(value)
+  if (seen !== value) {
+    setSeen(value)
+    if (!editing) {
+      setCurrent(value)
+      setDraft(value ?? '')
+    }
+  }
 
   const handleSave = async () => {
     setEditing(false)

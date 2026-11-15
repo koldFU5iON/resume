@@ -8,7 +8,7 @@ export function SectionHelp({ text }: { text: string }) {
         <button
           type="button"
           aria-label="Section help"
-          className="text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+          className="inline-flex size-6 items-center justify-center text-muted-foreground/40 hover:text-muted-foreground transition-colors max-md:size-11"
         />
       }>
         <Info size={12} />

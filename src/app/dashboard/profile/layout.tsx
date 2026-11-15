@@ -9,9 +9,10 @@ import { NotesNav } from './_components/NotesNav'
 export default async function ProfileLayout({ children }: { children: React.ReactNode }) {
   const profile = await getFullProfile()
   return (
-    <div className="flex flex-1 flex-col min-[1100px]:min-h-0 min-[1100px]:flex-row">
+    <div className="group/profile flex flex-1 flex-col min-[1100px]:min-h-0 min-[1100px]:flex-row">
       <NotesNav index={buildNoteIndex(profile)} />
-      <div className="flex min-w-0 flex-1 flex-col min-[1100px]:min-h-0">{children}</div>
+      {/* On a phone the open notes list replaces the document instead of pushing it down. */}
+      <div className="flex min-w-0 flex-1 flex-col min-[1100px]:min-h-0 max-[1099px]:group-has-[[data-notes-open=true]]/profile:hidden">{children}</div>
     </div>
   )
 }

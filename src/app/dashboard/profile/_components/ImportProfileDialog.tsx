@@ -94,14 +94,14 @@ export function ImportProfileDialog() {
   return (
     <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) reset() }}>
       <div className="flex items-center gap-1.5">
-        <DialogTrigger render={<Button variant="outline" />}>Import from PDF</DialogTrigger>
+        <DialogTrigger render={<Button variant="outline" className="max-md:h-11" />}>Import from PDF</DialogTrigger>
         <Popover>
           <PopoverTrigger
             render={
               <button
                 type="button"
                 aria-label="LinkedIn PDF export guide"
-                className="text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+                className="inline-flex size-6 items-center justify-center text-muted-foreground/60 hover:text-muted-foreground transition-colors max-md:size-11"
               />
             }
           >

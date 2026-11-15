@@ -87,7 +87,7 @@ function DecisionControls({
           <Button
             variant={decision === 'accept' ? 'default' : 'outline'}
             size="sm"
-            className="h-7 text-xs px-2"
+            className="h-7 text-xs px-2 max-md:h-11 max-md:px-3"
             onClick={() => onDecide('accept')}
           >
             Add new
@@ -95,7 +95,7 @@ function DecisionControls({
           <Button
             variant={decision === 'replace' ? 'default' : 'outline'}
             size="sm"
-            className="h-7 text-xs px-2"
+            className="h-7 text-xs px-2 max-md:h-11 max-md:px-3"
             onClick={() => onDecide('replace')}
           >
             Replace
@@ -103,7 +103,7 @@ function DecisionControls({
           <Button
             variant={decision === 'skip' ? 'secondary' : 'ghost'}
             size="sm"
-            className="h-7 text-xs px-2"
+            className="h-7 text-xs px-2 max-md:h-11 max-md:px-3"
             onClick={() => onDecide('skip')}
           >
             Skip
@@ -114,7 +114,7 @@ function DecisionControls({
           <Button
             variant={decision === 'accept' ? 'default' : 'outline'}
             size="icon"
-            className="h-7 w-7"
+            className="h-7 w-7 max-md:size-11"
             onClick={() => onDecide('accept')}
             aria-label="Accept"
           >
@@ -123,7 +123,7 @@ function DecisionControls({
           <Button
             variant={decision === 'skip' ? 'secondary' : 'ghost'}
             size="icon"
-            className="h-7 w-7"
+            className="h-7 w-7 max-md:size-11"
             onClick={() => onDecide('skip')}
             aria-label="Skip"
           >
@@ -174,7 +174,7 @@ function ActivitySuggestionRow({
             type="text"
             value={row.editedDescription}
             onChange={(e) => onUpdate({ editedDescription: e.target.value })}
-            className="w-full text-sm bg-transparent border-0 outline-none focus:ring-0 p-0"
+            className="w-full text-sm bg-transparent border-0 outline-none focus:ring-0 p-0 max-md:min-h-11"
           />
           {row.decision !== 'skip' && (
             <input
@@ -182,7 +182,7 @@ function ActivitySuggestionRow({
               value={row.editedImpact}
               onChange={(e) => onUpdate({ editedImpact: e.target.value })}
               placeholder="Impact (optional)"
-              className="w-full text-xs text-muted-foreground bg-transparent border-0 outline-none focus:ring-0 p-0 placeholder:text-muted-foreground/50"
+              className="w-full text-xs text-muted-foreground bg-transparent border-0 outline-none focus:ring-0 p-0 placeholder:text-muted-foreground/50 max-md:min-h-11"
             />
           )}
           {row.nearMatchId && existingDescription && (
@@ -229,14 +229,14 @@ function SkillSuggestionRow({
             type="text"
             value={row.editedName}
             onChange={(e) => onUpdate({ editedName: e.target.value })}
-            className="w-full text-sm font-medium bg-transparent border-0 outline-none focus:ring-0 p-0"
+            className="w-full text-sm font-medium bg-transparent border-0 outline-none focus:ring-0 p-0 max-md:min-h-11"
           />
           <input
             type="text"
             value={row.editedCategory}
             onChange={(e) => onUpdate({ editedCategory: e.target.value })}
             placeholder="Category (e.g. Backend, DevOps)"
-            className="w-full text-xs text-muted-foreground bg-transparent border-0 outline-none focus:ring-0 p-0 placeholder:text-muted-foreground/50"
+            className="w-full text-xs text-muted-foreground bg-transparent border-0 outline-none focus:ring-0 p-0 placeholder:text-muted-foreground/50 max-md:min-h-11"
           />
           {row.nearMatchId && existingName && (
             <p className="text-[10px] text-amber-600 dark:text-amber-400">
@@ -382,7 +382,7 @@ export function ExtractionPanel({ owner, existingActivities, existingSkills }: P
           variant="outline"
           disabled={panel.stage === 'extracting' || isAccepting}
           onClick={runExtract}
-          className="gap-1.5"
+          className="gap-1.5 max-md:h-11"
         >
           {panel.stage === 'extracting' ? (
             <Loader2 size={13} className="animate-spin" />
@@ -450,14 +450,14 @@ export function ExtractionPanel({ owner, existingActivities, existingSkills }: P
 
           {(panel.activityRows.length > 0 || panel.skillRows.length > 0) && (
             <div className="flex items-center justify-end gap-2">
-              <Button variant="ghost" size="sm" onClick={() => setPanel({ stage: 'idle' })}>
+              <Button variant="ghost" size="sm" className="max-md:h-11" onClick={() => setPanel({ stage: 'idle' })}>
                 Discard
               </Button>
               <Button
                 size="sm"
                 disabled={isAccepting || acceptedCount === 0}
                 onClick={handleAcceptAll}
-                className="gap-1.5"
+                className="gap-1.5 max-md:h-11"
               >
                 {isAccepting && <Loader2 size={13} className="animate-spin" />}
                 {isAccepting

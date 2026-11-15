@@ -120,10 +120,10 @@ export function EvidencePanel({ owner, activities: initial, skills, fromProjects
                 {activity.impact && <p className="mt-0.5 text-xs text-muted-foreground">↳ {activity.impact}</p>}
               </div>
               <div className={ROW_ACTIONS}>
-                <Button variant="ghost" size="icon" className="size-7" onClick={() => openForm(activity)} aria-label={`Edit: ${activity.description.slice(0, 60)}`}>
+                <Button variant="ghost" size="icon" className="size-7 max-md:size-11" onClick={() => openForm(activity)} aria-label={`Edit: ${activity.description.slice(0, 60)}`}>
                   <Pencil size={13} />
                 </Button>
-                <Button variant="ghost" size="icon" className="size-7 hover:text-destructive" onClick={() => setDeleting(activity)} aria-label={`Delete: ${activity.description.slice(0, 60)}`}>
+                <Button variant="ghost" size="icon" className="size-7 max-md:size-11 hover:text-destructive" onClick={() => setDeleting(activity)} aria-label={`Delete: ${activity.description.slice(0, 60)}`}>
                   <Trash2 size={13} />
                 </Button>
               </div>
@@ -151,15 +151,15 @@ export function EvidencePanel({ owner, activities: initial, skills, fromProjects
           </div>
           <div className="space-y-1">
             <Label htmlFor="evidence-impact" className="text-xs text-muted-foreground">Measurable outcome (optional)</Label>
-            <Input id="evidence-impact" value={impact} onChange={e => setImpact(e.target.value)} placeholder="e.g. cut release time from 6 weeks to 2" />
+            <Input className="max-md:h-11" id="evidence-impact" value={impact} onChange={e => setImpact(e.target.value)} placeholder="e.g. cut release time from 6 weeks to 2" />
           </div>
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="secondary" size="sm" onClick={() => setEditing(null)}>Cancel</Button>
-            <Button type="submit" size="sm" disabled={saving || !description.trim()}>{saving ? 'Saving…' : editing === 'new' ? 'Add' : 'Save'}</Button>
+            <Button type="button" variant="secondary" size="sm" className="max-md:h-11" onClick={() => setEditing(null)}>Cancel</Button>
+            <Button type="submit" size="sm" className="max-md:h-11" disabled={saving || !description.trim()}>{saving ? 'Saving…' : editing === 'new' ? 'Add' : 'Save'}</Button>
           </div>
         </form>
       ) : (
-        <Button variant="outline" size="sm" className="gap-1.5" onClick={() => openForm('new')}>
+        <Button variant="outline" size="sm" className="gap-1.5 max-md:h-11" onClick={() => openForm('new')}>
           <Plus size={13} aria-hidden="true" />
           Add evidence
         </Button>
@@ -170,7 +170,7 @@ export function EvidencePanel({ owner, activities: initial, skills, fromProjects
       {fromProjects.filter(group => group.activities.length > 0).map(group => (
         <section key={group.id} aria-label={`Evidence from ${group.name}`} className="space-y-1 border-t pt-4">
           <h3 className="text-sm font-semibold">
-            From <Link href={noteHref(group.id)} className="underline underline-offset-2 hover:text-primary">{group.name}</Link>
+            <Link href={noteHref(group.id)} className="inline-flex min-h-8 items-center underline underline-offset-2 hover:text-primary max-md:min-h-11">From {group.name}</Link>
           </h3>
           <p className="text-xs text-muted-foreground">Edit it on the project&apos;s own page.</p>
           <ul className="space-y-1 pt-1">
@@ -195,8 +195,8 @@ export function EvidencePanel({ owner, activities: initial, skills, fromProjects
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Keep it</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" onClick={() => void confirmDelete()}>Delete evidence</AlertDialogAction>
+            <AlertDialogCancel className="max-md:h-11">Keep it</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" className="max-md:h-11" onClick={() => void confirmDelete()}>Delete evidence</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

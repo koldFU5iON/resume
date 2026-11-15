@@ -61,7 +61,7 @@ export function DetailsTabs({ label, tabs, initial }: { label: string; tabs: Det
               tabIndex={active ? 0 : -1}
               onClick={() => setSelected(tab.id)}
               className={cn(
-                '-mb-px flex min-h-10 items-baseline gap-1.5 border-b-2 px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                '-mb-px flex min-h-10 items-baseline gap-1.5 max-md:min-h-11 max-md:items-center border-b-2 px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 active ? 'border-primary font-medium text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground',
               )}
             >

@@ -24,7 +24,7 @@ function ExportProfileDropdown() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger>
-        <Button size="sm" variant="outline" className="gap-1.5">
+        <Button size="sm" variant="outline" className="gap-1.5 max-md:h-11">
           <Download className="size-3.5" />
           Export
         </Button>
@@ -54,6 +54,15 @@ function EditableHeaderField({ field, value, placeholder, className }: EditableH
   const [editing, setEditing] = useState(false)
   const [current, setCurrent] = useState(value)
   const [draft, setDraft] = useState(value ?? '')
+  // Follow the server when the value changes elsewhere, unless this field is being edited.
+  const [seen, setSeen] = useState(value)
+  if (seen !== value) {
+    setSeen(value)
+    if (!editing) {
+      setCurrent(value)
+      setDraft(value ?? '')
+    }
+  }
 
   const handleSave = async () => {
     setEditing(false)
