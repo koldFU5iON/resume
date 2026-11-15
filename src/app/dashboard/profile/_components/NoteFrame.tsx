@@ -6,7 +6,7 @@ import { PanelRight, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { useIsMobile } from '@/hooks/use-mobile'
-import { useMinWidth } from '@/hooks/use-min-width'
+import { PROFILE_WIDE_PX, useMinWidth } from '@/hooks/use-min-width'
 
 /**
  * The document and details regions beside the notes list. From 1100px up each
@@ -23,7 +23,7 @@ export function NoteFrame({ header, children, details, detailsLabel = 'Details' 
   details: ReactNode
   detailsLabel?: string
 }) {
-  const wide = useMinWidth(1100)
+  const wide = useMinWidth(PROFILE_WIDE_PX)
   const phone = useIsMobile()
   const pathname = usePathname()
   // Open for one address only: moving to another note (a link inside the sheet) closes it.
@@ -66,7 +66,7 @@ export function NoteFrame({ header, children, details, detailsLabel = 'Details' 
           <SheetContent
             side={phone ? 'bottom' : 'right'}
             showCloseButton={false}
-            className="max-md:max-h-[88dvh] max-md:rounded-t-xl sm:max-w-md"
+            className="max-md:max-h-[88dvh] max-md:rounded-t-xl data-[side=right]:sm:max-w-md"
           >
             <SheetHeader className="flex-row items-center justify-between border-b py-2 pl-4 pr-2">
               <SheetTitle>{detailsLabel}</SheetTitle>

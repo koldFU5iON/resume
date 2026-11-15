@@ -16,6 +16,7 @@ import {
   Phone,
   X,
 } from "lucide-react"
+import { useEditableValue } from './use-editable-value'
 import { updateContactField, type ContactField } from "@/modules/profile/actions"
 
 type ContactBlockProps = {
@@ -41,19 +42,8 @@ function toHref(value: string) {
 }
 
 function EditableField({ icon, field, value, label, isLink }: EditableFieldProps) {
-  const [editing, setEditing] = useState(false)
-  const [current, setCurrent] = useState(value)
-  const [draft, setDraft] = useState(value ?? '')
+  const { editing, setEditing, current, setCurrent, draft, setDraft } = useEditableValue(value)
   const [error, setError] = useState(false)
-  // Follow the server when the value changes elsewhere, unless this field is being edited.
-  const [seen, setSeen] = useState(value)
-  if (seen !== value) {
-    setSeen(value)
-    if (!editing) {
-      setCurrent(value)
-      setDraft(value ?? '')
-    }
-  }
 
   const handleSave = async () => {
     setEditing(false)

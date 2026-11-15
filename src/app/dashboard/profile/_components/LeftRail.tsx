@@ -1,7 +1,6 @@
 'use client'
 
-import { useState, useMemo, type FormEvent } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useMemo, useTransition, startTransition, type FormEvent } from 'react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import type { FullProfile } from '@/app/types/profile'
@@ -27,7 +26,7 @@ import {
   createCertification, updateCertification, deleteCertification,
 } from '@/modules/profile/actions'
 import { SKILL_LEVELS } from '@/modules/profile/schema'
-import { STATUS_LABEL, type CapabilityMeta } from '@/modules/profile-map/capability-meta'
+import { deleteDetail, statusLine, type CapabilityMeta } from '@/modules/profile-map/capability-labels'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -80,7 +79,8 @@ function RowControls({ onEdit, onDelete, label, detail }: { onEdit: () => void; 
   const [confirming, setConfirming] = useState(false)
   return (
     <>
-      <div className="absolute right-0 inset-y-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100 max-sm:opacity-100 transition-opacity bg-card pl-1 rounded-r">
+      {/* On a phone the controls sit in the row, always visible, so they cover nothing. From md up they float over the row's right edge on hover or focus. */}
+      <div className="flex shrink-0 items-center gap-0.5 md:absolute md:right-0 md:inset-y-0 md:rounded-r md:bg-card md:pl-1 md:opacity-0 md:transition-opacity md:group-hover:opacity-100 md:group-focus-within:opacity-100 md:[@media(hover:none)]:opacity-100">
         <Button variant="ghost" size="icon" className="h-7 w-7 max-md:size-11" onClick={onEdit} aria-label={`Edit ${label}`}>
           <Pencil size={11} />
         </Button>
@@ -111,14 +111,10 @@ function CapabilityStatusLine({ meta }: { meta?: CapabilityMeta }) {
   if (!meta) return null
   return (
     <span className="block text-xs text-muted-foreground">
-      {STATUS_LABEL[meta.status]}
-      {meta.evidence > 0 && ` · ${meta.evidence} evidence item${meta.evidence === 1 ? '' : 's'}`}
+      {statusLine(meta)}
     </span>
   )
 }
-
-const linkedDetail = (meta?: CapabilityMeta) =>
-  meta && meta.evidence > 0 ? `along with its links to ${meta.evidence} evidence item${meta.evidence === 1 ? '' : 's'}` : undefined
 
 // ── Radial gauge ─────────────────────────────────────────────────────────────
 
@@ -191,35 +187,31 @@ function EmptySection({ noun, onAdd }: { noun: string; onAdd: () => void }) {
 
 function SkillsSection({ initial, careerYears, meta }: { initial: SkillType[]; careerYears: number; meta: Record<string, CapabilityMeta> }) {
   const skills = initial
-  const router = useRouter()
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<SkillType | null>(null)
-  const [saving, setSaving] = useState(false)
+  const [saving, startSaving] = useTransition()
   const [saveError, setSaveError] = useState<string | null>(null)
 
   const openAdd = () => { setEditing(null); setSaveError(null); setOpen(true) }
   const openEdit = (s: SkillType) => { setEditing(s); setSaveError(null); setOpen(true) }
 
   const handleDelete = async (id: string) => {
-    try { await deleteSkill(id); router.refresh() } catch { toast.error('Could not delete. It is still there.') }
+    try { await deleteSkill(id) } catch { toast.error('Could not delete. It is still there.') }
   }
 
-  const handleSave = async (data: Parameters<typeof createSkill>[0]) => {
-    setSaving(true)
+  // The dialog closes in the same transition as the refreshed list, so a new or edited row is there when it goes.
+  const handleSave = (data: Parameters<typeof createSkill>[0]) => startSaving(async () => {
     try {
       if (editing) {
         await updateSkill(editing.id, data)
       } else {
         await createSkill(data)
       }
-      setOpen(false)
-      router.refresh()
+      startTransition(() => setOpen(false))
     } catch {
       setSaveError('Failed to save. Please try again.')
-    } finally {
-      setSaving(false)
     }
-  }
+  })
 
   return (
     <div>
@@ -238,7 +230,7 @@ function SkillsSection({ initial, careerYears, meta }: { initial: SkillType[]; c
                   <RadialGauge years={skill.yearsOfExperience} totalYears={careerYears} />
                 )}
                 <Badge variant="outline" className="text-xs shrink-0 capitalize">{skill.level}</Badge>
-                <RowControls label={skill.name} detail={linkedDetail(meta[skill.id])} onEdit={() => openEdit(skill)} onDelete={() => handleDelete(skill.id)} />
+                <RowControls label={skill.name} detail={deleteDetail(meta[skill.id])} onEdit={() => openEdit(skill)} onDelete={() => handleDelete(skill.id)} />
               </div>
             ))}
           </div>
@@ -320,35 +312,31 @@ function SkillDialog({
 
 function ToolsSection({ initial, meta }: { initial: ToolType[]; meta: Record<string, CapabilityMeta> }) {
   const tools = initial
-  const router = useRouter()
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<ToolType | null>(null)
-  const [saving, setSaving] = useState(false)
+  const [saving, startSaving] = useTransition()
   const [saveError, setSaveError] = useState<string | null>(null)
 
   const openAdd = () => { setEditing(null); setSaveError(null); setOpen(true) }
   const openEdit = (t: ToolType) => { setEditing(t); setSaveError(null); setOpen(true) }
 
   const handleDelete = async (id: string) => {
-    try { await deleteTool(id); router.refresh() } catch { toast.error('Could not delete. It is still there.') }
+    try { await deleteTool(id) } catch { toast.error('Could not delete. It is still there.') }
   }
 
-  const handleSave = async (data: Parameters<typeof createTool>[0]) => {
-    setSaving(true)
+  // The dialog closes in the same transition as the refreshed list, so a new or edited row is there when it goes.
+  const handleSave = (data: Parameters<typeof createTool>[0]) => startSaving(async () => {
     try {
       if (editing) {
         await updateTool(editing.id, data)
       } else {
         await createTool(data)
       }
-      setOpen(false)
-      router.refresh()
+      startTransition(() => setOpen(false))
     } catch {
       setSaveError('Failed to save. Please try again.')
-    } finally {
-      setSaving(false)
     }
-  }
+  })
 
   return (
     <div>
@@ -364,7 +352,7 @@ function ToolsSection({ initial, meta }: { initial: ToolType[]; meta: Record<str
                   <CapabilityStatusLine meta={meta[tool.id]} />
                 </div>
                 {tool.category && <Badge variant="secondary" className="text-xs">{tool.category}</Badge>}
-                <RowControls label={tool.name} detail={linkedDetail(meta[tool.id])} onEdit={() => openEdit(tool)} onDelete={() => handleDelete(tool.id)} />
+                <RowControls label={tool.name} detail={deleteDetail(meta[tool.id])} onEdit={() => openEdit(tool)} onDelete={() => handleDelete(tool.id)} />
               </div>
             ))}
           </div>
@@ -427,35 +415,31 @@ function ToolDialog({
 
 function LanguagesSection({ initial }: { initial: LanguageType[] }) {
   const languages = initial
-  const router = useRouter()
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<LanguageType | null>(null)
-  const [saving, setSaving] = useState(false)
+  const [saving, startSaving] = useTransition()
   const [saveError, setSaveError] = useState<string | null>(null)
 
   const openAdd = () => { setEditing(null); setSaveError(null); setOpen(true) }
   const openEdit = (l: LanguageType) => { setEditing(l); setSaveError(null); setOpen(true) }
 
   const handleDelete = async (id: string) => {
-    try { await deleteLanguage(id); router.refresh() } catch { toast.error('Could not delete. It is still there.') }
+    try { await deleteLanguage(id) } catch { toast.error('Could not delete. It is still there.') }
   }
 
-  const handleSave = async (data: Parameters<typeof createLanguage>[0]) => {
-    setSaving(true)
+  // The dialog closes in the same transition as the refreshed list, so a new or edited row is there when it goes.
+  const handleSave = (data: Parameters<typeof createLanguage>[0]) => startSaving(async () => {
     try {
       if (editing) {
         await updateLanguage(editing.id, data)
       } else {
         await createLanguage(data)
       }
-      setOpen(false)
-      router.refresh()
+      startTransition(() => setOpen(false))
     } catch {
       setSaveError('Failed to save. Please try again.')
-    } finally {
-      setSaving(false)
     }
-  }
+  })
 
   return (
     <div>
@@ -527,35 +511,31 @@ function LanguageDialog({
 
 function CompetenciesSection({ initial, meta }: { initial: CompetencyType[]; meta: Record<string, CapabilityMeta> }) {
   const competencies = initial
-  const router = useRouter()
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<CompetencyType | null>(null)
-  const [saving, setSaving] = useState(false)
+  const [saving, startSaving] = useTransition()
   const [saveError, setSaveError] = useState<string | null>(null)
 
   const openAdd = () => { setEditing(null); setSaveError(null); setOpen(true) }
   const openEdit = (c: CompetencyType) => { setEditing(c); setSaveError(null); setOpen(true) }
 
   const handleDelete = async (id: string) => {
-    try { await deleteCompetency(id); router.refresh() } catch { toast.error('Could not delete. It is still there.') }
+    try { await deleteCompetency(id) } catch { toast.error('Could not delete. It is still there.') }
   }
 
-  const handleSave = async (data: Parameters<typeof createCompetency>[0]) => {
-    setSaving(true)
+  // The dialog closes in the same transition as the refreshed list, so a new or edited row is there when it goes.
+  const handleSave = (data: Parameters<typeof createCompetency>[0]) => startSaving(async () => {
     try {
       if (editing) {
         await updateCompetency(editing.id, data)
       } else {
         await createCompetency(data)
       }
-      setOpen(false)
-      router.refresh()
+      startTransition(() => setOpen(false))
     } catch {
       setSaveError('Failed to save. Please try again.')
-    } finally {
-      setSaving(false)
     }
-  }
+  })
 
   return (
     <div>
@@ -570,7 +550,7 @@ function CompetenciesSection({ initial, meta }: { initial: CompetencyType[]; met
                   <span className="text-sm">{c.name}</span>
                   <CapabilityStatusLine meta={meta[c.id]} />
                 </div>
-                <RowControls label={c.name} detail={linkedDetail(meta[c.id])} onEdit={() => openEdit(c)} onDelete={() => handleDelete(c.id)} />
+                <RowControls label={c.name} detail={deleteDetail(meta[c.id])} onEdit={() => openEdit(c)} onDelete={() => handleDelete(c.id)} />
               </div>
             ))}
           </div>
@@ -625,35 +605,31 @@ function CompetencyDialog({
 
 function EducationSection({ initial }: { initial: EducationType[] }) {
   const educations = initial
-  const router = useRouter()
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<EducationType | null>(null)
-  const [saving, setSaving] = useState(false)
+  const [saving, startSaving] = useTransition()
   const [saveError, setSaveError] = useState<string | null>(null)
 
   const openAdd = () => { setEditing(null); setSaveError(null); setOpen(true) }
   const openEdit = (e: EducationType) => { setEditing(e); setSaveError(null); setOpen(true) }
 
   const handleDelete = async (id: string) => {
-    try { await deleteEducation(id); router.refresh() } catch { toast.error('Could not delete. It is still there.') }
+    try { await deleteEducation(id) } catch { toast.error('Could not delete. It is still there.') }
   }
 
-  const handleSave = async (data: Parameters<typeof createEducation>[0]) => {
-    setSaving(true)
+  // The dialog closes in the same transition as the refreshed list, so a new or edited row is there when it goes.
+  const handleSave = (data: Parameters<typeof createEducation>[0]) => startSaving(async () => {
     try {
       if (editing) {
         await updateEducation(editing.id, data)
       } else {
         await createEducation(data)
       }
-      setOpen(false)
-      router.refresh()
+      startTransition(() => setOpen(false))
     } catch {
       setSaveError('Failed to save. Please try again.')
-    } finally {
-      setSaving(false)
     }
-  }
+  })
 
   return (
     <div>
@@ -768,10 +744,9 @@ function EducationDialog({
 
 function CertificationsSection({ initial }: { initial: CertType[] }) {
   const certs = initial
-  const router = useRouter()
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<CertType | null>(null)
-  const [saving, setSaving] = useState(false)
+  const [saving, startSaving] = useTransition()
   const [saveError, setSaveError] = useState<string | null>(null)
 
   const sixMonthsFromNow = useMemo(() => {
@@ -784,25 +759,22 @@ function CertificationsSection({ initial }: { initial: CertType[] }) {
   const openEdit = (c: CertType) => { setEditing(c); setSaveError(null); setOpen(true) }
 
   const handleDelete = async (id: string) => {
-    try { await deleteCertification(id); router.refresh() } catch { toast.error('Could not delete. It is still there.') }
+    try { await deleteCertification(id) } catch { toast.error('Could not delete. It is still there.') }
   }
 
-  const handleSave = async (data: Parameters<typeof createCertification>[0]) => {
-    setSaving(true)
+  // The dialog closes in the same transition as the refreshed list, so a new or edited row is there when it goes.
+  const handleSave = (data: Parameters<typeof createCertification>[0]) => startSaving(async () => {
     try {
       if (editing) {
         await updateCertification(editing.id, data)
       } else {
         await createCertification(data)
       }
-      setOpen(false)
-      router.refresh()
+      startTransition(() => setOpen(false))
     } catch {
       setSaveError('Failed to save. Please try again.')
-    } finally {
-      setSaving(false)
     }
-  }
+  })
 
   return (
     <div>

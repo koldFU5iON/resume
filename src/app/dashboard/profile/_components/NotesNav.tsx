@@ -84,6 +84,8 @@ export function NotesNav({ index }: { index: NoteIndex }) {
         aria-current={current ? 'page' : undefined}
         tabIndex={tabStop === href ? 0 : -1}
         onFocus={() => setFocused(href)}
+        // Tapping the note you are already on does not change the address, so close the list here too.
+        onClick={() => setOpenAt(null)}
         className={cn(
           'flex min-h-8 items-baseline justify-between gap-2 rounded-md px-2 py-1.5 text-sm leading-snug outline-none max-[1099px]:min-h-11 max-[1099px]:items-center',
           'hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring',
