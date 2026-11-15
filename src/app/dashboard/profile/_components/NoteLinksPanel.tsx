@@ -66,7 +66,7 @@ export function NoteLinksPanel({ capabilities, pending }: { capabilities: NoteCa
           </ul>
         )}
         <p className="text-xs">
-          <Link href={capabilitiesHref()} className="text-muted-foreground underline underline-offset-2 hover:text-foreground">All capabilities</Link>
+          <Link href={capabilitiesHref()} className="inline-flex min-h-8 items-center text-muted-foreground underline underline-offset-2 hover:text-foreground max-md:min-h-11">All capabilities</Link>
         </p>
       </section>
 
@@ -75,8 +75,8 @@ export function NoteLinksPanel({ capabilities, pending }: { capabilities: NoteCa
           <h2 id="note-links-pending" className="text-sm font-semibold">Suggested links</h2>
           {pending.length > 1 && (
             <div className="flex gap-1">
-              <Button size="sm" variant="ghost" className="h-7 text-xs" disabled={busy} onClick={() => decide(rejectEvidenceLinksAction, pending.map(pair))}>Dismiss all</Button>
-              <Button size="sm" variant="secondary" className="h-7 text-xs" disabled={busy} onClick={() => decide(confirmEvidenceLinksAction, pending.map(pair))}>Accept all</Button>
+              <Button size="sm" variant="ghost" className="h-7 text-xs max-md:h-11" disabled={busy} onClick={() => decide(rejectEvidenceLinksAction, pending.map(pair))}>Dismiss all</Button>
+              <Button size="sm" variant="secondary" className="h-7 text-xs max-md:h-11" disabled={busy} onClick={() => decide(confirmEvidenceLinksAction, pending.map(pair))}>Accept all</Button>
             </div>
           )}
         </div>
@@ -91,10 +91,10 @@ export function NoteLinksPanel({ capabilities, pending }: { capabilities: NoteCa
                   <p className="text-sm leading-snug text-muted-foreground">{suggestion.evidence}</p>
                   {suggestion.reason && <p className="mt-0.5 text-xs text-muted-foreground">{suggestion.reason}</p>}
                 </div>
-                <Button size="icon" variant="ghost" className="size-7 shrink-0" disabled={busy} aria-label={`Link to ${suggestion.capability}`} onClick={() => decide(confirmEvidenceLinksAction, [pair(suggestion)])}>
+                <Button size="icon" variant="ghost" className="size-7 shrink-0 max-md:size-11" disabled={busy} aria-label={`Link to ${suggestion.capability}`} onClick={() => decide(confirmEvidenceLinksAction, [pair(suggestion)])}>
                   <Check size={14} />
                 </Button>
-                <Button size="icon" variant="ghost" className="size-7 shrink-0 hover:text-destructive" disabled={busy} aria-label={`Don't link to ${suggestion.capability}`} onClick={() => decide(rejectEvidenceLinksAction, [pair(suggestion)])}>
+                <Button size="icon" variant="ghost" className="size-7 shrink-0 max-md:size-11 hover:text-destructive" disabled={busy} aria-label={`Don't link to ${suggestion.capability}`} onClick={() => decide(rejectEvidenceLinksAction, [pair(suggestion)])}>
                   <X size={14} />
                 </Button>
               </li>

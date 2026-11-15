@@ -63,7 +63,7 @@ export function NoteEditor({
               type="button"
               aria-pressed={mode === value}
               onClick={() => setMode(value)}
-              className={cn('px-3 py-1.5', mode === value ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground')}
+              className={cn('px-3 py-1.5 max-md:min-h-11', mode === value ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground')}
             >
               {value === 'markdown' ? 'Markdown' : 'Preview'}
             </button>

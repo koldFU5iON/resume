@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useTransition } from "react"
+import { useRouter } from "next/navigation"
 import { Sparkles } from "lucide-react"
 import { Textarea } from "@/components/ui/textarea"
 import { MAX_SUMMARY_LENGTH } from "@/modules/profile/schema"
@@ -15,8 +16,18 @@ type ProfileSummaryCardProps = {
 }
 
 export function ProfileSummaryCard({ initialSummary, hasLLMKey }: ProfileSummaryCardProps) {
+  const router = useRouter()
   const [saved, setSaved] = useState(initialSummary ?? '')
   const [draft, setDraft] = useState(saved)
+  // The server's summary is the truth: when it changes (the Coach applied one, another tab saved), follow it.
+  // Text you are in the middle of editing is kept; only a draft that matches what was saved moves with it.
+  const [seen, setSeen] = useState(initialSummary)
+  if (seen !== initialSummary) {
+    setSeen(initialSummary)
+    const next = initialSummary ?? ''
+    if (draft === saved) setDraft(next)
+    setSaved(next)
+  }
   const [isSaving, startSaving] = useTransition()
   const [isGenerating, startGenerating] = useTransition()
 
@@ -45,7 +56,7 @@ export function ProfileSummaryCard({ initialSummary, hasLLMKey }: ProfileSummary
       } else {
         toast.error(result.message, {
           action: result.error === 'not_configured'
-            ? { label: 'Set up', onClick: () => { window.location.href = '/dashboard/settings/llm' } }
+            ? { label: 'Set up', onClick: () => router.push('/dashboard/settings/llm') }
             : undefined,
         })
       }
@@ -68,6 +79,7 @@ export function ProfileSummaryCard({ initialSummary, hasLLMKey }: ProfileSummary
           type="button"
           variant="outline"
           size="sm"
+          className="max-md:h-11"
           onClick={hasLLMKey ? handleGenerate : undefined}
           disabled={isPending || !hasLLMKey}
           title={!hasLLMKey ? 'Add an LLM API key in Settings to generate a summary' : undefined}
@@ -78,6 +90,7 @@ export function ProfileSummaryCard({ initialSummary, hasLLMKey }: ProfileSummary
         <Button
           type="button"
           size="sm"
+          className="max-md:h-11"
           onClick={handleSave}
           disabled={isPending || !isDirty}
         >

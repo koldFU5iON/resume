@@ -37,7 +37,7 @@ export function ProjectNote({ project, parent, roles, skills, links, pending }: 
           {parent && (
             <p className="mb-1 text-xs text-muted-foreground">
               Part of{' '}
-              <Link href={noteHref(parent.id)} className="text-foreground underline underline-offset-2 hover:text-primary">{parent.title}</Link>
+              <Link href={noteHref(parent.id)} className="inline-flex min-h-8 items-center text-foreground underline underline-offset-2 hover:text-primary max-md:min-h-11">{parent.title}</Link>
             </p>
           )}
           <h1 className="text-xl font-semibold leading-tight">{project.name}</h1>

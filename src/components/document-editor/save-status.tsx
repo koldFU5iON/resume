@@ -12,11 +12,11 @@ export function SaveStatus({ state, onRetry, onResolve }: { state: SaveState; on
       {state === "saved" && <span className="flex items-center gap-1 text-muted-foreground"><Check className="size-3" aria-hidden="true" />Saved</span>}
       {state === "failed" && <>
         <span className="flex items-center gap-1 text-destructive" title="Your edits are kept on this device until they save"><AlertTriangle className="size-3" aria-hidden="true" />Couldn&apos;t save</span>
-        <button type="button" onClick={onRetry} className="text-muted-foreground underline underline-offset-2 hover:text-foreground">Retry</button>
+        <button type="button" onClick={onRetry} className="text-muted-foreground underline underline-offset-2 hover:text-foreground max-md:flex max-md:min-h-11 max-md:items-center max-md:px-2">Retry</button>
       </>}
       {state === "conflict" && <>
         <span className="flex items-center gap-1 text-destructive"><AlertTriangle className="size-3" aria-hidden="true" />Changed elsewhere</span>
-        <button type="button" onClick={onResolve} className="text-muted-foreground underline underline-offset-2 hover:text-foreground">Resolve…</button>
+        <button type="button" onClick={onResolve} className="text-muted-foreground underline underline-offset-2 hover:text-foreground max-md:flex max-md:min-h-11 max-md:items-center max-md:px-2">Resolve…</button>
       </>}
     </div>
   )

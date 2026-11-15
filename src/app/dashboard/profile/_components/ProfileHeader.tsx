@@ -1,6 +1,5 @@
 'use client'
 
-import { useState } from 'react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Check, X, Download, FileJson, FileText } from 'lucide-react'
@@ -10,6 +9,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { useEditableValue } from './use-editable-value'
 import { updateContactField, type ContactField } from '@/modules/profile/actions'
 import { ImportProfileDialog } from './ImportProfileDialog'
 
@@ -24,7 +24,7 @@ function ExportProfileDropdown() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger>
-        <Button size="sm" variant="outline" className="gap-1.5">
+        <Button size="sm" variant="outline" className="gap-1.5 max-md:h-11">
           <Download className="size-3.5" />
           Export
         </Button>
@@ -51,9 +51,7 @@ type EditableHeaderFieldProps = {
 }
 
 function EditableHeaderField({ field, value, placeholder, className }: EditableHeaderFieldProps) {
-  const [editing, setEditing] = useState(false)
-  const [current, setCurrent] = useState(value)
-  const [draft, setDraft] = useState(value ?? '')
+  const { editing, setEditing, current, setCurrent, draft, setDraft } = useEditableValue(value)
 
   const handleSave = async () => {
     setEditing(false)

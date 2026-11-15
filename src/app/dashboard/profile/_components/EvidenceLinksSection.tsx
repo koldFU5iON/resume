@@ -107,7 +107,7 @@ export function EvidenceLinksSection({ stats, pending, hasLLMKey }: Props) {
           <Button
             variant="outline"
             size="sm"
-            className="w-full"
+            className="w-full max-md:h-11"
             disabled={!hasLLMKey || suggesting || busy}
             onClick={() => void suggest()}
             title={hasLLMKey ? undefined : 'Add an AI provider key in Settings to suggest links'}
@@ -132,7 +132,7 @@ export function EvidenceLinksSection({ stats, pending, hasLLMKey }: Props) {
                 <Button
                   size="sm"
                   variant="secondary"
-                  className="h-7"
+                  className="h-7 max-md:h-11"
                   disabled={busy}
                   onClick={() => {
                     setNewCapabilities((prev) => prev.filter((p) => p.name !== c.name))
@@ -141,7 +141,7 @@ export function EvidenceLinksSection({ stats, pending, hasLLMKey }: Props) {
                 >
                   <Plus />Add
                 </Button>
-                <Button size="sm" variant="ghost" className="h-7" onClick={() => setNewCapabilities((prev) => prev.filter((p) => p.name !== c.name))}>
+                <Button size="sm" variant="ghost" className="h-7 max-md:h-11" onClick={() => setNewCapabilities((prev) => prev.filter((p) => p.name !== c.name))}>
                   Dismiss
                 </Button>
               </div>
@@ -155,10 +155,10 @@ export function EvidenceLinksSection({ stats, pending, hasLLMKey }: Props) {
           <div className="mb-2 flex items-center justify-between">
             <p className="text-xs font-medium text-muted-foreground">{pending.length} suggested link{pending.length === 1 ? '' : 's'}</p>
             <div className="flex gap-1">
-              <Button size="sm" variant="ghost" className="h-7 text-xs" disabled={busy} onClick={() => run(() => rejectEvidenceLinksAction(pending.map(pair)), 'Suggestions dismissed.')}>
+              <Button size="sm" variant="ghost" className="h-7 text-xs max-md:h-11" disabled={busy} onClick={() => run(() => rejectEvidenceLinksAction(pending.map(pair)), 'Suggestions dismissed.')}>
                 Dismiss all
               </Button>
-              <Button size="sm" variant="secondary" className="h-7 text-xs" disabled={busy} onClick={() => run(() => confirmEvidenceLinksAction(pending.map(pair)), `Linked ${pending.length} achievements.`)}>
+              <Button size="sm" variant="secondary" className="h-7 text-xs max-md:h-11" disabled={busy} onClick={() => run(() => confirmEvidenceLinksAction(pending.map(pair)), `Linked ${pending.length} achievements.`)}>
                 Accept all
               </Button>
             </div>
@@ -174,10 +174,10 @@ export function EvidenceLinksSection({ stats, pending, hasLLMKey }: Props) {
                         <p className="text-sm leading-snug">{s.evidence}</p>
                         <p className="mt-0.5 text-xs text-muted-foreground">{s.role}{s.reason ? ` · ${s.reason}` : ''}</p>
                       </div>
-                      <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" disabled={busy} aria-label={`Link to ${capability}`} onClick={() => run(() => confirmEvidenceLinksAction([pair(s)]))}>
+                      <Button size="icon" variant="ghost" className="h-7 w-7 max-md:size-11 shrink-0" disabled={busy} aria-label={`Link to ${capability}`} onClick={() => run(() => confirmEvidenceLinksAction([pair(s)]))}>
                         <Check />
                       </Button>
-                      <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0 hover:text-destructive" disabled={busy} aria-label={`Don't link to ${capability}`} onClick={() => run(() => rejectEvidenceLinksAction([pair(s)]))}>
+                      <Button size="icon" variant="ghost" className="h-7 w-7 max-md:size-11 shrink-0 hover:text-destructive" disabled={busy} aria-label={`Don't link to ${capability}`} onClick={() => run(() => rejectEvidenceLinksAction([pair(s)]))}>
                         <X />
                       </Button>
                     </li>
@@ -187,7 +187,7 @@ export function EvidenceLinksSection({ stats, pending, hasLLMKey }: Props) {
             ))}
           </ul>
           {groups.length > COLLAPSED_GROUPS && (
-            <Button size="sm" variant="ghost" className="mt-2 h-7 w-full text-xs" onClick={() => setShowAll((v) => !v)}>
+            <Button size="sm" variant="ghost" className="mt-2 h-7 w-full text-xs max-md:h-11" onClick={() => setShowAll((v) => !v)}>
               {showAll ? 'Show fewer' : `Show all ${groups.length} capabilities`}
             </Button>
           )}

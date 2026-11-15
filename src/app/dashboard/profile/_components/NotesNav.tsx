@@ -20,7 +20,9 @@ export function NotesNav({ index }: { index: NoteIndex }) {
   const pathname = usePathname()
   const router = useRouter()
   const navRef = useRef<HTMLElement>(null)
-  const [open, setOpen] = useState(false)
+  // Open for one address only: picking a note closes the list, so the document shows.
+  const [openAt, setOpenAt] = useState<string | null>(null)
+  const open = openAt === pathname
   const [addingRole, setAddingRole] = useState(false)
   const [addingProjectFor, setAddingProjectFor] = useState<string | 'standalone' | null>(null)
   const [projectName, setProjectName] = useState('')
@@ -82,8 +84,10 @@ export function NotesNav({ index }: { index: NoteIndex }) {
         aria-current={current ? 'page' : undefined}
         tabIndex={tabStop === href ? 0 : -1}
         onFocus={() => setFocused(href)}
+        // Tapping the note you are already on does not change the address, so close the list here too.
+        onClick={() => setOpenAt(null)}
         className={cn(
-          'flex min-h-8 items-baseline justify-between gap-2 rounded-md px-2 py-1.5 text-sm leading-snug outline-none',
+          'flex min-h-8 items-baseline justify-between gap-2 rounded-md px-2 py-1.5 text-sm leading-snug outline-none max-[1099px]:min-h-11 max-[1099px]:items-center',
           'hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring',
           nested && 'ml-4 text-[13px]',
           current ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground',
@@ -108,7 +112,7 @@ export function NotesNav({ index }: { index: NoteIndex }) {
           onChange={event => setProjectName(event.target.value)}
           onKeyDown={event => { if (event.key === 'Escape') { setAddingProjectFor(null); setProjectName('') } }}
           placeholder="Project name, then Enter"
-          className="h-8 text-sm"
+          className="h-8 text-sm max-[1099px]:h-11"
         />
       </form>
     )
@@ -120,7 +124,7 @@ export function NotesNav({ index }: { index: NoteIndex }) {
         key={label}
         type="button"
         onClick={onClick}
-        className="flex min-h-8 w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[13px] text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+        className="flex min-h-8 w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[13px] text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring max-[1099px]:min-h-11"
       >
         <Plus size={13} aria-hidden="true" />
         {label}
@@ -131,12 +135,12 @@ export function NotesNav({ index }: { index: NoteIndex }) {
   const heading = 'px-2 pb-1 pt-4 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70'
 
   return (
-    <div className="shrink-0 border-b min-[1100px]:min-h-0 min-[1100px]:w-64 min-[1100px]:overflow-y-auto min-[1100px]:border-b-0 min-[1100px]:border-r">
+    <div data-notes-open={open} className="shrink-0 border-b min-[1100px]:min-h-0 min-[1100px]:w-64 min-[1100px]:overflow-y-auto min-[1100px]:border-b-0 min-[1100px]:border-r">
       <button
         type="button"
         aria-expanded={open}
         aria-controls="profile-notes"
-        onClick={() => setOpen(value => !value)}
+        onClick={() => setOpenAt(open ? null : pathname)}
         className="flex min-h-11 w-full items-center justify-between px-4 text-sm font-medium min-[1100px]:hidden"
       >
         Notes

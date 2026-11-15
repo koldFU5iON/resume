@@ -46,23 +46,23 @@ export function RoleProperties({ experience }: { experience: FullProfile['experi
   return (
     <>
       <div className="space-y-3">
-        <PropertyRow id="role-role" label="Role" problem={problems.role}><Input {...field('role')} /></PropertyRow>
-        <PropertyRow id="role-company" label="Company" problem={problems.company}><Input {...field('company')} /></PropertyRow>
-        <PropertyRow id="role-location" label="Location"><Input {...field('location')} placeholder="Optional" /></PropertyRow>
-        <div className="flex items-center gap-2">
+        <PropertyRow id="role-role" label="Role" problem={problems.role}><Input className="max-md:h-11" {...field('role')} /></PropertyRow>
+        <PropertyRow id="role-company" label="Company" problem={problems.company}><Input className="max-md:h-11" {...field('company')} /></PropertyRow>
+        <PropertyRow id="role-location" label="Location"><Input className="max-md:h-11" {...field('location')} placeholder="Optional" /></PropertyRow>
+        <label htmlFor="role-remote" className="flex min-h-9 items-center gap-2 text-sm max-md:min-h-11">
           <Checkbox
             id="role-remote"
             checked={values.remote}
             onCheckedChange={checked => { set('remote', checked === true); commit() }}
           />
-          <label htmlFor="role-remote" className="text-sm">Remote</label>
-        </div>
+          Remote
+        </label>
         <div className="grid grid-cols-2 gap-3">
           <PropertyRow id="role-start" label="Start date" problem={problems.startDate}>
-            <Input id="role-start" type="date" value={values.startDate} onChange={e => set('startDate', e.target.value)} onBlur={commit} aria-invalid={problems.startDate ? true : undefined} />
+            <Input className="max-md:h-11" id="role-start" type="date" value={values.startDate} onChange={e => set('startDate', e.target.value)} onBlur={commit} aria-invalid={problems.startDate ? true : undefined} />
           </PropertyRow>
           <PropertyRow id="role-end" label="End date" problem={problems.endDate}>
-            <Input id="role-end" type="date" value={values.endDate} onChange={e => set('endDate', e.target.value)} onBlur={commit} aria-invalid={problems.endDate ? true : undefined} />
+            <Input className="max-md:h-11" id="role-end" type="date" value={values.endDate} onChange={e => set('endDate', e.target.value)} onBlur={commit} aria-invalid={problems.endDate ? true : undefined} />
           </PropertyRow>
         </div>
         <p className="text-xs text-muted-foreground">Leave the end date empty for a role you still hold.</p>
@@ -70,7 +70,7 @@ export function RoleProperties({ experience }: { experience: FullProfile['experi
       </div>
 
       <div className="border-t pt-4">
-        <Button variant="outline" size="sm" className="gap-1.5 text-destructive hover:text-destructive" onClick={() => setDeleteOpen(true)}>
+        <Button variant="outline" size="sm" className="gap-1.5 text-destructive hover:text-destructive max-md:h-11" onClick={() => setDeleteOpen(true)}>
           <Trash2 size={13} aria-hidden="true" />
           Delete this experience…
         </Button>

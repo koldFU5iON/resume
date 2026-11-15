@@ -127,7 +127,7 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
               <ul className="space-y-1.5">
                 {gaps.map((gap, i) => (
                   <li key={i} className="text-sm leading-6">
-                    <Link href={gap.href} className="text-muted-foreground underline-offset-2 hover:text-foreground hover:underline">
+                    <Link href={gap.href} className="flex min-h-9 items-center text-muted-foreground underline-offset-2 hover:text-foreground hover:underline max-md:min-h-11">
                       {gap.message}
                     </Link>
                   </li>
