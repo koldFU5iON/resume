@@ -17,7 +17,7 @@ type IndexProject = { id: string; name: string; experienceId: string | null }
 
 export type NoteIndex = {
   /** Newest first; each carries its projects, oldest first. */
-  experiences: { id: string; title: string; period: string; projects: { id: string; name: string }[] }[]
+  experiences: { id: string; title: string; role: string; company: string; period: string; projects: { id: string; name: string }[] }[]
   /** Projects with no role, by name. */
   projects: { id: string; name: string }[]
 }
@@ -31,6 +31,8 @@ export function buildNoteIndex(profile: { experiences: IndexExperience[]; projec
     .map((e) => ({
       id: e.id,
       title: `${e.role}, ${e.company}`,
+      role: e.role,
+      company: e.company,
       period: `${year(e.startDate)}–${e.endDate ? year(e.endDate) : 'now'}`,
       projects: profile.projects.filter((p) => p.experienceId === e.id).map((p) => ({ id: p.id, name: p.name })),
     }))

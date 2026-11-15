@@ -10,7 +10,7 @@ export default async function ProfileLayout({ children }: { children: React.Reac
   const profile = await getFullProfile()
   return (
     <div className="group/profile flex flex-1 flex-col min-[1100px]:min-h-0 min-[1100px]:flex-row">
-      <NotesNav index={buildNoteIndex(profile)} />
+      <NotesNav index={buildNoteIndex(profile)} profileId={profile.id} />
       {/* On a phone the open notes list replaces the document instead of pushing it down. */}
       <div className="flex min-w-0 flex-1 flex-col min-[1100px]:min-h-0 max-[1099px]:group-has-[[data-notes-open=true]]/profile:hidden">{children}</div>
     </div>

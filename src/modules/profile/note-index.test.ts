@@ -17,7 +17,7 @@ describe('buildNoteIndex', () => {
   it('lists roles newest first with their projects nested, and role-less projects by name', () => {
     const index = buildNoteIndex(profile)
     expect(index.experiences.map((e) => e.id)).toEqual(['new', 'old'])
-    expect(index.experiences[0]).toEqual({ id: 'new', title: 'Lead, Globex', period: '2019–now', projects: [{ id: 'p1', name: 'Launch' }] })
+    expect(index.experiences[0]).toEqual({ id: 'new', title: 'Lead, Globex', role: 'Lead', company: 'Globex', period: '2019–now', projects: [{ id: 'p1', name: 'Launch' }] })
     expect(index.experiences[1].period).toBe('2012–2015')
     expect(index.experiences[1].projects).toEqual([])
     expect(index.projects).toEqual([{ id: 'p3', name: 'Alpha' }, { id: 'p2', name: 'Zeta' }])
