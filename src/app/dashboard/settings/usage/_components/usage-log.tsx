@@ -29,11 +29,11 @@ function formatUsd(n: number): string {
 }
 
 const monthChartConfig = {
-  tokens: { label: 'Tokens', color: 'hsl(var(--chart-1))' },
+  tokens: { label: 'Tokens', color: 'var(--chart-1)' },
 } satisfies ChartConfig
 
 const featureChartConfig = {
-  tokens: { label: 'Tokens', color: 'hsl(var(--chart-2))' },
+  tokens: { label: 'Tokens', color: 'var(--chart-2)' },
 } satisfies ChartConfig
 
 export function UsageLog({ stats }: { stats: UserUsageSummary }) {

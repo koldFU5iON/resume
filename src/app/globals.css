@@ -51,81 +51,80 @@
 }
 
 :root {
-  --background: #FCFCFB;
-  --foreground: #17181B;
+  --background: #E3E9F0;
+  --foreground: #0F1825;
   --card: #FFFFFF;
-  --card-foreground: #17181B;
+  --card-foreground: #0F1825;
   --popover: #FFFFFF;
-  --popover-foreground: #17181B;
-  --primary: #207580;
+  --popover-foreground: #0F1825;
+  --primary: #1C5DA6;
   --primary-foreground: #FFFFFF;
-  --secondary: #F0F0EE;
-  --secondary-foreground: #17181B;
-  --muted: #F0F0EE;
-  --muted-foreground: #6B7177;
-  --accent: #F0F0EE;
-  --accent-foreground: #17181B;
-  --destructive: #C2333A;
-  --border: #E6E6E3;
-  --input: #E6E6E3;
-  --ring: #207580;
-  /* chart-* are placeholder greys — not yet themed; revisit when charts are added */
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
+  --secondary: #E0E7EF;
+  --secondary-foreground: #0F1825;
+  --muted: #E0E7EF;
+  --muted-foreground: #4A5869;
+  --accent: #DAE3EE;
+  --accent-foreground: #0F1825;
+  --destructive: #B22A33;
+  --border: #C5D0DC;
+  --input: #C5D0DC;
+  --ring: #1C5DA6;
+  --chart-1: #1C5DA6;
+  --chart-2: #4A86C8;
+  --chart-3: #7FA9D6;
+  --chart-4: #2F4A66;
+  --chart-5: #9AAABB;
   --radius: 0.5rem;
-  --sidebar: #F7F7F5;
-  --sidebar-foreground: #17181B;
-  --sidebar-primary: #207580;
-  --sidebar-primary-foreground: #FFFFFF;
-  --sidebar-accent: #F0F0EE;
-  --sidebar-accent-foreground: #17181B;
-  --sidebar-border: #E6E6E3;
-  --sidebar-ring: #207580;
+  --sidebar: #15202D;
+  --sidebar-foreground: #E6EDF5;
+  --sidebar-primary: #6DB1FF;
+  --sidebar-primary-foreground: #08131F;
+  --sidebar-accent: #26344A;
+  --sidebar-accent-foreground: #F2F6FA;
+  --sidebar-border: #22303F;
+  --sidebar-ring: #6DB1FF;
   /* status colors */
   --status-not-started: #64748b;
   --status-in-progress: #8b5cf6;
   --status-applied: #3b82f6;
-  --status-interviewing: #f59e0b;
-  --status-accepted: #22c55e;
+  --status-interviewing: #d97706;
+  --status-accepted: #16a34a;
   --status-rejected: #ef4444;
+  --sidebar-muted-foreground: #9BAABB;
 }
 
 .dark {
-  --background: #0E0F11;
-  --foreground: #ECEDEE;
-  --card: #17181B;
-  --card-foreground: #ECEDEE;
-  --popover: #17181B;
-  --popover-foreground: #ECEDEE;
-  --primary: #4FB3BF;
-  --primary-foreground: #0E0F11;
-  --secondary: #1E2024;
-  --secondary-foreground: #ECEDEE;
-  --muted: #1A1C1F;
-  --muted-foreground: #9BA1A6;
-  --accent: #1E2024;
-  --accent-foreground: #ECEDEE;
-  --destructive: #E5484D;
-  --border: #26282C;
-  --input: #26282C;
-  --ring: #4FB3BF;
-  /* chart-* are placeholder greys — not yet themed; revisit when charts are added */
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: #0B0C0E;
-  --sidebar-foreground: #ECEDEE;
-  --sidebar-primary: #4FB3BF;
-  --sidebar-primary-foreground: #0E0F11;
-  --sidebar-accent: #1E2024;
-  --sidebar-accent-foreground: #ECEDEE;
-  --sidebar-border: #26282C;
-  --sidebar-ring: #4FB3BF;
+  --background: #0D131B;
+  --foreground: #EFF4F9;
+  --card: #18212C;
+  --card-foreground: #EFF4F9;
+  --popover: #18212C;
+  --popover-foreground: #EFF4F9;
+  --primary: #6DB1FF;
+  --primary-foreground: #08131F;
+  --secondary: #1F2935;
+  --secondary-foreground: #EFF4F9;
+  --muted: #1F2935;
+  --muted-foreground: #A5B2C1;
+  --accent: #223040;
+  --accent-foreground: #EFF4F9;
+  --destructive: #FF6B72;
+  --border: #303C4B;
+  --input: #303C4B;
+  --ring: #6DB1FF;
+  --chart-1: #6DB1FF;
+  --chart-2: #3E7FCC;
+  --chart-3: #A9CFFF;
+  --chart-4: #8F9DAE;
+  --chart-5: #4F6176;
+  --sidebar: #080C12;
+  --sidebar-foreground: #E2E9F1;
+  --sidebar-primary: #6DB1FF;
+  --sidebar-primary-foreground: #08131F;
+  --sidebar-accent: #1D2836;
+  --sidebar-accent-foreground: #EFF4F9;
+  --sidebar-border: #1A2430;
+  --sidebar-ring: #6DB1FF;
   /* status colors */
   --status-not-started: #64748b;
   --status-in-progress: #8b5cf6;
@@ -133,6 +132,25 @@
   --status-interviewing: #f59e0b;
   --status-accepted: #22c55e;
   --status-rejected: #ef4444;
+  --sidebar-muted-foreground: #8F9DAE;
+}
+
+/* The sidebar is navy in both themes: re-map the general tokens inside it so
+   components that use text-muted-foreground, bg-accent, etc. stay readable.
+   Portaled menus/popovers render outside this subtree and keep paper tokens. */
+[data-slot="sidebar-inner"],
+[data-slot="sidebar"][data-mobile="true"] {
+  --foreground: var(--sidebar-foreground);
+  --muted-foreground: var(--sidebar-muted-foreground);
+  --muted: var(--sidebar-accent);
+  --accent: var(--sidebar-accent);
+  --accent-foreground: var(--sidebar-accent-foreground);
+  --border: var(--sidebar-border);
+  --input: var(--sidebar-border);
+  --background: var(--sidebar);
+  --primary: var(--sidebar-primary);
+  --primary-foreground: var(--sidebar-primary-foreground);
+  --ring: var(--sidebar-ring);
 }
 
 @layer base {

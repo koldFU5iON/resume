@@ -30,7 +30,7 @@ function CodeBlock({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="group/code relative my-2">
-      <pre className="overflow-x-auto rounded-md bg-black/10 p-2 pr-8 text-xs dark:bg-white/10">
+      <pre className="overflow-x-auto rounded-md bg-current/10 p-2 pr-8 text-xs">
         {children}
       </pre>
       <button
@@ -184,7 +184,7 @@ export function ChatMessage({ message, onToolOutput }: ChatMessageProps) {
                         li: ({ children }) => <li className="mb-0.5">{children}</li>,
                         strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
                         code: ({ children }) => (
-                          <code className="rounded bg-black/10 px-1 py-0.5 text-xs font-mono dark:bg-white/10">
+                          <code className="rounded bg-current/10 px-1 py-0.5 text-xs font-mono">
                             {children}
                           </code>
                         ),

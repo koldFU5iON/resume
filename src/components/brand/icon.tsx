@@ -29,7 +29,7 @@ export function CurrntIcon({
         </linearGradient>
         <filter id={glowId} x="-20%" y="-20%" width="140%" height="140%">
           <feGaussianBlur in="SourceAlpha" stdDeviation="1.8" result="blur" />
-          <feFlood floodColor="#4FB3BF" floodOpacity="0.4" result="color" />
+          <feFlood floodColor="#6DB1FF" floodOpacity="0.4" result="color" />
           <feComposite in="color" in2="blur" operator="in" result="glow" />
           <feMerge>
             <feMergeNode in="glow" />
