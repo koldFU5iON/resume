@@ -1,0 +1,175 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Colour Directions</title>
+<style>
+:root{--ink:var(--foreground,#1b1c1e);--sub:var(--muted-foreground,#5d6268);--line:var(--border,#dcdcd8);--chip:var(--card,#fff)}
+*{box-sizing:border-box}body{margin:0;font-size:14px;line-height:1.5}
+header.top{padding:0 0 8px}
+h1{font-size:22px;margin:0 0 4px;letter-spacing:-.01em}.lede{color:var(--sub);margin:0 0 16px;max-width:75ch}
+.picker{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px}
+.picker button{font:inherit;border:1px solid var(--line);background:var(--chip);color:var(--ink);border-radius:999px;padding:7px 14px;cursor:pointer;display:flex;gap:8px;align-items:center;min-height:36px}
+.picker button[aria-pressed=true]{outline:2px solid var(--ink);outline-offset:1px}
+.sw{display:inline-flex}.sw i{width:12px;height:12px;border-radius:50%;margin-left:-3px;border:1px solid rgba(0,0,0,.15)}
+.blurb{color:var(--sub);margin:4px 0 0;min-height:1.5em}
+main{padding:0 0 8px}
+.frames{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:1100px){.frames{grid-template-columns:1fr}}
+.label{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--sub);margin:16px 0 6px}
+/* ---- mock app, driven by --t-* vars ---- */
+.app{background:var(--t-bg);color:var(--t-fg);border-radius:12px;overflow:hidden;border:1px solid var(--line);display:grid;grid-template-columns:170px 1fr 230px;min-height:560px;font-size:13px}
+.side{background:var(--t-sidebar);border-right:1px solid var(--t-border);padding:12px 8px;display:flex;flex-direction:column;gap:2px}
+.brand{color:var(--t-sideFg);font-weight:650;padding:4px 8px 12px;display:flex;gap:8px;align-items:center}.brand b{width:18px;height:18px;border-radius:5px;background:var(--t-primary)}
+.nav{padding:6px 8px;border-radius:6px;color:var(--t-sideMuted)}.nav.on{background:var(--t-sideAccent);color:var(--t-sideFg);font-weight:550}
+.navh{font-size:11px;color:var(--t-sideMuted);padding:12px 8px 4px;text-transform:uppercase;letter-spacing:.05em}
+.jobrow{padding:6px 8px;border-radius:6px;display:flex;gap:6px;color:var(--t-sideMuted)}.jobrow.on{background:var(--t-sideAccent);color:var(--t-sideFg);box-shadow:inset 3px 0 0 var(--t-primary)}
+.center{display:flex;flex-direction:column;min-width:0}
+.bar{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--t-border)}
+.bar h2{font-size:15px;margin:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.btn{font:inherit;font-size:12px;border-radius:6px;padding:5px 10px;border:1px solid var(--t-border);background:var(--t-card);color:var(--t-fg);cursor:pointer}
+.btn.p{background:var(--t-primary);color:var(--t-primaryFg);border-color:transparent}
+.btn.x{color:var(--t-destructive);border-color:color-mix(in srgb,var(--t-destructive) 35%,transparent);background:transparent}
+.btn.f{outline:2px solid var(--t-ring);outline-offset:2px}
+.tabs{display:flex;gap:2px;padding:0 14px;border-bottom:1px solid var(--t-border)}
+.tab{padding:8px 10px;color:var(--t-mutedFg);border-bottom:2px solid transparent;margin-bottom:-1px}.tab.on{color:var(--t-fg);border-color:var(--t-primary);font-weight:550}
+.desk{flex:1;padding:18px;display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.paper{background:var(--t-card);border:1px solid var(--t-border);border-radius:8px;padding:16px 18px;box-shadow:0 1px 2px rgba(0,0,0,.05),0 6px 18px -8px rgba(0,0,0,.12)}
+.paper h3{margin:0 0 2px;font-size:15px}.paper .meta{color:var(--t-mutedFg);font-size:12px;margin-bottom:10px}
+.paper p{margin:0 0 8px;line-height:1.55}.paper ul{margin:0 0 8px;padding-left:18px}
+.paper a{color:var(--t-primary);text-decoration:underline;text-underline-offset:2px}
+.hl{background:color-mix(in srgb,var(--t-primary) 16%,transparent);border-radius:3px;padding:0 2px}
+.toolbar{display:flex;gap:4px;margin:-4px 0 12px;padding:4px;background:var(--t-muted);border-radius:6px;color:var(--t-mutedFg);font-size:12px}
+.toolbar span{padding:2px 7px;border-radius:4px}.toolbar .on{background:var(--t-card);color:var(--t-fg)}
+.code{font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--t-muted);color:var(--t-fg);border-radius:6px;padding:8px 10px;margin-top:8px}
+.code .k{color:var(--t-primary)}.code .c{color:var(--t-mutedFg)}
+.coach{border-left:1px solid var(--t-border);background:var(--t-rail);display:flex;flex-direction:column}
+.coach .hd{padding:10px 12px;border-bottom:1px solid var(--t-border);font-weight:600}
+.msgs{flex:1;padding:12px;display:flex;flex-direction:column;gap:8px}
+.m{padding:8px 10px;border-radius:10px;max-width:92%;line-height:1.45}
+.m.u{align-self:flex-end;background:var(--t-primary);color:var(--t-primaryFg);border-bottom-right-radius:3px}
+.m.a{background:var(--t-card);border:1px solid var(--t-border);border-bottom-left-radius:3px}
+.m small{display:block;color:var(--t-mutedFg);margin-top:4px}
+.input{margin:10px 12px 12px;border:1px solid var(--t-border);background:var(--t-card);border-radius:8px;padding:8px 10px;color:var(--t-mutedFg)}
+.pill{font-size:11px;padding:1px 8px;border-radius:999px;white-space:nowrap;font-weight:550}
+.pills{display:flex;flex-wrap:wrap;gap:4px;margin-top:10px}
+.alert{margin-top:10px;font-size:12px;border-radius:6px;padding:8px 10px;border:1px solid color-mix(in srgb,var(--t-destructive) 35%,transparent);background:color-mix(in srgb,var(--t-destructive) 8%,transparent)}
+.alert b{color:var(--t-destructive)}
+@media (max-width:1000px){.bar{flex-wrap:wrap}.bar h2{flex-basis:100%;white-space:normal}.app{grid-template-columns:150px 1fr 200px}.desk{grid-template-columns:1fr;padding:12px}}
+@media (max-width:560px){.app{grid-template-columns:1fr}.side,.coach{display:none}.desk{grid-template-columns:1fr}}
+/* ---- token tables ---- */
+.tables{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:8px}@media (max-width:1100px){.tables{grid-template-columns:1fr}}
+table{width:100%;border-collapse:collapse;background:var(--chip);border:1px solid var(--line);border-radius:10px;overflow:hidden;font-size:13px}
+th,td{text-align:left;padding:6px 10px;border-bottom:1px solid var(--line)}th{font-weight:600;color:var(--sub);font-size:12px}
+td.r{font-variant-numeric:tabular-nums;white-space:nowrap}.ok{color:var(--success,#2c8a4b)}.bad{color:var(--destructive,#c4383e);font-weight:650}
+.chip{display:inline-block;width:14px;height:14px;border-radius:3px;vertical-align:-2px;margin-right:4px;border:1px solid rgba(127,127,127,.4)}
+.map{margin-top:16px}.map td code{font-size:12px}
+.compare{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px;margin-top:8px}
+.mini{border-radius:10px;overflow:hidden;border:1px solid var(--line);cursor:pointer;background:none;padding:0;font:inherit;text-align:left;color:inherit}
+.mini .half{display:grid;grid-template-columns:1fr 1fr}
+.mini .s{padding:12px;min-height:84px;background:var(--t-bg)}
+.mini .s div{background:var(--t-card);border:1px solid var(--t-border);border-radius:5px;padding:6px 8px;color:var(--t-fg);font-size:12px}
+.mini .s div span{display:block;color:var(--t-mutedFg);font-size:11px}.mini .s div i{display:inline-block;margin-top:4px;width:28px;height:6px;border-radius:3px;background:var(--t-primary)}
+.mini .n{padding:6px 10px;font-weight:600;font-size:13px;background:var(--chip)}
+</style></head><body>
+<header class="top">
+<h1>Colour directions for #372</h1>
+<p class="lede">Softer and bolder palettes compared with today's, each in light and dark, on a job workspace: sidebar, job description, CV page and Coach. The document sits on a tinted desk so the page stands out (#298). Contrast is checked live against WCAG AA.</p>
+<div class="label">At a glance (click to open)</div>
+<div class="compare" id="compare"></div>
+<div class="label">Direction</div>
+<div class="picker" id="picker" role="group" aria-label="Palette"></div>
+<p class="blurb" id="blurb"></p>
+</header>
+<main>
+<div class="frames"><div><div class="label">Light</div><div id="fl"></div></div><div><div class="label">Dark</div><div id="fd"></div></div></div>
+<div class="label">Contrast checks</div>
+<div class="tables"><div id="tl"></div><div id="td"></div></div>
+<div class="label">Token mapping (shadcn variable ← palette role)</div>
+<div id="map" class="map"></div>
+</main>
+<script>
+// Palette candidates for #372. Each has light (l) and dark (d) token sets.
+const PALETTES0 = {
+  current: {
+    name: "Current",
+    blurb: "Today's tokens: near-white and near-black neutrals with a teal accent.",
+    l: { bg:"#FCFCFB", card:"#FFFFFF", sidebar:"#F7F7F5", fg:"#17181B", muted:"#F0F0EE", mutedFg:"#6B7177", border:"#E6E6E3", accent:"#F0F0EE", primary:"#207580", primaryFg:"#FFFFFF", destructive:"#C2333A", ring:"#207580" },
+    d: { bg:"#0E0F11", card:"#17181B", sidebar:"#0B0C0E", fg:"#ECEDEE", muted:"#1A1C1F", mutedFg:"#9BA1A6", border:"#26282C", accent:"#1E2024", primary:"#4FB3BF", primaryFg:"#0E0F11", destructive:"#E5484D", ring:"#4FB3BF" },
+  },
+  paper: {
+    name: "Paper & Ink",
+    blurb: "Warm stone desk with cream paper. The document reads as a page on a desk (#298). Teal deepened slightly.",
+    l: { bg:"#F3F0E9", card:"#FFFDF8", sidebar:"#ECE8DE", fg:"#23201B", muted:"#E9E4D9", mutedFg:"#655D52", border:"#DCD5C6", accent:"#E8E2D5", primary:"#1D6B6B", primaryFg:"#FFFFFF", destructive:"#B0382E", ring:"#1D6B6B" },
+    d: { bg:"#1C1B18", card:"#26241F", sidebar:"#171613", fg:"#ECE6DB", muted:"#2D2A25", mutedFg:"#A69E91", border:"#3A362F", accent:"#322F29", primary:"#72C0B6", primaryFg:"#132220", destructive:"#E66E61", ring:"#72C0B6" },
+  },
+  slate: {
+    name: "Slate Mist",
+    blurb: "Cool blue-grey neutrals with a steel-blue accent. Calm and technical, and closest to today's feel.",
+    l: { bg:"#F1F4F7", card:"#FFFFFF", sidebar:"#E8EDF2", fg:"#1A2330", muted:"#E6EBF0", mutedFg:"#586575", border:"#D5DDE5", accent:"#E3EAF1", primary:"#2B6788", primaryFg:"#FFFFFF", destructive:"#B5373D", ring:"#2B6788" },
+    d: { bg:"#141A22", card:"#1B232E", sidebar:"#10151C", fg:"#DCE3EB", muted:"#222B37", mutedFg:"#95A2B1", border:"#2C3644", accent:"#253141", primary:"#7DB6D6", primaryFg:"#0F1A22", destructive:"#EA6D71", ring:"#7DB6D6" },
+  },
+  paperBold: {
+    name: "Paper & Ink, bold",
+    blurb: "Deeper desk and darker ink. An ink-black sidebar frames the page in light mode, and the teal is deeper and richer. Dark mode gets brighter text and a vivid teal.",
+    l: { bg:"#E9E2D3", card:"#FFFCF4", sidebar:"#201D18", sideFg:"#F1EBDF", sideMuted:"#B3AA9B", sideAccent:"#36312A", rail:"#F2EDE2", fg:"#1A1712", muted:"#E6DFD0", mutedFg:"#5B5246", border:"#CFC6B4", accent:"#E2DACA", primary:"#0E5F5D", primaryFg:"#FFFFFF", destructive:"#A8301F", ring:"#0E5F5D" },
+    d: { bg:"#141310", card:"#23201A", sidebar:"#0C0B09", sideFg:"#EFE8DC", sideMuted:"#A49B89", sideAccent:"#2A2620", rail:"#1A1915", fg:"#F6F0E5", muted:"#2B2721", mutedFg:"#B3AA99", border:"#433D33", accent:"#302C25", primary:"#4FD1C1", primaryFg:"#0B1A18", destructive:"#FF7466", ring:"#4FD1C1" },
+  },
+  slateBold: {
+    name: "Slate, bold",
+    blurb: "Navy sidebar, cool blue-grey desk and crisp white paper, with a confident blue accent. A sharper, more 'product' feel.",
+    l: { bg:"#E3E9F0", card:"#FFFFFF", sidebar:"#15202D", sideFg:"#E6EDF5", sideMuted:"#9BAABB", sideAccent:"#26344A", rail:"#EEF2F7", fg:"#0F1825", muted:"#E0E7EF", mutedFg:"#4A5869", border:"#C5D0DC", accent:"#DAE3EE", primary:"#1C5DA6", primaryFg:"#FFFFFF", destructive:"#B22A33", ring:"#1C5DA6" },
+    d: { bg:"#0D131B", card:"#18212C", sidebar:"#080C12", sideFg:"#E2E9F1", sideMuted:"#8F9DAE", sideAccent:"#1D2836", rail:"#111922", fg:"#EFF4F9", muted:"#1F2935", mutedFg:"#A5B2C1", border:"#303C4B", accent:"#223040", primary:"#6DB1FF", primaryFg:"#08131F", destructive:"#FF6B72", ring:"#6DB1FF" },
+  },
+};
+const ORDER=["current","paper","paperBold","slate","slateBold"];
+const PALETTES={};for(const k of ORDER){const p=PALETTES0[k];for(const m of ["l","d"]){const t=p[m];t.sideFg??=t.fg;t.sideMuted??=t.mutedFg;t.sideAccent??=t.accent;t.rail??=t.sidebar}PALETTES[k]=p}
+// Pairs checked for WCAG: [label, fg token, bg token, minimum]
+const CHECKS = [
+  ["Body text on desk", "fg", "bg", 4.5],
+  ["Body text on paper", "fg", "card", 4.5],
+  ["Muted text on desk", "mutedFg", "bg", 4.5],
+  ["Muted text on paper", "mutedFg", "card", 4.5],
+  ["Muted text on muted", "mutedFg", "muted", 4.5],
+  ["Button label on primary", "primaryFg", "primary", 4.5],
+  ["Primary as link on paper", "primary", "card", 4.5],
+  ["Destructive text on paper", "destructive", "card", 4.5],
+  ["Sidebar text","sideFg","sidebar",4.5],
+  ["Sidebar muted text","sideMuted","sidebar",4.5],
+  ["Focus ring on desk", "ring", "bg", 3],
+  ["Paper vs desk (separation)", "card", "bg", 1.04],
+];
+function lum(hex){const c=hex.replace('#','').match(/../g).map(h=>{let v=parseInt(h,16)/255;return v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4)});return 0.2126*c[0]+0.7152*c[1]+0.0722*c[2]}
+function ratio(a,b){const x=lum(a),y=lum(b);return (Math.max(x,y)+0.05)/(Math.min(x,y)+0.05)}
+const STATUS={
+ l:[["Not started","#E8EAED","#475160"],["In progress","#EEE8FB","#5B3FA8"],["Applied","#E3EDFB","#24569E"],["Interviewing","#FBF0DC","#8A5A06"],["Accepted","#E1F3E6","#246B3C"],["Rejected","#FBE5E5","#A3302F"]],
+ d:[["Not started","#2A2F37","#B8C0CC"],["In progress","#2F2645","#C7B5F5"],["Applied","#1F2C42","#A9C8F2"],["Interviewing","#3A2E17","#EEC77A"],["Accepted","#1D3324","#94D9A9"],["Rejected","#3D2121","#F3A6A4"]]};
+const MAP=[["--background","bg","App background; the desk behind documents"],["--card / --popover","card","Paper: documents, cards, dialogs"],["--sidebar","sidebar","Sidebar"],["--sidebar-foreground","sideFg","Sidebar text"],["--sidebar-accent","sideAccent","Selected sidebar item"],["--foreground","fg","Body text"],["--muted / --secondary","muted","Toolbars, code, quiet fills"],["--muted-foreground","mutedFg","Secondary text and metadata"],["--accent","accent","Hover and selected nav"],["--border / --input","border","Hairlines and inputs"],["--primary / --ring","primary","Actions, links, active tab, focus"],["--destructive","destructive","Archive, delete, errors"]];
+function vars(t){return Object.entries(t).map(([k,v])=>`--t-${k}:${v}`).join(';')}
+function pills(m){return STATUS[m].map(([n,b,f])=>`<span class="pill" style="background:${b};color:${f}">${n}</span>`).join('')}
+function app(t,m){return `<div class="app" style="${vars(t)}">
+<aside class="side"><div class="brand"><b></b>Workspace</div>
+<div class="nav">Dashboard</div><div class="nav on">Applications</div><div class="nav">Profile</div><div class="nav">Settings</div>
+<div class="navh">Jobs</div><div class="jobrow on"><span>Senior PM · Lumen</span></div><div class="jobrow"><span>Product Lead · Arcwise</span></div><div class="jobrow"><span>Group PM · Northfold</span></div></aside>
+<section class="center"><div class="bar"><h2>Senior Product Manager, Lumen Health</h2><span class="pill" style="background:${STATUS[m][3][1]};color:${STATUS[m][3][2]}">Interviewing</span><button class="btn x">Archive</button><button class="btn f">Tailor CV</button><button class="btn p">Generate</button></div>
+<div class="tabs"><div class="tab">Description</div><div class="tab on">CV</div><div class="tab">Cover letter</div><div class="tab">Prep</div></div>
+<div class="desk"><article class="paper"><h3>Job description</h3><div class="meta">lumenhealth.com · captured 2 days ago</div>
+<p>You'll own the <span class="hl">patient onboarding</span> roadmap and work with design and clinical teams to cut time-to-first-visit.</p>
+<ul><li>5+ years in B2C product</li><li>Experience with <span class="hl">experimentation</span> at scale</li></ul>
+<p><a>View original posting</a></p><div class="pills">${pills(m)}</div></article>
+<article class="paper"><div class="toolbar"><span class="on">Markdown</span><span>Preview</span><span>Outline</span></div><h3>Alex Morgan</h3><div class="meta">Product Manager · London</div>
+<p><strong>Lead PM, Brightpath</strong>: shipped a guided onboarding that lifted activation 18% across 2.1M users.</p>
+<div class="code"><span class="c">## Highlights</span><br><span class="k">-</span> Ran 40+ A/B tests a quarter<br><span class="k">-</span> Cut churn 9% in 6 months</div>
+<div class="alert"><b>Unsaved changes.</b> Your last edit couldn't be saved. Retry</div></article></div></section>
+<aside class="coach"><div class="hd">Coach</div><div class="msgs"><div class="m u">What's my strongest angle for this role?</div>
+<div class="m a">Lead with the Brightpath onboarding result. It maps directly to "time-to-first-visit".<small>Using: CV, job description</small></div></div><div class="input">Ask the Coach…</div></aside></div>`}
+function table(t,title){return `<table><tr><th>${title}</th><th>Ratio</th><th>Need</th></tr>`+CHECKS.map(([l,a,b,min])=>{const r=ratio(t[a],t[b]);return `<tr><td><span class="chip" style="background:${t[a]}"></span><span class="chip" style="background:${t[b]}"></span>${l}</td><td class="r ${r>=min?'ok':'bad'}">${r.toFixed(2)}:1 ${r>=min?'✓':'✗'}</td><td class="r">${min===1.04?'visible':min+':1'}</td></tr>`}).join('')+`</table>`}
+function mapTable(p){return `<table><tr><th>Variable</th><th>Light</th><th>Dark</th><th>Used for</th></tr>`+MAP.map(([v,k,u])=>`<tr><td><code>${v}</code></td><td><span class="chip" style="background:${p.l[k]}"></span><code>${p.l[k]}</code></td><td><span class="chip" style="background:${p.d[k]}"></span><code>${p.d[k]}</code></td><td>${u}</td></tr>`).join('')+`</table>`}
+function show(key){const p=PALETTES[key];
+ document.getElementById('fl').innerHTML=app(p.l,'l');document.getElementById('fd').innerHTML=app(p.d,'d');
+ document.getElementById('tl').innerHTML=table(p.l,p.name+', light');document.getElementById('td').innerHTML=table(p.d,p.name+', dark');
+ document.getElementById('map').innerHTML=mapTable(p);document.getElementById('blurb').textContent=p.blurb;
+ document.querySelectorAll('#picker button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.k===key));
+ }
+document.getElementById('picker').innerHTML=Object.entries(PALETTES).map(([k,p])=>`<button data-k="${k}" aria-pressed="false"><span class="sw"><i style="background:${p.l.bg}"></i><i style="background:${p.l.primary}"></i><i style="background:${p.d.bg}"></i><i style="background:${p.d.primary}"></i></span>${p.name}</button>`).join('');
+document.getElementById('compare').innerHTML=Object.entries(PALETTES).map(([k,p])=>`<button class="mini" data-k="${k}"><div class="half">${['l','d'].map(m=>`<div class="s" style="${vars(p[m])}"><div>Senior PM<span>Lumen Health</span><i></i></div></div>`).join('')}</div><div class="n">${p.name}</div></button>`).join('');
+document.querySelectorAll('[data-k]').forEach(b=>b.onclick=()=>show(b.dataset.k));
+let start='paperBold';show(PALETTES[start]?start:'paperBold');
+</script></body></html>

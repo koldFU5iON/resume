@@ -378,7 +378,7 @@ export function CvEditor({ cv, stale = false }: Props) {
 
         {/* Body */}
         <div className="relative flex flex-1 overflow-hidden print:overflow-visible print:h-auto print:block">
-          <div className="relative flex-1 overflow-y-auto bg-muted/30 p-0 md:p-6 print:overflow-visible print:h-auto print:bg-white print:p-0">
+          <div className="relative flex-1 overflow-y-auto bg-background p-0 md:p-6 print:overflow-visible print:h-auto print:bg-white print:p-0">
             {stale && !isRegenerating && (
               <div className="mb-4 flex items-center justify-between gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 md:mt-0 print:hidden">
                 <p className="text-sm text-amber-700 dark:text-amber-400">
