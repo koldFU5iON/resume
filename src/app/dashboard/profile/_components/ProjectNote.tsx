@@ -1,26 +1,34 @@
 'use client'
 
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import type { FullProfile } from '@/app/types/profile'
+import type { PendingSuggestion } from '@/modules/profile-map/link-store'
+import type { NoteCapabilityLink } from '@/modules/profile-map/note-links'
 import { getNoteLiveState, updateProjectNotes } from '@/modules/profile/actions'
-import { noteHref, overviewHref } from '@/modules/profile/note-index'
+import { noteHref } from '@/modules/profile/note-index'
 import { NoteEditor } from './NoteEditor'
 import { NoteFrame } from './NoteFrame'
-import { ProjectDetails } from './ProjectBlock'
+import { DetailsTabs } from './DetailsTabs'
+import { ProjectProperties } from './ProjectProperties'
+import { EvidencePanel } from './EvidencePanel'
+import { NoteLinksPanel } from './NoteLinksPanel'
 
 /**
  * A project as a note: its name as the title (with the role it belongs to,
- * if any), its Markdown note as the document, and its card, with the edit
- * dialog, in the details region.
+ * if any), its Markdown note as the document, and Properties, Evidence and
+ * Links in the details region.
  */
-export function ProjectNote({ project, parent, hasLLMKey }: {
+export function ProjectNote({ project, parent, roles, skills, links, pending }: {
   project: FullProfile['projects'][number]
   /** The role this project belongs to. */
   parent: { id: string; title: string } | null
-  hasLLMKey: boolean
+  /** Every role the project could be moved to. */
+  roles: { id: string; label: string }[]
+  skills: { id: string; name: string }[]
+  links: NoteCapabilityLink[]
+  pending: PendingSuggestion[]
 }) {
-  const router = useRouter()
+  const activities = project.activities ?? []
 
   return (
     <NoteFrame
@@ -36,13 +44,18 @@ export function ProjectNote({ project, parent, hasLLMKey }: {
         </div>
       }
       details={
-        <ProjectDetails
-          project={project}
-          hasLLMKey={hasLLMKey}
-          onDeleted={() => {
-            router.push(parent ? noteHref(parent.id) : overviewHref())
-            router.refresh()
-          }}
+        <DetailsTabs
+          label="Project details"
+          tabs={[
+            { id: 'properties', label: 'Properties', panel: <ProjectProperties key={project.id} project={project} roles={roles} /> },
+            {
+              id: 'evidence',
+              label: 'Evidence',
+              count: String(activities.length),
+              panel: <EvidencePanel key={project.id} owner={{ projectId: project.id }} activities={activities} skills={skills} />,
+            },
+            { id: 'links', label: 'Links', count: `${links.length} · ${pending.length}`, panel: <NoteLinksPanel capabilities={links} pending={pending} /> },
+          ]}
         />
       }
       detailsLabel="Project details"

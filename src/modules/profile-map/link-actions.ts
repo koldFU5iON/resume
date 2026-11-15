@@ -24,7 +24,7 @@ export async function suggestEvidenceLinksAction(): Promise<
   const { profile } = await requireProfile()
   try {
     const result = await suggestLinks(profile.id)
-    revalidatePath(PROFILE_PAGE)
+    revalidatePath(PROFILE_PAGE, 'layout')
     return { ok: true, ...result }
   } catch (err) {
     if (err instanceof LLMError) return { ok: false, error: err.kind, message: err.message }
@@ -35,20 +35,20 @@ export async function suggestEvidenceLinksAction(): Promise<
 export async function confirmEvidenceLinksAction(pairs: LinkPair[]): Promise<number> {
   const { profile } = await requireProfile()
   const count = await confirmLinks(profile.id, pairs.slice(0, 500))
-  revalidatePath(PROFILE_PAGE)
+  revalidatePath(PROFILE_PAGE, 'layout')
   return count
 }
 
 export async function rejectEvidenceLinksAction(pairs: LinkPair[]): Promise<number> {
   const { profile } = await requireProfile()
   const count = await rejectLinks(profile.id, pairs.slice(0, 500))
-  revalidatePath(PROFILE_PAGE)
+  revalidatePath(PROFILE_PAGE, 'layout')
   return count
 }
 
 export async function addCapabilityWithEvidenceAction(input: { name: string; kind: CapabilityKind; evidenceIds: string[] }) {
   const { profile } = await requireProfile()
   const result = await addCapabilityWithEvidence(profile.id, { ...input, evidenceIds: input.evidenceIds.slice(0, 50) })
-  revalidatePath(PROFILE_PAGE)
+  revalidatePath(PROFILE_PAGE, 'layout')
   return result
 }

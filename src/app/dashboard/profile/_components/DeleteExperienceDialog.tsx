@@ -1,7 +1,6 @@
 'use client'
 
-import { useEffect, useState, type FormEvent } from 'react'
-import { Checkbox } from '@/components/ui/checkbox'
+import { useEffect, useState } from 'react'
 import {
   Dialog,
   DialogClose,
@@ -11,134 +10,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Field, FieldGroup } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
-import { deleteExperience, getExperienceDeleteImpact, updateExperienceDetails } from '@/modules/profile/actions'
+import { deleteExperience, getExperienceDeleteImpact } from '@/modules/profile/actions'
 import type { ExperienceWithActivities } from '@/app/types/profile'
-
-type EditData = {
-  company: string
-  role: string
-  location?: string
-  remote: boolean
-  startDate: Date
-  endDate?: Date
-}
-
-const toInputDate = (d: Date | null | undefined) =>
-  d ? new Date(d).toISOString().split('T')[0] : ''
-
-export function EditExperienceDialog({
-  experience,
-  open,
-  onOpenChange,
-  onSaved,
-}: {
-  experience: ExperienceWithActivities
-  open: boolean
-  onOpenChange: (o: boolean) => void
-  onSaved: (data: EditData) => void
-}) {
-  const [remote, setRemote] = useState(experience.remote)
-  const [saving, setSaving] = useState(false)
-
-  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    const fd = new FormData(e.currentTarget)
-    const endDateStr = fd.get('endDate') as string
-    const data: EditData = {
-      company: fd.get('company') as string,
-      role: fd.get('role') as string,
-      location: (fd.get('location') as string) || undefined,
-      remote,
-      startDate: new Date(fd.get('startDate') as string),
-      endDate: endDateStr ? new Date(endDateStr) : undefined,
-    }
-    setSaving(true)
-    try {
-      await updateExperienceDetails(experience.id, data)
-      onSaved(data)
-      onOpenChange(false)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Edit Experience</DialogTitle>
-          <DialogDescription>Update the details for this role.</DialogDescription>
-        </DialogHeader>
-        <form onSubmit={handleSubmit}>
-          <FieldGroup>
-            <div className="grid grid-cols-2 gap-3">
-              <Field>
-                <Label htmlFor="edit-company">Company</Label>
-                <Input id="edit-company" name="company" required defaultValue={experience.company} />
-              </Field>
-              <Field>
-                <Label htmlFor="edit-role">Role / Title</Label>
-                <Input id="edit-role" name="role" required defaultValue={experience.role} />
-              </Field>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <Field>
-                <Label htmlFor="edit-location">Location</Label>
-                <Input
-                  id="edit-location"
-                  name="location"
-                  placeholder="City, Country"
-                  defaultValue={experience.location ?? ''}
-                />
-              </Field>
-              <Field>
-                <div className="mt-6 flex items-center gap-2">
-                  <Checkbox
-                    id="edit-remote"
-                    checked={remote}
-                    onCheckedChange={checked => setRemote(!!checked)}
-                  />
-                  <Label htmlFor="edit-remote">Remote position</Label>
-                </div>
-              </Field>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <Field>
-                <Label htmlFor="edit-start">Start Date</Label>
-                <Input
-                  id="edit-start"
-                  name="startDate"
-                  type="date"
-                  required
-                  defaultValue={toInputDate(experience.startDate)}
-                />
-              </Field>
-              <Field>
-                <Label htmlFor="edit-end">End Date</Label>
-                <Input
-                  id="edit-end"
-                  name="endDate"
-                  type="date"
-                  defaultValue={toInputDate(experience.endDate)}
-                />
-              </Field>
-            </div>
-          </FieldGroup>
-          <DialogFooter className="mt-4">
-            <DialogClose render={<Button type="button" variant="secondary">Cancel</Button>} />
-            <Button type="submit" disabled={saving}>
-              {saving ? 'Saving…' : 'Save changes'}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  )
-}
 
 type DeleteImpact = Awaited<ReturnType<typeof getExperienceDeleteImpact>>
 

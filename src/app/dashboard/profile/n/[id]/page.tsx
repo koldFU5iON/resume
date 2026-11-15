@@ -6,6 +6,9 @@ import { requireProfile } from '@/lib/session'
 import { buildProfileSummary } from '@/lib/profile-summary'
 import { loadVault } from '@/modules/profile-map/load'
 import { profileMap } from '@/modules/profile-map/map'
+import { notesOf } from '@/modules/profile-map/build'
+import { listPendingSuggestions } from '@/modules/profile-map/link-store'
+import { noteCapabilityLinks } from '@/modules/profile-map/note-links'
 import { areaHref, findNote, vaultNoteHref } from '@/modules/profile/note-index'
 import { ProfileCoachContext } from '../../_components/ProfileCoachContext'
 import { ExperienceNote } from '../../_components/ExperienceNote'
@@ -14,6 +17,7 @@ import { NoteFrame } from '../../_components/NoteFrame'
 import { ProfileHeader } from '../../_components/ProfileHeader'
 import { ProfileSummaryCard } from '../../_components/ProfileSummaryCard'
 import { ContactBlock } from '../../_components/Contact'
+import { EvidenceLinksSection, type EvidenceLinkStats } from '../../_components/EvidenceLinksSection'
 
 export default async function NotePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -23,24 +27,35 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
   if (!note) notFound()
   const profileSummary = buildProfileSummary(profile)
 
-  if (note.kind === 'experience') {
-    const experience = profile.experiences.find(e => e.id === note.id)!
-    return (
-      <>
-        <ProfileCoachContext
-          profileSummary={profileSummary}
-          activeExperienceId={experience.id}
-          activeExperienceName={`${experience.role} at ${experience.company}`}
-        />
-        <ExperienceNote experience={experience} skills={profile.skills.map(s => ({ id: s.id, name: s.name }))} />
-      </>
-    )
-  }
+  if (note.kind === 'experience' || note.kind === 'project') {
+    const [vault, allPending] = await Promise.all([loadVault(session.id), listPendingSuggestions(session.id)])
+    const links = noteCapabilityLinks(vault, note.id)
+    const evidenceIds = new Set(links?.evidenceIds ?? [])
+    const pending = allPending.filter(s => evidenceIds.has(s.evidenceId))
+    const skills = profile.skills.map(s => ({ id: s.id, name: s.name }))
 
-  if (note.kind === 'project') {
+    if (note.kind === 'experience') {
+      const experience = profile.experiences.find(e => e.id === note.id)!
+      return (
+        <>
+          <ProfileCoachContext
+            profileSummary={profileSummary}
+            activeExperienceId={experience.id}
+            activeExperienceName={`${experience.role} at ${experience.company}`}
+          />
+          <ExperienceNote
+            experience={experience}
+            skills={skills}
+            projects={profile.projects.filter(p => p.experienceId === experience.id)}
+            links={links?.capabilities ?? []}
+            pending={pending}
+          />
+        </>
+      )
+    }
+
     const project = profile.projects.find(p => p.id === note.id)!
     const role = note.experienceId ? profile.experiences.find(e => e.id === note.experienceId) : undefined
-    const { configured: hasLLMKey } = await getLLMConfigStatus(session.id)
     return (
       <>
         <ProfileCoachContext
@@ -51,7 +66,10 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
         <ProjectNote
           project={project}
           parent={role ? { id: role.id, title: `${role.role}, ${role.company}` } : null}
-          hasLLMKey={hasLLMKey}
+          roles={profile.experiences.map(e => ({ id: e.id, label: `${e.role}, ${e.company}` }))}
+          skills={skills}
+          links={links?.capabilities ?? []}
+          pending={pending}
         />
       </>
     )
@@ -63,7 +81,14 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
     const target = gap.noteId ? vault.notes.get(gap.noteId) : undefined
     return { message: gap.message, href: target ? vaultNoteHref(target) : areaHref(gap.area) }
   })
-  const { configured: hasLLMKey } = await getLLMConfigStatus(session.id)
+  const [{ configured: hasLLMKey }, pending] = await Promise.all([getLLMConfigStatus(session.id), listPendingSuggestions(session.id)])
+  const capabilities = notesOf(vault, 'capability')
+  const linkStats: EvidenceLinkStats = {
+    total: capabilities.length,
+    proven: capabilities.filter(c => c.props.status === 'proven').length,
+    certified: capabilities.filter(c => c.props.status === 'certified').length,
+    claimed: capabilities.filter(c => c.props.status === 'claimed').length,
+  }
 
   return (
     <>
@@ -71,7 +96,7 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
       <NoteFrame
         header={<h1 className="px-4 py-4 text-xl font-semibold leading-tight sm:px-6">Overview</h1>}
         details={
-          <>
+          <div className="space-y-4 p-4">
             <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/70">Contact</h2>
             <ContactBlock
               contact={{
@@ -83,7 +108,7 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
                 location: profile.location ?? undefined,
               }}
             />
-          </>
+          </div>
         }
         detailsLabel="Contact"
       >
@@ -92,6 +117,9 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
           <section aria-labelledby="overview-summary" className="space-y-2">
             <h2 id="overview-summary" className="text-sm font-semibold">Summary</h2>
             <ProfileSummaryCard initialSummary={profile.summary} hasLLMKey={hasLLMKey} />
+          </section>
+          <section aria-label="Evidence links">
+            <EvidenceLinksSection stats={linkStats} pending={pending} hasLLMKey={hasLLMKey} />
           </section>
           {gaps.length > 0 && (
             <section aria-labelledby="overview-questions" className="space-y-2">

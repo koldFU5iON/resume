@@ -2,11 +2,12 @@
 // (which imports the db client) so build.ts and its tests stay pure.
 
 import type { Prisma } from '@prisma/client'
+import { ACTIVITY_ORDER } from '@/modules/profile/activity-order'
 
 // Evidence owned by a role or a project. Stored link decisions: confirmed,
 // suggested (ignored here) or rejected.
 const ACTIVITIES_INCLUDE = {
-  orderBy: [{ highlighted: 'desc' }, { order: 'asc' }],
+  orderBy: ACTIVITY_ORDER,
   include: { skills: { select: { skillId: true, status: true } } },
 } satisfies Prisma.Experience$activitiesArgs
 

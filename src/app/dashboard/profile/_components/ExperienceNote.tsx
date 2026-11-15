@@ -1,92 +1,82 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 import type { FullProfile } from '@/app/types/profile'
+import type { PendingSuggestion } from '@/modules/profile-map/link-store'
+import type { NoteCapabilityLink } from '@/modules/profile-map/note-links'
 import { getNoteLiveState, updateExperienceNotes } from '@/modules/profile/actions'
-import { overviewHref } from '@/modules/profile/note-index'
 import { NoteEditor } from './NoteEditor'
 import { NoteFrame } from './NoteFrame'
-import { ExperienceFrontmatter } from './ExperienceFrontmatter'
-import { ActivitiesTray } from './ActivitiesTray'
-import { ExtractionPanel } from './ExtractionPanel'
-import { EditExperienceDialog, DeleteExperienceDialog } from './ExperienceManageDialogs'
+import { DetailsTabs } from './DetailsTabs'
+import { RoleProperties } from './RoleProperties'
+import { EvidencePanel } from './EvidencePanel'
+import { NoteLinksPanel } from './NoteLinksPanel'
 
-type ExperienceRow = FullProfile['experiences'][number]
+const month = (d: Date | string) => new Date(d).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })
 
 /**
- * A role as a note: its title and key facts above, its Markdown note as the
- * document, and its evidence and extraction in the details region. The edit
- * and delete dialogs are the ones the profile page has always had.
+ * A role as a note: its title and period above, its Markdown note as the
+ * document, and Properties, Evidence and Links in the details region.
  */
-export function ExperienceNote({ experience, skills }: {
-  experience: ExperienceRow
+export function ExperienceNote({ experience, skills, projects, links, pending }: {
+  experience: FullProfile['experiences'][number]
   skills: { id: string; name: string }[]
+  /** The role's projects, whose evidence shows under the role's own. */
+  projects: FullProfile['projects']
+  links: NoteCapabilityLink[]
+  /** Suggested links on this role's evidence and its projects'. */
+  pending: PendingSuggestion[]
 }) {
-  const router = useRouter()
-  const [editOpen, setEditOpen] = useState(false)
-  const [deleteOpen, setDeleteOpen] = useState(false)
   const name = `${experience.role} at ${experience.company}`
+  const evidenceCount = experience.activities.length + projects.reduce((n, p) => n + (p.activities?.length ?? 0), 0)
+  const facts = [
+    `${month(experience.startDate)} – ${experience.endDate ? month(experience.endDate) : 'present'}`,
+    experience.location ? `${experience.location}${experience.remote ? ' (remote)' : ''}` : experience.remote ? 'Remote' : null,
+  ].filter(Boolean).join(' · ')
 
   return (
-    <>
-      <NoteFrame
-        header={
-          <>
-            <h1 className="px-4 pt-4 text-xl font-semibold leading-tight sm:px-6">
-              {experience.role} <span className="font-normal text-muted-foreground">·</span> {experience.company}
-            </h1>
-            <ExperienceFrontmatter
-              experience={experience}
-              hideNameFields
-              onEditClick={() => setEditOpen(true)}
-              onDeleteClick={() => setDeleteOpen(true)}
-            />
-          </>
-        }
-        details={
-          <>
-            <ActivitiesTray experienceId={experience.id} initialActivities={experience.activities} />
-            <ExtractionPanel
-              experienceId={experience.id}
-              existingActivities={experience.activities}
-              existingSkills={skills}
-            />
-          </>
-        }
-        detailsLabel="Evidence and extraction"
-      >
-        <NoteEditor
-          recoveryKey={`profile-note-recovery-experience-${experience.id}`}
-          name={name}
-          initialContent={experience.summary}
-          initialRevision={experience.revision}
-          onSave={(content, expectedRevision) => updateExperienceNotes(experience.id, content, expectedRevision)}
-          loadLive={() => getNoteLiveState('experience', experience.id)}
-          placeholder="Write about this role: what it was, who you worked with, what you're proud of. Optional headings (## Overview, ## Responsibilities, ## Achievements, ## Skills) improve extraction."
+    <NoteFrame
+      header={
+        <div className="px-4 py-4 sm:px-6">
+          <h1 className="text-xl font-semibold leading-tight">
+            {experience.role} <span className="font-normal text-muted-foreground">·</span> {experience.company}
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">{facts}</p>
+        </div>
+      }
+      details={
+        <DetailsTabs
+          label="Role details"
+          tabs={[
+            { id: 'properties', label: 'Properties', panel: <RoleProperties key={experience.id} experience={experience} /> },
+            {
+              id: 'evidence',
+              label: 'Evidence',
+              count: String(evidenceCount),
+              panel: (
+                <EvidencePanel
+                  key={experience.id}
+                  owner={{ experienceId: experience.id }}
+                  activities={experience.activities}
+                  skills={skills}
+                  fromProjects={projects.map(p => ({ id: p.id, name: p.name, activities: p.activities ?? [] }))}
+                />
+              ),
+            },
+            { id: 'links', label: 'Links', count: `${links.length} · ${pending.length}`, panel: <NoteLinksPanel capabilities={links} pending={pending} /> },
+          ]}
         />
-      </NoteFrame>
-
-      {editOpen && (
-        <EditExperienceDialog
-          experience={experience}
-          open={editOpen}
-          onOpenChange={setEditOpen}
-          onSaved={() => router.refresh()}
-        />
-      )}
-      {deleteOpen && (
-        <DeleteExperienceDialog
-          experience={experience}
-          open={deleteOpen}
-          onOpenChange={setDeleteOpen}
-          onDeleted={() => {
-            setDeleteOpen(false)
-            router.push(overviewHref())
-            router.refresh()
-          }}
-        />
-      )}
-    </>
+      }
+      detailsLabel="Role details"
+    >
+      <NoteEditor
+        recoveryKey={`profile-note-recovery-experience-${experience.id}`}
+        name={name}
+        initialContent={experience.summary}
+        initialRevision={experience.revision}
+        onSave={(content, expectedRevision) => updateExperienceNotes(experience.id, content, expectedRevision)}
+        loadLive={() => getNoteLiveState('experience', experience.id)}
+        placeholder="Write about this role: what it was, who you worked with, what you're proud of. Optional headings (## Overview, ## Responsibilities, ## Achievements, ## Skills) improve extraction."
+      />
+    </NoteFrame>
   )
 }
