@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import Link from "next/link"
 import { Copy } from "lucide-react"
 import { toast } from "sonner"
@@ -13,16 +13,20 @@ export function ExternalCvPrompt({ documentId }: { documentId: string }) {
   const [loading, setLoading] = useState(false)
   const [failed, setFailed] = useState(false)
 
+  const requestId = useRef(0)
+
   async function loadPrompt() {
+    const id = ++requestId.current
     setLoading(true)
     setFailed(false)
     setPrompt("")
     try {
-      setPrompt(await getExternalCvPromptAction(documentId))
+      const next = await getExternalCvPromptAction(documentId)
+      if (id === requestId.current) setPrompt(next)
     } catch {
-      setFailed(true)
+      if (id === requestId.current) setFailed(true)
     } finally {
-      setLoading(false)
+      if (id === requestId.current) setLoading(false)
     }
   }
 

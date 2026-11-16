@@ -38,4 +38,10 @@ describe("buildWritingContract", () => {
     expect(contract).toMatch(/only .*supported by the profile/i)
     expect(contract).toMatch(/unsupported .*:::.* blocks? (is|are) rejected/i)
   })
+
+  it("describes unsupported blocks without claiming rejection in paste mode", () => {
+    const paste = buildWritingContract(buildStructureGuide(null), "paste")
+    expect(paste).toMatch(/unsupported .*:::.* blocks will not render with a supported layout/i)
+    expect(paste).not.toMatch(/rejected/i)
+  })
 })

@@ -20,7 +20,7 @@ export function buildExternalCvPrompt({ documentId, job, strategy, contract }: P
     JSON.stringify({ jobId: job.id, title: job.title, company: job.company, documentId }, null, 2),
     '',
     '## How to work',
-    `1. Call get_job_context with jobId "${job.id}" to read the job description, profile summary, master CV and structure guide. The target Writing Desk document is "${documentId}".`,
+    `1. Call get_job_context with jobId "${job.id}" to read the job description, profile summary, master CV and structure guide. Ignore the contract field it returns: use the contract below, which covers this manual paste workflow. The target Writing Desk document is "${documentId}".`,
     '2. Use profile_map to orient yourself, then profile_search and profile_get_note to find relevant skills, achievements and full evidence missing from the summary. Follow links or use profile_backlinks when needed to verify claims.',
     '3. Apply the saved strategy as editorial guidance, checking every claim against my profile evidence. Do not invent facts, metrics, qualifications, skills or dates, or treat the strategy as proof of experience. The block examples below illustrate syntax only; never copy their sample identities or claims.',
     '4. If MCP is unavailable, ask me to connect it or provide the missing profile and job details before drafting. Ask concise questions for essential missing facts; otherwise omit unsupported claims.',

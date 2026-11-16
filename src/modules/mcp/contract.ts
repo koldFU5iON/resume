@@ -26,7 +26,9 @@ export function buildWritingContract(guide: StructureGuide, delivery: 'draft' | 
     '',
     '## Content format',
     'Write the CV as Markdown. Wrap content in `:::` blocks only for the block ids below; ordinary Markdown outside blocks is fine.',
-    'Unsupported `:::` blocks are rejected, so use only these ids:',
+    delivery === 'paste'
+      ? 'Unsupported `:::` blocks will not render with a supported layout, so use only these ids:'
+      : 'Unsupported `:::` blocks are rejected, so use only these ids:',
     '',
     blocks,
     '',

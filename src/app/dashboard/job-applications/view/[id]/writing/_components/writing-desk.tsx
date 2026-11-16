@@ -20,6 +20,7 @@ import {
 } from "@/modules/writing-desk/actions"
 import { writingDeskPdfHref } from "@/modules/jobs/workspace-nav"
 import { writingDeskMarkdownToText } from "@/modules/writing-desk/markdown"
+import { CONTACT_PLACEHOLDER, hasContactPlaceholder } from "@/modules/profile-map/contact"
 import type { WritingDeskDocumentType } from "@/modules/writing-desk/schema"
 import type { WritingDeskSourceOption, WritingDeskWithJob } from "@/modules/writing-desk/queries"
 import { WritingDeskPreview } from "@/app/components/writing-desk-preview"
@@ -346,6 +347,11 @@ export function WritingDesk({
       )}
       <div className={cn("flex flex-1 overflow-hidden bg-secondary p-3 sm:p-5", showReview && "hidden")}>
         <div className="mx-auto flex w-full max-w-[794px] flex-1 flex-col overflow-y-auto rounded-md bg-background p-5 shadow-sm">
+          {(documentType === "cv" || documentType === null) && hasContactPlaceholder(content) && (
+            <p role="note" className="mb-4 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+              Replace <code>{CONTACT_PLACEHOLDER}</code> with your contact details before exporting.
+            </p>
+          )}
           {mode === "markdown"
             ? <textarea ref={textareaRef} aria-label={`${name}, Markdown`} value={content} onChange={event => save.onChange(event.target.value)} className="min-h-[500px] flex-1 resize-none bg-transparent font-mono text-sm leading-relaxed outline-none" placeholder="Start writing..." />
             : <WritingDeskPreview markdown={content} documentType={documentType} />}

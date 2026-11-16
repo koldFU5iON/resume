@@ -43,6 +43,7 @@ describe('external CV prompt', () => {
     expect(prompt).toContain('profile_search and profile_get_note')
     expect(prompt).toContain('one fenced code block labelled markdown')
     expect(prompt).toContain('Do not call create_draft')
+    expect(prompt).toContain('Ignore the contract field it returns')
     expect(prompt).toContain('replace it manually after pasting')
     expect(prompt).not.toContain('the app fills it in')
     expect(getWritingContractForProfile).toHaveBeenCalledWith('profile-1', 'paste')
