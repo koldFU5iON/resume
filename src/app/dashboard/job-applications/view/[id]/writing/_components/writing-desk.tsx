@@ -27,6 +27,7 @@ import { AvailableBlocks } from "./available-blocks"
 import { CopyButton, type CopyFormat } from "./copy-button"
 import { DeleteDocumentDialog } from "./delete-document-dialog"
 import { DraftReview } from "./draft-review"
+import { ExternalCvPrompt } from "./external-cv-prompt"
 import { RenameDocumentDialog } from "./rename-document-dialog"
 import { ReplaceWithCvPicker } from "./replace-with-cv-picker"
 
@@ -308,6 +309,7 @@ export function WritingDesk({
         </div>
         <ReplaceWithCvPicker sources={sourceCVs} onChoose={cvId => void chooseSource(cvId)} />
         <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setBlocksOpen(true)}>Blocks</Button>
+        {(documentType === "cv" || documentType === null) && <ExternalCvPrompt documentId={desk.id} />}
         <div className="flex overflow-hidden rounded-md border text-xs" role="group" aria-label="Editor view">
           <button type="button" aria-pressed={!showReview && mode === "markdown"} onClick={() => { setMode("markdown"); setReviewing(false) }} className={cn("px-3 py-1.5", !showReview && mode === "markdown" ? "bg-foreground text-background" : "text-muted-foreground")}>Markdown</button>
           <button type="button" aria-pressed={!showReview && mode === "preview"} onClick={() => { setMode("preview"); setReviewing(false) }} className={cn("px-3 py-1.5", !showReview && mode === "preview" ? "bg-foreground text-background" : "text-muted-foreground")}>Preview</button>

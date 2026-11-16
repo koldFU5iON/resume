@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 import { RedirectType, redirect } from "next/navigation"
 import { prisma } from "@/lib/db"
 import { requireProfile } from "@/lib/session"
+import { getExternalCvPrompt } from "./external-prompt"
 import { jobHubHref, writingDeskDocumentHref } from "@/modules/jobs/workspace-nav"
 import { createWritingDeskDocument, deleteWritingDeskDocument, loadSourceCv, renameWritingDeskDocument } from "./documents"
 import { getWritingDeskLiveState, listWritingDeskSourceCVs, type WritingDeskSourceOption } from "./queries"
@@ -21,6 +22,11 @@ import {
 
 /** The job workspace layout: its document tabs show each document's name and type. */
 const JOB_WORKSPACE_LAYOUT = "/dashboard/job-applications/view/[id]"
+
+export async function getExternalCvPromptAction(id: unknown): Promise<string> {
+  const { profile } = await requireProfile()
+  return getExternalCvPrompt(profile.id, WritingDeskIdSchema.parse(id))
+}
 
 async function getOwnedDesk(id: string, profileId: string) {
   const desk = await prisma.writingDeskDocument.findFirst({
