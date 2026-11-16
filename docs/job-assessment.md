@@ -51,7 +51,8 @@ queued → checking → verify ── fail + URL ──► fetching (enrich) ─
 3. **Facts** (`facts.ts`). The user's `fast` model role (temperature 0) turns the description into
    `JobFacts`: requirements (kind, must/nice, years, parts), location, salary, seniority, employment type. Results are
    cached by `factsHash` (version, title, company, description and hints), so re-running after a profile change costs
-   Jev calls only.
+   Jev calls only. The extraction allows up to 8,192 output tokens: the earlier 2,400-token cap
+   cut responses short (`invalid_output` with `finishReason: 'length'`). The 30-second timeout still applies.
 4. **Judge** (`run.ts`, `questions.ts`). One Jev request with the candidate state (`candidate-state.ts`), the job and the
    user's preferences, asking per-requirement fit, skills match, seniority fit, domain fit, years-share per role
    (asked in both option orders), eligibility and dealbreakers.

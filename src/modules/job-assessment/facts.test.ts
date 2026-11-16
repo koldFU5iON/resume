@@ -95,7 +95,7 @@ describe('extractJobFacts', () => {
       role: 'fast',
       feature: 'job-assessment-facts',
       temperature: 0,
-      maxOutputTokens: 2400,
+      maxOutputTokens: 8192,
       timeoutMs: 30_000,
       redactInvalidOutput: true,
     })

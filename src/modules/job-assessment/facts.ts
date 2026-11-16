@@ -25,8 +25,8 @@ import { DESCRIPTION_MAX_CHARS, JobFactsSchema, PIPELINE_VERSION, type JobFacts 
 /** Bound on the cheap-model call; it runs inside after(). */
 export const FACTS_TIMEOUT_MS = 30_000
 
-/** Headroom over the spec's 1,600 for 14 requirements with years and parts. */
-export const FACTS_MAX_OUTPUT_TOKENS = 2_400
+/** Room for 14 requirements with years and parts; 2,400 truncated responses in production. */
+export const FACTS_MAX_OUTPUT_TOKENS = 8_192
 
 /** Spec §3 system prompt, verbatim. Edit only with a PIPELINE_VERSION bump. */
 export const FACTS_SYSTEM_PROMPT = `You extract structured facts from a job description for an automated screening step. Output only what the
