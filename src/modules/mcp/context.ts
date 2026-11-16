@@ -150,6 +150,6 @@ export async function getJobContext(profileId: string, jobId: string): Promise<J
 
 // The writing contract for the owner's current structure (their master CV if
 // they have one). Backs the currnt://writing-contract/cv resource.
-export async function getWritingContractForProfile(profileId: string): Promise<string> {
-  return buildWritingContract(buildStructureGuide(await loadMasterContent(profileId)))
+export async function getWritingContractForProfile(profileId: string, delivery: 'draft' | 'paste' = 'draft'): Promise<string> {
+  return buildWritingContract(buildStructureGuide(await loadMasterContent(profileId)), delivery)
 }

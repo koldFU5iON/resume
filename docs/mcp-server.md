@@ -133,6 +133,20 @@ the live document. You can edit it manually and **Accept** or **Discard** it. MC
 accept drafts, change job status, edit your profile, or access other accounts.
 Fact checks are advisory; review claims yourself before accepting.
 
+### Copy a prompt for an external AI app
+
+In a CV document's Writing Desk, choose **CV prompt**, then **Copy CV prompt**.
+Paste it into your AI app with the currnt MCP connection enabled. The prompt
+includes the latest completed deep dive's CV strategy (when available), the
+master CV's starting structure, and the supported Markdown block examples.
+It asks the agent to read profile evidence through MCP and return the complete
+CV in one Markdown code block, without writing a draft through MCP.
+
+Copy the code block's contents into the Writing Desk's **Markdown** editor and
+check **Preview**. Replace `{{contact}}` with your contact details before
+exporting: manual paste does not run the draft-acceptance contact substitution.
+This workflow makes no app-side LLM calls and needs only MCP read access.
+
 ## Disconnect and token lifetime
 
 In currnt **Settings → API tokens**, choose **Disconnect** beside a connected

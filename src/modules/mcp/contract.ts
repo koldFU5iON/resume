@@ -5,7 +5,7 @@ import type { StructureGuide } from '@/modules/writing-desk/structure-guide'
 // The writing contract an external agent follows when drafting a CV. Block
 // details come from BLOCK_LIST and the structure from the guide, so neither
 // can drift from what the app actually supports.
-export function buildWritingContract(guide: StructureGuide): string {
+export function buildWritingContract(guide: StructureGuide, delivery: 'draft' | 'paste' = 'draft'): string {
   const blocks = BLOCK_LIST.map(block =>
     [
       `### ${block.id} (${block.label})`,
@@ -26,7 +26,9 @@ export function buildWritingContract(guide: StructureGuide): string {
     '',
     '## Content format',
     'Write the CV as Markdown. Wrap content in `:::` blocks only for the block ids below; ordinary Markdown outside blocks is fine.',
-    'Unsupported `:::` blocks are rejected, so use only these ids:',
+    delivery === 'paste'
+      ? 'Unsupported `:::` blocks will not render with a supported layout, so use only these ids:'
+      : 'Unsupported `:::` blocks are rejected, so use only these ids:',
     '',
     blocks,
     '',
@@ -43,7 +45,7 @@ export function buildWritingContract(guide: StructureGuide): string {
     '- List experience in reverse-chronological order.',
     '',
     '## Contact details',
-    `The profile omits contact details. In the header, write ${CONTACT_PLACEHOLDER} on its own line where the email, phone and links go; the app fills it in when the owner accepts the draft. Never type contact details yourself.`,
+    `The profile omits contact details. In the header, write ${CONTACT_PLACEHOLDER} on its own line where the email, phone and links go; ${delivery === 'paste' ? 'the user will replace it manually after pasting into the Writing Desk' : 'the app fills it in when the owner accepts the draft'}. Never type contact details yourself.`,
     '',
     '## Factual integrity',
     "Use only claims supported by the profile and master CV returned by get_job_context. Do not invent employers, titles, dates, qualifications, metrics or skills. The job description tells you what to emphasise, never what to claim.",
