@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation"
 import { ArrowRight, Loader2, Telescope } from "lucide-react"
 import { toast } from "sonner"
 import { Button, buttonVariants } from "@/components/ui/button"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
 import { startDeepDiveAction } from "@/modules/deep-dive/actions"
 import type { DeepDiveAccess } from "@/modules/deep-dive/access"
@@ -15,6 +16,7 @@ import {
   DEEP_DIVE_STATUS_LABEL,
   VERDICT_CHIP,
   VERDICT_LABEL,
+  VERDICT_TEXT,
   deepDiveHref,
   isDeepDiveActive,
   researchNote,
@@ -82,9 +84,10 @@ export function VerdictChip({ verdict, className }: { verdict: Verdict; classNam
 }
 
 /**
- * The deep dive's verdict as a link to its report, shown beside the early
- * assessment pill in job lists. A running deep dive shows its progress; with
- * no report and nothing running there is nothing to show.
+ * The deep dive as one icon beside the early assessment pill in job lists:
+ * the telescope tinted by the verdict, or a spinner while a run is going.
+ * Click (or tap) opens a popover with the verdict and a link to the report.
+ * With no report and nothing running there is nothing to show.
  */
 export function DeepDiveVerdictLink({ jobId, deepDive, className }: {
   jobId: string
@@ -93,29 +96,50 @@ export function DeepDiveVerdictLink({ jobId, deepDive, className }: {
 }) {
   if (!deepDive) return null
   const active = isDeepDiveActive(deepDive.status)
-  if (!active && !deepDive.verdict) return null
+  const verdict = deepDive.verdict
+  if (!active && !verdict) return null
 
-  const label = deepDive.verdict
-    ? `Deep dive: ${VERDICT_LABEL[deepDive.verdict]}${active ? ' (re-running)' : ''}. Open the report.`
-    : `Deep dive: ${DEEP_DIVE_STATUS_LABEL[deepDive.status]}`
+  const status = active ? DEEP_DIVE_STATUS_LABEL[deepDive.status] : null
+  const label = verdict
+    ? `Deep dive: ${VERDICT_LABEL[verdict]}${active ? ' (running again)' : ''}`
+    : `Deep dive: ${status}`
 
   return (
-    <Link
-      href={deepDiveHref(jobId)}
-      aria-label={label}
-      title={label}
-      className={cn(
-        "inline-flex h-6 items-center gap-1 rounded-md px-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        className,
-      )}
-    >
-      {active
-        ? <Loader2 className="size-3 shrink-0 animate-spin" aria-hidden="true" />
-        : <Telescope className="size-3 shrink-0" aria-hidden="true" />}
-      {deepDive.verdict
-        ? <VerdictChip verdict={deepDive.verdict} />
-        : <span className="whitespace-nowrap">{DEEP_DIVE_STATUS_LABEL[deepDive.status]}</span>}
-    </Link>
+    <Popover>
+      <PopoverTrigger
+        aria-label={`${label}. Show details.`}
+        title={label}
+        className={cn(
+          "inline-flex size-6 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          verdict ? VERDICT_TEXT[verdict] : "text-muted-foreground",
+          className,
+        )}
+      >
+        {active && !verdict
+          ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+          : <Telescope className="size-3.5" aria-hidden="true" />}
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-64 space-y-3 p-3">
+        <div className="flex items-center gap-2">
+          <Telescope className="size-3.5 text-muted-foreground" aria-hidden="true" />
+          <p className="text-xs font-medium text-muted-foreground">Deep dive</p>
+        </div>
+        {verdict && <VerdictChip verdict={verdict} />}
+        {status && (
+          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Loader2 className="size-3 animate-spin" aria-hidden="true" />
+            {verdict ? `Running again: ${status.toLowerCase()}` : status}
+          </p>
+        )}
+        <Link
+          href={deepDiveHref(jobId)}
+          className={cn(buttonVariants({ variant: "outline", size: "sm" }), "w-full gap-1.5 text-xs")}
+        >
+          {verdict ? "Open the report" : "Follow progress"}
+          <ArrowRight className="size-3" aria-hidden="true" />
+        </Link>
+      </PopoverContent>
+    </Popover>
   )
 }
 
