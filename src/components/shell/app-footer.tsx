@@ -64,7 +64,13 @@ export function AppFooter() {
           <MessageSquareWarning className="size-3.5" />
           <span className="hidden sm:inline">Report an issue</span>
         </button>
-        <span className="font-mono tabular-nums">v{APP_VERSION}</span>
+        <Link
+          href="/dashboard/changelog"
+          className="font-mono tabular-nums transition-colors hover:text-foreground"
+          title="Changelog"
+        >
+          v{APP_VERSION}
+        </Link>
       </div>
 
       <FeedbackDrawer open={feedbackOpen} onOpenChange={setFeedbackOpen} />

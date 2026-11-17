@@ -1,0 +1,71 @@
+name: Weekly release
+
+# Opens or updates one release PR (CHANGELOG.md, package.json, package-lock.json).
+# It never merges or publishes. Merging the PR is the release.
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: weekly-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build release PR
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_BRANCH: release/weekly
+      RELEASE_BASE_BRANCH: ${{ github.event.repository.default_branch }}
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_BODY_FILE: ${{ runner.temp }}/release-body.md
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Compute release
+        id: release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          # Keep the initial baseline stable while its PR is awaiting merge.
+          export RELEASE_BASELINE=$(git log --diff-filter=A -1 --format=%cI -- .github/workflows/weekly-release.yml)
+          node scripts/release.mjs
+
+      - name: Open or update release PR
+        if: steps.release.outputs.kind != 'none'
+        env:
+          TITLE: ${{ steps.release.outputs.title }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C "$RELEASE_BRANCH"
+          git add CHANGELOG.md package.json package-lock.json
+          if ! git diff --cached --quiet; then
+            git commit -m "$TITLE"
+          fi
+          git push --force origin "$RELEASE_BRANCH"
+
+          if [ "${{ steps.release.outputs.kind }}" = "baseline" ]; then
+            BODY="Sets the starting point for the weekly release. PRs merged before this are never released. Merge to start the weekly schedule."
+            printf '%s\n' "$BODY" > "$RELEASE_BODY_FILE"
+          fi
+          EXISTING=$(gh pr list --head "$RELEASE_BRANCH" --state open --json number --jq '.[0].number')
+          if [ -n "$EXISTING" ]; then
+            gh pr edit "$EXISTING" --title "$TITLE" --body-file "$RELEASE_BODY_FILE"
+          else
+            gh pr create --base "${{ github.event.repository.default_branch }}" --head "$RELEASE_BRANCH" --title "$TITLE" --body-file "$RELEASE_BODY_FILE"
+          fi
