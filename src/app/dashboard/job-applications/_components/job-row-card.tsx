@@ -10,8 +10,8 @@ import { AppProgressBar } from "./app-progress-bar"
 import { ApplicationDateBlock } from "./app-date-block"
 import { AppControls } from "@/components/app-item-menu"
 import { ChevronDown, Loader2, SquareArrowOutUpRight } from "lucide-react"
-import { JobFit } from "./job-fit"
 import { EarlyAssessment } from "./early-assessment"
+import { DeepDiveVerdictLink } from "./deep-dive-button"
 import { SalaryPopover } from "./salary-popover"
 import { JobNotes } from "./job-notes"
 import { StatusDropdown } from "./status-dropdown"
@@ -39,7 +39,7 @@ export function JobRowCard({ job, selected, busyLabel, onToggleSelect, onEdit, o
   const {
     id, jobNumber, title, company, countries, url,
     dateApplied, datePublished, lastUpdated, status, progress,
-    jobFit, notes, notesIncludeInFit, applicationSource,
+    notes, notesIncludeInFit, applicationSource,
     jobDescription, salaryBand, salaryEstimate,
   } = job
   const showSourceBadge = applicationSource !== ApplicationSource.Cold
@@ -80,8 +80,8 @@ export function JobRowCard({ job, selected, busyLabel, onToggleSelect, onEdit, o
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <StatusDropdown jobId={id} status={status} className="min-h-11 px-3 text-sm" />
         <div className="flex min-w-0 flex-wrap items-center gap-1 [&_button]:min-h-11 [&_button]:px-3 [&_button]:text-sm [&_button>span]:text-sm [&_a]:min-h-11">
-          {!earlyEnabled && <JobFit jobId={id} jobFit={jobFit ?? null} canAssess={!!jobDescription?.trim()} hasLLMKey={hasLLMKey} deepDive={job.deepDive} company={company ?? undefined} jdSnippet={jobDescription ? jobDescription.slice(0, 800) : undefined} />}
           <EarlyAssessment jobId={id} assessment={job.earlyAssessment ?? null} enabled={earlyEnabled} editHref={`/dashboard/job-applications/view/${id}`} deepDive={job.deepDive} />
+          <DeepDiveVerdictLink jobId={id} deepDive={job.deepDive} />
         </div>
       </div>
       {salaryBand && <p className="mt-3 text-sm leading-relaxed text-muted-foreground break-words">{salaryBand}</p>}

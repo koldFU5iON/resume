@@ -14,16 +14,16 @@ describe('selectSortField', () => {
 })
 
 describe('normaliseSort', () => {
-  it('maps a saved JobFit sort to the early score when the early assessment is on', () => {
-    expect(normaliseSort({ field: 'fitRating', direction: 'asc' }, true)).toEqual({ field: 'earlyScore', direction: 'asc' })
+  it('maps a saved JobFit sort to the early score', () => {
+    expect(normaliseSort({ field: 'fitRating', direction: 'asc' })).toEqual({ field: 'earlyScore', direction: 'asc' })
   })
 
-  it('maps a saved early-score sort back to JobFit when the early assessment is off', () => {
-    expect(normaliseSort({ field: 'earlyScore', direction: 'desc' }, false)).toEqual({ field: 'fitRating', direction: 'desc' })
+  it('leaves current sorts alone', () => {
+    expect(normaliseSort({ field: 'company', direction: 'asc' })).toEqual({ field: 'company', direction: 'asc' })
+    expect(normaliseSort({ field: 'earlyScore', direction: 'desc' })).toEqual({ field: 'earlyScore', direction: 'desc' })
   })
 
-  it('leaves other sorts alone', () => {
-    expect(normaliseSort({ field: 'company', direction: 'asc' }, true)).toEqual({ field: 'company', direction: 'asc' })
-    expect(normaliseSort({ field: 'earlyScore', direction: 'desc' }, true)).toEqual({ field: 'earlyScore', direction: 'desc' })
+  it('falls back to the default for an unknown field', () => {
+    expect(normaliseSort({ field: 'nope', direction: 'asc' })).toEqual({ field: 'dateApplied', direction: 'desc' })
   })
 })

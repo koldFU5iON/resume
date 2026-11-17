@@ -81,6 +81,44 @@ export function VerdictChip({ verdict, className }: { verdict: Verdict; classNam
   )
 }
 
+/**
+ * The deep dive's verdict as a link to its report, shown beside the early
+ * assessment pill in job lists. A running deep dive shows its progress; with
+ * no report and nothing running there is nothing to show.
+ */
+export function DeepDiveVerdictLink({ jobId, deepDive, className }: {
+  jobId: string
+  deepDive: DeepDiveSummary | null | undefined
+  className?: string
+}) {
+  if (!deepDive) return null
+  const active = isDeepDiveActive(deepDive.status)
+  if (!active && !deepDive.verdict) return null
+
+  const label = deepDive.verdict
+    ? `Deep dive: ${VERDICT_LABEL[deepDive.verdict]}${active ? ' (re-running)' : ''}. Open the report.`
+    : `Deep dive: ${DEEP_DIVE_STATUS_LABEL[deepDive.status]}`
+
+  return (
+    <Link
+      href={deepDiveHref(jobId)}
+      aria-label={label}
+      title={label}
+      className={cn(
+        "inline-flex h-6 items-center gap-1 rounded-md px-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        className,
+      )}
+    >
+      {active
+        ? <Loader2 className="size-3 shrink-0 animate-spin" aria-hidden="true" />
+        : <Telescope className="size-3 shrink-0" aria-hidden="true" />}
+      {deepDive.verdict
+        ? <VerdictChip verdict={deepDive.verdict} />
+        : <span className="whitespace-nowrap">{DEEP_DIVE_STATUS_LABEL[deepDive.status]}</span>}
+    </Link>
+  )
+}
+
 type DeepDiveButtonProps = {
   jobId: string
   deepDive: DeepDiveSummary | null | undefined

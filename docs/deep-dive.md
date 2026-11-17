@@ -120,4 +120,4 @@ The caps match the `JobAnalysisSchema` descriptions (#362). Blockers and gaps go
 
 ## Retired: `assessJobFit`
 
-`src/modules/jobs/job-fit.ts` is gone and nothing writes `jobFit` any more. The `JobFit` pill still shows existing data, is hidden once the job has a complete deep dive, and its Assess / Re-assess start a deep dive. Its two search-profile suggestion rules (a salary floor in the job notes, a title outside the target roles) moved to `searchProfileSuggestions` in `gather.ts` and run after a complete deep dive, with source `deep-dive`. Dropping the `jobFit` columns and the `job-fit` usage label is a later change with a migration.
+`src/modules/jobs/job-fit.ts` is gone and nothing writes or shows `jobFit` any more; the early assessment (`docs/job-assessment.md`) is the fit score everywhere. Its two search-profile suggestion rules (a salary floor in the job notes, a title outside the target roles) moved to `searchProfileSuggestions` in `gather.ts` and run after a complete deep dive, with source `deep-dive`. Dropping the `jobFit` columns and the `job-fit` usage label is a later change with a migration.

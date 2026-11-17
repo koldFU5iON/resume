@@ -23,7 +23,6 @@ export type CoverLetterWithJob = {
     title: string
     company: string | null
     status: string
-    jobFit: unknown
     jobAnalysis: unknown
     jobDescription: string | null
   } | null
@@ -65,7 +64,6 @@ export async function getCoverLetter(
           title: true,
           company: true,
           status: true,
-          jobFit: true,
           jobAnalysis: true,
           jobDescription: true,
         },

@@ -7,7 +7,7 @@ export async function getCV(id: string, profileId: string) {
     include: {
       profile: { select: { name: true } },
       jobApplication: {
-        select: { id: true, title: true, company: true, jobDescription: true, jobFit: true },
+        select: { id: true, title: true, company: true, jobDescription: true },
       },
     },
   })

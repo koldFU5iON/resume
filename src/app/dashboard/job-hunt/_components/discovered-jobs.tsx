@@ -6,14 +6,13 @@ import { cn } from '@/lib/utils'
 import { JobQueueRow } from './job-queue-row'
 import type { DiscoveredJobWithWatch } from './job-queue-row'
 
-type FilterTab = 'all' | 'company' | 'board' | 'scout' | 'scored'
+type FilterTab = 'all' | 'company' | 'board' | 'scout'
 
 const TABS: { value: FilterTab; label: string }[] = [
   { value: 'all',     label: 'All' },
   { value: 'company', label: 'Company' },
   { value: 'board',   label: 'Boards' },
   { value: 'scout',   label: 'Scout' },
-  { value: 'scored',  label: 'Scored' },
 ]
 
 function startOfToday(): Date {
@@ -79,7 +78,6 @@ export function DiscoveredJobs({ jobs }: Props) {
     if (tab === 'company') return j.watch != null
     if (tab === 'board')   return j.boardSource != null
     if (tab === 'scout')   return j.source === 'SCOUT'
-    if (tab === 'scored')  return j.fitLabel != null
     return true
   })
 
@@ -134,8 +132,6 @@ export function DiscoveredJobs({ jobs }: Props) {
               ? 'No board roles found yet. Enable a job board source and click Scan.'
               : tab === 'scout'
               ? 'No Scout roles have been shared yet.'
-              : tab === 'scored'
-              ? 'No scored roles yet. Use Score Fit on a role to see how well it matches.'
               : 'No roles found yet. Watch a company or enable a job board under Sources, then Sync All.'}
           </p>
         </div>

@@ -38,7 +38,6 @@ import { CustomBlock } from './blocks/custom-block'
 import { MarkdownProse } from '@/components/ui/markdown-prose'
 import { ATSScorePanel } from './ats-score-panel'
 import type { CVDocumentContent, CVSection } from '@/modules/cv/schema'
-import type { JobFit } from '@/app/types/job-application'
 
 export type CVWithMeta = {
   id: string
@@ -51,7 +50,6 @@ export type CVWithMeta = {
     title: string | null
     company: string | null
     jobDescription: string | null
-    jobFit?: unknown
   } | null
   profileName: string
   content: CVDocumentContent
@@ -454,26 +452,6 @@ export function CvEditor({ cv, stale = false }: Props) {
               {cv.jobApplication.company && (
                 <p className="text-xs text-muted-foreground">{cv.jobApplication.company}</p>
               )}
-              {(() => {
-                const fit = cv.jobApplication.jobFit as JobFit | null
-                if (!fit) return null
-                const gaugeColor = { reach: 'bg-blue-400', possible: 'bg-amber-300', stretch: 'bg-amber-500', solid: 'bg-orange-500', standout: 'bg-red-500' }[fit.label]
-                return (
-                  <div className="mt-3">
-                    <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Job Fit</p>
-                    <div className="flex items-center gap-2 mb-1.5">
-                      <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-muted">
-                        <div className={`absolute inset-y-0 left-0 rounded-full ${gaugeColor}`} style={{ width: `${fit.rating * 10}%` }} />
-                      </div>
-                      <span className="shrink-0 font-mono text-xs text-muted-foreground">{fit.rating}/10</span>
-                    </div>
-                    <p className="text-xs font-medium capitalize">{fit.label}</p>
-                    {fit.justification && (
-                      <p className="mt-1 text-xs text-muted-foreground leading-relaxed line-clamp-4">{fit.justification}</p>
-                    )}
-                  </div>
-                )
-              })()}
               {cv.jobApplication.jobDescription && (
                 <div className="mt-3">
                   <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">

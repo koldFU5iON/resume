@@ -73,7 +73,6 @@ describe('getCoverLetter', () => {
         title: 'PM',
         company: 'Acme',
         status: 'applied',
-        jobFit: null,
         jobAnalysis: null,
         jobDescription: null,
       },

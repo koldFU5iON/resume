@@ -200,7 +200,7 @@ export async function updateJobApplication(
         where: { id, profileId: profile.id },
         select: {
           title: true, company: true, jobDescription: true, countries: true, salaryBand: true,
-          jobFit: true, jobAnalysis: true,
+          jobAnalysis: true,
         },
       })
     : null
@@ -211,7 +211,7 @@ export async function updateJobApplication(
     jobDescription !== undefined &&
     current &&
     current.jobDescription !== jobDescription &&
-    (current.jobFit !== null || current.jobAnalysis !== null)
+    current.jobAnalysis !== null
   ) {
     staleFitData = true
   }

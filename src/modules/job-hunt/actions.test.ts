@@ -30,17 +30,6 @@ vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 vi.mock('@/modules/job-assessment/queue', () => ({ queueJobAssessmentSafely: vi.fn() }))
 vi.mock('./ats-discovery', () => ({ discoverAts: vi.fn() }))
 vi.mock('./adapters/index', () => ({ getAdapter: vi.fn() }))
-vi.mock('@/modules/llm/client', () => ({
-  completeStructured: vi.fn(),
-}))
-vi.mock('@/modules/profile/snapshot', () => ({
-  buildProfileSnapshot: vi.fn().mockResolvedValue({}),
-  serializeProfileForLLM: vi.fn().mockReturnValue('profile text'),
-}))
-vi.mock('@/modules/llm/prompt-context', () => ({
-  loadWritingRules: vi.fn().mockResolvedValue(''),
-  composeSystem: vi.fn().mockReturnValue('system'),
-}))
 vi.mock('@/modules/onboarding/schema', () => ({
   normalizeOnboardingContext: vi.fn().mockReturnValue({
     targetRole: 'Senior Engineer',
@@ -193,8 +182,7 @@ describe('importJob', () => {
     mockDiscoveredFindFirst.mockResolvedValueOnce({
       id: 'dj-1', profileId: 'profile-1', title: 'Engineer', company: 'Acme',
       location: 'Remote', url: 'https://x.com', description: 'desc',
-      postedAt: new Date('2026-01-01'), fitLabel: null, fitScore: null,
-      fitJustification: null, status: 'new',
+      postedAt: new Date('2026-01-01'), status: 'new',
     } as never)
     mockJobCreate.mockResolvedValueOnce({ id: 'ja-1' } as never)
     vi.mocked(prisma.discoveredJob.updateMany).mockResolvedValueOnce({ count: 1 })

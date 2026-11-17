@@ -3,12 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { prisma } from '@/lib/db'
 import { requireProfile } from '@/lib/session'
-import { completeStructured } from '@/modules/llm/client'
-import { LLMError } from '@/modules/llm/errors'
-import { buildProfileSnapshot, serializeProfileForLLM } from '@/modules/profile/snapshot'
 import { normalizeOnboardingContext } from '@/modules/onboarding/schema'
-import { loadWritingRules, composeSystem } from '@/modules/llm/prompt-context'
-import { JobFitSchema } from '@/modules/jobs/schema'
 import { queueJobAssessmentSafely } from '@/modules/job-assessment/queue'
 import { linkJobCompany } from '@/modules/companies/match'
 import { discoverAts } from './ats-discovery'
@@ -352,82 +347,6 @@ export async function scanAll(): Promise<
   return { ok: true, scanned, newJobs, failed }
 }
 
-// ── scoreDiscoveredJob ────────────────────────────────────────────────────────
-
-type ScoreResult =
-  | { ok: true; fitLabel: string; fitScore: number }
-  | { ok: false; error: string }
-
-export async function scoreDiscoveredJob(jobId: string): Promise<ScoreResult> {
-  const { profile } = await requireProfile()
-
-  const job = await prisma.discoveredJob.findFirst({
-    where: { id: jobId, profileId: profile.id },
-  })
-  if (!job) return { ok: false, error: 'Job not found' }
-  if (!job.description?.trim()) return { ok: false, error: 'No description available to score against' }
-
-  const [snapshot, settings, rules] = await Promise.all([
-    buildProfileSnapshot(profile.id),
-    prisma.userSettings.findUnique({
-      where: { profileId: profile.id },
-      select: { onboardingContext: true, writingBrief: true },
-    }),
-    loadWritingRules(profile.id),
-  ])
-
-  const context = normalizeOnboardingContext(settings?.onboardingContext)
-  const hasGoals = !!(context.targetRole || context.industries)
-
-  const featureInstructions = `You are an experienced career coach assessing whether a candidate is a strong fit for a role.
-
-Be honest and concrete. Calibrate the rating against real-world hiring bars:
-- 0–2 (reach): missing core requirements.
-- 3–4 (possible): partial overlap.
-- 5–6 (stretch): meets most requirements but has a meaningful gap.
-- 7–8 (solid): strong baseline match.
-- 9–10 (standout): unusually well-aligned.`
-
-  const system = composeSystem(rules, settings?.writingBrief ?? null, featureInstructions)
-
-  let userPrompt = `# Candidate\n\n${serializeProfileForLLM(snapshot)}\n\n# Role\n\n**${job.title}** at ${job.company}\n\n${job.description}`
-
-  if (hasGoals) {
-    userPrompt += '\n\n# Career Goals'
-    if (context.targetRole) userPrompt += `\n**Target role:** ${context.targetRole}`
-    if (context.industries) userPrompt += `\n**Industries:** ${context.industries}`
-  }
-
-  userPrompt += '\n\nReturn a single JSON object matching the schema.'
-
-  let fit
-  try {
-    const result = await completeStructured(profile.id, userPrompt, JobFitSchema, {
-      system,
-      maxOutputTokens: 700,
-      temperature: 0.2,
-      feature: 'job-hunt-fit',
-    })
-    fit = result.object
-  } catch (err) {
-    if (err instanceof LLMError) return { ok: false, error: err.message }
-    throw err
-  }
-
-  await prisma.discoveredJob.updateMany({
-    where: { id: jobId, profileId: profile.id },
-    data: {
-      fitScore: fit.rating,
-      fitLabel: fit.label,
-      fitJustification: fit.justification,
-      status: 'scored',
-    },
-  })
-
-  revalidatePath('/dashboard/job-hunt')
-  return { ok: true, fitLabel: fit.label, fitScore: fit.rating }
-}
-
 // ── importJob ─────────────────────────────────────────────────────────────────
 
 type ImportResult = { ok: true; jobId: string } | { ok: false; error: string }
@@ -454,16 +373,6 @@ export async function importJob(jobId: string): Promise<ImportResult> {
       jobDescription: job.description ?? null,
       datePublished: job.postedAt ?? null,
       applicationSource: 'cold',
-      ...(job.fitLabel
-        ? {
-            jobFit: {
-              rating: job.fitScore,
-              label: job.fitLabel,
-              justification: job.fitJustification,
-            },
-            jobFitAssessedAt: new Date(),
-          }
-        : {}),
     },
     select: { id: true },
   })

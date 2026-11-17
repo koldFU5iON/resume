@@ -15,25 +15,22 @@ import {
   type ApplicationStatusType,
   type ApplicationSourceType,
 } from '@/app/types/job-application'
-import type { JobFit } from '@/app/types/job-application'
 import { EARLY_FILTER_OPTIONS, type EarlyLevelFilter } from './early-assessment-view'
 
 export type FilterState = {
   status: Set<ApplicationStatusType>
   source: Set<ApplicationSourceType>
-  fit: Set<JobFit['label'] | 'none'>
   early: Set<EarlyLevelFilter>
 }
 
-/** `fitRating` is the deprecated JobFit score; `earlyScore` is the early assessment's. */
-export type SortField = 'dateApplied' | 'datePublished' | 'company' | 'fitRating' | 'earlyScore' | 'lastUpdated'
+/** `earlyScore` is the early assessment's fit score. */
+export type SortField = 'dateApplied' | 'datePublished' | 'company' | 'earlyScore' | 'lastUpdated'
 export type SortDirection = 'asc' | 'desc'
 export type SortState = { field: SortField; direction: SortDirection }
 
 export const DEFAULT_FILTER: FilterState = {
   status: new Set(),
   source: new Set(),
-  fit: new Set(),
   early: new Set(),
 }
 
@@ -44,31 +41,26 @@ export function selectSortField(current: SortState, field: SortField): SortState
 }
 
 export function isFilterActive(f: FilterState) {
-  return f.status.size > 0 || f.source.size > 0 || f.fit.size > 0 || f.early.size > 0
+  return f.status.size > 0 || f.source.size > 0 || f.early.size > 0
 }
 
-/**
- * Sort options. With the early assessment on, "Fit score" sorts by it and the
- * deprecated JobFit rating isn't offered; with it off, "Fit score" is JobFit's.
- */
-function sortOptions(earlyEnabled: boolean): { value: SortField; label: string }[] {
-  return [
-    { value: 'dateApplied',   label: 'Date applied' },
-    { value: 'datePublished', label: 'Date published' },
-    { value: 'company',       label: 'Company' },
-    { value: earlyEnabled ? 'earlyScore' : 'fitRating', label: 'Fit score' },
-    { value: 'lastUpdated',   label: 'Last updated' },
-  ]
-}
+const SORT_OPTIONS: { value: SortField; label: string }[] = [
+  { value: 'dateApplied',   label: 'Date applied' },
+  { value: 'datePublished', label: 'Date published' },
+  { value: 'company',       label: 'Company' },
+  { value: 'earlyScore',    label: 'Fit score' },
+  { value: 'lastUpdated',   label: 'Last updated' },
+]
 
 /**
- * The sort to use for this user: a saved sort on the other model's fit score
- * maps to the current one, so a "Fit score" choice survives the switch.
+ * A saved sort, checked: the retired JobFit sort (`fitRating`) maps to the
+ * early score so a "Fit score" choice survives, and anything unknown falls
+ * back to the default.
  */
-export function normaliseSort(sort: SortState, earlyEnabled: boolean): SortState {
-  if (earlyEnabled && sort.field === 'fitRating') return { ...sort, field: 'earlyScore' }
-  if (!earlyEnabled && sort.field === 'earlyScore') return { ...sort, field: 'fitRating' }
-  return sort
+export function normaliseSort(sort: { field: string; direction: string }): SortState {
+  const field = sort.field === 'fitRating' ? 'earlyScore' : sort.field
+  const direction: SortDirection = sort.direction === 'asc' ? 'asc' : 'desc'
+  return SORT_OPTIONS.some(o => o.value === field) ? { field: field as SortField, direction } : DEFAULT_SORT
 }
 
 const STATUS_OPTIONS = Object.values(ApplicationStatus).map(v => ({
@@ -81,30 +73,18 @@ const SOURCE_OPTIONS = APPLICATION_SOURCES.map(v => ({
   label: APPLICATION_SOURCE_LABEL[v as ApplicationSourceType],
 }))
 
-const FIT_OPTIONS: { value: JobFit['label'] | 'none'; label: string }[] = [
-  { value: 'standout', label: 'Standout' },
-  { value: 'solid',    label: 'Solid' },
-  { value: 'stretch',  label: 'Stretch' },
-  { value: 'possible', label: 'Possible' },
-  { value: 'reach',    label: 'Reach' },
-  { value: 'none',     label: 'Not assessed' },
-]
-
 type FilterBarProps = {
   filter: FilterState
   sort: SortState
   onFilterChange: (f: FilterState) => void
   onSortChange: (s: SortState) => void
-  /** Early assessment on for this user: "Fit" filters and sorts by it instead of the deprecated JobFit. */
-  earlyEnabled?: boolean
 }
 
-export function FilterBar({ filter, sort, onFilterChange, onSortChange, earlyEnabled = false }: FilterBarProps) {
+export function FilterBar({ filter, sort, onFilterChange, onSortChange }: FilterBarProps) {
   const active = isFilterActive(filter)
-  const options = sortOptions(earlyEnabled)
 
   function clearFilters() {
-    onFilterChange({ status: new Set(), source: new Set(), fit: new Set(), early: new Set() })
+    onFilterChange({ status: new Set(), source: new Set(), early: new Set() })
   }
 
   return (
@@ -121,22 +101,13 @@ export function FilterBar({ filter, sort, onFilterChange, onSortChange, earlyEna
         selected={filter.source}
         onChange={(next) => onFilterChange({ ...filter, source: next as Set<ApplicationSourceType> })}
       />
-      {earlyEnabled ? (
-        <FilterDropdown
-          label="Fit"
-          options={EARLY_FILTER_OPTIONS}
-          selected={filter.early}
-          onChange={(next) => onFilterChange({ ...filter, early: next })}
-        />
-      ) : (
-        <FilterDropdown
-          label="Fit"
-          options={FIT_OPTIONS}
-          selected={filter.fit}
-          onChange={(next) => onFilterChange({ ...filter, fit: next as Set<JobFit['label'] | 'none'> })}
-        />
-      )}
-      <SortDropdown sort={sort} options={options} onSortChange={onSortChange} />
+      <FilterDropdown
+        label="Fit"
+        options={EARLY_FILTER_OPTIONS}
+        selected={filter.early}
+        onChange={(next) => onFilterChange({ ...filter, early: next })}
+      />
+      <SortDropdown sort={sort} options={SORT_OPTIONS} onSortChange={onSortChange} />
       {active && (
         <button
           type="button"
@@ -151,14 +122,14 @@ export function FilterBar({ filter, sort, onFilterChange, onSortChange, earlyEna
   )
 }
 
-export function MobileListControls({ filter, sort, onFilterChange, onSortChange, earlyEnabled = false, viewMode, onViewModeChange, onBatchOpen, resultCount }: FilterBarProps & {
+export function MobileListControls({ filter, sort, onFilterChange, onSortChange, viewMode, onViewModeChange, onBatchOpen, resultCount }: FilterBarProps & {
   viewMode: 'grouped' | 'all'
   onViewModeChange: (mode: 'grouped' | 'all') => void
   onBatchOpen: () => void
   resultCount: number
 }) {
   const [open, setOpen] = useState(false)
-  const count = filter.status.size + filter.source.size + (earlyEnabled ? filter.early.size : filter.fit.size)
+  const count = filter.status.size + filter.source.size + filter.early.size
   const selectClass = 'h-11 w-full rounded-md border border-input bg-background px-3 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
 
   return (
@@ -181,26 +152,24 @@ export function MobileListControls({ filter, sort, onFilterChange, onSortChange,
             </label>
             <label className="space-y-2 text-sm font-medium">Sort by
               <select className={selectClass} value={sort.field} onChange={e => onSortChange(selectSortField(sort, e.target.value as SortField))}>
-                {sortOptions(earlyEnabled).map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                {SORT_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
               </select>
             </label>
           </div>
           <label className="block space-y-2 text-sm font-medium">Sort direction
             <select className={selectClass} value={sort.direction} onChange={e => onSortChange({ ...sort, direction: e.target.value as SortDirection })}>
-              <option value="desc">{sort.field === 'company' ? 'Z to A' : sort.field === 'earlyScore' || sort.field === 'fitRating' ? 'Highest first' : 'Newest first'}</option>
-              <option value="asc">{sort.field === 'company' ? 'A to Z' : sort.field === 'earlyScore' || sort.field === 'fitRating' ? 'Lowest first' : 'Oldest first'}</option>
+              <option value="desc">{sort.field === 'company' ? 'Z to A' : sort.field === 'earlyScore' ? 'Highest first' : 'Newest first'}</option>
+              <option value="asc">{sort.field === 'company' ? 'A to Z' : sort.field === 'earlyScore' ? 'Lowest first' : 'Oldest first'}</option>
             </select>
           </label>
           <MobileFilterOptions label="Status" options={STATUS_OPTIONS} selected={filter.status} onChange={status => onFilterChange({ ...filter, status })} />
           <MobileFilterOptions label="Source" options={SOURCE_OPTIONS} selected={filter.source} onChange={source => onFilterChange({ ...filter, source })} />
-          {earlyEnabled
-            ? <MobileFilterOptions label="Fit" options={EARLY_FILTER_OPTIONS} selected={filter.early} onChange={early => onFilterChange({ ...filter, early })} />
-            : <MobileFilterOptions label="Fit" options={FIT_OPTIONS} selected={filter.fit} onChange={fit => onFilterChange({ ...filter, fit })} />}
+          <MobileFilterOptions label="Fit" options={EARLY_FILTER_OPTIONS} selected={filter.early} onChange={early => onFilterChange({ ...filter, early })} />
           <Button variant="outline" className="min-h-11 w-full" onClick={() => { setOpen(false); onBatchOpen() }}><ListPlus className="size-4" />Batch Add jobs</Button>
         </div>
         <DrawerFooter className="border-t border-border pb-[max(1rem,env(safe-area-inset-bottom))]">
           <div className="flex gap-3">
-            <Button variant="outline" className="min-h-11" disabled={!count} onClick={() => onFilterChange({ status: new Set(), source: new Set(), fit: new Set(), early: new Set() })}>Clear filters</Button>
+            <Button variant="outline" className="min-h-11" disabled={!count} onClick={() => onFilterChange({ status: new Set(), source: new Set(), early: new Set() })}>Clear filters</Button>
             <DrawerClose asChild><Button className="min-h-11 flex-1">Show {resultCount} {resultCount === 1 ? 'job' : 'jobs'}</Button></DrawerClose>
           </div>
         </DrawerFooter>

@@ -6,6 +6,7 @@ import { PROFILE_TOOLS } from '@/modules/profile-map/tools'
 import { normalizeSections } from '@/modules/interview-prep/schema'
 import { getDeepDiveForCoach } from '@/modules/deep-dive/coach'
 import { getDeepDiveSummary } from '@/modules/deep-dive/queries'
+import { getLatestAssessment } from '@/modules/job-assessment/queries'
 
 type OwnershipTable =
   | 'cVDocument'
@@ -69,12 +70,15 @@ export function createChatTools(profileId: string) {
     ...profileTools(profileId),
 
     get_job_application: tool({
-      description: 'Fetch a job application including full job description, fit score, notes, and whether it has a deep dive report.',
+      description: 'Fetch a job application including full job description, early assessment fit score, notes, and whether it has a deep dive report.',
       inputSchema: zodSchema(z.object({ jobId: z.string() })),
       execute: async ({ jobId }) => {
         const job = await prisma.jobApplication.findUnique({ where: { id: jobId } })
         if (!job || job.profileId !== profileId) throw new Error('Resource not found or access denied')
-        const deepDive = await getDeepDiveSummary(profileId, jobId).catch(() => null)
+        const [deepDive, early] = await Promise.all([
+          getDeepDiveSummary(profileId, jobId).catch(() => null),
+          getLatestAssessment(profileId, jobId).catch(() => null),
+        ])
         return {
           deepDive: deepDive?.hasReport
             ? { hasReport: true, verdict: deepDive.verdict, note: 'Call get_deep_dive for the full report.' }
@@ -84,8 +88,9 @@ export function createChatTools(profileId: string) {
           status: job.status,
           jobDescription: job.jobDescription,
           notes: job.notes,
-          fitScore: (job.jobFit as { rating?: number } | null)?.rating ?? null,
-          fitSummary: (job.jobFit as { summary?: string } | null)?.summary ?? null,
+          earlyAssessment: early?.status === 'complete'
+            ? { score: early.score, level: early.level, blocked: early.blocked, blockers: early.blockers.map(b => `${b.severity}: ${b.label}`), strengths: early.strengths, gaps: early.gaps }
+            : null,
         }
       },
     }),
