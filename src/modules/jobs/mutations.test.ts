@@ -33,7 +33,6 @@ const current = {
   jobDescription: 'JD',
   countries: ['London', 'UK'],
   salaryBand: '£80k',
-  jobFit: null,
   jobAnalysis: null,
 }
 
@@ -165,7 +164,7 @@ describe('updateJobApplication', () => {
   })
 
   it('keeps the stale fit-data flag', async () => {
-    mockFind.mockResolvedValueOnce({ ...current, jobFit: { rating: 5 } } as never)
+    mockFind.mockResolvedValueOnce({ ...current, jobAnalysis: { verdict: 'pursue' } } as never)
     expect(await updateJobApplication('job-1', { jobDescription: 'New JD' })).toEqual({ staleFitData: true })
   })
 })
@@ -181,7 +180,7 @@ describe('request-path cost when the assessment is off', () => {
   })
 
   it('updateJobApplication still reads for the stale fit-data check', async () => {
-    mockFind.mockResolvedValueOnce({ ...current, jobFit: { rating: 5 } } as never)
+    mockFind.mockResolvedValueOnce({ ...current, jobAnalysis: { verdict: 'pursue' } } as never)
     expect(await updateJobApplication('job-1', { jobDescription: 'New JD' })).toEqual({ staleFitData: true })
     expect(mockQueue).not.toHaveBeenCalled()
   })

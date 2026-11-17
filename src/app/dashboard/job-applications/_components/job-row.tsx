@@ -11,8 +11,8 @@ import { StatusDropdown } from "./status-dropdown"
 import { AppControls } from "@/components/app-item-menu"
 import { Loader2, FileText, Mail, SquareArrowOutUpRight } from "lucide-react"
 import { ApplicationDateBlock } from "./app-date-block"
-import { JobFit } from "./job-fit"
 import { EarlyAssessment } from "./early-assessment"
+import { DeepDiveVerdictLink } from "./deep-dive-button"
 import { JobNotes } from "./job-notes"
 import { SalaryBandCell } from "./salary-band-cell"
 import { JobCompletenessDot } from "./job-completeness-dot"
@@ -36,12 +36,12 @@ type JobRowProps = {
   earlyEnabled: boolean
 }
 
-export function JobRow({ job, selected, busyLabel, onToggleSelect, onEdit, onArchive, onGenerateCV, onCreateCoverLetter, hasLLMKey, earlyEnabled }: JobRowProps) {
+export function JobRow({ job, selected, busyLabel, onToggleSelect, onEdit, onArchive, onGenerateCV, onCreateCoverLetter, earlyEnabled }: JobRowProps) {
   const {
     id, jobNumber, title, company, countries, url,
     dateApplied, datePublished, lastUpdated, status, progress,
-    jobFit, notes, notesIncludeInFit, applicationSource,
-    jobDescription, salaryBand, cvDocumentId, coverLetterDocumentId,
+    notes, notesIncludeInFit, applicationSource,
+    salaryBand, cvDocumentId, coverLetterDocumentId,
   } = job
   const showSourceBadge = applicationSource !== ApplicationSource.Cold
   const busy = Boolean(busyLabel)
@@ -159,9 +159,8 @@ export function JobRow({ job, selected, busyLabel, onToggleSelect, onEdit, onArc
 
       {/* Job fit */}
       <div className="flex min-w-0 flex-wrap items-center gap-0.5 px-2 py-3">
-        {/* JobFit is deprecated: shown only while the early assessment is off for this user. */}
-        {!earlyEnabled && <JobFit jobId={id} jobFit={jobFit ?? null} canAssess={!!jobDescription?.trim()} hasLLMKey={hasLLMKey} deepDive={job.deepDive} company={company ?? undefined} jdSnippet={jobDescription ? jobDescription.slice(0, 800) : undefined} />}
         <EarlyAssessment jobId={id} assessment={job.earlyAssessment ?? null} enabled={earlyEnabled} editHref={`/dashboard/job-applications/view/${id}`} deepDive={job.deepDive} />
+        <DeepDiveVerdictLink jobId={id} deepDive={job.deepDive} />
       </div>
 
       {/* Dates stay together, with the same alignment in every row. */}

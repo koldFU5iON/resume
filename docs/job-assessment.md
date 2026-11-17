@@ -6,20 +6,19 @@ Maintainer guide to the early job assessment. The design rationale and every que
 
 Code: `src/modules/job-assessment/` (pipeline, queue, queries), `src/modules/jev/client.ts` (Jev client).
 
-## What it is, and how it sits alongside JobFit
+## What it is, and what it replaced (JobFit)
 
 The early assessment gives every captured job a fast 1–10 score and a level (weak, consider, pursue, priority) the
 moment it is saved, with blockers, strengths, gaps and "check these" notes. It reads the job description and the user's
 profile and answers a fixed set of typed questions with Jev, TypeSafe's System One model.
 
 **JobFit** is the older, on-demand assessment: one Claude call on the user's own key, rated 0–10, stored on
-`JobApplication.jobFit`. **Nothing writes JobFit any more:** `assessJobFit` was removed in #363, the pill's Assess
-and Re-assess start a job deep dive (`docs/deep-dive.md`) instead, and the pill is hidden once the job has a complete
-deep dive. Before that, **JobFit was deprecated:** wherever the early assessment is on for a user,
-the early assessment is the fit score in the UI and JobFit is hidden, apart from a collapsed "Legacy fit score
-(deprecated)" section on the job page kept for reference. Users with the early assessment off still see JobFit. The
-stored `jobFit` is still shown in the CV editor's job panel and read by the chat job tools; those move over before JobFit
-is removed. Differences:
+`JobApplication.jobFit`. **It is retired:** nothing writes it (`assessJobFit` was removed in #363) and nothing shows it.
+The job list, job page, CV editor and chat tools all use the early assessment; with the early assessment off for a user
+there is no fit score, only the deep dive. Job Hunt's "Score Fit" on discovered roles (same prompt, `job-hunt-fit`)
+is gone too: importing a role queues the early assessment, and the old fit is no longer copied onto the new application.
+Scout triage still makes its own LLM call on discovered roles to pick a verdict. The stored `jobFit` column is
+kept for `npm run assess:compare` and will be dropped with a migration later. Differences, for reference:
 
 | | Early assessment | JobFit |
 |---|---|---|
@@ -217,11 +216,10 @@ Admins also see an **App-billed (Jev)** card on `/dashboard/settings/usage` (`ge
 Re-run), `early-assessment-view.ts` (labels, colours, filters, formatting; pure), `assessment-poller.tsx` (polls while a
 run is pending). Read models come from `queries.ts`, which maps stale runs to failed.
 
-With the early assessment on, the job list's "Fit" column, "Fit" filter (priority, pursue, consider, weak, blocked,
-needs attention, not assessed) and "Fit score" sort all use it. Clicking the Fit column header sorts by it (best first,
+The job list's "Fit" column, "Fit" filter (priority, pursue, consider, weak, blocked, needs attention, not assessed)
+and "Fit score" sort all use it. Clicking the Fit column header sorts by it (best first,
 then flips). Blocked jobs rank below every unblocked one; unassessed or running jobs come last in either direction. A saved JobFit sort
-carries over (`normaliseSort` in `filter-bar.tsx`), and a saved JobFit filter is dropped. The "Deep analysis" button
-(which ran JobFit) was removed with the deprecation.
+carries over (`normaliseSort` in `filter-bar.tsx`), and a saved JobFit filter is dropped.
 
 ## Tuning
 

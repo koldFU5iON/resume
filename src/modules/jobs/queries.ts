@@ -12,15 +12,6 @@ import {
 } from "@/modules/writing-desk/schema"
 import type { JobDocumentAssets } from "@/modules/jobs/workspace-nav"
 
-/**
- * The legacy JobFit as the UI shows it: hidden (null) once the job has a
- * complete deep dive, which replaces it (spec §10). Done here once so rows,
- * filters, sorts and the sidebar all agree.
- */
-function visibleJobFit<T>(jobFit: T, deepDive: DeepDiveSummary | null | undefined): T | null {
-  return deepDive?.hasReport ? null : jobFit
-}
-
 export type DashboardJobSlim = {
   id: string
   title: string
@@ -95,6 +86,7 @@ export async function getActiveJobs(): Promise<Job[]> {
   const jobs = await prisma.jobApplication.findMany({
     where: { profileId: profile.id, archivedAt: null },
     orderBy: [{ dateApplied: { sort: 'desc', nulls: 'last' } }, { lastUpdated: 'desc' }],
+    omit: { jobFit: true },
     include: {
       cvDocuments: {
         select: { id: true },
@@ -126,7 +118,6 @@ export async function getActiveJobs(): Promise<Job[]> {
     interviewPrepSessionId: j.interviewPrepSessions[0]?.id ?? null,
     earlyAssessment: early[j.id] ?? null,
     deepDive: deepDives[j.id] ?? null,
-    jobFit: visibleJobFit(j.jobFit, deepDives[j.id]),
   })) as Job[]
 }
 
@@ -151,6 +142,7 @@ export async function getJobApplicationById(id: string): Promise<Job | null> {
   const { profile } = await requireProfile()
   const [job, earlyAssessment, deepDive] = await Promise.all([prisma.jobApplication.findFirst({
     where: { id, profileId: profile.id },
+    omit: { jobFit: true },
     include: {
       cvDocuments: {
         select: { id: true },
@@ -177,7 +169,6 @@ export async function getJobApplicationById(id: string): Promise<Job | null> {
     interviewPrepSessionId: job.interviewPrepSessions[0]?.id ?? null,
     earlyAssessment,
     deepDive,
-    jobFit: visibleJobFit(job.jobFit, deepDive),
   } as Job
 }
 

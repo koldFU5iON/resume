@@ -10,7 +10,6 @@ import {
   ClosedStatuses,
   type ApplicationStatusType,
   type Job,
-  type JobFit,
 } from "@/app/types/job-application"
 import {
   FilterBar,
@@ -156,9 +155,7 @@ export function JobList({ jobs, hasLLMKey, deepDiveAccess, earlyEnabled = false 
         setFilter({
           status: new Set(p.status ?? []),
           source: new Set(p.source ?? []),
-          // Only the current model's fit filter is kept, so a hidden one can't stay active.
-          fit: earlyEnabled ? new Set() : new Set(p.fit ?? []),
-          early: earlyEnabled ? parseEarlyFilter(p.early) : new Set(),
+          early: parseEarlyFilter(p.early),
         })
       }
     } catch { /* ignore malformed filter cache */ }
@@ -167,11 +164,10 @@ export function JobList({ jobs, hasLLMKey, deepDiveAccess, earlyEnabled = false 
       const savedSort = window.localStorage.getItem(SORT_KEY)
       if (savedSort) {
         const p = JSON.parse(savedSort)
-        // "Fit score" follows whichever assessment is current for this user.
-        if (p.field && p.direction) setSort(normaliseSort(p, earlyEnabled))
+        if (p.field && p.direction) setSort(normaliseSort(p))
       }
     } catch { /* ignore malformed sort cache */ }
-  }, [earlyEnabled])
+  }, [])
 
   function changeViewMode(next: ViewMode) {
     clearSelection()
@@ -185,7 +181,6 @@ export function JobList({ jobs, hasLLMKey, deepDiveAccess, earlyEnabled = false 
     window.localStorage.setItem(FILTER_KEY, JSON.stringify({
       status: [...next.status],
       source: [...next.source],
-      fit: [...next.fit],
       early: [...next.early],
     }))
   }
@@ -227,14 +222,7 @@ export function JobList({ jobs, hasLLMKey, deepDiveAccess, earlyEnabled = false 
     if (filter.source.size > 0) {
       result = result.filter(j => filter.source.has(j.applicationSource))
     }
-    // The deprecated JobFit filter applies only while the early assessment is off.
-    if (!earlyEnabled && filter.fit.size > 0) {
-      result = result.filter(j => {
-        const label = j.jobFit?.label ?? 'none'
-        return filter.fit.has(label as JobFit['label'] | 'none')
-      })
-    }
-    if (earlyEnabled && filter.early.size > 0) {
+    if (filter.early.size > 0) {
       result = result.filter(j => filter.early.has(earlyFilterKey(j.earlyAssessment)))
     }
 
@@ -262,9 +250,6 @@ export function JobList({ jobs, hasLLMKey, deepDiveAccess, earlyEnabled = false 
         case 'company':
           cmp = (a.company ?? '').localeCompare(b.company ?? '')
           break
-        case 'fitRating':
-          cmp = (a.jobFit?.rating ?? -1) - (b.jobFit?.rating ?? -1)
-          break
         case 'earlyScore': {
           const aVal = earlySortValue(a.earlyAssessment)
           const bVal = earlySortValue(b.earlyAssessment)
@@ -283,7 +268,7 @@ export function JobList({ jobs, hasLLMKey, deepDiveAccess, earlyEnabled = false 
     })
 
     return result
-  }, [jobs, query, filter, sort, earlyEnabled])
+  }, [jobs, query, filter, sort])
 
   const pendingRuns = useMemo(
     // Early assessments and deep dives in progress: rows show both, so both keep the list refreshing.
@@ -438,7 +423,6 @@ export function JobList({ jobs, hasLLMKey, deepDiveAccess, earlyEnabled = false 
         onSortChange={changeSort}
         onCreateOpen={() => openCreate()}
         onBatchOpen={() => setBatching(true)}
-        earlyEnabled={earlyEnabled}
       />
       <Separator className="my-3" />
 
@@ -475,7 +459,6 @@ export function JobList({ jobs, hasLLMKey, deepDiveAccess, earlyEnabled = false 
               onToggleAll={toggleSelectAll}
               sort={sort}
               onSortChange={changeSort}
-              fitField={earlyEnabled ? 'earlyScore' : 'fitRating'}
             />
             {groups.map(g => (
               <JobGroup
@@ -543,7 +526,6 @@ type ToolBarProps = {
   onSortChange: (s: SortState) => void
   onCreateOpen: () => void
   onBatchOpen: () => void
-  earlyEnabled: boolean
 }
 
 function ToolBar({
@@ -562,7 +544,6 @@ function ToolBar({
   onSortChange,
   onCreateOpen,
   onBatchOpen,
-  earlyEnabled,
 }: ToolBarProps) {
   return (
     <div className="flex flex-col gap-3 md:gap-1">
@@ -572,7 +553,7 @@ function ToolBar({
           <Button className="min-h-11 px-4" onClick={onCreateOpen}><Plus className="size-4" />Add Job</Button>
         </div>
         <JobSearchBar value={query} onChange={onQueryChange} />
-        <MobileListControls filter={filter} sort={sort} onFilterChange={onFilterChange} onSortChange={onSortChange} earlyEnabled={earlyEnabled} viewMode={viewMode} onViewModeChange={onViewModeChange} onBatchOpen={onBatchOpen} resultCount={visibleCount} />
+        <MobileListControls filter={filter} sort={sort} onFilterChange={onFilterChange} onSortChange={onSortChange} viewMode={viewMode} onViewModeChange={onViewModeChange} onBatchOpen={onBatchOpen} resultCount={visibleCount} />
         {selectedCount > 0 && createPortal(
           <div role="region" aria-label="Selected job actions" className="fixed inset-x-3 bottom-[calc(3rem+env(safe-area-inset-bottom))] z-30 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-background p-3 md:hidden">
             <span className="mr-auto text-sm" role="status">{selectedCount} selected</span>
@@ -592,7 +573,6 @@ function ToolBar({
           sort={sort}
           onFilterChange={onFilterChange}
           onSortChange={onSortChange}
-          earlyEnabled={earlyEnabled}
         />
 
         {selectedCount > 0 && (
@@ -701,8 +681,6 @@ type ColHeadersProps = {
   onToggleAll: () => void
   sort: SortState
   onSortChange: (s: SortState) => void
-  /** The sort behind the Fit column: the early score, or the deprecated JobFit rating while that is off. */
-  fitField: SortState['field']
 }
 
 const COL_HEADERS = [
@@ -712,11 +690,11 @@ const COL_HEADERS = [
   { label: "Dates",       className: "px-2" },
 ] as const
 
-function ColHeaders({ isAllSelected, isSomeSelected, onToggleAll, sort, onSortChange, fitField }: ColHeadersProps) {
-  const fitSorted = sort.field === fitField
+function ColHeaders({ isAllSelected, isSomeSelected, onToggleAll, sort, onSortChange }: ColHeadersProps) {
+  const fitSorted = sort.field === 'earlyScore'
   // First click sorts best-first; later clicks flip the direction.
   function sortByFit() {
-    onSortChange({ field: fitField, direction: fitSorted && sort.direction === 'desc' ? 'asc' : 'desc' })
+    onSortChange({ field: 'earlyScore', direction: fitSorted && sort.direction === 'desc' ? 'asc' : 'desc' })
   }
 
   return (

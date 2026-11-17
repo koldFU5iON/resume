@@ -11,7 +11,6 @@ import { getJobSpend } from "@/modules/llm/job-cost"
 import { MarkdownProse } from "@/components/ui/markdown-prose"
 import { formatDate } from "@/lib/utils"
 import { APPLICATION_SOURCE_LABEL, type Job } from "@/app/types/job-application"
-import { JobFit } from "@/app/dashboard/job-applications/_components/job-fit"
 import { EarlyAssessment } from "@/app/dashboard/job-applications/_components/early-assessment"
 import { AssessmentPoller } from "@/app/dashboard/job-applications/_components/assessment-poller"
 import { pendingSignature } from "@/app/dashboard/job-applications/_components/early-assessment-view"
@@ -121,7 +120,7 @@ export default async function ViewJobPage({
         </Section>
 
         <Section title="Fit assessment and Deep Dive">
-          <FitDetails job={job} earlyEnabled={earlyEnabled} hasLLMKey={hasLLMKey} deepDiveAccess={deepDiveAccess} />
+          <FitDetails job={job} earlyEnabled={earlyEnabled} deepDiveAccess={deepDiveAccess} />
         </Section>
 
         <Section
@@ -174,37 +173,10 @@ function Section({ title, summary, defaultOpen = false, children }: {
   )
 }
 
-function fitStrengthLabel(rating: number): string {
-  if (rating >= 8) return "Strong match"
-  if (rating >= 6) return "Good match"
-  return "Partial match"
-}
-
-/** @deprecated JobFit (Claude) is superseded by the early assessment; shown only for reference or while that is off. */
-function LegacyJobFit({ job, hasLLMKey }: { job: Job; hasLLMKey: boolean }) {
-  return (
-    <>
-      <JobFit
-        jobId={job.id}
-        jobFit={job.jobFit ?? null}
-        canAssess={!!job.jobDescription?.trim()}
-        hasLLMKey={hasLLMKey}
-        deepDive={job.deepDive}
-        company={job.company ?? undefined}
-        jdSnippet={job.jobDescription ? job.jobDescription.slice(0, 800) : undefined}
-      />
-      {job.jobFit && (
-        <p className="text-xs text-muted-foreground">{fitStrengthLabel(job.jobFit.rating)}</p>
-      )}
-    </>
-  )
-}
-
 /** What the old hub sidebar's Fit score and Deep dive cards held. */
-function FitDetails({ job, earlyEnabled, hasLLMKey, deepDiveAccess }: {
+function FitDetails({ job, earlyEnabled, deepDiveAccess }: {
   job: Job
   earlyEnabled: boolean
-  hasLLMKey: boolean
   deepDiveAccess: ReturnType<typeof toDeepDiveAccess>
 }) {
   const early = job.earlyAssessment ?? null
@@ -212,34 +184,9 @@ function FitDetails({ job, earlyEnabled, hasLLMKey, deepDiveAccess }: {
     <div className="grid gap-6 sm:grid-cols-2">
       <div className="space-y-2">
         <p className="text-xs text-muted-foreground">Fit score</p>
-        {earlyEnabled ? (
-          <>
-            <EarlyAssessment jobId={job.id} assessment={early} enabled deepDive={job.deepDive} deepDiveAccess={deepDiveAccess} />
-            {/* JobFit is deprecated: kept for reference until it's removed. */}
-            {job.jobFit && (
-              <details className="mt-1 border-t pt-3 text-xs">
-                <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
-                  Legacy fit score (deprecated)
-                </summary>
-                <div className="mt-2 space-y-1">
-                  <LegacyJobFit job={job} hasLLMKey={hasLLMKey} />
-                </div>
-              </details>
-            )}
-          </>
-        ) : (
-          <>
-            {job.jobFit
-              ? <LegacyJobFit job={job} hasLLMKey={hasLLMKey} />
-              : <p className="text-xs text-muted-foreground">No fit score yet. A Deep Dive gives a full verdict.</p>}
-            {early && (
-              <div className="mt-1 space-y-1 border-t pt-3">
-                <p className="text-xs text-muted-foreground">Early assessment</p>
-                <EarlyAssessment jobId={job.id} assessment={early} enabled={false} deepDive={job.deepDive} deepDiveAccess={deepDiveAccess} />
-              </div>
-            )}
-          </>
-        )}
+        {earlyEnabled || early
+          ? <EarlyAssessment jobId={job.id} assessment={early} enabled={earlyEnabled} deepDive={job.deepDive} deepDiveAccess={deepDiveAccess} />
+          : <p className="text-xs text-muted-foreground">No fit score yet. A Deep Dive gives a full verdict.</p>}
       </div>
       <div className="space-y-2">
         <p className="text-xs text-muted-foreground">Deep Dive</p>

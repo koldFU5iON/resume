@@ -74,14 +74,6 @@ export const APPLICATION_SOURCE_LABEL: Record<ApplicationSourceType, string> = {
   [ApplicationSource.RecruiterOutreach]: "Recruiter outreach",
 }
 
-export type JobFit = {
-  rating: number
-  label: "reach" | "possible" | "stretch" | "solid" | "standout"
-  justification: string
-  trajectoryNote?: string
-  notesUsed?: boolean
-}
-
 export type SalaryEstimate = {
   min:         number | null
   max:         number | null
@@ -94,7 +86,6 @@ export type SalaryEstimate = {
 export type Job = Omit<JobApplication, "status" | "progress" | "jobFit" | "applicationSource"> & {
   status: ApplicationStatusType
   progress: ApplicationProgressType
-  jobFit?: JobFit | null
   applicationSource: ApplicationSourceType
   cvDocumentId?: string | null
   coverLetterDocumentId?: string | null

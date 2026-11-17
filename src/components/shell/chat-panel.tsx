@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState, useTransition } from 'react'
 import { useChat } from '@ai-sdk/react'
 import { DefaultChatTransport, isTextUIPart, isToolUIPart, type UIMessage } from 'ai'
-import { Sparkles, X, Send, Bot, SquarePen, Maximize2, Minimize2, FileText, Briefcase, Mail, ClipboardList, NotebookPen, User } from 'lucide-react'
+import { Sparkles, X, Send, Bot, SquarePen, Maximize2, Minimize2, FileText, Mail, ClipboardList, NotebookPen, User } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import {
@@ -78,7 +78,6 @@ function navKey(ctx: PageContext | null): string {
   if (!ctx) return ''
   switch (ctx.type) {
     case 'cv': return `cv:${ctx.cvId}`
-    case 'job_fit': return `job_fit:${ctx.jobId}`
     case 'cover_letter': return `cover_letter:${ctx.letterId}`
     case 'writing_desk': return `writing_desk:${ctx.deskId}`
     case 'interview_prep': return `interview_prep:${ctx.sessionId}`
@@ -94,10 +93,6 @@ const CONTEXT_META: Record<
   cv: {
     icon: FileText,
     label: (ctx) => `CV${ctx.type === 'cv' && ctx.company ? ` · ${ctx.company}` : ''}`,
-  },
-  job_fit: {
-    icon: Briefcase,
-    label: (ctx) => `Job fit${ctx.type === 'job_fit' && ctx.company ? ` · ${ctx.company}` : ''}`,
   },
   cover_letter: {
     icon: Mail,

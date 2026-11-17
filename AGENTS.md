@@ -1,7 +1,11 @@
 <!-- BEGIN:nextjs-agent-rules -->
-# This is NOT the Next.js you know
 
-This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
+## This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
 <!-- END:nextjs-agent-rules -->
 
 # AGENTS.md
@@ -73,7 +77,7 @@ src/
     companies/              ← shared Company records, UK sponsor register import, job↔company matching
     deep-dive/              ← job deep dive: gather → research (no profile data) → synthesis; JobDeepDive runs
     mcp/                    ← MCP tools, OAuth verification/discovery, consent and connected apps
-    jobs/                   ← job URL extraction, application records, AI job-fit scoring
+    jobs/                   ← job URL extraction, application records
     llm/                    ← provider-agnostic LLM layer (client.ts, actions.ts, errors.ts)
     onboarding/             ← lightweight job-search context captured in UserSettings
     profile/                ← career profile queries/mutations (read via parseJsonField for legacy tags)

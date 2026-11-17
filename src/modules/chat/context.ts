@@ -145,12 +145,6 @@ function formatPageContext(ctx: PageContext): string {
       }
       return text
     }
-    case 'job_fit':
-      return (
-        `User is viewing job fit assessment for ${ctx.company} — Score: ${ctx.fitScore}/10\n` +
-        `Job ID: ${ctx.jobId} — use this with get_job_application if you need the full JD, and use get_deep_dive with this Job ID for the deep dive report (verdict, gaps, pay, CV strategy) before writing or tailoring a CV or cover letter for it\n` +
-        `<job_description_snippet>${ctx.jdSnippet}</job_description_snippet>`
-      )
     case 'cover_letter':
       return (
         `User is working on a cover letter${ctx.company ? ` for ${ctx.company}` : ''}\n` +

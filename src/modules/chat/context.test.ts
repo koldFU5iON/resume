@@ -48,19 +48,6 @@ describe('buildSystemPrompt', () => {
     expect(result).toContain('Past session summary.')
   })
 
-  it('includes job_fit page context with XML delimiter', async () => {
-    const result = await buildSystemPrompt('profile-1', {
-      type: 'job_fit',
-      jobId: 'job-1',
-      company: 'Revolut',
-      fitScore: 8,
-      jdSnippet: 'Looking for a staff engineer',
-    })
-    expect(result).toContain('Revolut')
-    expect(result).toContain('<job_description_snippet>')
-    expect(result).toContain('Looking for a staff engineer')
-  })
-
   it('includes cv page context', async () => {
     const result = await buildSystemPrompt('profile-1', {
       type: 'cv',
