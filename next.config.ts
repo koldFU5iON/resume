@@ -24,6 +24,9 @@ const nextConfig: NextConfig = {
     "/dashboard/**": [
       "./src/lib/prompts/*.md",
     ],
+    "/dashboard/changelog": [
+      "./CHANGELOG.md",
+    ],
     "/api/**": [
       "./src/lib/prompts/*.md",
     ],

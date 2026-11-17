@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import type { VerifiedToken } from '@/modules/api-tokens/service'
+import { APP_VERSION } from '@/lib/version'
 import { getWritingContractForProfile } from './context'
 import { McpToolError } from './errors'
 import { capText } from './limits'
@@ -8,7 +9,7 @@ import { toolsForScopes, type McpToolContext, type McpToolDefinition } from './r
 import { ALL_MCP_TOOLS } from './tools'
 
 export const MCP_SERVER_NAME = 'currnt'
-export const MCP_SERVER_VERSION = '0.1.0'
+export const MCP_SERVER_VERSION = APP_VERSION
 export const WRITING_CONTRACT_URI = 'currnt://writing-contract/cv'
 
 function errorResult(message: string): CallToolResult {
