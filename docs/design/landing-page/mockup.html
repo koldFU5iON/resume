@@ -1,0 +1,995 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>currnt landing concept</title>
+<meta name="description" content="Concept for issue #403: the public landing page, rebuilt around the job workspace, early assessment, deep dive, Writing Desk, profile, job hunt and MCP. Illustrative content only.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400..700&family=Geist+Mono:wght@400..600&display=swap" rel="stylesheet">
+<style>
+/* ── Slate tokens, copied from src/app/globals.css (:root = light, .dark = dark) ── */
+:root{
+  color-scheme:light;
+  --background:#E3E9F0;--foreground:#0F1825;--card:#FFFFFF;--primary:#1C5DA6;--primary-foreground:#FFFFFF;
+  --secondary:#E0E7EF;--muted:#E0E7EF;--muted-foreground:#4A5869;--accent:#DAE3EE;--destructive:#B22A33;
+  --border:#C5D0DC;--input:#C5D0DC;--ring:#1C5DA6;--radius:8px;
+  --sidebar:#15202D;--sidebar-foreground:#E6EDF5;--sidebar-primary:#6DB1FF;--sidebar-accent:#26344A;--sidebar-border:#22303F;--sidebar-muted:#9BAABB;
+  /* tinted status (Tailwind 600/700 light, 400 dark) */
+  --ok:#047857;--ok-fill:#10b981;--info:#0369a1;--info-fill:#0ea5e9;--warn:#b45309;--warn-fill:#f59e0b;--violet:#7c3aed;--orange:#c2410c;
+  --status-in-progress:#8b5cf6;
+  /* landing-only surfaces derived from tokens */
+  --band:#FFFFFF;--paper:#F5F8FB;--shadow:0 1px 2px rgb(15 24 37/.06),0 12px 40px -12px rgb(15 24 37/.22);
+  --font-sans:"Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  --font-mono:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --background:#0D131B;--foreground:#EFF4F9;--card:#18212C;--primary:#6DB1FF;--primary-foreground:#08131F;
+    --secondary:#1F2935;--muted:#1F2935;--muted-foreground:#A5B2C1;--accent:#223040;--destructive:#FF6B72;
+    --border:#303C4B;--input:#303C4B;--ring:#6DB1FF;
+    --sidebar:#080C12;--sidebar-accent:#1D2836;--sidebar-border:#1A2430;--sidebar-muted:#8F9DAE;
+    --ok:#34d399;--info:#38bdf8;--warn:#fbbf24;--violet:#a78bfa;--orange:#fb923c;
+    --band:#111922;--paper:#131B25;--shadow:0 1px 2px rgb(0 0 0/.3),0 20px 50px -16px rgb(0 0 0/.7);
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --background:#0D131B;--foreground:#EFF4F9;--card:#18212C;--primary:#6DB1FF;--primary-foreground:#08131F;
+  --secondary:#1F2935;--muted:#1F2935;--muted-foreground:#A5B2C1;--accent:#223040;--destructive:#FF6B72;
+  --border:#303C4B;--input:#303C4B;--ring:#6DB1FF;
+  --sidebar:#080C12;--sidebar-accent:#1D2836;--sidebar-border:#1A2430;--sidebar-muted:#8F9DAE;
+  --ok:#34d399;--info:#38bdf8;--warn:#fbbf24;--violet:#a78bfa;--orange:#fb923c;
+  --band:#111922;--paper:#131B25;--shadow:0 1px 2px rgb(0 0 0/.3),0 20px 50px -16px rgb(0 0 0/.7);
+}
+
+/* ── Base ── */
+*,*::before,*::after{box-sizing:border-box}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+body{margin:0;background:var(--background);color:var(--foreground);font-family:var(--font-sans);font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+h1,h2,h3,h4,p,ul,ol,dl,dd,figure{margin:0}
+ul,ol{padding:0;list-style:none}
+a{color:inherit}
+:focus-visible{outline:2px solid var(--ring);outline-offset:3px;border-radius:4px}
+.i{width:16px;height:16px;flex-shrink:0;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.wrap{max-width:1200px;margin:0 auto;padding:0 32px}
+.mono{font-family:var(--font-mono)}
+.eyebrow{font-family:var(--font-mono);font-size:12px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:var(--primary)}
+.muted{color:var(--muted-foreground)}
+
+/* buttons */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:40px;padding:0 18px;border-radius:var(--radius);font-size:15px;font-weight:500;text-decoration:none;border:1px solid transparent;white-space:nowrap;transition:background-color .15s,border-color .15s,color .15s}
+.btn-primary{background:var(--primary);color:var(--primary-foreground)}
+.btn-primary:hover{background:color-mix(in srgb,var(--primary) 88%,var(--foreground))}
+.btn-outline{border-color:var(--border);background:var(--card);color:var(--foreground)}
+.btn-outline:hover{background:var(--accent)}
+.btn-ghost{color:var(--muted-foreground)}
+.btn-ghost:hover{color:var(--foreground);background:var(--accent)}
+.btn-sm{height:32px;padding:0 12px;font-size:14px}
+.btn-lg{height:46px;padding:0 22px;font-size:16px}
+
+/* ── Nav ── */
+.nav{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--background) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--border)}
+.nav .wrap{display:flex;align-items:center;gap:24px;height:64px}
+.logo{display:flex;align-items:center;gap:10px;text-decoration:none;font-weight:600;font-size:17px;letter-spacing:-.02em}
+.logo svg{width:24px;height:24px}
+.nav-links{display:flex;gap:4px;margin-left:12px}
+.nav-links a{font-size:14px;color:var(--muted-foreground);text-decoration:none;padding:6px 10px;border-radius:6px}
+.nav-links a:hover{color:var(--foreground);background:var(--accent)}
+.nav-right{margin-left:auto;display:flex;align-items:center;gap:6px}
+.nav-right .gh{display:inline-flex;align-items:center;gap:6px;font-size:14px;color:var(--muted-foreground);text-decoration:none;padding:6px 10px;border-radius:6px}
+.nav-right .gh:hover{color:var(--foreground);background:var(--accent)}
+.gh svg{width:15px;height:15px;fill:currentColor}
+
+/* ── Hero ── */
+.hero{padding:88px 0 0;position:relative}
+.hero-text{max-width:800px}
+.hero h1{font-size:clamp(40px,5.6vw,68px);line-height:1.02;letter-spacing:-.035em;font-weight:600;margin-top:20px;text-wrap:balance}
+.hero h1 em{font-style:normal;color:var(--muted-foreground)}
+.hero .lede{font-size:19px;line-height:1.6;color:var(--muted-foreground);max-width:620px;margin-top:24px;text-wrap:pretty}
+.hero-cta{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-top:36px}
+.hero-signin{font-size:14px;color:var(--muted-foreground);margin-left:8px}
+.hero-signin a{color:var(--foreground);text-underline-offset:3px}
+.facts{display:flex;flex-wrap:wrap;gap:8px 22px;margin-top:36px;font-size:14px;color:var(--muted-foreground)}
+.facts li{display:flex;align-items:center;gap:8px}
+.facts .i{color:var(--primary);width:15px;height:15px}
+.hero-shot{margin-top:64px;margin-bottom:-200px;position:relative;z-index:1}
+#how{padding-top:312px}
+.shot-caption{font-size:13px;color:var(--muted-foreground);margin-top:14px;text-align:center}
+
+/* ── App frame (recreated job workspace) ── */
+.frame{background:var(--card);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow);overflow:hidden;font-size:12.5px;line-height:1.5;text-align:left}
+.app{display:grid;grid-template-columns:208px minmax(0,1fr);height:600px}
+.sb{background:var(--sidebar);color:var(--sidebar-foreground);padding:16px 10px;display:flex;flex-direction:column;gap:2px;border-right:1px solid var(--sidebar-border)}
+.sb-brand{display:flex;align-items:center;gap:9px;padding:0 8px 16px;font-weight:600;font-size:15px;letter-spacing:-.02em}
+.sb-brand svg{width:20px;height:20px}
+.sb-search{display:flex;align-items:center;gap:8px;border:1px solid var(--sidebar-border);border-radius:6px;padding:6px 9px;color:var(--sidebar-muted);font-size:12px;margin-bottom:6px}
+.sb-search kbd{margin-left:auto;font-family:var(--font-mono);font-size:10px}
+.sb-add{display:flex;align-items:center;gap:8px;background:var(--sidebar-accent);border-radius:6px;padding:7px 9px;margin-bottom:14px}
+.sb-label{font-size:11px;color:var(--sidebar-muted);padding:10px 9px 5px}
+.sb-item{display:flex;align-items:center;gap:9px;padding:5px 9px;border-radius:6px;color:color-mix(in srgb,var(--sidebar-foreground) 82%,transparent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sb-item .i{width:15px;height:15px;color:var(--sidebar-muted)}
+.sb-item.on{background:var(--sidebar-accent);color:var(--sidebar-foreground)}
+.sb-item.on .i{color:var(--sidebar-primary)}
+.sb-job{font-size:12px;padding:6px 9px;border-radius:6px;background:color-mix(in srgb,var(--sidebar-accent) 70%,transparent);line-height:1.4}
+.sb-job small{display:block;color:var(--sidebar-muted);font-size:11px}
+.sb-foot{margin-top:auto;border-top:1px solid var(--sidebar-border);padding-top:10px}
+.ws{display:flex;flex-direction:column;min-width:0;background:var(--background)}
+.ws-head{display:flex;align-items:center;gap:12px;padding:12px 18px;border-bottom:1px solid var(--border);background:var(--background)}
+.ws-back{width:28px;height:28px;display:grid;place-items:center;color:var(--muted-foreground);border-radius:6px}
+.ws-id{min-width:0}
+.ws-id p{font-size:11.5px;color:var(--muted-foreground)}
+.ws-id h3{font-size:15px;font-weight:600;letter-spacing:-.01em;white-space:nowrap}
+.apply{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 9px;border:1px solid var(--border);border-radius:6px;font-size:11.5px;background:var(--card)}
+.apply .i{width:12px;height:12px}
+.ws-ctl{margin-left:auto;display:flex;align-items:center;gap:8px}
+.ctl{display:inline-flex;align-items:center;gap:7px;height:30px;padding:0 10px;border:1px solid var(--border);border-radius:7px;background:var(--card);font-size:11.5px;white-space:nowrap}
+.ctl .i{width:13px;height:13px;color:var(--muted-foreground)}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--status-in-progress)}
+.fit{display:inline-flex;align-items:stretch;height:30px;border:1px solid var(--border);border-radius:7px;background:var(--card);font-size:11.5px;overflow:hidden}
+.fit>span{display:flex;align-items:center;gap:6px;padding:0 10px;white-space:nowrap}
+.fit>span+span{border-left:1px solid var(--border)}
+.fit .score{color:var(--ok);font-weight:600;font-variant-numeric:tabular-nums}
+.fit .i{width:13px;height:13px}
+.chip{display:inline-flex;align-items:center;gap:5px;border-radius:5px;padding:2px 7px;font-size:11px;font-weight:500;white-space:nowrap}
+.chip-info{background:color-mix(in srgb,var(--info-fill) 16%,transparent);color:var(--info)}
+.chip-ok{background:color-mix(in srgb,var(--ok-fill) 16%,transparent);color:var(--ok)}
+.archive{display:inline-flex;align-items:center;gap:6px;color:var(--destructive);font-size:11.5px;padding:0 6px}
+.archive .i{width:13px;height:13px}
+.tabs{display:flex;align-items:stretch;gap:4px;padding:0 14px;border-bottom:1px solid var(--border);background:var(--background)}
+.tab{display:flex;align-items:center;gap:7px;padding:11px 9px;color:var(--muted-foreground);position:relative;white-space:nowrap}
+.tab .i{width:14px;height:14px}
+.tab.on{color:var(--foreground)}
+.tab.on::after{content:"";position:absolute;left:6px;right:6px;bottom:-1px;height:2px;background:var(--primary);border-radius:2px}
+.tab-plus{align-self:center;margin-left:6px;width:28px;height:28px;border:1px solid var(--border);border-radius:6px;display:grid;place-items:center;color:var(--muted-foreground)}
+.tab-plus .i{width:14px;height:14px}
+.doc-bar{display:flex;align-items:center;gap:10px;padding:10px 18px;border-bottom:1px solid var(--border);background:var(--card)}
+.doc-bar strong{font-size:13.5px;font-weight:600}
+.saved{font-size:11px;color:var(--muted-foreground);display:inline-flex;align-items:center;gap:4px}
+.saved .i{width:12px;height:12px;color:var(--ok)}
+.doc-actions{margin-left:auto;display:flex;gap:6px;align-items:center}
+.mini{white-space:nowrap;flex-shrink:0;display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 9px;border:1px solid var(--border);border-radius:6px;font-size:11px;background:var(--card)}
+.mini .i{width:12px;height:12px}
+.seg{display:flex;background:var(--muted);border-radius:6px;padding:2px;gap:2px}
+.seg span{font-size:11px;padding:3px 9px;border-radius:4px;color:var(--muted-foreground)}
+.seg span.on{background:var(--card);color:var(--foreground);box-shadow:0 1px 1px rgb(0 0 0/.06)}
+.draft-strip{display:flex;align-items:center;gap:10px;padding:8px 18px;background:color-mix(in srgb,var(--primary) 9%,var(--card));border-bottom:1px solid var(--border);font-size:11.5px}
+.draft-strip b{font-weight:600}
+.draft-strip .acts{margin-left:auto;display:flex;gap:6px}
+.draft-strip .mini.prim{background:var(--primary);color:var(--primary-foreground);border-color:var(--primary)}
+.split{flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr;background:var(--card)}
+.md{padding:16px 18px;font-family:var(--font-mono);font-size:11.5px;line-height:1.85;color:var(--foreground);border-right:1px solid var(--border);overflow:hidden;white-space:pre-wrap}
+.md .h{color:var(--primary)}
+.md .c{color:var(--muted-foreground)}
+.md mark{background:color-mix(in srgb,var(--ok-fill) 18%,transparent);color:inherit;border-radius:2px}
+.pv{background:var(--paper);padding:18px;overflow:hidden}
+.paper{background:var(--card);border:1px solid var(--border);border-radius:4px;padding:22px 24px;font-size:11px;line-height:1.6}
+.paper h4{font-size:19px;font-weight:600;letter-spacing:-.02em}
+.paper .role{color:var(--muted-foreground);margin-bottom:12px}
+.paper h5{font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;font-weight:600;border-bottom:1px solid var(--border);padding-bottom:4px;margin:12px 0 7px}
+.paper p{margin-bottom:5px}
+.paper li{padding-left:10px;position:relative;margin-bottom:3px}
+.paper li::before{content:"";position:absolute;left:0;top:.62em;width:4px;height:4px;border-radius:50%;background:var(--muted-foreground)}
+
+/* ── Sections ── */
+section{scroll-margin-top:72px}
+.band{background:var(--band);border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
+.sec{padding:112px 0}
+.sec-head{max-width:720px}
+.sec-head h2{font-size:clamp(30px,3.6vw,44px);line-height:1.08;letter-spacing:-.03em;font-weight:600;margin-top:14px;text-wrap:balance}
+.sec-head p:not(.eyebrow){font-size:18px;color:var(--muted-foreground);margin-top:18px;max-width:620px;text-wrap:pretty}
+
+/* how it works */
+.steps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0;margin-top:64px;border-top:1px solid var(--border)}
+.step{padding:28px 28px 0 0;position:relative}
+.step+.step{padding-left:28px;border-left:1px solid var(--border)}
+.step .n{font-family:var(--font-mono);font-size:12px;color:var(--muted-foreground)}
+.step h3{font-size:19px;font-weight:600;letter-spacing:-.015em;margin-top:10px}
+.step p{font-size:15px;color:var(--muted-foreground);margin-top:8px}
+.step .ui{margin-top:22px;min-height:76px;display:flex;align-items:flex-start}
+.ui-input{display:flex;align-items:center;gap:8px;width:100%;border:1px solid var(--border);border-radius:7px;background:var(--card);padding:0 4px 0 10px;height:36px;font-size:12.5px;color:var(--muted-foreground)}
+.ui-input .url{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--foreground)}
+.ui-input .mini{flex-shrink:0}
+.pill{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 9px;border-radius:6px;font-size:12.5px;font-weight:500;border:1px solid var(--border);background:var(--card)}
+.ui-stack{display:flex;flex-direction:column;gap:8px;align-items:flex-start}
+.ui-note{font-size:12px;color:var(--muted-foreground)}
+.ui-tabs{display:flex;gap:2px;border:1px solid var(--border);border-radius:7px;background:var(--card);padding:3px;font-size:12px;flex-wrap:wrap}
+.ui-tabs span{padding:4px 8px;border-radius:5px;color:var(--muted-foreground)}
+.ui-tabs span.on{background:var(--accent);color:var(--foreground)}
+
+/* feature rows */
+.feat{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:72px;align-items:center;padding:96px 0;border-top:1px solid var(--border)}
+.feat:first-of-type{border-top:0}
+.feat.flip{grid-template-columns:minmax(0,7fr) minmax(0,5fr)}
+.feat.flip .feat-text{order:2}
+.feat h3{font-size:clamp(26px,2.8vw,34px);line-height:1.12;letter-spacing:-.025em;font-weight:600;margin-top:12px;text-wrap:balance}
+.feat .intro{font-size:17px;color:var(--muted-foreground);margin-top:16px}
+.feat-text ul{margin-top:24px;display:grid;gap:14px}
+.feat-text li{display:grid;grid-template-columns:18px minmax(0,1fr);gap:12px;font-size:15px;line-height:1.55}
+.feat-text li .i{margin-top:3px;color:var(--primary);width:16px;height:16px}
+.feat-text li b{font-weight:600}
+.visual{position:relative}
+
+/* product cards used in feature visuals */
+.card{background:var(--card);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow);font-size:13px;line-height:1.55;overflow:hidden}
+.card-pad{padding:18px 20px}
+.card h4{font-size:14px;font-weight:600}
+.card .hint{font-size:12px;color:var(--muted-foreground)}
+.sub{font-size:11.5px;font-weight:600;color:var(--muted-foreground);margin:16px 0 8px}
+.gauge{height:8px;border-radius:99px;background:var(--muted);overflow:hidden;margin:6px 0 4px}
+.gauge i{display:block;height:100%;border-radius:99px;background:var(--ok-fill)}
+.row-i{display:grid;grid-template-columns:16px minmax(0,1fr);gap:9px;font-size:12.5px;margin-bottom:7px}
+.row-i .i{width:14px;height:14px;margin-top:2px}
+.t-ok{color:var(--ok)}.t-info{color:var(--info)}.t-warn{color:var(--warn)}.t-bad{color:var(--destructive)}.t-mut{color:var(--muted-foreground)}
+.foot-line{font-family:var(--font-mono);font-size:10.5px;color:var(--muted-foreground);border-top:1px solid var(--border);padding:10px 20px}
+
+.decide{display:grid;grid-template-columns:minmax(0,.86fr) minmax(0,1fr);gap:18px;align-items:start}
+.decide .card:last-child{margin-top:44px}
+.verdict{font-size:24px;font-weight:600;letter-spacing:-.02em;color:var(--info)}
+.dl2{display:grid;grid-template-columns:1fr 1fr;gap:14px;border-top:1px solid var(--border);margin-top:14px;padding-top:14px}
+.dl2 dt{font-size:11px;color:var(--muted-foreground)}
+.dl2 dd{font-weight:600;font-size:13px}
+.dl2 dd small{display:block;font-weight:400;color:var(--muted-foreground);font-size:11.5px;line-height:1.45;margin-top:2px}
+.ask{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-variant-numeric:tabular-nums}
+.ask div{border:1px solid var(--border);border-radius:7px;padding:8px 10px}
+.ask dt{font-size:10.5px;color:var(--muted-foreground)}
+.ask dd{font-size:14px;font-weight:600}
+.ask .em{border-color:var(--primary)}
+.src{font-size:11.5px;color:var(--muted-foreground);display:grid;gap:3px}
+.src span{font-family:var(--font-mono);color:var(--foreground)}
+
+.prompt-sheet{position:absolute;right:-18px;bottom:-36px;width:300px;z-index:2}
+.prompt-sheet .card-pad{padding:16px}
+.prompt-sheet textarea{all:unset;display:block;box-sizing:border-box;width:100%;font-family:var(--font-mono);font-size:10.5px;line-height:1.6;color:var(--muted-foreground);border:1px solid var(--border);border-radius:6px;padding:9px;margin-top:10px;white-space:pre-wrap;height:96px;overflow:hidden}
+.writing .frame{font-size:12px}
+.writing .split{height:330px}
+
+.profile{display:grid;grid-template-columns:170px minmax(0,1fr) 190px;min-height:380px}
+.notes-nav{border-right:1px solid var(--border);padding:14px 10px;font-size:12px;background:var(--background)}
+.notes-nav .lbl{font-size:10.5px;color:var(--muted-foreground);padding:8px 8px 4px;text-transform:uppercase;letter-spacing:.06em}
+.notes-nav div.n{padding:5px 8px;border-radius:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.notes-nav div.n.on{background:var(--accent);font-weight:500}
+.note{padding:22px 24px;font-size:13px}
+.note h4{font-size:19px;font-weight:600;letter-spacing:-.02em}
+.note .meta{font-size:11.5px;color:var(--muted-foreground);margin:3px 0 14px}
+.note p{color:var(--foreground);margin-bottom:10px;line-height:1.65}
+.note a{color:var(--primary);text-decoration:underline;text-underline-offset:2px;text-decoration-color:color-mix(in srgb,var(--primary) 40%,transparent)}
+.props{border-left:1px solid var(--border);padding:16px 14px;font-size:11.5px;background:var(--background)}
+.props .lbl{font-size:10.5px;color:var(--muted-foreground);text-transform:uppercase;letter-spacing:.06em;margin:12px 0 6px}
+.props .lbl:first-child{margin-top:0}
+.ev{border:1px solid var(--border);border-radius:6px;padding:7px 8px;background:var(--card);margin-bottom:6px;line-height:1.4}
+.ev small{display:block;color:var(--muted-foreground);font-size:10.5px}
+.tag{display:inline-block;border:1px solid var(--border);border-radius:99px;padding:1px 8px;margin:0 4px 4px 0;background:var(--card)}
+
+.hunt .crit{display:flex;flex-wrap:wrap;gap:6px 18px;padding:12px 16px;border-bottom:1px solid var(--border);font-size:12.5px}
+.hunt .crit em{font-style:normal;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted-foreground);margin-right:6px}
+.hunt .scan span{white-space:nowrap}
+.hunt .scan{display:flex;flex-wrap:wrap;align-items:center;gap:14px;padding:9px 16px;border-bottom:1px solid var(--border);font-size:11.5px;color:var(--muted-foreground);background:var(--background)}
+.hunt .scan .ok{width:7px;height:7px;border-radius:50%;background:var(--ok-fill)}
+.jrow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:14px;padding:13px 16px;border-bottom:1px solid var(--border);align-items:start}
+.jrow .tags{margin-top:6px;font-size:11.5px}
+.fg{color:var(--foreground);font-weight:500}
+.chip-warm{background:color-mix(in srgb,#f97316 16%,transparent);color:var(--orange)}
+.mini.prim{background:var(--primary);color:var(--primary-foreground);border-color:var(--primary)}
+.mini.ghost{border-color:transparent;background:transparent;color:var(--muted-foreground)}
+.jrow:last-child{border-bottom:0}
+.jrow b{font-weight:600;font-size:13.5px}
+.jrow .m{font-size:12px;color:var(--muted-foreground);display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center}
+.jrow .r{display:flex;align-items:center;gap:6px}
+.sponsor{display:inline-flex;align-items:center;gap:4px;border:1px solid color-mix(in srgb,var(--ok-fill) 45%,transparent);color:var(--ok);border-radius:99px;padding:0 7px;font-size:11px;font-weight:500}
+.sponsor .i{width:11px;height:11px}
+.src-chip{font-family:var(--font-mono);font-size:10.5px;color:var(--muted-foreground);border:1px solid var(--border);border-radius:4px;padding:0 5px}
+.watch{display:flex;flex-wrap:wrap;gap:6px;padding:12px 16px;border-top:1px solid var(--border);background:var(--background);font-size:12px}
+
+/* also list */
+.also{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border-top:1px solid var(--border);margin-top:8px}
+.also div{padding:28px 24px 0 0}
+.also div+div{padding-left:24px;border-left:1px solid var(--border)}
+.also h4{font-size:16px;font-weight:600}
+.also p{font-size:14.5px;color:var(--muted-foreground);margin-top:6px}
+
+/* agents band: always navy, like the app sidebar */
+.agents{background:var(--sidebar);color:var(--sidebar-foreground);--border:var(--sidebar-border);--muted-foreground:var(--sidebar-muted);--primary:var(--sidebar-primary);--card:#101924}
+.agents .sec-head p:not(.eyebrow){color:var(--sidebar-muted)}
+.agent-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:56px;margin-top:56px;align-items:start}
+.routes{display:grid;gap:0;border-top:1px solid var(--sidebar-border)}
+.route{padding:22px 0;border-bottom:1px solid var(--sidebar-border);display:grid;grid-template-columns:150px minmax(0,1fr);gap:16px}
+.route h4{font-size:15px;font-weight:600}
+.route p{font-size:14.5px;color:var(--sidebar-muted)}
+.route code{font-family:var(--font-mono);font-size:12.5px;color:var(--sidebar-foreground);background:var(--sidebar-accent);border-radius:4px;padding:1px 5px}
+.term{background:#060A0F;border:1px solid var(--sidebar-border);border-radius:10px;overflow:hidden;font-family:var(--font-mono);font-size:12.5px;line-height:1.75;color:#C9D5E3}
+.term-top{display:flex;align-items:center;gap:8px;padding:9px 14px;border-bottom:1px solid var(--sidebar-border);color:var(--sidebar-muted);font-size:11.5px}
+.term pre{margin:0;padding:16px 18px;white-space:pre-wrap;word-break:break-word;font:inherit}
+.term .p{color:#6DB1FF}.term .d{color:#7C8B9C}.term .g{color:#34d399}
+.tools{display:grid;grid-template-columns:1fr 1fr;gap:0 24px;padding:0 18px 16px;font-size:12px}
+.tools div{display:flex;justify-content:space-between;gap:8px;border-top:1px solid #16212D;padding:6px 0}
+.tools span:last-child{color:#7C8B9C}
+.agent-note{display:flex;gap:10px;margin-top:18px;font-size:14px;color:var(--sidebar-muted)}
+.agent-note .i{color:var(--sidebar-primary);margin-top:3px}
+
+/* cost */
+.cost{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;margin-top:56px}
+.cost .card{box-shadow:none;padding:26px 24px}
+.cost .what{font-size:13px;color:var(--muted-foreground)}
+.cost .price{font-size:26px;font-weight:600;letter-spacing:-.02em;margin-top:6px}
+.cost p{font-size:14.5px;color:var(--muted-foreground);margin-top:10px}
+.cost p.price{color:var(--foreground);margin-top:6px}
+.cost p.what{margin-top:0}
+
+/* self-host */
+.selfhost{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:56px;align-items:center}
+.clone{background:var(--card);border:1px solid var(--border);border-radius:10px;font-family:var(--font-mono);font-size:13px;overflow:hidden}
+.clone div{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border)}
+.clone div:last-child{border-bottom:0}
+.clone .d{color:var(--muted-foreground)}
+.clone .cp{margin-left:auto;color:var(--muted-foreground)}
+.stack{display:flex;flex-wrap:wrap;gap:8px;margin-top:22px}
+.stack span{font-size:13px;border:1px solid var(--border);border-radius:99px;padding:3px 11px;background:var(--card);color:var(--muted-foreground)}
+
+/* faq */
+.faq{display:grid;grid-template-columns:minmax(0,4fr) minmax(0,7fr);gap:56px}
+.faq details{border-bottom:1px solid var(--border);padding:20px 0}
+.faq details:first-child{border-top:1px solid var(--border)}
+.faq summary{cursor:pointer;font-size:17px;font-weight:500;list-style:none;display:flex;justify-content:space-between;gap:16px}
+.faq summary::-webkit-details-marker{display:none}
+.faq summary .i{transition:transform .2s;color:var(--muted-foreground);margin-top:5px}
+.faq details[open] summary .i{transform:rotate(45deg)}
+.faq details p{font-size:15.5px;color:var(--muted-foreground);margin-top:10px;max-width:640px}
+
+/* final cta + footer */
+.final{text-align:center;padding:120px 0}
+.final h2{font-size:clamp(32px,4vw,52px);letter-spacing:-.035em;line-height:1.05;font-weight:600}
+.final p{font-size:18px;color:var(--muted-foreground);margin:18px auto 0;max-width:520px}
+.final .hero-cta{justify-content:center}
+footer{border-top:1px solid var(--border);padding:36px 0 48px;font-size:14px;color:var(--muted-foreground)}
+footer .wrap{display:flex;flex-wrap:wrap;gap:16px 32px;align-items:center}
+footer nav{display:flex;flex-wrap:wrap;gap:6px 20px;margin-left:auto}
+footer a{text-decoration:none}
+footer a:hover{color:var(--foreground)}
+
+/* ── Responsive ── */
+@media (max-width:1100px){
+  .app{grid-template-columns:minmax(0,1fr)}
+  .sb{display:none}
+  .feat,.feat.flip{grid-template-columns:minmax(0,1fr);gap:40px}
+  .feat.flip .feat-text{order:0}
+  .prompt-sheet{right:12px}
+  .agent-grid,.selfhost,.faq{grid-template-columns:minmax(0,1fr);gap:40px}
+}
+@media (max-width:900px){
+  .nav-links{display:none}
+  .steps{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .step:nth-child(3){border-left:0;padding-left:0}
+  .step:nth-child(n+3){border-top:1px solid var(--border);margin-top:28px}
+  .also{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .also div:nth-child(3){border-left:0;padding-left:0}
+  .cost{grid-template-columns:minmax(0,1fr)}
+  .profile{grid-template-columns:minmax(0,1fr) 180px}
+  .notes-nav{display:none}
+}
+@media (max-width:640px){
+  .wrap{padding:0 16px}
+  body{font-size:15px}
+  .nav .wrap{height:56px;gap:8px}
+  .nav-right .gh span,.nav-right .signin{display:none}
+  .hero{padding-top:48px}
+  .hero .lede{font-size:17px}
+  .hero-cta .btn{flex:1 1 100%}
+  .hero-signin{margin-left:0;flex:1 1 100%;text-align:center}
+  .facts{flex-direction:column;gap:10px;margin-top:28px}
+  .hero-shot{margin-top:40px}
+  .sec{padding:72px 0}
+  .feat{padding:64px 0}
+  /* phone frame: header + tabs + preview only */
+  .app{height:auto}
+  .ws-head{flex-wrap:wrap;padding:10px 12px;gap:8px}
+  .ws-back,.apply{display:none}
+  .ws-ctl{margin-left:0;width:100%;flex-wrap:wrap}
+  .archive span{display:none}
+  .tabs{overflow:hidden;padding:0 8px}
+  .tab.extra{display:none}
+  .doc-bar{flex-wrap:wrap;padding:10px 12px}
+  .doc-actions .seg,.doc-actions .export{display:none}
+  .draft-strip{flex-wrap:wrap;padding:8px 12px}
+  .draft-strip .acts{margin-left:0}
+  .split{grid-template-columns:minmax(0,1fr)}
+  .md{display:none}
+  .pv{padding:12px}
+  .paper{padding:16px}
+  .steps,.also{grid-template-columns:minmax(0,1fr)}
+  .step,.step+.step,.also div,.also div+div{padding:24px 0 0;border-left:0}
+  .step+.step,.also div+div{border-top:1px solid var(--border);margin-top:24px}
+  .step:nth-child(n+3){margin-top:24px}
+  .decide{grid-template-columns:minmax(0,1fr)}
+  .decide .card:last-child{margin-top:0}
+  .prompt-sheet{position:relative;right:auto;bottom:auto;width:auto;margin:-24px 12px 0}
+  .writing .split{height:auto}
+  .profile{grid-template-columns:minmax(0,1fr)}
+  .props{border-left:0;border-top:1px solid var(--border)}
+  .route{grid-template-columns:minmax(0,1fr);gap:6px}
+  .tools{grid-template-columns:minmax(0,1fr)}
+  .jrow{grid-template-columns:minmax(0,1fr)}
+  .final{padding:80px 0}
+  footer nav{margin-left:0}
+}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <linearGradient id="lg" x1="0" y1="0" x2="52" y2="52" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#6DCDD8"/><stop offset="1" stop-color="#2563EB"/></linearGradient>
+    <symbol id="logo" viewBox="0 0 52 52"><path fill="url(#lg)" d="m49.9 10.6c-2.1-4.1-7.4-11.7-17.2-7.2-6.1 2.8-9.5 4.4-9.5 4.4l-8.8 3.8c-2.5 1.2-7.9-0.5-11-1.6-0.9-0.3-1.7 0.6-1.300 1.5 2.1 4.1 7.4 11.7 17.2 7.2 6.1-2.8 18.3-8.1 18.3-8.1 2.5-1.2 7.9 0.5 11 1.6 0.9 0.2 1.7-0.7 1.3-1.6z m-21.1 12.8c-1.1 0.6-5.5 2.6-5.5 2.6l-4.4 1.9c-2.2 1.2-6.9-0.4-9.7-1.5-0.8-0.4-1.5 0.6-1.1 1.4 1.8 4 6.5 11.2 15.1 6.8 5.4-2.7 9.9-4.5 9.9-4.5 2.2-1.2 6.9 0.4 9.7 1.5 0.8 0.3 1.5-0.6 1.1-1.5-1.8-3.9-6.5-11.1-15.1-6.7z m-3.2 17.7c-0.9 0.5-2.4 1.4-2.4 1.4-1.7 1.1-5.2-0.3-7.3-1.3-0.6-0.3-1.1 0.6-0.8 1.4 1.3 3.6 4.8 10.1 11.3 6.1 2.4-1.5 2.4-1.4 2.4-1.4 1.8-0.9 5.2 0.3 7.3 1.3 0.6 0.3 1.1-0.6 0.8-1.4-1.3-3.6-4.6-9.8-11.3-6.1z"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="i-ban" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4M12 17h.01"/></symbol>
+    <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3M12 17h.01"/></symbol>
+    <symbol id="i-plus-c" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M8 12h8M12 8v8"/></symbol>
+    <symbol id="i-left" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7M19 12H5"/></symbol>
+    <symbol id="i-right" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="i-archive" viewBox="0 0 24 24"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8M10 12h4"/></symbol>
+    <symbol id="i-scope" viewBox="0 0 24 24"><path d="m10.065 12.493-6.18 1.318a.934.934 0 0 1-1.108-.702l-.537-2.15a1.07 1.07 0 0 1 .691-1.265l13.504-4.44M13.56 11.747l4.332-.924M16 21l-3.105-6.21M16.485 5.94a2 2 0 0 1 1.455-2.425l1.09-.272a1 1 0 0 1 1.212.727l1.515 6.06a1 1 0 0 1-.727 1.213l-1.09.272a2 2 0 0 1-2.425-1.455zM6.158 8.633l1.114 4.456M8 21l3.105-6.21"/><circle cx="12" cy="13" r="2"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4M16 13H8M16 17H8M10 9H8"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
+    <symbol id="i-badge" viewBox="0 0 24 24"><path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="i-gauge" viewBox="0 0 24 24"><path d="m12 14 4-4M3.34 19a10 10 0 1 1 17.32 0"/></symbol>
+    <symbol id="i-ext" viewBox="0 0 24 24"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></symbol>
+    <symbol id="i-msg" viewBox="0 0 24 24"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+    <symbol id="i-key" viewBox="0 0 24 24"><path d="m15.5 7.5 2.3 2.3a1 1 0 0 0 1.4 0l2.1-2.1a1 1 0 0 0 0-1.4L19 4M21 2l-9.6 9.6"/><circle cx="7.5" cy="15.5" r="5.5"/></symbol>
+    <symbol id="i-plug" viewBox="0 0 24 24"><path d="M12 22v-5M9 8V2M15 8V2M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/></symbol>
+    <symbol id="i-code" viewBox="0 0 24 24"><path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/></symbol>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/></symbol>
+    <symbol id="i-compass" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16.24 7.76-1.804 5.411a2 2 0 0 1-1.265 1.265L7.76 16.24l1.804-5.411a2 2 0 0 1 1.265-1.265z"/></symbol>
+    <symbol id="i-bino" viewBox="0 0 24 24"><path d="M10 10h4M19 7V4a1 1 0 0 0-1-1h-2a1 1 0 0 0-1 1v3M20 21a2 2 0 0 0 2-2v-3.851c0-1.39-2-2.962-2-4.829V8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v11a2 2 0 0 0 2 2zM22 16H2M4 21a2 2 0 0 1-2-2v-3.851c0-1.39 2-2.962 2-4.829V8a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v11a2 2 0 0 1-2 2zM9 7V4a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v3"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><rect width="8" height="4" x="8" y="2" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2M12 11h4M12 16h4M8 11h.01M8 16h.01"/></symbol>
+    <symbol id="i-pen" viewBox="0 0 24 24"><path d="M13.4 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7.4M2 6h4M2 10h4M2 14h4M2 18h4"/><path d="M21.378 5.626a1 1 0 1 0-3.004-3.004l-5.01 5.012a2 2 0 0 0-.506.854l-.837 2.87a.5.5 0 0 0 .62.62l2.87-.837a2 2 0 0 0 .854-.506z"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+    <symbol id="i-gh" viewBox="0 0 24 24"><path d="M12 .3a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2c-3.3.7-4-1.6-4-1.6-.6-1.4-1.4-1.8-1.4-1.8-1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.8 1.3 3.5 1 0-.8.4-1.3.7-1.6-2.7-.3-5.5-1.3-5.5-6 0-1.2.5-2.3 1.3-3.1-.2-.4-.6-1.6 0-3.2 0 0 1-.3 3.4 1.2a11.5 11.5 0 0 1 6 0c2.3-1.5 3.3-1.2 3.3-1.2.6 1.6.2 2.8 0 3.2.9.8 1.3 1.9 1.3 3.2 0 4.6-2.8 5.6-5.5 5.9.5.4.9 1 .9 2.2v3.3c0 .3.1.7.8.6A12 12 0 0 0 12 .3"/></symbol>
+  </defs>
+</svg>
+
+<!-- ═════════ NAV ═════════ -->
+<header class="nav">
+  <div class="wrap">
+    <a class="logo" href="#top" aria-label="currnt home"><svg aria-hidden="true"><use href="#logo"/></svg>currnt</a>
+    <nav class="nav-links" aria-label="Page sections">
+      <a href="#how">How it works</a>
+      <a href="#features">Features</a>
+      <a href="#agents">For AI agents</a>
+      <a href="#cost">Cost</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+    <div class="nav-right">
+      <a class="gh" href="#open-source"><svg aria-hidden="true"><use href="#i-gh"/></svg><span>Open source</span></a>
+      <a class="btn btn-ghost btn-sm signin" href="#">Sign in</a>
+      <a class="btn btn-primary btn-sm" href="#">Get started</a>
+    </div>
+  </div>
+</header>
+
+<main id="top">
+<!-- ═════════ HERO ═════════ -->
+<section class="hero" aria-labelledby="hero-h">
+  <div class="wrap">
+    <div class="hero-text">
+      <p class="eyebrow">Stay current.</p>
+      <h1 id="hero-h">Know which jobs are worth it. <em>Then write the CV that proves it.</em></h1>
+      <p class="lede">currnt keeps a structured record of your career, checks every job you save against it, researches the ones you're serious about, and gives each application its own writing desk. You see the reasoning. You approve every edit.</p>
+      <div class="hero-cta">
+        <a class="btn btn-primary btn-lg" href="#">Get started</a>
+        <a class="btn btn-outline btn-lg" href="#how">See how it works</a>
+        <span class="hero-signin">Have an account? <a href="#">Sign in</a></span>
+      </div>
+      <ul class="facts" aria-label="Key facts">
+        <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg>Open source, MIT licence</li>
+        <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg>AI runs on your own Anthropic, OpenAI or Google key</li>
+        <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg>Connects to ChatGPT and Claude</li>
+      </ul>
+    </div>
+
+    <figure class="hero-shot">
+      <div class="frame" role="img" aria-label="The currnt job workspace: a Senior Programme Manager role at Northstar with status In progress, an early assessment of 7 out of 10, a deep dive verdict of Apply, with caveats, and a tailored CV open in the Writing Desk with Markdown on the left and a preview on the right.">
+        <div class="app" aria-hidden="true">
+          <aside class="sb">
+            <div class="sb-brand"><svg><use href="#logo"/></svg>currnt</div>
+            <div class="sb-search"><svg class="i"><use href="#i-search"/></svg>Search or jump to…<kbd>⌘K</kbd></div>
+            <div class="sb-add"><svg class="i"><use href="#i-plus"/></svg>Add job</div>
+            <div class="sb-label">Career</div>
+            <div class="sb-item"><svg class="i"><use href="#i-home"/></svg>Home</div>
+            <div class="sb-item"><svg class="i"><use href="#i-user"/></svg>Professional Profile</div>
+            <div class="sb-item"><svg class="i"><use href="#i-compass"/></svg>Search Context</div>
+            <div class="sb-label">Job Hunt</div>
+            <div class="sb-item"><svg class="i"><use href="#i-bino"/></svg>Discover Jobs</div>
+            <div class="sb-item on"><svg class="i"><use href="#i-list"/></svg>Applications</div>
+            <div class="sb-label">Application Tools</div>
+            <div class="sb-item"><svg class="i"><use href="#i-pen"/></svg>Writing Desk</div>
+            <div class="sb-label">Active jobs</div>
+            <div class="sb-job">Senior Programme Manager<small>Northstar</small></div>
+            <div class="sb-foot">
+              <div class="sb-item"><svg class="i"><use href="#i-msg"/></svg>Career Coach</div>
+            </div>
+          </aside>
+          <div class="ws">
+            <div class="ws-head">
+              <span class="ws-back"><svg class="i"><use href="#i-left"/></svg></span>
+              <div class="ws-id"><p>Northstar</p><h3>Senior Programme Manager</h3></div>
+              <span class="apply">Apply<svg class="i"><use href="#i-ext"/></svg></span>
+              <div class="ws-ctl">
+                <span class="ctl"><span class="dot"></span>In progress<svg class="i"><use href="#i-down"/></svg></span>
+                <span class="fit"><span class="score">7/10</span><span><svg class="i"><use href="#i-scope"/></svg><span class="chip chip-info">Apply, with caveats</span></span></span>
+                <span class="archive"><svg class="i"><use href="#i-archive"/></svg><span>Archive</span></span>
+              </div>
+            </div>
+            <div class="tabs">
+              <span class="tab"><svg class="i"><use href="#i-file"/></svg>Job Description</span>
+              <span class="tab on"><svg class="i"><use href="#i-file"/></svg>CV — Programme leadership</span>
+              <span class="tab extra"><svg class="i"><use href="#i-file"/></svg>Interview notes</span>
+              <span class="tab-plus"><svg class="i"><use href="#i-plus"/></svg></span>
+            </div>
+            <div class="doc-bar">
+              <strong>CV — Programme leadership</strong>
+              <span class="saved"><svg class="i"><use href="#i-check"/></svg>Saved</span>
+              <div class="doc-actions">
+                <span class="mini">CV prompt</span>
+                <span class="seg"><span>Write</span><span class="on">Split</span><span>Preview</span></span>
+                <span class="mini export">Export</span>
+              </div>
+            </div>
+            <div class="draft-strip">
+              <span><b>Agent created the draft.</b> <span class="muted">Accepting replaces the live document with this draft.</span></span>
+              <span class="acts"><span class="mini">Discard</span><span class="mini prim">Accept draft</span></span>
+            </div>
+            <div class="split">
+<div class="md"><span class="h"># Alex Morgan</span>
+{{contact}}
+
+<span class="h">## Profile</span>
+Programme leader connecting strategy, delivery
+and organisational change across complex teams.
+
+<span class="h">## Experience</span>
+<span class="h">### Programme Director · Example Org</span>
+<span class="c">2021 – present</span>
+- Led cross-functional delivery across product,
+  engineering and operations.
+- <mark>Ran quarterly planning for six teams, cutting
+  slipped milestones over two cycles.</mark>
+- Built governance that made risk visible.
+</div>
+              <div class="pv">
+                <div class="paper">
+                  <h4>Alex Morgan</h4>
+                  <p class="role">Senior Programme Manager</p>
+                  <h5>Profile</h5>
+                  <p>Programme leader connecting strategy, delivery and organisational change across complex teams.</p>
+                  <h5>Experience</h5>
+                  <p><b>Programme Director · Example Org</b> <span class="muted">· 2021 – present</span></p>
+                  <ul>
+                    <li>Led cross-functional delivery across product, engineering and operations.</li>
+                    <li>Ran quarterly planning for six teams, cutting slipped milestones over two cycles.</li>
+                    <li>Built governance that made risk visible.</li>
+                  </ul>
+                  <h5>Skills</h5>
+                  <p>Programme strategy · Stakeholder alignment · Change management</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <figcaption class="shot-caption">The job workspace. Illustrative job and CV.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ═════════ HOW IT WORKS ═════════ -->
+<section id="how" class="band sec" aria-labelledby="how-h">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="eyebrow">How it works</p>
+      <h2 id="how-h">From job ad to finished application, in one place.</h2>
+      <p>Four steps, each one optional. Use the whole loop, or only the parts you need.</p>
+    </div>
+    <ol class="steps">
+      <li class="step">
+        <span class="n">01</span>
+        <h3>Capture</h3>
+        <p>Paste a link and currnt pulls in the role and company. Or send jobs from a bookmarklet, the command line, Claude Code, or a friend's Scout link.</p>
+        <div class="ui" aria-hidden="true">
+          <div class="ui-input"><svg class="i"><use href="#i-plus"/></svg><span class="url">boards.greenhouse.io/northstar/jobs/…</span><span class="mini">Add job</span></div>
+        </div>
+      </li>
+      <li class="step">
+        <span class="n">02</span>
+        <h3>Assess</h3>
+        <p>Every saved job gets an early assessment: a score from 1 to 10, plus the blockers, strengths and gaps behind it.</p>
+        <div class="ui" aria-hidden="true">
+          <div class="ui-stack">
+            <span class="pill"><span class="t-ok" style="font-weight:600">7/10</span><span class="t-mut">·</span>Pursue</span>
+            <span class="ui-note">Assessed in 6 s</span>
+          </div>
+        </div>
+      </li>
+      <li class="step">
+        <span class="n">03</span>
+        <h3>Research</h3>
+        <p>For the roles you're serious about, a deep dive researches the company, pay and practicalities, then gives you a verdict with sources.</p>
+        <div class="ui" aria-hidden="true">
+          <div class="ui-stack">
+            <span class="pill"><svg class="i t-mut" style="width:13px;height:13px"><use href="#i-scope"/></svg><span class="chip chip-info">Apply, with caveats</span></span>
+            <span class="ui-note">12 sources · cost shown per run</span>
+          </div>
+        </div>
+      </li>
+      <li class="step">
+        <span class="n">04</span>
+        <h3>Write</h3>
+        <p>Each job gets its own named documents: CVs, notes, letters. Write them yourself, with your own AI app, or let a connected agent propose a draft.</p>
+        <div class="ui" aria-hidden="true">
+          <div class="ui-tabs"><span>Job Description</span><span class="on">CV</span><span>Notes</span><span>+</span></div>
+        </div>
+      </li>
+    </ol>
+  </div>
+</section>
+
+<!-- ═════════ FEATURES ═════════ -->
+<section id="features" class="sec" style="padding-top:24px;padding-bottom:64px" aria-label="Features">
+  <div class="wrap">
+
+    <!-- Decide -->
+    <article class="feat">
+      <div class="feat-text">
+        <p class="eyebrow">Decide</p>
+        <h3>A first read in seconds. A full report when it matters.</h3>
+        <p class="intro">Stop spending evenings on applications that were never going to land. currnt tells you early, and shows its working.</p>
+        <ul>
+          <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span><b>Early assessment on every job.</b> A score and a level (Weak, Consider, Pursue or Priority), with hard blockers like work rights listed up front.</span></li>
+          <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span><b>Deep dive on demand.</b> Three researchers look into the company, pay and practicalities. They never see your profile. One final step weighs what they found against your record.</span></li>
+          <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span><b>No invented facts.</b> A finding must cite a page the search returned or quote the ad word for word. Anything else is dropped.</span></li>
+          <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span><b>UK visa sponsorship.</b> Employers are checked against the Home Office register of licensed sponsors.</span></li>
+        </ul>
+      </div>
+      <div class="visual decide" aria-hidden="true">
+        <div class="card">
+          <div class="card-pad">
+            <div style="display:flex;justify-content:space-between;align-items:center"><h4 class="t-ok">Pursue</h4><span class="mono hint">7/10</span></div>
+            <div class="gauge"><i style="width:70%"></i></div>
+            <p class="sub">Strengths</p>
+            <div class="row-i"><svg class="i t-ok"><use href="#i-check"/></svg><span>Programme leadership across product and engineering</span></div>
+            <div class="row-i"><svg class="i t-ok"><use href="#i-check"/></svg><span>Seniority matches the role</span></div>
+            <p class="sub">Gaps</p>
+            <div class="row-i"><svg class="i t-warn"><use href="#i-alert"/></svg><span>Asks for 3+ years in payments; your profile shows 1</span></div>
+            <p class="sub">Check these</p>
+            <div class="row-i"><svg class="i t-mut"><use href="#i-help"/></svg><span>Hybrid, 2 days in London?</span></div>
+          </div>
+          <div class="foot-line">jev · assessed in 6 s</div>
+        </div>
+        <div class="card">
+          <div class="card-pad">
+            <p class="hint" style="margin-bottom:4px">Deep dive · Northstar</p>
+            <p class="verdict">Apply, with caveats</p>
+            <p style="margin-top:6px;font-size:12.5px">Strong programme fit and a licensed sponsor. The payments gap is real but closable with one targeted project in your CV.</p>
+            <dl class="dl2">
+              <div><dt>Worth a tailored CV</dt><dd>Yes<small>Lead with the planning work.</small></dd></div>
+              <div><dt>Chance of an interview</dt><dd>Medium<small>Gap on domain years.</small></dd></div>
+            </dl>
+            <p class="sub">Suggested ask</p>
+            <dl class="ask">
+              <div><dt>Floor</dt><dd>£78k</dd></div>
+              <div class="em"><dt>Target</dt><dd>£86k</dd></div>
+              <div><dt>Stretch</dt><dd>£92k</dd></div>
+            </dl>
+            <p class="sub">Practicalities</p>
+            <div class="row-i"><svg class="i t-ok"><use href="#i-badge"/></svg><span>Licensed sponsor · A-rated (UK register)</span></div>
+            <p class="sub">Sources</p>
+            <div class="src"><div><span>[1]</span> northstar.example/careers</div><div><span>[2]</span> Job ad, quoted</div></div>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <!-- Write -->
+    <article class="feat flip">
+      <div class="feat-text">
+        <p class="eyebrow">Write</p>
+        <h3>One job, as many documents as it needs.</h3>
+        <p class="intro">The Writing Desk sits inside each job. Keep a CV, a cover note and your interview prep side by side, each with its own history.</p>
+        <ul>
+          <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span><b>Markdown with a live preview,</b> then export when it reads right.</span></li>
+          <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span><b>Use the AI app you already pay for.</b> Copy a CV prompt that carries the deep dive's strategy into ChatGPT or Claude, then paste the result back.</span></li>
+          <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span><b>Drafts, not overwrites.</b> A connected agent can propose a draft. Your live document only changes when you accept it.</span></li>
+        </ul>
+      </div>
+      <div class="visual writing" aria-hidden="true">
+        <div class="frame">
+          <div class="tabs">
+            <span class="tab"><svg class="i"><use href="#i-file"/></svg>Job Description</span>
+            <span class="tab on"><svg class="i"><use href="#i-file"/></svg>CV — Programme leadership</span>
+            <span class="tab extra"><svg class="i"><use href="#i-file"/></svg>Cover note</span>
+            <span class="tab-plus"><svg class="i"><use href="#i-plus"/></svg></span>
+          </div>
+          <div class="split">
+<div class="md"><span class="h">## Experience</span>
+<span class="h">### Programme Director · Example Org</span>
+<span class="c">2021 – present</span>
+- Led cross-functional delivery
+  across product, engineering
+  and operations.
+- Ran quarterly planning for
+  six teams.
+</div>
+            <div class="pv"><div class="paper">
+              <h5 style="margin-top:0">Experience</h5>
+              <p><b>Programme Director · Example Org</b></p>
+              <ul><li>Led cross-functional delivery across product, engineering and operations.</li><li>Ran quarterly planning for six teams.</li></ul>
+            </div></div>
+          </div>
+        </div>
+        <div class="card prompt-sheet">
+          <div class="card-pad">
+            <h4>Draft a CV in your own AI app</h4>
+            <p class="hint" style="margin-top:4px">Includes your saved deep-dive CV strategy and the supported CV blocks.</p>
+            <span class="btn btn-primary btn-sm" style="margin-top:12px;height:30px;font-size:13px"><svg class="i"><use href="#i-copy"/></svg>Copy CV prompt</span>
+            <textarea readonly tabindex="-1">You are drafting a CV for Senior Programme Manager at Northstar.
+Read my profile through the currnt connection.
+CV strategy: lead with planning and delivery…</textarea>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <!-- Record -->
+    <article class="feat">
+      <div class="feat-text">
+        <p class="eyebrow">Record</p>
+        <h3>Your whole career, written down once.</h3>
+        <p class="intro">Everything else in currnt reads from your profile. Write it the way you remember it: one note per role or project, as long as it needs to be.</p>
+        <ul>
+          <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span><b>Notes, not form fields.</b> Experience and projects are documents you can keep adding to.</span></li>
+          <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span><b>Evidence linked to skills,</b> so every claim in a CV can point back to something you did.</span></li>
+          <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span><b>Start from your current CV.</b> Import it, then fill in what it left out.</span></li>
+        </ul>
+      </div>
+      <div class="visual" aria-hidden="true">
+        <div class="frame">
+          <div class="profile">
+            <div class="notes-nav">
+              <div class="lbl">Experience</div>
+              <div class="n on">Programme Director</div>
+              <div class="n">Delivery Lead</div>
+              <div class="n">Project Manager</div>
+              <div class="lbl">Projects</div>
+              <div class="n">Quarterly planning reset</div>
+              <div class="n">Vendor consolidation</div>
+              <div class="lbl">Records</div>
+              <div class="n">Certifications</div>
+              <div class="n">Education</div>
+            </div>
+            <div class="note">
+              <h4>Programme Director</h4>
+              <p class="meta">Example Org · 2021 – present</p>
+              <p>Took over a portfolio of six teams with no shared plan. Set up a quarterly planning cycle and a single risk log the exec team actually read.</p>
+              <p>Ran the <a>quarterly planning reset</a>: two cycles in, slipped milestones dropped and teams stopped double-booking engineers.</p>
+              <p class="muted">Still to write up: the vendor consolidation and what it saved.</p>
+            </div>
+            <div class="props">
+              <p class="lbl">Evidence</p>
+              <div class="ev">Fewer slipped milestones over two cycles<small>Quarterly planning reset</small></div>
+              <div class="ev">One risk log for six teams<small>Programme Director</small></div>
+              <p class="lbl">Skills</p>
+              <span class="tag">Roadmapping</span><span class="tag">Risk management</span><span class="tag">Stakeholder alignment</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <!-- Find -->
+    <article class="feat flip">
+      <div class="feat-text">
+        <p class="eyebrow">Find</p>
+        <h3>Watch the companies you care about.</h3>
+        <p class="intro">currnt isn't a job board. It checks the places you choose and brings back roles that match your search.</p>
+        <ul>
+          <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span><b>A watchlist of employers.</b> currnt checks their Greenhouse, Lever, Ashby and SmartRecruiters careers pages.</span></li>
+          <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span><b>Boards, if you want them.</b> Turn on Remotive or Remote OK, or add keys for Adzuna and JSearch.</span></li>
+          <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span><b>Scout links.</b> Give a friend or recruiter a private link so they can send roles straight to you.</span></li>
+        </ul>
+      </div>
+      <div class="visual hunt" aria-hidden="true">
+        <div class="card">
+          <div class="crit"><span><em>Roles</em>Programme Manager, Delivery Lead</span><span><em>Countries</em>UK</span><span><em>Remote</em>Hybrid</span></div>
+          <div class="scan"><span class="ok"></span><span><b class="fg">14</b> Companies</span><span><b class="fg">2</b> Job Sources</span><span><b class="fg">3</b> Found today</span><span class="mini" style="margin-left:auto">Sync All</span></div>
+          <div class="jrow"><div><b>Senior Programme Manager</b><p class="m">Northstar · London</p><p class="m tags"><span class="chip chip-warm">solid · 7/10</span><span class="chip chip-info">New</span><span class="fg">£80k–£90k</span><span>Posted 2 days ago</span><span>Company watch</span></p></div><div class="r"><span class="mini prim">Import</span><span class="mini ghost">Ignore</span></div></div>
+          <div class="jrow"><div><b>Delivery Lead, Platform</b><p class="m">Example Labs · Remote, UK</p><p class="m tags"><span class="chip chip-info">possible · 5/10</span><span>Posted 4 days ago</span><span>Job board</span></p></div><div class="r"><span class="mini prim">Import</span><span class="mini ghost">Ignore</span></div></div>
+          <div class="jrow"><div><b>Programme Manager, Operations</b><p class="m">Sample Co · Manchester</p><p class="m tags"><span>Found today</span><span>Scout</span></p></div><div class="r"><span class="mini">Score Fit</span><span class="mini prim">Import</span></div></div>
+          <div class="watch"><span class="muted">Watching</span><span class="tag">Northstar</span><span class="tag">Example Labs</span><span class="tag">Sample Co</span><span class="tag">+11</span></div>
+        </div>
+      </div>
+    </article>
+
+    <!-- Also -->
+    <div class="also">
+      <div><h4>Career Coach</h4><p>A chat that knows your profile, the job you're on and its deep dive. Ask it what to lead with.</p></div>
+      <div><h4>Search context</h4><p>Tell currnt what you're after once: roles, countries, pay, dealbreakers. Assessments use it.</p></div>
+      <div><h4>Usage you can see</h4><p>Every AI call is logged by feature, so you know what a deep dive cost on your key.</p></div>
+      <div><h4>A pipeline that keeps up</h4><p>Statuses from not started to accepted, with notes, contacts and dates on every job.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════ AGENTS ═════════ -->
+<section id="agents" class="agents sec" aria-labelledby="agents-h">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="eyebrow">For AI agents</p>
+      <h2 id="agents-h">Your career record, available to the AI tools you already use.</h2>
+      <p>currnt runs an MCP server. Connect ChatGPT or Claude, and they can read your jobs and profile and draft a CV straight into a job's Writing Desk.</p>
+    </div>
+    <div class="agent-grid">
+      <div>
+        <div class="routes">
+          <div class="route"><h4>ChatGPT and Claude</h4><p>Add currnt as a custom connector and sign in. You choose read-only access or permission to write drafts.</p></div>
+          <div class="route"><h4>Claude Code</h4><p>One command with a scoped token, or install the ready-made <code>capture-job</code> skill. A Hermes skill is available too.</p></div>
+          <div class="route"><h4>Anywhere else</h4><p>A capture API for scripts and a browser bookmarklet that saves the tab you're on.</p></div>
+        </div>
+        <p class="agent-note"><svg class="i" aria-hidden="true"><use href="#i-lock"/></svg><span>Agents never see your contact details, and they can't accept their own drafts. That's always you.</span></p>
+      </div>
+      <div class="term" aria-label="Example: adding currnt to Claude Code">
+        <div class="term-top"><svg class="i" aria-hidden="true"><use href="#i-code"/></svg>terminal</div>
+<pre><span class="d">$</span> claude mcp add --transport http currnt \
+    https://&lt;your-currnt-host&gt;/api/mcp \
+    --header "Authorization: Bearer rsm_…"
+<span class="g">✓</span> Added HTTP MCP server currnt
+
+<span class="d">&gt;</span> <span class="p">Draft a CV for the Northstar role, leading with planning.</span></pre>
+        <div class="tools" aria-label="Some of the MCP tools">
+          <div><span>list_jobs</span><span>read</span></div>
+          <div><span>get_job_context</span><span>read</span></div>
+          <div><span>profile_search</span><span>read</span></div>
+          <div><span>profile_gaps</span><span>read</span></div>
+          <div><span>create_draft</span><span>write</span></div>
+          <div><span>replace_section</span><span>write</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════ COST ═════════ -->
+<section id="cost" class="sec" aria-labelledby="cost-h">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="eyebrow">Cost</p>
+      <h2 id="cost-h">Free to run yourself. A small fee if we host it.</h2>
+      <p>currnt is open source. Run it on your own server for nothing, or let us host it. We don't resell AI, so your AI costs go straight to your own provider.</p>
+    </div>
+    <div class="cost">
+      <div class="card"><p class="what">Self-hosted</p><p class="price">Free</p><p>MIT licence. Clone the repo, bring your own Postgres and run every feature on your own infrastructure.</p></div>
+      <div class="card"><p class="what">Hosted account</p><p class="price"><span style="filter:blur(7px);user-select:none" aria-hidden="true">$7 / month</span><span class="sr-only">Pricing to be announced.</span></p><p style="display:inline-flex;align-items:center;gap:6px;margin-top:10px;border-radius:99px;padding:3px 10px;font-size:12.5px;font-weight:500;background:color-mix(in srgb,var(--ok-fill) 16%,transparent);color:var(--ok)"><svg class="i" aria-hidden="true" style="width:13px;height:13px"><use href="#i-check"/></svg>Free during early development</p><p>We run it for you: hosting, storage, backups, email and the early assessment. <span style="filter:blur(7px);user-select:none" aria-hidden="true">Or $19 for 90 days, $75 a year.</span></p></div>
+      <div class="card"><p class="what">AI features</p><p class="price">Your provider's rates</p><p>Deep dives, Coach and CV help run on your Anthropic, OpenAI or Google key. A usage page shows each call and its cost.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════ SELF-HOST ═════════ -->
+<section id="open-source" class="band sec" aria-labelledby="oss-h">
+  <div class="wrap selfhost">
+    <div class="sec-head">
+      <p class="eyebrow">Open source</p>
+      <h2 id="oss-h">Read the code. Or run it yourself.</h2>
+      <p>currnt is MIT licensed. Everything the AI does is in the repository, from the prompts to the checks that drop unsourced claims. Host your own copy and your career record lives in your own database.</p>
+      <div class="hero-cta" style="margin-top:28px"><a class="btn btn-outline" href="#"><svg class="i" aria-hidden="true" style="fill:currentColor;stroke:none"><use href="#i-gh"/></svg>View on GitHub</a></div>
+    </div>
+    <div>
+      <div class="clone" aria-label="Self-host commands">
+        <div><span class="d">$</span>git clone https://github.com/koldFU5iON/currnt.git<span class="cp"><svg class="i" aria-hidden="true"><use href="#i-copy"/></svg></span></div>
+        <div><span class="d">$</span>cd currnt &amp;&amp; npm install &amp;&amp; cp .env.example .env.local</div>
+        <div><span class="d">$</span>docker compose up -d &amp;&amp; npm run dev</div>
+        <div class="d" style="font-family:var(--font-sans);font-size:13px">Full setup, including the database, is in the README.</div>
+      </div>
+      <div class="stack" aria-label="Built with"><span>Next.js</span><span>PostgreSQL</span><span>Prisma</span><span>TypeScript</span><span>MCP</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════ FAQ ═════════ -->
+<section id="faq" class="sec" aria-labelledby="faq-h">
+  <div class="wrap faq">
+    <div class="sec-head">
+      <p class="eyebrow">FAQ</p>
+      <h2 id="faq-h">Questions people ask first.</h2>
+    </div>
+    <div>
+      <details open><summary>Do I need an AI key to start?<svg class="i" aria-hidden="true"><use href="#i-plus"/></svg></summary><p>No. You can build your profile, track jobs and write in the Writing Desk without one. Add a key from Anthropic, OpenAI or Google when you want deep dives, Coach or CV help.</p></details>
+      <details><summary>Will an AI send applications for me?<svg class="i" aria-hidden="true"><use href="#i-plus"/></svg></summary><p>No. currnt and connected agents can propose drafts. Nothing replaces your document until you accept it, and nothing is sent anywhere on your behalf.</p></details>
+      <details><summary>Is currnt a job board?<svg class="i" aria-hidden="true"><use href="#i-plus"/></svg></summary><p>No. There are no listings to browse and no employers paying for placement. Job hunt only checks the companies and boards you choose.</p></details>
+      <details><summary>What do the AI researchers see?<svg class="i" aria-hidden="true"><use href="#i-plus"/></svg></summary><p>Only the public details of the job. Your profile, goals and notes are never sent to the research step. One final step compares the research with your profile.</p></details>
+      <details><summary>Does sponsorship checking work outside the UK?<svg class="i" aria-hidden="true"><use href="#i-plus"/></svg></summary><p>Not yet. It uses the UK register of licensed sponsors and matches company names exactly, so it shows a match but can't prove a company isn't licensed.</p></details>
+      <details><summary>Can I move my data out?<svg class="i" aria-hidden="true"><use href="#i-plus"/></svg></summary><p>Documents export from the Writing Desk, and the whole app is open source, so you can run your own copy.</p></details>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════ FINAL CTA ═════════ -->
+<section class="band final" aria-labelledby="final-h">
+  <div class="wrap">
+    <h2 id="final-h">Start with one job.</h2>
+    <p>Save a role you're weighing up and see what currnt makes of it.</p>
+    <div class="hero-cta"><a class="btn btn-primary btn-lg" href="#">Get started</a><a class="btn btn-ghost btn-lg" href="#open-source">Run it yourself</a></div>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <a class="logo" href="#top" aria-label="currnt home"><svg aria-hidden="true"><use href="#logo"/></svg>currnt</a>
+    <span>Built to help people find work. MIT licensed.</span>
+    <nav aria-label="Footer">
+      <a href="#">About</a><a href="#">Support</a><a href="#">GitHub</a><a href="#">Sign in</a><a href="#">Get started</a>
+    </nav>
+  </div>
+</footer>
+
+<!-- ═════════ SCROLL REVEAL ("float in") ═════════
+     Progressive enhancement: content is fully visible without JS, for screenshots and
+     with reduced motion. JS adds .reveal-on to <html>, then each tagged element floats
+     up into place once when it enters the viewport. Siblings in a group stagger by 80 ms. -->
+<style>
+.reveal-on [data-reveal]{opacity:0;transform:translate3d(0,28px,0);transition:opacity .7s cubic-bezier(.2,.7,.2,1),transform .8s cubic-bezier(.2,.7,.2,1);transition-delay:var(--reveal-delay,0ms);will-change:opacity,transform}
+.reveal-on [data-reveal="shot"]{transform:translate3d(0,40px,0) scale(.98)}
+.reveal-on [data-reveal].is-in{opacity:1;transform:none}
+@media (prefers-reduced-motion:reduce){.reveal-on [data-reveal]{opacity:1;transform:none;transition:none}}
+</style>
+<script>
+(() => {
+  if (!('IntersectionObserver' in window) || /[?&]static\b/.test(location.search)) return
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return
+  // [selector, variant, stagger siblings?]
+  const groups = [
+    ['.hero-text > *', '', true],
+    ['.hero-shot', 'shot', false],
+    ['.sec-head', '', false],
+    ['.steps > .step', '', true],
+    ['.feat > .feat-text', '', false],
+    ['.feat > :not(.feat-text)', 'shot', false],
+    ['.also > *', '', true],
+    ['.agent-grid > *', '', true],
+    ['.cost > .card', '', true],
+    ['#open-source .wrap > :not(.sec-head)', '', true],
+    ['.faq details', '', true],
+    ['.final .wrap > *', '', true],
+  ]
+  const tagged = []
+  for (const [sel, variant, stagger] of groups) {
+    const els = document.querySelectorAll(sel)
+    els.forEach((el, i) => {
+      if (el.hasAttribute('data-reveal')) return
+      el.setAttribute('data-reveal', variant)
+      if (stagger) el.style.setProperty('--reveal-delay', Math.min(i, 5) * 80 + 'ms')
+      tagged.push(el)
+    })
+  }
+  document.documentElement.classList.add('reveal-on')
+  const io = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (!e.isIntersecting) continue
+      e.target.classList.add('is-in')
+      io.unobserve(e.target)
+    }
+  }, { rootMargin: '0px 0px -10% 0px', threshold: 0.12 })
+  // Reveal anything already on screen right away (hero), observe the rest.
+  requestAnimationFrame(() => tagged.forEach((el) => io.observe(el)))
+})()
+</script>
+</body>
+</html>
