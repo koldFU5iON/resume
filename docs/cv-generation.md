@@ -1,6 +1,6 @@
 # CV generation (writing desk)
 
-Status: **plan agreed; phase 1 (run record, attribution, generation log) merged (PR #414); phase 2 (Gather, Brief, Select as a preview run) in review.** The Implementation record at the end is filled in as each PR lands, so this file ends up as the implementation record. The pipeline of the code being replaced is kept in [`cv-generation-legacy.md`](./cv-generation-legacy.md) until phase 5 removes it.
+Status: **plan agreed; phase 1 (run record, attribution, generation log) merged (PR #414); phase 2 (Gather, Brief, Select as a preview run) merged (PR #415); phase 2b (per-employer selection) in review.** The Implementation record at the end is filled in as each PR lands, so this file ends up as the implementation record. The pipeline of the code being replaced is kept in [`cv-generation-legacy.md`](./cv-generation-legacy.md) until phase 5 removes it.
 
 Replaces the legacy cv-builder generation (`createAndGenerateCV` in `src/modules/cv/actions.ts`, `src/modules/cv/generate.ts`). The result is a **writing desk document** (Markdown with `:::` blocks), landed as a reviewable draft.
 
@@ -20,7 +20,9 @@ Attribution was already in place (`LlmUsageLog.jobApplicationId/cvDocumentId/run
 
 1. **Master CV is dropped from job CV generation.** Evidence is curated per job from the profile. The master-CV generator (`career-vertical/master-cv.ts`) stays, and is kept for more generic recruiter handoffs.
 2. **Deep dive is not required.** Strategy comes from the newest *complete* deep dive when one exists. Otherwise the Brief stage falls back to `JobApplication.jobAnalysis` (written from the early Jev assessment), and runs `analyseJob` only if that is also missing.
-3. **Switch immediately.** "Generate CV" points at the new flow as soon as it ships; the old routes are then deprecated and removed in a follow-up.
+3. **One entry per employer, latest title, progression as sub-text, titles never changed** (phase 2b, from the first real preview run). Roles at one company are grouped into one employer entry (`employers.ts`). The CV heading is the LATEST title at that employer; earlier titles appear only as a progression line built in code, oldest first, with neutral wording (`Three roles at Unity (2019–present): Program Manager → Technical Program Manager → Snr. Program Manager`). Role titles are facts: no stage changes, merges or hides one, and the Brief's "play down" only affects emphasis and framing in descriptions and bullets, never a title or an employer. The profile does not record promotions, so the line never says "promoted".
+4. **Bullets are relevance-driven, not recency-driven** (phase 2b). A total activity budget (14) is split across the employers that show bullets by the Select model's 1-5 relevance score per employer, proportionally, with at least 2 and at most 6 per employer, enforced in code after the model answers. The model still ranks activities within an employer. The per-role recency tiers 5/4/3 are gone: on a real profile three of the four bullet-bearing "roles" were consecutive roles at one employer, which spent most bullets on it while the lead-with employer got 2 of its 11.
+5. **Switch immediately.** "Generate CV" points at the new flow as soon as it ships; the old routes are then deprecated and removed in a follow-up.
 
 ## Pipeline
 
@@ -30,7 +32,7 @@ The model tiers below are recommendations. Feature code only names a `role` (`fa
 |---|---|---|---|
 | 0 | Gather | none (code) | Profile snapshot, newest complete deep dive (`cvStrategy`, gaps, strengths) or `jobAnalysis` fallback, structure guide, block contract. |
 | 1 | Brief | `analysis` (Opus) | The hidden question: what problem is this role hired to solve? Plus lead-with, emphasise, play down, per-section budget. Small JSON. |
-| 2 | Select | `fast` (Haiku) | Chooses evidence per section (activities, skills, tools, certs) against the brief and the job's must-haves. **Hard caps are enforced in code**, so over-production stops here. Roles beyond the bullet cap stay listed as header-only entries. |
+| 2 | Select | `fast` (Haiku) | Chooses employers (with a 1-5 relevance each) and evidence per section (activities, skills, tools, certs) against the brief and the job's must-haves. **Hard caps are enforced in code**, so over-production stops here. Employers beyond the bullet cap stay listed as header-only entries. |
 | 3a | Write, wave 1 (parallel) | default (Sonnet) | Experience (one call per role: achievements, outcomes, business impact), skills and tools, education and certs. Each sees only its selected evidence, the brief and that section's block syntax. |
 | 3b | Write, wave 2 | default (Sonnet) | Professional profile and competencies, written after wave 1 so they cannot claim what the experience section does not support. |
 | 4 | Assemble | none (code) | Order by structure guide, fill `{{contact}}`, `validateDraftMarkdown`, `fact-check.ts`, per-section word/bullet limits with one retry. |
@@ -79,6 +81,37 @@ Every call passes `attribution: { jobApplicationId, runId: row.id }`. Changes ne
 - A job holds at most 10 desk documents (`src/modules/writing-desk/schema.ts`).
 - The desk stores Markdown, not the legacy JSON, so nothing from `CVDocumentContent` carries over.
 
+## Stored selection (the contract Phase 3 consumes)
+
+`CvGeneration.selection` (Json, parsed by `parseSelection` / `CvSelectionSchema` in `src/modules/cv-generation/schema.ts`; null when absent or unreadable). A run stores:
+
+```ts
+{
+  mode: 'model' | 'fallback',
+  employers: Array<{              // THE work history: one entry per employer, newest first, one timeline
+    key: string                   // stable: normalised company name slug ("unity")
+    company: string               // as on the most recent role
+    latestTitle: string           // title of the most recent role, exactly as in the profile; the CV heading
+    start: string | null          // overall span, ISO YYYY-MM-DD
+    end: string | null            // null = present (any role current)
+    roles: Array<{ experienceId, title, start, end }>   // oldest first, each role's own dates
+    progression: string | null    // built in code, oldest title first, neutral wording; null with one role
+    relevance: 1..5               // the model's score, or derived in code from brief/requirement term matches
+    reason: string                // why the model picked it; '' when code did
+    headerOnly: boolean           // true: company, latest title, dates, progression only, no bullets
+    bullets: Array<{ id, label, reason, experienceId }>  // kept activities, best first; experienceId = the role it came from (provenance, fact-checking)
+  }>,
+  skills, tools, competencies, certifications, education, projects: Array<{ id, label, reason }>,
+  dropped: Array<{ section, id, label, parentId?, why }>,   // activities: parentId = employer key; section 'employers' for employers dropped over the cap
+  droppedTotal, notSelectedTotal?,
+  // legacy, empty on new rows: experiences, headerOnlyRoles, activities
+}
+```
+
+Rules for the writer: render `employers` in order; an employer with `headerOnly: false` gets its bullets, one with `true` is one header line. The heading is `latestTitle` at `company` with the overall dates; show `progression` as sub-text. Never rewrite or drop a title. Write each employer's description and bullets only from its `bullets`. Rows stored by phase 2 (before employers) have `employers: []` and use `experiences`, `headerOnlyRoles` and `activities` (keyed by experience id); they still parse and render in the log, and a run is cheap to repeat, so phase 3 only needs to read the new shape.
+
+Caps (`caps.ts`): employers with bullets `MAX_EMPLOYERS` 4 (the current employer always one), header-only `MAX_HEADER_ONLY_EMPLOYERS` 4, further employers dropped (`over_cap`); `TOTAL_ACTIVITY_BUDGET` 14 split by `allocateBullets`, `MIN_ACTIVITIES_PER_EMPLOYER` 2, `MAX_ACTIVITIES_PER_EMPLOYER` 6.
+
 ## Delivery plan
 
 Each phase is its own PR, cut from `origin/main`.
@@ -110,7 +143,7 @@ _Filled in per phase: what shipped, file locations, schema and migration names, 
     - `docs/cv-generation.md` already existed on `main` and described the legacy pipeline. It moved to `docs/cv-generation-legacy.md`; this plan took its place.
     - The generation log page is reachable only by URL (`/dashboard/job-applications/view/<id>/cv-generation`). The job workspace nav (`job-document-nav.tsx`) is built from fixed document kinds plus a hard-coded Deep Dive entry, with no obvious slot for a new tab, so no link was added; phase 5 (the entry-point switch) adds it.
     - No feature labels were added; no feature emits yet.
-- Phase 2: **in review.** Stages 0-2 only: Gather, Brief, Select, run as a *preview* (no section writers, no draft, "Generate CV" still points at the old flow).
+- Phase 2: **merged (PR #415).** Stages 0-2 only: Gather, Brief, Select, run as a *preview* (no section writers, no draft, "Generate CV" still points at the old flow). **Superseded by Phase 2b below:** the per-role caps (4 roles with bullets, 5/4/3 by recency tier, 4 header-only roles), `headerOnlyRoles` and the role-keyed `activities` described here are now per employer, and the stored shape is the "Stored selection" section above.
   - **Migration** `20261118130000_cv_generation_brief_selection`: `CvGeneration.brief Json?` and `CvGeneration.selection Json?` (nullable, no backfill). Both are validated with Zod on read (`parseBrief`, `parseSelection`) and read as null when missing or malformed. Phase 3 reads them through `CvGenerationView.brief` / `.selection` (`getCvGeneration`).
   - **Files** (`src/modules/cv-generation/`):
     - `gather.ts` (+ `candidates.ts`, `strategy.ts`): no model call of its own. Loads the vault (`loadVault`), the contact-free profile text (`serializeProfileForLLM`, pii scrubbed) for `inputsHash`, and builds the *candidate list* from the vault with the database id of every experience, activity, skill, tool, competency, certification, education and project, so Select can only return real ids. Strategy precedence: newest `complete` deep dive's report (`cvStrategy`, gaps, strengths; read with `parseReport`) > `JobApplication.jobAnalysis` > `analyseJob` as the last resort (see "Review fixes" for the out-of-date rule and the timeout). The master CV and career vertical are never read (the test's prisma mock has no such table). `inputsHash` = sha256 of profile text, description, strategy and deep dive id.
@@ -142,6 +175,15 @@ _Filled in per phase: what shipped, file locations, schema and migration names, 
     - **analyseJob deadline** (`gather.ts`): the last-resort call is raced against `TIME_BUDGET_MS.analyse` (60 s); a timeout is strategy source `none` with a Gather log note, so a hang cannot hold the run in `gathering` until the stale window.
     - **Nits.** The Brief never leaves education at 0 when the profile has education (`applyProfileBudgets` in `brief.ts`, and `enforceSelection` again for a stored brief). When the model picks no skills or no tools, they are refilled by rule (evidence-backed first, then profile order; a budget of 0 is respected). The stored dropped list now records what code cut before what was merely not selected, and `CvSelection.notSelectedTotal` holds the true "not selected" count, so the log line no longer overcounts once the list hits `MAX_RECORDED_DROPPED` (rows without it fall back to the old difference). `RunPreviewButton` lost its dead `active` prop and stays disabled until `router.refresh()` has rendered (`useTransition`).
   - **Left for Phase 3**: section writers and Assemble (they read `brief` and `selection` from the run row), `writingDeskDocumentId` on the usage rows, the `stopAfter` values beyond `selecting`, a link to the page from the job nav, and the entry-point switch (Phase 5). Select's `reason` strings are stored but not yet shown to writers. Real-provider quality of the two prompts is unmeasured: the suite mocks the model, and the preview was exercised in the app only for the no-key failure and with a seeded complete run for the display.
+- Phase 2b: **in review.** Per-employer selection and relevance-driven bullets, from the first real preview on a prod profile (12 roles, 70 activities, ~6 employers). No migration (selection and brief are Json columns); no Phase 3 work.
+  - **Why**: (a) three of the four "roles with bullets" were consecutive roles at the same employer, so the 5/4/3 recency budgets spent almost all bullets on one employer and the lead-with role at another company got 2 of its 11 bullets; (b) the Brief said to play down the "Program Manager" framing while the current title was "Snr. Program Manager".
+  - **Owner decisions** (also in Decisions 3 and 4): content stays relevant but is framed differently; titles are facts and never changed; the CV uses the latest title per employer and explains progression as sub-text; bullets follow relevance, not recency.
+  - **Files** (`src/modules/cv-generation/`): `employers.ts` (new: `normaliseEmployerName`, `groupEmployers`, `progressionLine`, `employerPeriod`; pure, no LLM) and `text.ts` (`countOf`, singular/plural for notes); `candidates.ts` (candidates are employers, each activity keeps its `experienceId`; prompt and outline per employer); `caps.ts` (employer caps, `TOTAL_ACTIVITY_BUDGET`, min/max per employer, `allocateBullets`); `select.ts` (`SelectOutputSchema.employers[{id, relevance, reason}]`, `enforceSelection` per employer, `deriveRelevance`, fallback per employer); `schema.ts` (`SelectedEmployerSchema`, `CvSelection.employers`, drop-reason labels say "employer"); prompts `cv-gen-select.md` and `cv-gen-brief.md`; log page `cv-generation-view.ts` (`employerBlocks`, `briefRows` items are `{ text, note }`) and `_components/brief-and-selection.tsx`.
+  - **Grouping**: by normalised company name (case, accents, punctuation, spacing, a leading "the" and a trailing legal suffix such as Ltd/Inc/GmbH ignored; "Unity" and "Unity Technologies" stay separate). `mergeRepeatedEmployers` in the legacy generator is only a prompt instruction with no code to reuse, so the normaliser is new. Non-adjacent stints at one company are one employer; each keeps its dates in `roles`, and the overall span runs from the first start to the last end. Latest title = the most recent role by end date (a current role beats a finished one), then start date. A role whose company is blank is its own employer.
+  - **Selection**: employers with bullets <= 4 (current always), up to 4 more header-only (most recent first), the rest dropped `over_cap`. Bullets: total 14, split in proportion to relevance, min 2 and max 6 per employer, after the model answers (`allocateBullets`: water-filling, largest-remainder rounding, never above the total; an employer with fewer activities than the minimum gets all it has). What an employer can supply is what the model picked for it, topped up by rule (highlighted and achievement first) to the minimum, so a stingy model gets a shorter CV rather than padding. A missing relevance score is derived from brief and requirement term matches (best match 5, none 1, all-equal 3); the log says how many were derived. The model may name a role's experience id for its employer; unknown ids, duplicates, the stale window, the attribution and the usage tags are unchanged.
+  - **Log page**: Selection groups by employer (company, latest title, dates, progression sub-text, relevance, kept bullets, "Left out (n)"), a "Listed without bullets" group, "Employers left out". Brief "Emphasise" shows the item in bold and the reason muted (no more "X: Y: Z"). Count strings use correct singular/plural (`Dropped 1 id that is not in the profile`, `1 other profile item was not selected`, `1 role at 1 employer`).
+  - **Deviations**: the Brief's `budgets.experiences` key is kept (stored briefs still parse) but now means employers with bullets; the Select call's `activities` entries no longer carry an `experienceId` (code resolves the employer from the activity id); drop reasons `role_not_kept` and `role_header_only` keep their keys, with "employer" wording; new rows leave `experiences`, `headerOnlyRoles` and `activities` empty.
+  - **Tests**: `employers.test.ts` (normalisation, grouping incl. repeat stints, latest title, progression, no "promoted"), `caps.test.ts` (allocation properties over every relevance mix), `select.test.ts` (per-employer caps, relevance split, lead-with not starved, min/max/total, current employer, header-only cap, top-up, fallback, grammar), `schema.test.ts` (old stored rows still parse), `candidates.test.ts`, view helpers, prompt files (titles are facts, no model ids). The model is mocked; real-provider quality of the new prompts is unmeasured. Cross-profile access is unchanged and still covered (gather, runner, route).
 - Phase 3: _pending_
 - Phase 4: _pending_
 - Phase 5: _pending_

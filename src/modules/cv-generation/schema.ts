@@ -9,7 +9,7 @@
  */
 
 import * as z from 'zod'
-import { BUDGET_CAPS, FLAT_SECTIONS, type BudgetSection } from './caps'
+import { BUDGET_CAPS, FLAT_SECTIONS, MAX_RELEVANCE, MIN_RELEVANCE, type BudgetSection } from './caps'
 
 // ── Run lifecycle ───────────────────────────────────────────────────────────
 
@@ -251,7 +251,7 @@ export const CvBriefSchema = z.object({
   positioning: cutText(400, '1–2 sentences on the story the CV tells'),
   tone: cutText(160, 'Voice for the writing, e.g. "plain and specific, senior but not grand"'),
   budgets: z.object({
-    experiences: budget('experiences', 'Roles to show'),
+    experiences: budget('experiences', 'Employers to show with bullets'),
     skills: budget('skills', 'Skills to show'),
     tools: budget('tools', 'Tools to show'),
     competencies: budget('competencies', 'Competencies to show'),
@@ -285,15 +285,15 @@ export const DROP_REASON_LABEL: Record<DropReason, string> = {
   over_cap: 'over the limit',
   unknown_id: 'not in the profile',
   duplicate: 'picked twice',
-  role_not_kept: 'its role was not kept',
-  role_header_only: 'its role is listed without bullets',
+  role_not_kept: 'its employer was not kept',
+  role_header_only: 'its employer is listed without bullets',
 }
 
 export const DroppedItemSchema = z.object({
   section: z.string(),
   id: z.string(),
   label: z.string().default(''),
-  /** Activities: the role (experience id) they belong to. */
+  /** Activities: the employer key they belong to (rows stored before employers: the role's experience id). */
   parentId: z.string().optional(),
   why: z.enum(DROP_REASONS),
 })
@@ -301,23 +301,71 @@ export type DroppedItem = z.infer<typeof DroppedItemSchema>
 
 const SelectedList = z.array(SelectedItemSchema).default([])
 
+/** An activity kept for an employer; `experienceId` is the role it came from (provenance for fact-checking). */
+export const SelectedActivitySchema = SelectedItemSchema.extend({ experienceId: z.string() })
+export type SelectedActivity = z.infer<typeof SelectedActivitySchema>
+
+export const EmployerRoleSchema = z.object({
+  experienceId: z.string(),
+  /** The title exactly as in the profile. Never altered. */
+  title: z.string(),
+  /** ISO calendar date, YYYY-MM-DD. */
+  start: z.string(),
+  /** ISO calendar date; null = present. */
+  end: z.string().nullable().default(null),
+})
+
+/**
+ * One employer on the CV: the profile's roles at one company, grouped
+ * (employers.ts). Heading = `company` + `latestTitle`; `progression` is the
+ * sub-text; `bullets` are the kept activities (empty for a header-only entry).
+ */
+export const SelectedEmployerSchema = z.object({
+  /** Stable key (normalised company name slug); the activities' `dropped.parentId`. */
+  key: z.string(),
+  company: z.string(),
+  /** Title of the most recent role, as in the profile. The CV's heading for this employer. */
+  latestTitle: z.string(),
+  /** Overall span; `end` null = present. ISO calendar dates. */
+  start: z.string().nullable().default(null),
+  end: z.string().nullable().default(null),
+  /** The roles held here, oldest first. */
+  roles: z.array(EmployerRoleSchema).default([]),
+  /** Plain-text progression sub-line built in code (oldest title first); null with a single role. */
+  progression: z.string().nullable().default(null),
+  /** 1-5: the model's score (or, when it gave none, derived in code from brief term matches). */
+  relevance: z.number().int().min(MIN_RELEVANCE).max(MAX_RELEVANCE),
+  /** Why the model picked the employer; empty when code did. */
+  reason: z.string().default(''),
+  /** True: listed as company, title, dates and progression only, with no bullets. */
+  headerOnly: z.boolean().default(false),
+  /** Kept activities, best first (the model's rank order). Empty when `headerOnly`. */
+  bullets: z.array(SelectedActivitySchema).default([]),
+})
+export type SelectedEmployer = z.infer<typeof SelectedEmployerSchema>
+
 /**
  * Stage 2 output as stored: ids that exist in the profile, each with a
- * display label and the model's reason, and what code dropped and why.
- * `activities` is keyed by experience id and only has roles that show bullets.
+ * display label and the model's reason, and what code dropped and why. THE
+ * CONTRACT Phase 3 reads (docs/cv-generation.md, "Stored selection").
  */
 export const CvSelectionSchema = z.object({
   /** model: the fast model's picks, capped by code; fallback: chosen by rules after the call failed or returned junk. */
   mode: z.enum(['model', 'fallback']),
-  /** Roles that show bullets, newest first (at most MAX_EXPERIENCES). */
-  experiences: SelectedList,
   /**
-   * Roles listed as header-only entries: company, title and dates (resolved
-   * from the profile by id), no bullets. Newest first, after `experiences`
-   * (at most MAX_HEADER_ONLY_ROLES). Rows stored before this field existed
-   * read as an empty list.
+   * The CV's work history: one entry per employer, newest first (a single
+   * timeline). Entries with `headerOnly: false` show bullets (at most
+   * MAX_EMPLOYERS, the current employer always one of them); entries with
+   * `headerOnly: true` follow the same order (at most MAX_HEADER_ONLY_EMPLOYERS).
+   * Absent (empty) on rows stored before employers existed: those use
+   * `experiences`, `headerOnlyRoles` and `activities` below.
    */
+  employers: z.array(SelectedEmployerSchema).default([]),
+  /** Legacy (rows stored before employers): roles that show bullets, newest first. New rows leave it empty. */
+  experiences: SelectedList,
+  /** Legacy: header-only roles of rows stored before employers. New rows leave it empty. */
   headerOnlyRoles: SelectedList,
+  /** Legacy: kept activities keyed by role (experience) id. New rows leave it empty; bullets live on `employers`. */
   activities: z.record(z.string(), SelectedList).default({}),
   skills: SelectedList,
   tools: SelectedList,

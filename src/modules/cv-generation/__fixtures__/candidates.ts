@@ -1,22 +1,38 @@
-import type { Candidates, CandidateItem } from '../candidates'
+import type { Candidates, CandidateEmployer, CandidateItem } from '../candidates'
 
 const item = (id: string, label: string, over: Partial<CandidateItem> = {}): CandidateItem => ({ id, label, detail: null, proven: true, ...over })
 
-/** `roles` roles (newest first) with `acts` activities each, and a spread of flat items. */
-export function bigCandidates(roles = 6, acts = 8, flat = 15): Candidates {
+/**
+ * `employers` employers (newest first), each with one role of `acts` activities
+ * (ids e0a0...), and a spread of flat items. The employer key is `co-<n>`; the
+ * role's experience id is `e<n>`.
+ */
+export function bigCandidates(employers = 6, acts = 8, flat = 15): Candidates {
   return {
-    experiences: Array.from({ length: roles }, (_, r) => ({
-      id: `e${r}`,
-      label: `Role ${r} — Co ${r}`,
-      period: null,
-      activities: Array.from({ length: acts }, (_, a) => ({
-        id: `e${r}a${a}`,
-        kind: a % 2 === 0 ? 'achievement' as const : 'responsibility' as const,
-        text: `Activity ${a} of role ${r}`,
-        impact: null,
-        highlighted: false,
-      })),
-    })),
+    employers: Array.from({ length: employers }, (_, r): CandidateEmployer => {
+      const start = `${2024 - r * 2}-01-01`
+      const end = r === 0 ? null : `${2025 - r * 2}-12-31`
+      const role = { experienceId: `e${r}`, title: `Role ${r}`, start, end }
+      return {
+        key: `co-${r}`,
+        company: `Co ${r}`,
+        latestTitle: `Role ${r}`,
+        label: `Role ${r} — Co ${r}`,
+        period: null,
+        start,
+        end,
+        roles: [role],
+        progression: null,
+        activities: Array.from({ length: acts }, (_, a) => ({
+          id: `e${r}a${a}`,
+          experienceId: `e${r}`,
+          kind: a % 2 === 0 ? 'achievement' as const : 'responsibility' as const,
+          text: `Activity ${a} of role ${r}`,
+          impact: null,
+          highlighted: false,
+        })),
+      }
+    }),
     skills: Array.from({ length: flat }, (_, i) => item(`s${i}`, `Skill ${i}`)),
     tools: Array.from({ length: flat }, (_, i) => item(`t${i}`, `Tool ${i}`)),
     competencies: Array.from({ length: flat }, (_, i) => item(`c${i}`, `Competency ${i}`)),

@@ -10,6 +10,7 @@ import {
   asStatus,
   isActiveStatus,
   parseCvGenerationLog,
+  parseSelection,
   parseStageTimings,
   stageForStatus,
 } from './schema'
@@ -123,5 +124,45 @@ describe('CvSelectionSchema', () => {
     })
     expect(parsed.headerOnlyRoles).toEqual([{ id: 'e2', label: 'Intern — Old Co', reason: '' }])
     expect(parsed.dropped[0].why).toBe('role_header_only')
+  })
+
+  it('reads rows stored before employers existed (PR 415 shape and older) with no employers', () => {
+    const pr415 = CvSelectionSchema.parse({
+      mode: 'model',
+      experiences: [{ id: 'e1', label: 'PM — Acme', reason: 'recent' }],
+      headerOnlyRoles: [{ id: 'e2', label: 'Intern — Old Co' }],
+      activities: { e1: [{ id: 'a1', label: 'Cut release time' }] },
+      dropped: [{ section: 'activities', id: 'a2', parentId: 'e1', why: 'over_cap' }],
+      droppedTotal: 1,
+      notSelectedTotal: 0,
+    })
+    expect(pr415.employers).toEqual([])
+    expect(pr415.experiences).toHaveLength(1)
+    expect(pr415.activities.e1[0].label).toBe('Cut release time')
+    expect(parseSelection({ mode: 'model' })?.employers).toEqual([])
+  })
+
+  it('stores employers with roles, progression, bullets (with their role), relevance and the header-only flag', () => {
+    const row = {
+      mode: 'model',
+      employers: [{
+        key: 'unity', company: 'Unity', latestTitle: 'Snr. Program Manager', start: '2019-01-01', end: null,
+        roles: [{ experienceId: 'u1', title: 'Program Manager', start: '2019-01-01', end: '2021-06-30' }, { experienceId: 'u2', title: 'Snr. Program Manager', start: '2021-07-01' }],
+        progression: 'Two roles at Unity (2019–present): Program Manager → Snr. Program Manager',
+        relevance: 4,
+        bullets: [{ id: 'a1', label: 'Cut release time', experienceId: 'u1' }],
+      }],
+    }
+    const parsed = CvSelectionSchema.parse(row)
+    const e = parsed.employers[0]
+    expect(e.headerOnly).toBe(false)
+    expect(e.reason).toBe('')
+    expect(e.roles[1].end).toBeNull()
+    expect(e.bullets[0]).toEqual({ id: 'a1', label: 'Cut release time', reason: '', experienceId: 'u1' })
+    // Relevance is on the 1-5 scale; a bullet must say which role it came from.
+    expect(CvSelectionSchema.safeParse({ ...row, employers: [{ ...row.employers[0], relevance: 7 }] }).success).toBe(false)
+    expect(CvSelectionSchema.safeParse({ ...row, employers: [{ ...row.employers[0], bullets: [{ id: 'a1', label: 'x' }] }] }).success).toBe(false)
+    // An unreadable row reads as null, never throws.
+    expect(parseSelection({ mode: 'model', employers: [{ key: 'x' }] })).toBeNull()
   })
 })
