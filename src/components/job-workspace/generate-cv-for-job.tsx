@@ -1,13 +1,13 @@
 "use client"
 
-import { useId, useState } from "react"
+import { useId, useRef, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Loader2, Wand2 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { discardDraftAction } from "@/modules/writing-desk/draft-actions"
-import { jobCvGenerationHref, writingDeskDocumentHref } from "@/modules/jobs/workspace-nav"
+import { jobCvGenerationHref, jobWritingDeskHref, writingDeskDocumentHref } from "@/modules/jobs/workspace-nav"
 import {
   discardDraftThenStart,
   requestCvGeneration,
@@ -23,15 +23,17 @@ import { guardedNavigate } from "./navigation-guard"
  * "Fresh" re-selects the evidence. A waiting draft (409) is the user's call:
  * open it, or discard it and generate.
  */
-export function GenerateCvForJob({ jobId, hasCvGeneration }: { jobId: string; hasCvGeneration: boolean }) {
+export function GenerateCvForJob({ jobId, hasCvGeneration, onStarted }: { jobId: string; hasCvGeneration: boolean; /** Called before leaving for the progress page or a draft (a host dialog closes itself). */ onStarted?: () => void }) {
   const router = useRouter()
   const ids = useId()
   const [fresh, setFresh] = useState(false)
   const [busy, setBusy] = useState(false)
+  const inFlight = useRef(false) // set synchronously, so a fast double click cannot start twice
   const [waitingDraft, setWaitingDraft] = useState<string | null | undefined>(undefined)
 
   async function settle(outcome: StartOutcome) {
     if (outcome.kind === "started") {
+      onStarted?.()
       await guardedNavigate(() => router.push(jobCvGenerationHref(jobId)))
     } else if (outcome.kind === "draft_exists") {
       setWaitingDraft(outcome.documentId)
@@ -41,21 +43,23 @@ export function GenerateCvForJob({ jobId, hasCvGeneration }: { jobId: string; ha
   }
 
   async function generate() {
-    if (busy) return
+    if (inFlight.current) return
+    inFlight.current = true
     setBusy(true)
     setWaitingDraft(undefined)
-    try { await settle(await requestCvGeneration(jobId, { fresh })) } finally { setBusy(false) }
+    try { await settle(await requestCvGeneration(jobId, { fresh })) } finally { inFlight.current = false; setBusy(false) }
   }
 
   async function discardAndGenerate(documentId: string) {
-    if (busy) return
+    if (inFlight.current) return
     if (!window.confirm("Discard the waiting draft? It is removed for good, including any edits you made to it. Your live document is not affected.")) return
+    inFlight.current = true
     setBusy(true)
     try {
       const outcome = await discardDraftThenStart(jobId, documentId, { fresh }, { discard: discardDraftAction })
       if (outcome.kind === "draft_exists") setWaitingDraft(outcome.documentId)
       else { setWaitingDraft(undefined); await settle(outcome) }
-    } finally { setBusy(false) }
+    } finally { inFlight.current = false; setBusy(false) }
   }
 
   return (
@@ -81,9 +85,12 @@ export function GenerateCvForJob({ jobId, hasCvGeneration }: { jobId: string; ha
       {waitingDraft !== undefined && (
         <div role="alert" className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-sm">
           <p>A draft is already waiting in this job&apos;s CV document. Open it, or discard it and generate a new one. Nothing was spent.</p>
+          {!waitingDraft && (
+            <Link href={jobWritingDeskHref(jobId)} onClick={onStarted} className="underline underline-offset-2">Open this job&apos;s writing desk</Link>
+          )}
           <div className="flex flex-wrap gap-2">
             {waitingDraft && (
-              <Button type="button" variant="outline" size="sm" onClick={() => void guardedNavigate(() => router.push(writingDeskDocumentHref(jobId, waitingDraft)))}>
+              <Button type="button" variant="outline" size="sm" onClick={() => { onStarted?.(); void guardedNavigate(() => router.push(writingDeskDocumentHref(jobId, waitingDraft))) }}>
                 Open draft
               </Button>
             )}

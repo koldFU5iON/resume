@@ -215,7 +215,7 @@ export function NewDocumentDialog({
             <div className="grid gap-2 rounded-md border bg-muted/30 px-3 py-3">
               <p className="text-sm font-medium">Or have the writing desk write it</p>
               <p className="text-xs text-muted-foreground">Picks the evidence from your profile for this job, writes the CV and saves it as a draft you accept or discard. Uses your own LLM key.</p>
-              <GenerateCvForJob jobId={jobId} hasCvGeneration={hasCvGeneration} />
+              <GenerateCvForJob jobId={jobId} hasCvGeneration={hasCvGeneration} onStarted={() => onOpenChange(false)} />
             </div>
           )}
 

@@ -1,12 +1,14 @@
 "use client"
 
-import { useState, useTransition } from "react"
+import { useRef, useState, useTransition } from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Loader2, Play } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { discardDraftAction } from "@/modules/writing-desk/draft-actions"
 import { notifyAssessmentStarted } from "@/app/dashboard/job-applications/_components/assessment-poller"
+import { jobWritingDeskHref } from "@/modules/jobs/workspace-nav"
 import { draftHref } from "@/app/dashboard/job-applications/_components/cv-generation-view"
 import {
   discardDraftThenStart,
@@ -28,6 +30,7 @@ export function GenerateCvButton({ jobId, label = "Generate CV", fresh = false }
   const [starting, setStarting] = useState(false)
   const [refreshing, startTransition] = useTransition()
   const [waitingDraft, setWaitingDraft] = useState<string | null | undefined>(undefined)
+  const inFlight = useRef(false) // synchronous guard against a fast double click
   const busy = starting || refreshing
 
   function settle(outcome: StartOutcome) {
@@ -43,9 +46,10 @@ export function GenerateCvButton({ jobId, label = "Generate CV", fresh = false }
   }
 
   async function run(start: () => Promise<StartOutcome>) {
-    if (busy) return
+    if (inFlight.current || busy) return
+    inFlight.current = true
     setStarting(true)
-    try { settle(await start()) } finally { setStarting(false) }
+    try { settle(await start()) } finally { inFlight.current = false; setStarting(false) }
   }
 
   const start = () => run(() => requestCvGeneration(jobId, { fresh }))
@@ -63,6 +67,9 @@ export function GenerateCvButton({ jobId, label = "Generate CV", fresh = false }
       {waitingDraft !== undefined && (
         <div role="alert" className="max-w-[68ch] space-y-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-sm">
           <p>A draft is already waiting in this job&apos;s CV document. Open it, or discard it and generate a new one. Nothing was spent.</p>
+          {!waitingDraft && (
+            <Link href={jobWritingDeskHref(jobId)} className="underline underline-offset-2">Open this job&apos;s writing desk</Link>
+          )}
           {waitingDraft && (
             <div className="flex flex-wrap gap-2">
               <Button type="button" variant="outline" size="sm" onClick={() => router.push(draftHref(jobId, waitingDraft))}>Open draft</Button>

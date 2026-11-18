@@ -20,4 +20,21 @@ describe("GenerateCvForJob (writing desk entry point)", () => {
     expect(html).toContain("View last generation")
     expect(html).toContain('href="/dashboard/job-applications/view/job1/cv-generation"')
   })
+
+  it("closes whatever hosts it (onStarted) before navigating, and guards against a double start", async () => {
+    const { readFileSync } = await import("node:fs")
+    const src = readFileSync("src/components/job-workspace/generate-cv-for-job.tsx", "utf8")
+    expect(src).toContain("onStarted")
+    expect(src).toContain("useRef")
+    expect(src.indexOf("onStarted?.()")).toBeLessThan(src.indexOf("router.push(jobCvGenerationHref"))
+    const dialog = readFileSync("src/components/job-workspace/new-document-dialog.tsx", "utf8")
+    expect(dialog).toMatch(/onStarted=\{\(\) => onOpenChange\(false\)\}/)
+  })
+
+  it("offers the job's writing desk when a 409 carries no document id", async () => {
+    const { readFileSync } = await import("node:fs")
+    for (const f of ["src/components/job-workspace/generate-cv-for-job.tsx", "src/app/dashboard/job-applications/view/[id]/cv-generation/_components/generate-cv-button.tsx"]) {
+      expect(readFileSync(f, "utf8"), f).toContain("jobWritingDeskHref")
+    }
+  })
 })

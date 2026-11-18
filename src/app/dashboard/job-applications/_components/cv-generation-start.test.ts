@@ -55,4 +55,11 @@ describe("discardDraftThenStart (the Discard draft choice)", () => {
     expect(out.kind).toBe("error")
     expect(f).not.toHaveBeenCalled()
   })
+
+  it("treats an already-gone draft (no_draft) as discarded and starts the run", async () => {
+    const f = reply(202)
+    const out = await discardDraftThenStart("j", "d1", {}, { discard: async () => ({ ok: false, reason: "no_draft", message: "gone" }), fetch: f })
+    expect(out).toEqual({ kind: "started", existing: false })
+    expect(f).toHaveBeenCalledTimes(1)
+  })
 })

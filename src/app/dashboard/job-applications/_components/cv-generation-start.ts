@@ -34,17 +34,19 @@ export async function requestCvGeneration(jobId: string, options: { fresh?: bool
 
 /**
  * The "Discard draft" choice after a 409: discard the waiting draft (the
- * writing desk's own action), then start the run. A failed discard starts nothing.
+ * writing desk's own action), then start the run. A failed discard starts
+ * nothing; a draft that is already gone counts as discarded.
  */
 export async function discardDraftThenStart(
   jobId: string,
   documentId: string,
   options: { fresh?: boolean },
-  deps: { discard: (documentId: string) => Promise<{ ok: boolean; message?: string }>; fetch?: Fetch },
+  deps: { discard: (documentId: string) => Promise<{ ok: boolean; reason?: string; message?: string }>; fetch?: Fetch },
 ): Promise<StartOutcome> {
   try {
     const discarded = await deps.discard(documentId)
-    if (!discarded.ok) return { kind: "error", message: discarded.message ?? "Couldn't discard the draft." }
+    // A draft that is already gone (discarded in another tab) is what the user wanted: go on.
+    if (!discarded.ok && discarded.reason !== "no_draft") return { kind: "error", message: discarded.message ?? "Couldn't discard the draft." }
   } catch {
     return { kind: "error", message: "Couldn't discard the draft. Try again." }
   }
