@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { Loader2, Play } from "lucide-react"
 import { toast } from "sonner"
@@ -11,14 +11,18 @@ import { startResponseMessage } from "@/app/dashboard/job-applications/_componen
 /**
  * Starts a preview run (brief and selection only: the writing stages are not
  * built yet) through POST /api/jobs/[id]/cv-generation, then refreshes so the
- * page's poller picks up progress. Disabled while a run is active.
+ * page's poller picks up progress. Disabled from the click until the
+ * refreshed page has rendered (the transition), at which point the page
+ * itself no longer offers the button while a run is active.
  */
-export function RunPreviewButton({ jobId, active, label = "Run preview" }: { jobId: string; active: boolean; label?: string }) {
+export function RunPreviewButton({ jobId, label = "Run preview" }: { jobId: string; label?: string }) {
   const router = useRouter()
   const [starting, setStarting] = useState(false)
+  const [refreshing, startTransition] = useTransition()
+  const busy = starting || refreshing
 
   async function start() {
-    if (starting || active) return
+    if (busy) return
     setStarting(true)
     try {
       const res = await fetch(`/api/jobs/${encodeURIComponent(jobId)}/cv-generation`, { method: "POST" })
@@ -28,7 +32,7 @@ export function RunPreviewButton({ jobId, active, label = "Run preview" }: { job
         return
       }
       notifyAssessmentStarted()
-      router.refresh()
+      startTransition(() => router.refresh())
     } catch {
       toast.error(startResponseMessage(0).message ?? "Couldn't start the preview.")
     } finally {
@@ -37,9 +41,9 @@ export function RunPreviewButton({ jobId, active, label = "Run preview" }: { job
   }
 
   return (
-    <Button variant="outline" size="sm" className="gap-1.5" onClick={start} disabled={starting || active}>
-      {starting || active ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Play className="size-3.5" aria-hidden="true" />}
-      {starting ? "Starting…" : label}
+    <Button variant="outline" size="sm" className="gap-1.5" onClick={start} disabled={busy}>
+      {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Play className="size-3.5" aria-hidden="true" />}
+      {busy ? "Starting…" : label}
     </Button>
   )
 }

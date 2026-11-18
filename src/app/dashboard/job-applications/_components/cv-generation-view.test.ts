@@ -197,12 +197,27 @@ describe("selectionGroups", () => {
 
   it("groups roles, each kept role's evidence and the flat sections, with why things were left out", () => {
     const groups = selectionGroups(sel)
-    expect(groups.map((g) => g.title)).toEqual(["Roles", "Evidence: PM — Acme", "Skills", "Evidence of roles that were left out"])
+    expect(groups.map((g) => g.title)).toEqual(["Roles with bullets", "Evidence: PM — Acme", "Skills", "Picked evidence that was not used (its role has no bullets)"])
     expect(groups[0].kept).toEqual([{ label: "PM — Acme", reason: "most recent" }])
     expect(groups[0].dropped).toEqual([{ label: "Intern — Old Co", why: "not selected" }])
     expect(groups[1].dropped).toEqual([{ label: "Ran standups", why: "over the limit" }])
     expect(groups[2].dropped).toEqual([{ label: "ghost", why: "not in the profile" }])
     expect(groups[3].dropped).toEqual([{ label: "Elsewhere", why: "its role was not kept" }])
+  })
+
+  it("shows header-only roles as their own group, and reads a stored row from before they existed", () => {
+    expect(sel.headerOnlyRoles).toEqual([]) // an old row parses, with no header-only roles
+    expect(selectionGroups(sel).some((g) => g.key === "headerOnly")).toBe(false)
+    const withHeaders = CvSelectionSchema.parse({
+      ...sel,
+      headerOnlyRoles: [{ id: "e2", label: "Intern — Old Co" }],
+      dropped: [{ section: "activities", id: "a9", label: "Elsewhere", parentId: "e2", why: "role_header_only" }],
+    })
+    const groups = selectionGroups(withHeaders)
+    expect(groups.map((g) => g.title)).toEqual(["Roles with bullets", "Evidence: PM — Acme", "Listed without bullets", "Skills", "Picked evidence that was not used (its role has no bullets)"])
+    expect(groups[2].kept).toEqual([{ label: "Intern — Old Co", reason: "" }])
+    expect(groups[4].dropped).toEqual([{ label: "Elsewhere", why: "its role is listed without bullets" }])
+    expect(selectionSummary(withHeaders)).toBe("4 kept, 4 left out")
   })
 
   it("leaves out sections with nothing to say", () => {

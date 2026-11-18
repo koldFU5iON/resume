@@ -86,6 +86,8 @@ export const CV_GENERATION_ROUTE_MAX_DURATION_S = 300
 export const TIME_BUDGET_MS = {
   brief: 90_000,
   select: 60_000,
+  /** The last-resort analyseJob call in Gather. A timeout is treated as strategy source 'none'. */
+  analyse: 60_000,
   run: (CV_GENERATION_ROUTE_MAX_DURATION_S - 20) * 1_000,
 } as const
 
@@ -97,12 +99,16 @@ export const CV_GENERATION_FEATURES = {
   analyse: 'cv-job-analysis',
 } as const
 
-/** Output caps (tokens): small JSON, but generous enough that a cut-off is not the usual failure. */
+/**
+ * Output caps (tokens): small JSON, but generous enough that a cut-off is not
+ * the usual failure. The retry (after a cut-off or a bad answer) always runs
+ * at the larger cap, never the first-try one (call.ts).
+ */
 export const MAX_OUTPUT_TOKENS = {
-  brief: 2_000,
-  briefRetry: 4_000,
-  select: 4_000,
-  selectRetry: 8_000,
+  brief: 4_000,
+  briefRetry: 8_000,
+  select: 8_000,
+  selectRetry: 16_000,
 } as const
 
 /** Where the Brief's strategy input came from (gather stage). `none`: analyseJob also failed, so the Brief reads the job description alone. */
@@ -271,7 +277,7 @@ export const SelectedItemSchema = z.object({
 })
 export type SelectedItem = z.infer<typeof SelectedItemSchema>
 
-export const DROP_REASONS = ['not_selected', 'over_cap', 'unknown_id', 'duplicate', 'role_not_kept'] as const
+export const DROP_REASONS = ['not_selected', 'over_cap', 'unknown_id', 'duplicate', 'role_not_kept', 'role_header_only'] as const
 export type DropReason = typeof DROP_REASONS[number]
 
 export const DROP_REASON_LABEL: Record<DropReason, string> = {
@@ -280,6 +286,7 @@ export const DROP_REASON_LABEL: Record<DropReason, string> = {
   unknown_id: 'not in the profile',
   duplicate: 'picked twice',
   role_not_kept: 'its role was not kept',
+  role_header_only: 'its role is listed without bullets',
 }
 
 export const DroppedItemSchema = z.object({
@@ -297,12 +304,20 @@ const SelectedList = z.array(SelectedItemSchema).default([])
 /**
  * Stage 2 output as stored: ids that exist in the profile, each with a
  * display label and the model's reason, and what code dropped and why.
- * `activities` is keyed by experience id and only has kept roles.
+ * `activities` is keyed by experience id and only has roles that show bullets.
  */
 export const CvSelectionSchema = z.object({
   /** model: the fast model's picks, capped by code; fallback: chosen by rules after the call failed or returned junk. */
   mode: z.enum(['model', 'fallback']),
+  /** Roles that show bullets, newest first (at most MAX_EXPERIENCES). */
   experiences: SelectedList,
+  /**
+   * Roles listed as header-only entries: company, title and dates (resolved
+   * from the profile by id), no bullets. Newest first, after `experiences`
+   * (at most MAX_HEADER_ONLY_ROLES). Rows stored before this field existed
+   * read as an empty list.
+   */
+  headerOnlyRoles: SelectedList,
   activities: z.record(z.string(), SelectedList).default({}),
   skills: SelectedList,
   tools: SelectedList,
@@ -313,6 +328,11 @@ export const CvSelectionSchema = z.object({
   dropped: z.array(DroppedItemSchema).default([]),
   /** Candidates dropped in all; `dropped` lists at most MAX_RECORDED_DROPPED of them. */
   droppedTotal: z.number().int().nonnegative().default(0),
+  /**
+   * Of `droppedTotal`, the candidates the model simply left out
+   * ('not_selected'). Absent on rows stored before it existed.
+   */
+  notSelectedTotal: z.number().int().nonnegative().optional(),
 })
 export type CvSelection = z.infer<typeof CvSelectionSchema>
 export type FlatSelectionKey = typeof FLAT_SECTIONS[number]

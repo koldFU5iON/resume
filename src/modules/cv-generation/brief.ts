@@ -6,12 +6,14 @@
  * the detailed evidence (Select does that).
  *
  * The output is validated with CvBriefSchema; budgets are clamped to the
- * code's hard caps (caps.ts) by the schema itself.
+ * code's hard caps (caps.ts) by the schema itself. `applyProfileBudgets` then
+ * raises education to at least 1 when the profile has any.
  */
 
 import * as z from 'zod'
 import { composeSystem, loadCVBriefPrompt } from '@/modules/llm/prompt-context'
 import { completeValidated, type ValidatedCall } from './call'
+import type { Candidates } from './candidates'
 import type { GatherResult } from './gather'
 import { CV_GENERATION_FEATURES, CvBriefSchema, MAX_OUTPUT_TOKENS, TIME_BUDGET_MS, type CvBrief } from './schema'
 import { strategyToPrompt } from './strategy'
@@ -36,13 +38,19 @@ export function briefPrompt(g: Gathered): string {
 
 export type BriefResult = ValidatedCall<CvBrief>
 
+/** Budgets that depend on the profile: a profile with education always shows at least one entry. Pure. */
+export function applyProfileBudgets(brief: CvBrief, cands: Pick<Candidates, 'education'>): CvBrief {
+  if (cands.education.length === 0 || brief.budgets.education >= 1) return brief
+  return { ...brief, budgets: { ...brief.budgets, education: 1 } }
+}
+
 /** Runs the Brief call. Throws LLMError (kind invalid_output, timeout, ...). */
 export async function runBrief(
   g: Gathered,
   ctx: { profileId: string; jobApplicationId: string; runId: string; deadline: number },
 ): Promise<BriefResult> {
   const instructions = await loadCVBriefPrompt(ctx.profileId)
-  return completeValidated(ctx.profileId, briefPrompt(g), CvBriefSchema, {
+  const result = await completeValidated(ctx.profileId, briefPrompt(g), CvBriefSchema, {
     role: 'analysis',
     system: composeSystem(instructions, OUTPUT_FORMAT),
     maxOutputTokens: MAX_OUTPUT_TOKENS.brief,
@@ -54,4 +62,5 @@ export async function runBrief(
     attribution: { jobApplicationId: ctx.jobApplicationId, runId: ctx.runId },
     label: 'brief',
   })
+  return { ...result, value: applyProfileBudgets(result.value, g.candidates) }
 }

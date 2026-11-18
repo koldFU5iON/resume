@@ -3,10 +3,13 @@
  * Select. The schema is too big a risk for native structured output on some
  * providers (docs/deep-dive.md, "compiled grammar is too large"), so it goes
  * in the system prompt as JSON Schema and the answer is checked with Zod
- * (completeJSON), like the deep dive's synthesis. completeJSON already
- * retries a cut-off answer; this adds one retry for an answer that parses but
- * does not match, telling the model which fields were wrong (never echoing
- * its text back).
+ * (completeJSON), like the deep dive's synthesis.
+ *
+ * At most TWO calls per stage. completeJSON's own cut-off retry is switched
+ * off (it would restart at the small cap and double the calls); this loop does
+ * the one retry instead, for an answer that was cut off or parsed but did not
+ * match. The retry always runs at the larger token cap, with a note that says
+ * what was wrong (field names only, never the model's text).
  */
 
 import * as z from 'zod'
@@ -48,7 +51,14 @@ export async function completeValidated<T>(
   let note = ''
   let reason = ''
   for (let attempt = 0; attempt < 2; attempt++) {
-    const result = await completeJSON(profileId, prompt + note, schema, callOpts)
+    const maxOutputTokens = attempt === 0 ? opts.maxOutputTokens : opts.retryMaxOutputTokens
+    const result = await completeJSON(profileId, prompt + note, schema, {
+      ...callOpts,
+      maxOutputTokens,
+      retryMaxOutputTokens: maxOutputTokens,
+      // Never let completeJSON make a second call of its own: this loop owns the retry.
+      minRetryMs: Number.POSITIVE_INFINITY,
+    })
     if (result.extracted.ok) return { value: result.extracted.value, model: result.model, retries: attempt }
     reason = describeFailure(result.extracted)
     // No raw text in the log: it can echo the profile and the job description.
@@ -58,7 +68,9 @@ export async function completeValidated<T>(
       finishReason: result.finishReason,
     })
     if (opts.deadline - Date.now() < MIN_RETRY_MS) break
-    note = `\n\n== NOTE ==\nYour previous answer was rejected: ${reason}. Return the complete JSON object again, in one \`\`\`json code block, matching the schema exactly.`
+    note = result.finishReason === 'length'
+      ? `\n\n== NOTE ==\nYour previous answer was cut off before the JSON object was complete. Return the COMPLETE JSON object this time, in one \`\`\`json code block, with nothing truncated. Keep every text field short.`
+      : `\n\n== NOTE ==\nYour previous answer was rejected: ${reason}. Return the complete JSON object again, in one \`\`\`json code block, matching the schema exactly.`
   }
   throw new LLMError(`The ${label} did not match the expected shape (${reason}).`, 'invalid_output')
 }

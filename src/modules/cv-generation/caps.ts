@@ -8,8 +8,20 @@
  * src/lib/prompts/cv-generate.md. Pure: no DB, no network.
  */
 
-/** Most roles on the CV; the most recent role is always one of them. */
+/**
+ * Most roles that show bullets on the CV; the most recent role is always one
+ * of them. Roles beyond this are not dropped: they are listed as header-only
+ * entries (see MAX_HEADER_ONLY_ROLES), so the work history has no gaps.
+ */
 export const MAX_EXPERIENCES = 4
+
+/**
+ * Most additional roles listed as header-only entries (company, title, dates,
+ * no bullets), most recent first, after the roles that show bullets. A role
+ * beyond this many is dropped (reason `over_cap`). So a CV shows at most
+ * MAX_EXPERIENCES + MAX_HEADER_ONLY_ROLES roles.
+ */
+export const MAX_HEADER_ONLY_ROLES = 4
 
 /**
  * Activities per kept role by recency tier: [most recent, next, older...].

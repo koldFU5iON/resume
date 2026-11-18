@@ -62,7 +62,7 @@ function EmptyState({ jobId }: { jobId: string }) {
         what it cost, which evidence was kept or dropped, and any claim the review could not support.
       </p>
       <div className="mt-5 space-y-2">
-        <RunPreviewButton jobId={jobId} active={false} />
+        <RunPreviewButton jobId={jobId} />
         <p className="text-sm text-muted-foreground">{PREVIEW_NOTICE}. A preview runs the first three stages only, on your own LLM key.</p>
       </div>
       <ol className="mt-8 space-y-4 border-t pt-6">
@@ -147,7 +147,7 @@ function RunBody({ jobId, view }: { jobId: string; view: CvGenerationView }) {
       {view.brief && <BriefPanel brief={view.brief} />}
       {view.selection && <SelectionPanel selection={view.selection} />}
       <GenerationLog rows={rows} />
-      {!active && <RunPreviewButton jobId={jobId} active={false} label="Run preview again" />}
+      {!active && <RunPreviewButton jobId={jobId} label="Run preview again" />}
     </div>
   )
 }

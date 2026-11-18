@@ -4,6 +4,7 @@ import {
   CV_GENERATION_STAGES,
   CV_GENERATION_STATUSES,
   STAGE_STATUS,
+  CvSelectionSchema,
   StageLogEntrySchema,
   asFailureKind,
   asStatus,
@@ -96,5 +97,31 @@ describe('parseStageTimings', () => {
     expect(parseStageTimings({ gather: 120, brief: 'x', write: -1, bogus: 5, review: 9000 })).toEqual({ gather: 120, review: 9000 })
     expect(parseStageTimings(null)).toEqual({})
     expect(parseStageTimings([1, 2])).toEqual({})
+  })
+})
+
+describe('CvSelectionSchema', () => {
+  it('reads a row stored before header-only roles and the not-selected count existed', () => {
+    const old = {
+      mode: 'model',
+      experiences: [{ id: 'e1', label: 'PM — Acme', reason: '' }],
+      activities: {},
+      dropped: [{ section: 'skills', id: 's1', label: 'x', why: 'not_selected' }],
+      droppedTotal: 1,
+    }
+    const parsed = CvSelectionSchema.parse(old)
+    expect(parsed.headerOnlyRoles).toEqual([])
+    expect(parsed.notSelectedTotal).toBeUndefined()
+  })
+
+  it('keeps header-only roles, and reads the new drop reason', () => {
+    const parsed = CvSelectionSchema.parse({
+      mode: 'fallback',
+      headerOnlyRoles: [{ id: 'e2', label: 'Intern — Old Co' }],
+      dropped: [{ section: 'activities', id: 'a1', why: 'role_header_only' }],
+      notSelectedTotal: 0,
+    })
+    expect(parsed.headerOnlyRoles).toEqual([{ id: 'e2', label: 'Intern — Old Co', reason: '' }])
+    expect(parsed.dropped[0].why).toBe('role_header_only')
   })
 })

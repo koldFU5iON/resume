@@ -207,7 +207,7 @@ export function selectionGroups(sel: CvSelection): SelectionGroup[] {
       .filter((d) => d.section === section && (parentId === undefined || d.parentId === parentId))
       .map((d) => ({ label: d.label || d.id, why: DROP_REASON_LABEL[d.why] }))
   const groups: SelectionGroup[] = [
-    { key: "experiences", title: "Roles", kept: sel.experiences.map((e) => ({ label: e.label, reason: e.reason })), dropped: dropOf("experiences") },
+    { key: "experiences", title: "Roles with bullets", kept: sel.experiences.map((e) => ({ label: e.label, reason: e.reason })), dropped: dropOf("experiences") },
   ]
   for (const e of sel.experiences) {
     groups.push({
@@ -217,13 +217,20 @@ export function selectionGroups(sel: CvSelection): SelectionGroup[] {
       dropped: dropOf("activities", e.id),
     })
   }
+  // Roles that stay visible as a title line only: no evidence is shown for them.
+  groups.push({
+    key: "headerOnly",
+    title: "Listed without bullets",
+    kept: sel.headerOnlyRoles.map((e) => ({ label: e.label, reason: e.reason })),
+    dropped: [],
+  })
   for (const s of FLAT_SECTIONS) {
     groups.push({ key: s, title: FLAT_TITLE[s], kept: sel[s].map((i) => ({ label: i.label, reason: i.reason })), dropped: dropOf(s) })
   }
-  // Activities dropped because their role was not kept have no role group to sit in.
+  // Activities picked for a role that shows no bullets (header-only, or left out) have no role group to sit in.
   const orphans = sel.dropped.filter((d) => d.section === "activities" && !sel.experiences.some((e) => e.id === d.parentId))
   if (orphans.length > 0) {
-    groups.push({ key: "activities:orphans", title: "Evidence of roles that were left out", kept: [], dropped: orphans.map((d) => ({ label: d.label || d.id, why: DROP_REASON_LABEL[d.why] })) })
+    groups.push({ key: "activities:orphans", title: "Picked evidence that was not used (its role has no bullets)", kept: [], dropped: orphans.map((d) => ({ label: d.label || d.id, why: DROP_REASON_LABEL[d.why] })) })
   }
   return groups.filter((g) => g.kept.length > 0 || g.dropped.length > 0)
 }
@@ -231,6 +238,7 @@ export function selectionGroups(sel: CvSelection): SelectionGroup[] {
 /** "12 kept, 30 left out" for the selection heading. */
 export function selectionSummary(sel: CvSelection): string {
   const kept = sel.experiences.length
+    + sel.headerOnlyRoles.length
     + Object.values(sel.activities).reduce((n, l) => n + l.length, 0)
     + FLAT_SECTIONS.reduce((n, s) => n + sel[s].length, 0)
   return `${kept} kept, ${sel.droppedTotal} left out${sel.mode === "fallback" ? " (chosen by rules: the model's answer wasn't usable)" : ""}`

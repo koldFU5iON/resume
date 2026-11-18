@@ -10,9 +10,11 @@ vi.mock('@/modules/llm/prompt-context', () => ({
 import { z } from 'zod'
 import { completeJSON } from '@/modules/llm/complete-json'
 import { LLMError } from '@/modules/llm/errors'
-import { briefPrompt, runBrief } from './brief'
+import { readFileSync } from 'node:fs'
+import { applyProfileBudgets, briefPrompt, runBrief } from './brief'
 import { CvBriefSchema, parseBrief } from './schema'
 import { gathered } from './__fixtures__/gathered'
+import { bigCandidates } from './__fixtures__/candidates'
 
 const mockJSON = vi.mocked(completeJSON)
 const goodBrief = {
@@ -68,7 +70,45 @@ describe('briefPrompt', () => {
   })
 })
 
+describe('the brief prompt file', () => {
+  const text = readFileSync('src/lib/prompts/cv-gen-brief.md', 'utf8')
+
+  it('infers the hidden question only from the job description and strategy, and invents no company facts', () => {
+    expect(text).toContain('inferred ONLY from the job description and the strategy source')
+    expect(text).toContain('Never state a fact about the company')
+  })
+
+  it('keeps lead-with and emphasise to roles and themes in the outline, with no numbers, results or tools of its own', () => {
+    expect(text).toMatch(/Lead with\.\*\* .*appears in the candidate outline/)
+    expect(text).toContain('Never name a number, a result or a tool that the outline does not show')
+    expect(text).toMatch(/Emphasise\.\*\* .*never a number, result or tool the outline does not show/)
+  })
+
+  it('says the brief is direction, not evidence', () => {
+    expect(text).toContain('The brief is direction, not evidence.')
+  })
+})
+
+describe('applyProfileBudgets', () => {
+  const b = CvBriefSchema.parse({ ...goodBrief, budgets: { ...goodBrief.budgets, education: 0 } })
+
+  it('raises education to 1 when the profile has education', () => {
+    expect(applyProfileBudgets(b, bigCandidates()).budgets.education).toBe(1)
+  })
+
+  it('leaves 0 alone when the profile has none, and never lowers a budget', () => {
+    expect(applyProfileBudgets(b, { education: [] }).budgets.education).toBe(0)
+    expect(applyProfileBudgets({ ...b, budgets: { ...b.budgets, education: 3 } }, bigCandidates()).budgets.education).toBe(3)
+  })
+})
+
 describe('runBrief', () => {
+  it('never returns education 0 for a profile that has education', async () => {
+    mockJSON.mockResolvedValue(ok({ ...goodBrief, budgets: { ...goodBrief.budgets, education: 0 } }))
+    const r = await runBrief(gathered(), ctx)
+    expect(r.value.budgets.education).toBe(1)
+  })
+
   it('runs the analysis role under the brief tag, attributed to the run', async () => {
     mockJSON.mockResolvedValue(ok(goodBrief))
     const r = await runBrief(gathered(), ctx)
