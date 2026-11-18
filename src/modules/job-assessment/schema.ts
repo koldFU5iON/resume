@@ -306,6 +306,8 @@ export interface ScoreBreakdown {
   /** Number of major gaps + years warnings + years stretches + missing education must-haves. */
   penaltyItems: number
   penalty: number
+  /** Weakest Jev confidence (0–1) across the skills, seniority, domain and direction answers. Display only; null if none reported. */
+  confidence: number | null
 }
 
 export interface AssessmentResult {
