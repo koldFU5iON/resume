@@ -234,6 +234,8 @@ export type JobWorkspace = {
   deepDive: DeepDiveSummary | null
   deepDiveAccess: DeepDiveAccess
   assets: JobDocumentAssets
+  /** The job has at least one CV generation run: until the menu switch (phase 5) the CV generation entry shows only then. */
+  hasCvGeneration: boolean
 }
 
 /**
@@ -258,6 +260,7 @@ async function getJobWorkspaceUncached(profileId: string, jobId: string): Promis
         select: { id: true, name: true, documentType: true },
         orderBy: WRITING_DESK_DOCUMENT_ORDER,
       },
+      cvGenerations: { where: { profileId }, select: { id: true }, take: 1 },
     },
   })
   if (!job) return null
@@ -280,6 +283,7 @@ async function getJobWorkspaceUncached(profileId: string, jobId: string): Promis
     earlyEnabled,
     deepDive,
     deepDiveAccess,
+    hasCvGeneration: job.cvGenerations.length > 0,
     assets: {
       jobId: job.id,
       cvDocumentId: job.cvDocuments[0]?.id ?? null,

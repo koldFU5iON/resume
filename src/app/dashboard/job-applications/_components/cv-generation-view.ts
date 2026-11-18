@@ -344,7 +344,7 @@ export function stageNotes(entry: Pick<StageLogEntry, "stage" | "notes">): strin
   return entry.notes.filter((n) => !n.startsWith(CHECK_NOTE_PREFIX) || ++checks <= MAX_CHECK_NOTES)
 }
 
-/** "2,310 chars · 9 sections" for the assembled CV panel. */
+/** "9 sections · about 410 words" for the assembled CV panel. */
 export function assembledSummary(a: Pick<CvAssembled, "markdown" | "sections">): string {
   const words = a.markdown.trim().split(/\s+/).filter(Boolean).length
   return `${a.sections.length} ${a.sections.length === 1 ? "section" : "sections"} · about ${words} words`

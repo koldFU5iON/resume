@@ -13,6 +13,8 @@ import type { CvAssembled } from "@/modules/cv-generation/schema"
  * with the Markdown behind a disclosure and a copy button. The header carries
  * the literal {{contact}} placeholder: contact details are filled in only when
  * a draft is accepted (a later phase), so the preview shows it as written.
+ * The preview renders no images and no links: the text is model-written and
+ * not yet reviewed (writers also strip them, write/plain.ts).
  */
 export function AssembledCvPanel({ assembled }: { assembled: CvAssembled }) {
   const [copied, setCopied] = useState(false)
@@ -40,7 +42,7 @@ export function AssembledCvPanel({ assembled }: { assembled: CvAssembled }) {
         </Button>
       </div>
       <div className="mt-4 rounded-lg border bg-card px-5 py-5">
-        <WritingDeskPreview markdown={assembled.markdown} documentType="cv" />
+        <WritingDeskPreview markdown={assembled.markdown} documentType="cv" blockRemoteContent />
       </div>
       <details className="mt-3 text-sm">
         <summary className="cursor-pointer text-muted-foreground hover:text-foreground">Markdown</summary>

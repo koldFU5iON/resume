@@ -7,6 +7,7 @@ import {
   isJobCvGenerationPath,
   isJobDeepDivePath,
   jobCvGenerationHref,
+  jobExtraDestinations,
   jobDocumentCreateLinks,
   jobDocumentLinks,
   jobWritingDeskHref,
@@ -224,5 +225,13 @@ describe("CV generation log link", () => {
 
   it("does not light up any document tab (it is not a document)", () => {
     expect(activeJobDocument(jobCvGenerationHref("job1"), jobDocumentLinks(all))).toBeNull()
+  })
+})
+
+describe("jobExtraDestinations", () => {
+  it("lists Deep Dive always, and CV generation only when the job already has a run", () => {
+    expect(jobExtraDestinations("job1", false).map((e) => e.key)).toEqual(["deep-dive"])
+    expect(jobExtraDestinations("job1", true).map((e) => e.key)).toEqual(["deep-dive", "cv-generation"])
+    expect(jobExtraDestinations("job1", true)[1].href).toBe(jobCvGenerationHref("job1"))
   })
 })

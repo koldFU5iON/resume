@@ -49,12 +49,22 @@ const components: Components = {
   div: ({ node, children }) => <BlockWrapper node={node}>{children}</BlockWrapper>,
 }
 
+/** Generated text is shown as plain content: no image is ever fetched, and a link is shown as its text. */
+const noRemoteContent: Components = {
+  ...components,
+  img: () => null,
+  a: ({ children }) => <>{children}</>,
+}
+
 export function WritingDeskPreview({
   markdown,
   documentType,
+  blockRemoteContent = false,
 }: {
   markdown: string
   documentType: WritingDeskDocumentType | null
+  /** For text no one has reviewed yet (a generated CV): render no images and no links. The writing desk editor leaves this off. */
+  blockRemoteContent?: boolean
 }) {
   const profile = profileForDocumentType(documentType)
   return (
@@ -69,7 +79,7 @@ export function WritingDeskPreview({
           remarkPreserveDirectives,
           remarkWritingDeskPreview,
         ]}
-        components={components}
+        components={blockRemoteContent ? noRemoteContent : components}
       >
         {markdown || "*No content yet.*"}
       </ReactMarkdown>
