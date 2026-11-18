@@ -20,6 +20,19 @@ import type { CompleteOptions } from '@/modules/llm/client'
 import type { ExtractJSONResult } from '@/modules/llm/extract-json'
 import { estimateRowCostUsd } from '@/modules/llm/pricing'
 
+/**
+ * The answer was cut off by the output token limit and a retry would send the
+ * same budget again, so none was made. Kind `invalid_output` like any unusable
+ * answer; a caller that has a code fallback (the experience writer) can catch
+ * it by class instead of failing the run.
+ */
+export class CutOffError extends LLMError {
+  constructor(label: string, readonly tokens: number) {
+    super(`The ${label} was cut off at ${tokens} output tokens, the largest budget it gets.`, 'invalid_output')
+    this.name = 'CutOffError'
+  }
+}
+
 /** Not enough time left for a second attempt (ms). */
 const MIN_RETRY_MS = 15_000
 /**
@@ -151,6 +164,7 @@ export async function completeValidated<T>(
       finishReason: result.finishReason,
     })
     if (opts.deadline - Date.now() < MIN_RETRY_MS) break
+    if (attempt === 0 && result.finishReason === 'length' && opts.retryMaxOutputTokens <= (maxOutputTokens ?? 0)) throw withUsage(new CutOffError(label, maxOutputTokens ?? 0), usage)
     note = result.finishReason === 'length'
       ? `\n\n== NOTE ==\nYour previous answer was cut off before the JSON object was complete. Return the COMPLETE JSON object this time, in one \`\`\`json code block, with nothing truncated. Keep every text field short.`
       : `\n\n== NOTE ==\nYour previous answer was rejected: ${reason}. Return the complete JSON object again, in one \`\`\`json code block, matching the schema exactly.`
@@ -195,6 +209,9 @@ export function softIssueNotes(call: Pick<CheckedCall<unknown>, 'softIssues' | '
  *   SOFT_RETRY_TIME_FACTOR times the first call's duration.
  * - A retry that throws (timeout, provider error) after a usable first answer
  *   returns the first answer; with no usable answer it rethrows.
+ * - A first answer that was CUT OFF by the output limit is retried only when the
+ *   retry cap is larger than the first one; otherwise the same budget would be
+ *   sent again and the call throws CutOffError without spending the retry.
  */
 export async function completeChecked<T>(
   profileId: string,
@@ -248,6 +265,8 @@ export async function completeChecked<T>(
       reason = describeFailure(result.extracted)
       console.error(`[cv-generation] ${label} output unusable`, { runId: opts.attribution.runId, reason: result.extracted.reason, finishReason: result.finishReason })
       problems = { hard: [`your previous answer was rejected: ${reason}`], soft: [] }
+      // A cut-off that the retry could not fix (same budget): not worth a second call.
+      if (attempt === 0 && result.finishReason === 'length' && opts.retryMaxOutputTokens <= (maxOutputTokens ?? 0)) throw withUsage(new CutOffError(label, maxOutputTokens ?? 0), usage)
     }
 
     const left = opts.deadline - Date.now()

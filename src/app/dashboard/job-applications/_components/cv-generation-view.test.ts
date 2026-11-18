@@ -26,6 +26,7 @@ import {
   stageIndex,
   startResponseMessage,
   stageMeta,
+  runLogMarkdown,
 } from "./cv-generation-view"
 
 const entry = (over: Partial<StageLogEntry> & Pick<StageLogEntry, "stage">): StageLogEntry => StageLogEntrySchema.parse(over)
@@ -412,5 +413,145 @@ describe("retryReasonLine (why a stage or section retried)", () => {
     expect(retryReasonLine(row.sections[0])).toBe("Retried because: duplicate figure 14,000")
     expect(retryReasonLine(row.sections[1])).toBeNull()
     expect(sectionMeta(row.sections[0])).toContain("1 retry")
+  })
+})
+
+describe("runLogMarkdown (the Copy log text)", () => {
+  const brief = CvBriefSchema.parse({
+    hiddenQuestion: "Can they ship a migration?", leadWith: ["The Enemies Demo Campaign"],
+    emphasise: [{ item: "Release management", why: "core of the role" }], playDown: ["Build detail"],
+    positioning: "A delivery lead.", tone: "plain",
+    budgets: { experiences: 2, skills: 8, tools: 6, competencies: 4, certifications: 2, education: 2, projects: 1 },
+  })
+  const selection = CvSelectionSchema.parse({
+    mode: "model",
+    employers: [
+      {
+        key: "unity", company: "Unity", latestTitle: "Snr. Program Manager", start: "2019-01-01", end: null,
+        roles: [{ experienceId: "u1", title: "Snr. Program Manager", start: "2019-01-01", end: null }],
+        progression: null, relevance: 5, reason: "Current employer", headerOnly: false,
+        bullets: [{ id: "u-a1", label: "Ran the release train", reason: "has a number", experienceId: "u1" }],
+      },
+      { key: "acme", company: "Acme", latestTitle: "Coordinator", start: "2010-01-01", end: "2013-12-31", roles: [{ experienceId: "c1", title: "Coordinator", start: "2010-01-01", end: "2013-12-31" }], progression: null, headerOnly: true, bullets: [] },
+    ],
+    skills: [{ id: "s1", label: "Release management", reason: "core" }],
+    dropped: [
+      { section: "activities", id: "x1", label: "Ran standups", parentId: "unity", why: "over_cap" },
+      { section: "skills", id: "s2", label: "Budgeting", why: "not_selected" },
+    ],
+    droppedTotal: 2,
+    uncovered: ["Regulatory compliance"],
+  })
+  const log = [
+    entry({ stage: "gather", notes: ["Profile: 3 roles."] }),
+    entry({ stage: "brief", model: "claude-opus-5-5", durationMs: 8200, tokens: { input: 3100, output: 420 }, costUsd: 0.12 }),
+    entry({ stage: "select", model: "claude-haiku-5-5", durationMs: 2100, tokens: { input: 5000, output: 900 }, costUsd: 0.01, retries: 1, retryReasons: ["the answer was cut off"], notes: ["Cut 2 picks over the limits."] }),
+    entry({
+      stage: "write", model: "claude-sonnet-5-5", durationMs: 41000, tokens: { input: 14400, output: 3500 }, costUsd: 0.13,
+      sections: [{
+        id: "experience:unity", label: "Experience: Snr. Program Manager — Unity", status: "ok", model: "claude-sonnet-5-5", durationMs: 30000,
+        tokens: { input: 9000, output: 2200 }, costUsd: 0.09, retries: 1, retryReasons: ["there are 8 bullets, limit 6"],
+        notes: ["Cut a bullet over this employer's limit of 6: “Kept the calendar.”"],
+      }],
+    }),
+    entry({ stage: "assemble", notes: ["Assembled 9 sections (about 640 words).", `${CHECK_NOTE_PREFIX}"14,000" could not be matched.`] }),
+  ]
+  const assembled = {
+    markdown: ":::header\n# Robin Placeholder\n{{contact}}\n:::\n\n## Experience\n\n:::compact-list\n- Ran the Unity Awards.\n:::\n",
+    warnings: ["Heading skipped a level (line 4)"], checkNotes: ["Unity: \"14,000\" could not be matched to the profile text. Worth a quick check."],
+  }
+  const run = {
+    id: "run-abc", status: "complete" as const, createdAt: new Date("2026-11-18T10:00:00Z"), startedAt: new Date("2026-11-18T10:00:01Z"), completedAt: new Date("2026-11-18T10:01:33Z"),
+    partial: true, log, stageTimings: {}, brief, selection, assembled,
+    usage: { total: { requests: 7, failedRequests: 1, inputTokens: 33_000, outputTokens: 6_000, estimatedCostUsd: 0.32, estimateComplete: true } },
+  }
+  const md = runLogMarkdown({ jobTitle: "Senior Product Marketing Manager", company: "Canonical", run })
+
+  it("starts with the job, run id, date, status and the totals: cost, tokens, calls and duration", () => {
+    expect(md.startsWith("# CV generation log: Senior Product Marketing Manager at Canonical\n")).toBe(true)
+    expect(md).toContain("- Run: run-abc")
+    expect(md).toContain("- Date: 2026-11-18T10:00:00.000Z")
+    expect(md).toContain("- Status: Complete (preview run: no review, no draft)")
+    expect(md).toContain("- Cost (estimate): $0.32")
+    expect(md).toContain("- Calls: 7 (1 failed)")
+    expect(md).toContain("- Tokens: 33.0k in · 6.0k out")
+    expect(md).toContain("- Duration: 1 m 32 s")
+  })
+
+  it("has the Brief, the Selection and every stage that logged, in that order, then the assembled CV at the end", () => {
+    const at = (h: string) => md.indexOf(h)
+    expect([at("## Brief"), at("## Selection"), at("## Stages"), at("## Assembled CV")].every((i) => i > 0)).toBe(true)
+    expect(at("## Brief")).toBeLessThan(at("## Selection"))
+    expect(at("## Selection")).toBeLessThan(at("## Stages"))
+    expect(at("## Stages")).toBeLessThan(at("## Assembled CV"))
+    for (const h of ["### Gather", "### Brief", "### Select", "### Write", "### Assemble"]) expect(md).toContain(h)
+    expect(md).not.toContain("### Review")
+    expect(md.trimEnd().endsWith("```")).toBe(true)
+    expect(md).toContain("```markdown\n:::header\n# Robin Placeholder\n{{contact}}\n:::")
+  })
+
+  it("the Brief carries the hidden question, lead with, emphasise with reasons and play down", () => {
+    expect(md).toContain("**The hidden question:** Can they ship a migration?")
+    expect(md).toContain("- The Enemies Demo Campaign")
+    expect(md).toContain("- Release management — core of the role")
+    expect(md).toContain("Build detail")
+  })
+
+  it("the Selection has each employer with its kept bullets and left-out count, header-only employers, the flat sections and the uncovered emphasise items", () => {
+    expect(md).toContain("### Unity: Snr. Program Manager (Jan 2019 – present)")
+    expect(md).toContain("Relevance 5/5, 1 bullet kept, 1 left out · Current employer")
+    expect(md).toContain("- Ran the release train (has a number)")
+    expect(md).toContain("### Listed without bullets")
+    expect(md).toContain("- Acme: Coordinator")
+    expect(md).toContain("### Skills: 1 kept, 1 left out")
+    expect(md).toMatch(/\*\*Uncovered:\*\* No kept evidence supports this emphasise item: Regulatory compliance/)
+  })
+
+  it("every stage has its model, time, tokens, cost, retries and why, its notes, the section rows and the check notes", () => {
+    expect(md).toContain("### Brief: ok · claude-opus-5-5 · 8.2 s · 3.1k in · 420 out · $0.12")
+    expect(md).toContain("1 retry")
+    expect(md).toContain("Retried because: the answer was cut off")
+    expect(md).toContain("- Cut 2 picks over the limits.")
+    expect(md).toContain("- **Experience: Snr. Program Manager — Unity**: claude-sonnet-5-5 · 30.0 s · 9.0k in · 2.2k out · $0.09 · 1 retry")
+    expect(md).toContain("  - Retried because: there are 8 bullets, limit 6")
+    expect(md).toContain("Cut a bullet over this employer's limit of 6")
+    expect(md).toContain("Worth a quick check:")
+    expect(md).toContain("could not be matched to the profile text")
+    expect(md).toContain("Warnings (1):")
+  })
+
+  it("holds no contact details: the CV carries the {{contact}} placeholder and nothing reads a contact field", () => {
+    expect(md).toContain("{{contact}}")
+    expect(md).not.toMatch(/@|\+\d{6,}|https?:\/\//) // no email, phone or link
+  })
+
+  it("fences the CV with a longer fence when the CV itself holds backticks", () => {
+    const tricky = runLogMarkdown({ jobTitle: "J", company: null, run: { ...run, assembled: { ...assembled, markdown: "Has ``` inside\n" } } })
+    expect(tricky).toContain("````markdown\nHas ``` inside\n````")
+  })
+
+  it("a failed run shows its failure and still produces the log it has", () => {
+    const failed = runLogMarkdown({ jobTitle: "J", company: null, run: { id: "r", status: "failed", createdAt: "2026-11-18T10:00:00Z", failureMessage: "The model timed out.", log: [entry({ stage: "gather" })], stageTimings: { gather: 900 } } })
+    expect(failed).toContain("- Status: Failed")
+    expect(failed).toContain("- Failure: The model timed out.")
+    expect(failed).toContain("- Duration: 900 ms")
+    expect(failed).toContain("# CV generation log: J\n")
+  })
+
+  it("handles a run stored before the later phases: no brief, no selection, no assembled CV, no retry reasons, no usage", () => {
+    const old = runLogMarkdown({ jobTitle: "", company: "  ", run: { id: "old", status: "complete", createdAt: new Date("2026-11-01T00:00:00Z"), log: [entry({ stage: "select", retries: 1 })], stageTimings: {} } })
+    expect(old).toContain("# CV generation log: Untitled job")
+    expect(old).toContain("- Cost (estimate): none recorded")
+    expect(old).not.toContain("## Brief")
+    expect(old).not.toContain("## Selection")
+    expect(old).not.toContain("## Assembled CV")
+    expect(old).toContain("### Select: ok")
+    expect(old).not.toContain("Retried because") // a row with no recorded reasons shows none
+  })
+
+  it("handles nothing at all: no log, a bad date", () => {
+    const bare = runLogMarkdown({ jobTitle: "J", company: null, run: { id: "r", status: "queued", createdAt: "not a date", log: null, stageTimings: null } })
+    expect(bare).toContain("- Date: unknown")
+    expect(bare).not.toContain("## Stages")
   })
 })

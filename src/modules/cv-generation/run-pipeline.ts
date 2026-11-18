@@ -28,7 +28,7 @@ import { getLLMConfigStatus } from '@/modules/llm/client'
 import { LLMError } from '@/modules/llm/errors'
 import { loadVault } from '@/modules/profile-map/load'
 import { toProfileSnapshot } from '@/modules/profile/snapshot'
-import { assembleCv, employerOrderOf } from './assemble'
+import { assembleCv, bodyWordCount, employerOrderOf, lengthNote } from './assemble'
 import { runBrief } from './brief'
 import type { CallUsage } from './call'
 import { gatherCvInputs } from './gather'
@@ -246,12 +246,14 @@ export async function runCvGenerationStages(runId: string, profileId: string, op
     })
     if (!assembled.ok) return await fail('invalid_output', ['The assembled CV has invalid blocks.', ...assembled.issues])
     const cv = assembled.assembled
+    const tooLong = lengthNote(cv.markdown)
     end({
       status: 'ok', model: null, tokens: { input: 0, output: 0 }, costUsd: null,
       notes: [
-        `Assembled ${countOf(cv.sections.length, 'section')} in the default CV structure, with the contact placeholder in the header.`,
+        `Assembled ${countOf(cv.sections.length, 'section')} (about ${bodyWordCount(cv.markdown)} words) in the default CV structure, with the contact placeholder in the header.`,
         ...(cv.warnings.length > 0 ? [`${countOf(cv.warnings.length, 'warning')} from the block and fact checks (see below).`] : ['No warnings from the block and fact checks.']),
         ...cv.checkNotes.map((n) => `${CHECK_NOTE_PREFIX}${n}`),
+        ...(tooLong ? [tooLong] : []),
         `The whole run took ${seconds(Date.now() - runStart)} of its ${seconds(TIME_BUDGET_MS.run)} budget.`,
       ],
       kept: [], dropped: [], retries: 0, retryReasons: [], flaggedClaims: [], sections: [],

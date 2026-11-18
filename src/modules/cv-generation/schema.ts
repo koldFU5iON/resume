@@ -138,9 +138,7 @@ export const MAX_OUTPUT_TOKENS = {
   briefRetry: 8_000,
   select: 8_000,
   selectRetry: 16_000,
-  /** An experience writer: a summary and a handful of bullets. */
-  writeExperience: 1_500,
-  writeExperienceRetry: 3_000,
+  // The experience writer's cap is scaled to its bullet allocation: experienceTokenCaps (write/limits.ts).
   /** Skills grouping: names only. */
   writeSkills: 1_500,
   writeSkillsRetry: 3_000,

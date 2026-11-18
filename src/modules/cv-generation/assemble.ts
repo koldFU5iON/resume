@@ -17,6 +17,7 @@ import { checkFacts } from '@/modules/writing-desk/fact-check'
 import { buildStructureGuide } from '@/modules/writing-desk/structure-guide'
 import { validateDraftMarkdown } from '@/modules/writing-desk/validate'
 import { MAX_CHECK_NOTES, type AssembledSection, type CvAssembled, type CvSelection } from './schema'
+import { CV_BODY_WORDS_SOFT_LIMIT } from './write/limits'
 import { plainLine } from './write/plain'
 import type { WrittenSection } from './write/types'
 
@@ -92,4 +93,28 @@ export function assembleCv(input: AssembleInput): AssembleResult {
 /** The employer keys of a selection in CV order. */
 export function employerOrderOf(selection: Pick<CvSelection, 'employers'>): string[] {
   return selection.employers.map((e) => e.key)
+}
+
+/** Words of the CV body: everything but the header block (name, headline, contact placeholder) and the block fences and Markdown marks. */
+export function bodyWordCount(markdown: string): number {
+  return markdown
+    .replace(/^:::header\n[\s\S]*?\n:::\n?/m, '')
+    .split('\n')
+    .filter((l) => !/^:::/.test(l.trim()))
+    .join(' ')
+    .split(/\s+/)
+    .filter((w) => /[\p{L}\p{N}]/u.test(w))
+    .length
+}
+
+/**
+ * A SOFT note when the CV body is longer than about two pages (words over
+ * CV_BODY_WORDS_SOFT_LIMIT), else null. Nothing is trimmed: the writers' limits
+ * should keep a CV under it, so a note means a limit leaked.
+ */
+export function lengthNote(markdown: string): string | null {
+  const words = bodyWordCount(markdown)
+  return words > CV_BODY_WORDS_SOFT_LIMIT
+    ? `The CV body is about ${words} words, over the ~${CV_BODY_WORDS_SOFT_LIMIT} that fit one to two pages. Nothing was trimmed; consider shortening it in the editor.`
+    : null
 }

@@ -4,7 +4,8 @@ import { parseWritingDeskMarkdown } from '@/modules/writing-desk/markdown'
 import { DEFAULT_CV_STRUCTURE } from '@/modules/writing-desk/structure-guide'
 import { validateDraftMarkdown } from '@/modules/writing-desk/validate'
 import { OLD_CO, UNITY, BLIZZARD, writeVault, writtenSections } from './__fixtures__/write'
-import { assembleCv, renderHeader, type AssembleInput } from './assemble'
+import { assembleCv, bodyWordCount, lengthNote, renderHeader, type AssembleInput } from './assemble'
+import { CV_BODY_WORDS_SOFT_LIMIT } from './write/limits'
 import { parseAssembled } from './schema'
 import type { WrittenSection } from './write/types'
 
@@ -122,5 +123,23 @@ describe('Core Competencies as short labels in a :::skills block (phase 3b)', ()
     expect(r.assembled.markdown).toMatch(/## [^\n]*[Cc]ompetenc[^\n]*\n\n:::skills\n- Cross-functional leadership\n:::/)
     const issues = validateDraftMarkdown(r.assembled.markdown).issues.filter((i) => i.severity === 'error')
     expect(issues).toEqual([])
+  })
+})
+
+describe('body length (soft, Phase 3c)', () => {
+  const md = (body: string) => `:::header\n# Robin Placeholder\n## A headline that is not counted\n{{contact}}\n:::\n\n## Profile\n\n${body}\n`
+  it('counts the words of the body: not the header block, the block fences or the Markdown marks', () => {
+    expect(bodyWordCount(md('One two three.\n\n:::compact-list\n- Four five\n- Six\n:::'))).toBe(7) // "## Profile" counts "Profile" (1) + 6
+  })
+  it('says nothing at or under the limit, and names the count and the limit above it', () => {
+    expect(lengthNote(md(Array.from({ length: CV_BODY_WORDS_SOFT_LIMIT - 1 }, () => 'w').join(' ')))).toBeNull()
+    const note = lengthNote(md(Array.from({ length: CV_BODY_WORDS_SOFT_LIMIT + 100 }, () => 'w').join(' ')))
+    expect(note).toMatch(new RegExp(`about ${CV_BODY_WORDS_SOFT_LIMIT + 101} words, over the ~${CV_BODY_WORDS_SOFT_LIMIT}`))
+    expect(note).toMatch(/Nothing was trimmed/)
+  })
+  it('a real assembled fixture CV is well under the limit', () => {
+    const r = assembleCv(input())
+    if (!r.ok) throw new Error('assemble failed')
+    expect(lengthNote(r.assembled.markdown)).toBeNull()
   })
 })

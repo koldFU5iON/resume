@@ -5,7 +5,7 @@ vi.mock('@/modules/llm/complete-json', () => ({ completeJSON: vi.fn() }))
 import { z } from 'zod'
 import { LLMError } from '@/modules/llm/errors'
 import { completeJSON } from '@/modules/llm/complete-json'
-import { addUsage, completeChecked, completeValidated, NO_USAGE, softIssueNotes, usageOf, usageOfError } from './call'
+import { addUsage, CutOffError, completeChecked, completeValidated, NO_USAGE, softIssueNotes, usageOf, usageOfError } from './call'
 import { MAX_OUTPUT_TOKENS } from './schema'
 
 const mockJSON = vi.mocked(completeJSON)
@@ -34,10 +34,10 @@ beforeEach(() => {
 })
 
 describe('output caps', () => {
-  it('are brief 4000/8000, select 8000/16000 and each writer 1500/3000', () => {
+  it('are brief 4000/8000, select 8000/16000, the skills and profile writers 1500/3000 (the experience writer scales: experienceTokenCaps)', () => {
     expect(MAX_OUTPUT_TOKENS).toEqual({
       brief: 4_000, briefRetry: 8_000, select: 8_000, selectRetry: 16_000,
-      writeExperience: 1_500, writeExperienceRetry: 3_000, writeSkills: 1_500, writeSkillsRetry: 3_000, writeProfile: 1_500, writeProfileRetry: 3_000,
+      writeSkills: 1_500, writeSkillsRetry: 3_000, writeProfile: 1_500, writeProfileRetry: 3_000,
     })
   })
 })
@@ -299,5 +299,42 @@ describe('usage on failure (tokens of the calls that did answer)', () => {
   it('has no usage to report for an error that came from nowhere', () => {
     expect(usageOfError(new Error('x'))).toEqual(NO_USAGE)
     expect(usageOfError(null)).toEqual(NO_USAGE)
+  })
+})
+
+describe('a cut-off first answer does not spend the retry on the same budget (Phase 3c)', () => {
+  const sameCap = { maxOutputTokens: 4_000, retryMaxOutputTokens: 4_000 }
+  const chk = () => ({ hard: [], soft: [] })
+  const checkedOpts = (over: Record<string, unknown> = {}) => ({ ...opts({ label: 'experience section', ...over }), check: chk })
+
+  it('completeChecked: a cut-off at the largest budget throws CutOffError after ONE call, carrying its usage', async () => {
+    mockJSON.mockResolvedValue({ ...bad('length'), usage: { inputTokens: 900, outputTokens: 4_000, cacheReadTokens: null, cacheWriteTokens: null }, provider: 'anthropic' })
+    const err = await completeChecked('p1', 'prompt', schema, checkedOpts(sameCap)).catch((e) => e)
+    expect(mockJSON).toHaveBeenCalledTimes(1)
+    expect(err).toBeInstanceOf(CutOffError)
+    expect(err).toMatchObject({ kind: 'invalid_output', tokens: 4_000 })
+    expect(err.message).toMatch(/cut off at 4000 output tokens/)
+    expect(usageOfError(err)).toMatchObject({ input: 900, output: 4_000, calls: 1 })
+  })
+
+  it('completeChecked: a cut-off with a LARGER retry cap is retried once, at that cap', async () => {
+    mockJSON.mockResolvedValueOnce(bad('length')).mockResolvedValueOnce(good)
+    const r = await completeChecked('p1', 'prompt', schema, checkedOpts({ maxOutputTokens: 2_000, retryMaxOutputTokens: 4_000 }))
+    expect(mockJSON).toHaveBeenCalledTimes(2)
+    expect(mockJSON.mock.calls[0][3]).toMatchObject({ maxOutputTokens: 2_000 })
+    expect(mockJSON.mock.calls[1][3]).toMatchObject({ maxOutputTokens: 4_000 })
+    expect(r.retryReasons).toEqual(['the answer was cut off'])
+  })
+
+  it('completeChecked: a bad answer that was NOT cut off still retries at the same cap (that is a different problem)', async () => {
+    mockJSON.mockResolvedValueOnce(bad('stop')).mockResolvedValueOnce(good)
+    await completeChecked('p1', 'prompt', schema, checkedOpts(sameCap))
+    expect(mockJSON).toHaveBeenCalledTimes(2)
+  })
+
+  it('completeValidated: the same rule', async () => {
+    mockJSON.mockResolvedValue(bad('length'))
+    await expect(completeValidated('p1', 'prompt', schema, opts(sameCap))).rejects.toBeInstanceOf(CutOffError)
+    expect(mockJSON).toHaveBeenCalledTimes(1)
   })
 })

@@ -15,11 +15,13 @@ import {
   formatTokens,
   isCvGenerationActive,
   previewCopy,
+  runLogMarkdown,
 } from "@/app/dashboard/job-applications/_components/cv-generation-view"
 import { CV_GENERATION_STAGES } from "@/modules/cv-generation/schema"
 import { Elapsed, LocalDateTime } from "../deep-dive/_components/run-controls"
 import { AssembledCvPanel } from "./_components/assembled-cv"
 import { BriefPanel, SelectionPanel } from "./_components/brief-and-selection"
+import { CopyLogButton } from "./_components/copy-log-button"
 import { GenerationLog, StageStepper } from "./_components/generation-log"
 import { RunPreviewButton } from "./_components/run-preview-button"
 
@@ -41,7 +43,7 @@ export default async function CvGenerationPage({ params }: { params: Promise<{ i
             CV generation · <span className="text-foreground">{assets.title}</span>
             {assets.company && <> at <span className="text-foreground">{assets.company}</span></>}
           </p>
-          {view ? <RunBody jobId={id} view={view} /> : <EmptyState jobId={id} />}
+          {view ? <RunBody jobId={id} view={view} jobTitle={assets.title} company={assets.company ?? null} /> : <EmptyState jobId={id} />}
         </main>
 
         {view && (
@@ -81,9 +83,11 @@ function EmptyState({ jobId }: { jobId: string }) {
   )
 }
 
-function RunBody({ jobId, view }: { jobId: string; view: CvGenerationView }) {
+function RunBody({ jobId, view, jobTitle, company }: { jobId: string; view: CvGenerationView; jobTitle: string; company: string | null }) {
   const rows = buildStageRows(view) // view carries status, log, stageTimings and partial
   const active = isCvGenerationActive(view.status)
+  // The whole run as Markdown for the Copy log button (the CV in it keeps the {{contact}} placeholder; no contact details are read).
+  const logText = runLogMarkdown({ jobTitle, company, run: view })
 
   return (
     <div className="max-w-[68ch] space-y-8">
@@ -145,6 +149,10 @@ function RunBody({ jobId, view }: { jobId: string; view: CvGenerationView }) {
       )}
 
       <StageStepper rows={rows} />
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm text-muted-foreground">The whole run, as readable text.</p>
+        <CopyLogButton text={logText} />
+      </div>
       {view.assembled && <AssembledCvPanel assembled={view.assembled} />}
       {view.brief && <BriefPanel brief={view.brief} />}
       {view.selection && <SelectionPanel selection={view.selection} />}

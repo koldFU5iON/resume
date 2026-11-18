@@ -40,3 +40,38 @@ export const WAVE2_RESERVE_MS = 45_000
 export const WAVE2_MIN_START_MS = 12_000
 /** A call is not started with less time than this left (ms). */
 export const MIN_CALL_MS = 5_000
+
+/**
+ * Output tokens for one experience writer call, scaled to the bullets it may
+ * write (a fixed small cap truncated a six-bullet entry on the first real run
+ * and wasted the retry). The first attempt gets BASE + PER_BULLET * allowance;
+ * the retry (after a bad answer or a cut-off) doubles it, never above MAX. An
+ * employer with project evidence starts at the larger cap, since its entry is
+ * the one that ran long. When the first attempt already used the larger cap a
+ * cut-off is not retried (call.ts: the same budget would be sent again).
+ */
+export const EXPERIENCE_TOKENS = { base: 1_200, perBullet: 400, max: 8_000, retryFactor: 2 } as const
+
+export function experienceTokenCaps(allowance: number, hasProjectEvidence: boolean): { first: number; retry: number } {
+  const first = Math.min(EXPERIENCE_TOKENS.max, EXPERIENCE_TOKENS.base + EXPERIENCE_TOKENS.perBullet * Math.max(1, allowance))
+  const retry = Math.min(EXPERIENCE_TOKENS.max, first * EXPERIENCE_TOKENS.retryFactor)
+  return { first: hasProjectEvidence ? retry : first, retry }
+}
+
+/** The most characters of one project's text (description and highlights) sent to a writer. The numbers check still reads the full text. */
+export const PROJECT_EVIDENCE_MAX_CHARS = 1_200
+
+/** A project's text cut to PROJECT_EVIDENCE_MAX_CHARS at a word boundary, with an ellipsis; unchanged when it is short enough. */
+export function capProjectText(text: string, max: number = PROJECT_EVIDENCE_MAX_CHARS): string {
+  if (text.length <= max) return text
+  const cut = text.slice(0, max)
+  const at = cut.search(/\s\S*$/)
+  return `${(at > max / 2 ? cut.slice(0, at) : cut).trimEnd()}…`
+}
+
+/**
+ * About how many words a CV body can hold on one to two pages. Assemble logs a
+ * soft note above this (nothing is trimmed): the writers' limits should keep a
+ * CV under it, so a note means a limit leaked.
+ */
+export const CV_BODY_WORDS_SOFT_LIMIT = 900
