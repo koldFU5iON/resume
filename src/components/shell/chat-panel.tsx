@@ -21,6 +21,7 @@ import { splitThinkingContent } from '@/modules/chat/thinking'
 import { ChatMessage } from './chat-message'
 import { COACH_PANEL_CLASSES } from './coach-panel'
 import { toast } from 'sonner'
+import { COACH_DRAFT_EVENT, mergeCoachDraft, type CoachDraftDetail } from './coach-handoff'
 
 type ChatSettings = {
   chatModel: string | null
@@ -122,7 +123,7 @@ type ChatPanelProps = {
 }
 
 export function ChatPanel({ open, onClose }: ChatPanelProps) {
-  const { context } = usePageContext()
+  const { context, openPanel } = usePageContext()
   const contextRef = useRef(context)
   const prevContextRef = useRef(context)
   useEffect(() => { contextRef.current = context }, [context])
@@ -162,6 +163,21 @@ export function ChatPanel({ open, onClose }: ChatPanelProps) {
       ),
     })))
   }, [setMessages, status])
+
+  // Another page asked to open the coach with a draft message (coach-handoff.ts).
+  // The text only fills the input; the user sends it themselves.
+  useEffect(() => {
+    function onDraft(e: Event) {
+      const text = (e as CustomEvent<CoachDraftDetail>).detail?.text
+      if (!text) return
+      setInput(current => mergeCoachDraft(current, text))
+      setExpanded(true)
+      openPanel()
+      requestAnimationFrame(() => inputRef.current?.focus())
+    }
+    window.addEventListener(COACH_DRAFT_EVENT, onDraft)
+    return () => window.removeEventListener(COACH_DRAFT_EVENT, onDraft)
+  }, [openPanel])
 
   useEffect(() => {
     if (open && !settings) {

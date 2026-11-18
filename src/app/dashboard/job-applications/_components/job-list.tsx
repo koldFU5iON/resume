@@ -339,15 +339,6 @@ export function JobList({ jobs, hasLLMKey, deepDiveAccess, earlyEnabled = false 
     })
   }
 
-  function handleGenerateCV(id: string) {
-    markBusy([id], 'Generating CV…')
-    router.push(`/dashboard/cv-builder/new?jobId=${id}`)
-  }
-
-  function handleCreateCoverLetter(id: string) {
-    router.push(`/dashboard/cover-letters/new?jobId=${id}`)
-  }
-
   function showArchivedToast(ids: string[]) {
     toast.success(`${ids.length} ${ids.length === 1 ? 'job' : 'jobs'} archived`, {
       action: {
@@ -442,8 +433,6 @@ export function JobList({ jobs, hasLLMKey, deepDiveAccess, earlyEnabled = false 
                 onToggleSelect={toggleSelect}
                 onEdit={setEditing}
                 onArchive={handleSingleArchive}
-                onGenerateCV={handleGenerateCV}
-                onCreateCoverLetter={handleCreateCoverLetter}
                 hasLLMKey={hasLLMKey}
                 earlyEnabled={earlyEnabled}
                 isMobile
@@ -472,8 +461,6 @@ export function JobList({ jobs, hasLLMKey, deepDiveAccess, earlyEnabled = false 
                 onToggleSelect={toggleSelect}
                 onEdit={setEditing}
                 onArchive={handleSingleArchive}
-                onGenerateCV={handleGenerateCV}
-                onCreateCoverLetter={handleCreateCoverLetter}
                 hasLLMKey={hasLLMKey}
                 earlyEnabled={earlyEnabled}
               />

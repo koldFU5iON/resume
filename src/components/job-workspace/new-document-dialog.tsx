@@ -24,6 +24,7 @@ import {
   type WritingDeskDocumentType,
 } from "@/modules/writing-desk/schema"
 import { guardedNavigate } from "./navigation-guard"
+import { GenerateCvForJob } from "./generate-cv-for-job"
 
 /** The editor focuses its text area when it opens a document it was just asked to (see WritingDesk). */
 export const FOCUS_NEW_DOCUMENT_KEY = "writing-desk-focus-new"
@@ -52,6 +53,7 @@ export function NewDocumentDialog({
   jobId,
   existingNames,
   initialType = "cv",
+  hasCvGeneration = false,
   open,
   onOpenChange,
 }: {
@@ -59,6 +61,8 @@ export function NewDocumentDialog({
   existingNames: string[]
   /** The type selected when the dialog opens (a legacy editor's notice offers its own type). */
   initialType?: WritingDeskDocumentType
+  /** The job already has a CV generation run, so "View last generation" is offered. */
+  hasCvGeneration?: boolean
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
@@ -204,6 +208,14 @@ export function NewDocumentDialog({
                   : sources.status === "ready" && sources.sources.length === 0 ? "You have no saved CVs yet, so this starts blank."
                   : "Copies the CV's text into this document. The CV itself isn't changed."}
               </p>
+            </div>
+          )}
+
+          {documentType === "cv" && (
+            <div className="grid gap-2 rounded-md border bg-muted/30 px-3 py-3">
+              <p className="text-sm font-medium">Or have the writing desk write it</p>
+              <p className="text-xs text-muted-foreground">Picks the evidence from your profile for this job, writes the CV and saves it as a draft you accept or discard. Uses your own LLM key.</p>
+              <GenerateCvForJob jobId={jobId} hasCvGeneration={hasCvGeneration} onStarted={() => onOpenChange(false)} />
             </div>
           )}
 

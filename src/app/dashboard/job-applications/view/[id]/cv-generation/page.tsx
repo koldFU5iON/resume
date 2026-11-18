@@ -164,7 +164,7 @@ function RunBody({ jobId, view, jobTitle, company }: { jobId: string; view: CvGe
         <p className="text-sm text-muted-foreground">The whole run, as readable text.</p>
         <CopyLogButton text={logText} />
       </div>
-      {concernRows(view.review).length > 0 && <ConcernsPanel concerns={concernRows(view.review)} />}
+      {concernRows(view.review).length > 0 && <ConcernsPanel concerns={concernRows(view.review)} job={{ title: jobTitle, company }} />}
       {view.assembled && <AssembledCvPanel assembled={view.assembled} />}
       {view.brief && <BriefPanel brief={view.brief} />}
       {view.selection && <SelectionPanel selection={view.selection} />}

@@ -29,13 +29,11 @@ type JobRowCardProps = {
   onToggleSelect: (id: string) => void
   onEdit: (job: Job) => void
   onArchive: (id: string) => void
-  onGenerateCV: (id: string) => void
-  onCreateCoverLetter: (id: string) => void
   hasLLMKey: boolean
   earlyEnabled: boolean
 }
 
-export function JobRowCard({ job, selected, busyLabel, onToggleSelect, onEdit, onArchive, onGenerateCV, onCreateCoverLetter, hasLLMKey, earlyEnabled }: JobRowCardProps) {
+export function JobRowCard({ job, selected, busyLabel, onToggleSelect, onEdit, onArchive, hasLLMKey, earlyEnabled }: JobRowCardProps) {
   const {
     id, jobNumber, title, company, countries, url,
     dateApplied, datePublished, lastUpdated, status, progress,
@@ -74,7 +72,7 @@ export function JobRowCard({ job, selected, busyLabel, onToggleSelect, onEdit, o
             {company}{countries.length > 0 && ` · ${countries.join(", ")}`}
           </p>
         </div>
-        <AppControls id={id} className="size-11 shrink-0" cvDocumentId={job.cvDocumentId} coverLetterDocumentId={job.coverLetterDocumentId} onEdit={() => onEdit(job)} onArchive={() => onArchive(id)} onGenerateCV={() => onGenerateCV(id)} onCreateCoverLetter={() => onCreateCoverLetter(id)} />
+        <AppControls id={id} className="size-11 shrink-0" cvDocumentId={job.cvDocumentId} coverLetterDocumentId={job.coverLetterDocumentId} onEdit={() => onEdit(job)} onArchive={() => onArchive(id)} />
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-3">

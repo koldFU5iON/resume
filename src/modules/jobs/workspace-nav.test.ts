@@ -94,10 +94,8 @@ describe("jobDocumentLinks", () => {
 })
 
 describe("jobDocumentCreateLinks", () => {
-  it("offers the existing creation flows only for missing assets", () => {
+  it("offers only interview prep: CVs and cover letters are made in the writing desk", () => {
     expect(jobDocumentCreateLinks(none).map((l) => l.href)).toEqual([
-      "/dashboard/cv-builder/new?jobId=job1",
-      "/dashboard/cover-letters/new?jobId=job1",
       "/dashboard/interview-prep/new?jobId=job1",
     ])
     expect(jobDocumentCreateLinks(all)).toEqual([])
@@ -229,9 +227,8 @@ describe("CV generation log link", () => {
 })
 
 describe("jobExtraDestinations", () => {
-  it("lists Deep Dive always, and CV generation only when the job already has a run", () => {
-    expect(jobExtraDestinations("job1", false).map((e) => e.key)).toEqual(["deep-dive"])
-    expect(jobExtraDestinations("job1", true).map((e) => e.key)).toEqual(["deep-dive", "cv-generation"])
-    expect(jobExtraDestinations("job1", true)[1].href).toBe(jobCvGenerationHref("job1"))
+  it("lists Deep Dive and CV generation always, whether or not the job has a run", () => {
+    expect(jobExtraDestinations("job1").map((e) => e.key)).toEqual(["deep-dive", "cv-generation"])
+    expect(jobExtraDestinations("job1")[1].href).toBe(jobCvGenerationHref("job1"))
   })
 })

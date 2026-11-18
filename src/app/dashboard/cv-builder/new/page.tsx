@@ -4,18 +4,33 @@ import { Suspense, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createAndGenerateCV } from '@/modules/cv/actions'
 import { Loader2 } from 'lucide-react'
+import { LegacyGenerationBanner } from '@/components/legacy-editors/legacy-generation-banner'
 
 function GeneratingCV() {
   const router = useRouter()
   const params = useSearchParams()
   const jobId = params.get('jobId') ?? undefined
   const [error, setError] = useState<string | null>(null)
+  // Generating costs LLM calls, so the retired generator waits for an explicit click.
+  const [started, setStarted] = useState(false)
 
   useEffect(() => {
+    if (!started) return
     createAndGenerateCV({ jobApplicationId: jobId })
       .then(({ id }) => router.replace(`/dashboard/cv-builder/${id}`))
       .catch(err => setError(err instanceof Error ? err.message : 'Generation failed'))
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [started]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!started) {
+    return (
+      <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 px-4">
+        <LegacyGenerationBanner what="CV" jobId={jobId} />
+        <button onClick={() => setStarted(true)} className="text-sm text-muted-foreground underline">
+          Generate with the old CV builder anyway
+        </button>
+      </div>
+    )
+  }
 
   if (error) {
     return (

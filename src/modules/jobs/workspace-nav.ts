@@ -85,15 +85,14 @@ export function jobCvGenerationHref(jobId: string): string {
 export type JobExtraDestination = { key: "deep-dive" | "cv-generation"; kind: "deep-dive" | "cv-generation"; label: string; href: string }
 
 /**
- * The destinations "All documents" lists after the documents. Deep Dive is
- * always there; CV generation only once the job already has a run, because
- * until the phase 5 menu switch its page is reachable by URL only and an empty
- * entry would invite a preview feature nobody has started.
+ * The destinations "All documents" lists after the documents: Deep Dive and
+ * CV generation, both always there. The CV generation page is also where a
+ * job's first generation is started, so it never waits for a run to exist.
  */
-export function jobExtraDestinations(jobId: string, hasCvGeneration: boolean): JobExtraDestination[] {
+export function jobExtraDestinations(jobId: string): JobExtraDestination[] {
   return [
     { key: "deep-dive", kind: "deep-dive", label: "Deep Dive", href: jobDeepDiveHref(jobId) },
-    ...(hasCvGeneration ? [{ key: "cv-generation", kind: "cv-generation", label: "CV generation", href: jobCvGenerationHref(jobId) } as const] : []),
+    { key: "cv-generation", kind: "cv-generation", label: "CV generation", href: jobCvGenerationHref(jobId) },
   ]
 }
 
@@ -149,14 +148,12 @@ export function jobDocumentLinks(assets: JobDocumentAssets): JobDocumentLink[] {
 
 /**
  * The legacy editors' creation flows for assets the job doesn't have yet
- * (what the old hub sidebar offered as "Create CV" and friends). Empty when
- * every legacy asset exists.
+ * that are still offered. Only interview prep: CVs and cover letters are made
+ * in the writing desk. Empty when the job has an interview prep session.
  */
 export function jobDocumentCreateLinks(assets: JobDocumentAssets): JobDocumentCreateLink[] {
   const jobId = encodeURIComponent(assets.jobId)
   const links: JobDocumentCreateLink[] = []
-  if (!assets.cvDocumentId) links.push({ kind: "cv", label: "Generate a CV", href: `/dashboard/cv-builder/new?jobId=${jobId}` })
-  if (!assets.coverLetterDocumentId) links.push({ kind: "cover-letter", label: "Create a cover letter", href: `/dashboard/cover-letters/new?jobId=${jobId}` })
   if (!assets.interviewPrepSessionId) links.push({ kind: "interview-prep", label: "Start interview prep", href: `/dashboard/interview-prep/new?jobId=${jobId}` })
   return links
 }
