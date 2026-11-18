@@ -38,7 +38,7 @@ import { gatherCvInputs } from './gather'
 import { checkLandingTarget, landCv } from './land'
 import { getRunUsage } from './queries'
 import { createCvGenerationRun, failRun, setStatus, updateActive, FAILURE_MESSAGES } from './run'
-import { findReusableSelection, reuseNote } from './reuse'
+import { computeReuseKey, findReusableSelection, reuseNote } from './reuse'
 import {
   CHECK_NOTE_PREFIX,
   CV_GENERATION_FEATURES,
@@ -149,7 +149,10 @@ export async function runCvGenerationStages(runId: string, profileId: string, op
   const wantReview = opts.review !== false
 
   // New runs are never partial (a preview run is only something an older run can be).
-  const log = () => ({ entries, partial: false })
+  // The reuse key and origin are set once Gather has ended: they are what a later run compares to reuse this run's brief and selection.
+  let reuseKey: string | undefined
+  let reuseOrigin: { runId: string; at: string } | undefined
+  const log = () => ({ entries, partial: false, ...(reuseKey ? { reuseKey } : {}), ...(reuseOrigin ? { reuseOrigin } : {}) })
   const begin = (s: CvGenerationStage) => { stage = s; stageStart = Date.now() }
   const end = (entry: Omit<StageLogEntry, 'stage' | 'startedAt' | 'durationMs'>) => {
     const durationMs = Date.now() - stageStart
@@ -189,7 +192,10 @@ export async function runCvGenerationStages(runId: string, profileId: string, op
     const analysisUsage = g.strategy.source === 'analysed' || g.strategy.source === 'none'
       ? await featureUsage(profileId, runId, CV_GENERATION_FEATURES.analyse)
       : { ...noUsage }
-    const reuse = opts.fresh ? null : await findReusableSelection(profileId, jobId, g.inputsHash)
+    reuseKey = await computeReuseKey(profileId, g.inputsHash)
+    const reuse = opts.fresh ? null : await findReusableSelection(profileId, jobId, { inputsHash: g.inputsHash, reuseKey })
+    // The run that made the brief and selection this run holds (itself, unless it reuses): the reuse window runs from there.
+    reuseOrigin = reuse ? { runId: reuse.runId, at: reuse.at.toISOString() } : { runId, at: new Date(runStart).toISOString() }
     end({
       status: 'ok', model: null, ...analysisUsage,
       notes: [

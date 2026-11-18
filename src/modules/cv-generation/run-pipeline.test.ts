@@ -9,7 +9,7 @@ vi.mock('./select', async (orig) => ({ ...(await orig<typeof import('./select')>
 vi.mock('./queries', () => ({ getRunUsage: vi.fn() }))
 vi.mock('@/modules/profile-map/load', () => ({ loadVault: vi.fn() }))
 vi.mock('./write/run-write', async (orig) => ({ ...(await orig<typeof import('./write/run-write')>()), runWrite: vi.fn() }))
-vi.mock('./reuse', async (orig) => ({ ...(await orig<typeof import('./reuse')>()), findReusableSelection: vi.fn() }))
+vi.mock('./reuse', async (orig) => ({ ...(await orig<typeof import('./reuse')>()), findReusableSelection: vi.fn(), computeReuseKey: vi.fn() }))
 vi.mock('./land', () => ({ checkLandingTarget: vi.fn(), landCv: vi.fn() }))
 vi.mock('./write/review', async (orig) => ({ ...(await orig<typeof import('./write/review')>()), runReview: vi.fn() }))
 vi.mock('./run', async (orig) => ({
@@ -29,7 +29,7 @@ import { createCvGenerationRun, failRun, setStatus, updateActive } from './run'
 import { failureKindFor, runCvGenerationStages, startCvGeneration } from './run-pipeline'
 import { loadVault } from '@/modules/profile-map/load'
 import { checkLandingTarget, landCv } from './land'
-import { findReusableSelection } from './reuse'
+import { computeReuseKey, findReusableSelection } from './reuse'
 import { runReview } from './write/review'
 import { runSelect } from './select'
 import { runWrite, WriteStageError } from './write/run-write'
@@ -55,6 +55,7 @@ const mockVault = vi.mocked(loadVault)
 const mockCheckLanding = vi.mocked(checkLandingTarget)
 const mockLand = vi.mocked(landCv)
 const mockReuse = vi.mocked(findReusableSelection)
+const mockReuseKey = vi.mocked(computeReuseKey)
 const mockReview = vi.mocked(runReview)
 
 const bucket = (over: Record<string, unknown> = {}) => ({ requests: 1, inputTokens: 1000, outputTokens: 200, estimatedCostUsd: 0.05, estimateComplete: true, ...over })
@@ -82,6 +83,7 @@ beforeEach(() => {
   mockCheckLanding.mockResolvedValue({ kind: 'ok', documentId: null })
   mockLand.mockResolvedValue({ kind: 'landed', documentId: 'doc-1', created: true })
   mockReuse.mockResolvedValue(null)
+  mockReuseKey.mockResolvedValue('key-1')
   mockReview.mockImplementation(async (input) => ({
     review: { skipped: false, skipReason: null, model: 'm-review', tokens: { input: 900, output: 100 }, costUsd: 0.04, applied: [], discarded: [], concerns: [] },
     assembled: input.assembled, usage: NO_USAGE, notes: [],
@@ -372,7 +374,8 @@ describe('runCvGenerationStages: reuse, review and land (phase 4a)', () => {
     mockReuse.mockResolvedValue(stored)
     await runCvGenerationStages('run-1', 'p1')
 
-    expect(mockReuse).toHaveBeenCalledWith('p1', 'job-1', 'h'.repeat(64))
+    expect(mockReuseKey).toHaveBeenCalledWith('p1', 'h'.repeat(64))
+    expect(mockReuse).toHaveBeenCalledWith('p1', 'job-1', { inputsHash: 'h'.repeat(64), reuseKey: 'key-1' })
     expect(mockBrief).not.toHaveBeenCalled()
     expect(mockSelect).not.toHaveBeenCalled()
     expect(mockSetStatus.mock.calls[2][3]).toMatchObject({ brief: stored.brief, selectionReusedFromRunId: 'run-0' })
@@ -495,5 +498,29 @@ describe('runCvGenerationStages: reuse, review and land (phase 4a)', () => {
     await (mockAfter.mock.calls[0][0] as () => Promise<void>)()
     expect(mockReuse).not.toHaveBeenCalled()
     expect(mockReview).not.toHaveBeenCalled()
+  })
+
+  it('stores the reuse key and, for a fresh pair, ITSELF as the origin, on every log write from Briefing on', async () => {
+    await runCvGenerationStages('run-1', 'p1')
+    const briefingLog = mockSetStatus.mock.calls[1][3]!.log as { reuseKey?: string; reuseOrigin?: { runId: string; at: string } }
+    expect(briefingLog.reuseKey).toBe('key-1')
+    expect(briefingLog.reuseOrigin).toEqual({ runId: 'run-1', at: expect.any(String) })
+    const finalLog = mockUpdate.mock.calls.at(-1)![2].log as typeof briefingLog
+    expect(finalLog).toMatchObject({ reuseKey: 'key-1', reuseOrigin: { runId: 'run-1' } })
+  })
+
+  it('a run that reuses carries the ORIGIN of the pair forward (never itself), so the window cannot chain', async () => {
+    mockReuse.mockResolvedValue(stored)
+    await runCvGenerationStages('run-2', 'p1')
+    const finalLog = mockUpdate.mock.calls.at(-1)![2].log as { reuseKey?: string; reuseOrigin?: { runId: string; at: string } }
+    expect(finalLog.reuseOrigin).toEqual({ runId: 'run-0', at: '2026-11-10T09:00:00.000Z' })
+    expect(finalLog.reuseKey).toBe('key-1')
+    expect(mockSetStatus.mock.calls[2][3]).toMatchObject({ selectionReusedFromRunId: 'run-0' })
+  })
+
+  it('a run that failed at Land keeps the key on its log, so its paid-for brief and selection can be reused', async () => {
+    mockLand.mockResolvedValue({ kind: 'draft_exists', documentId: 'doc-9' })
+    await runCvGenerationStages('run-1', 'p1')
+    expect(mockFail.mock.calls[0][4]!.log).toMatchObject({ reuseKey: 'key-1', reuseOrigin: { runId: 'run-1' } })
   })
 })

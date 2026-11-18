@@ -165,6 +165,18 @@ export const MAX_OUTPUT_TOKENS = {
 export const SELECTION_REUSE_WINDOW_DAYS = 30
 export const SELECTION_REUSE_WINDOW_MS = SELECTION_REUSE_WINDOW_DAYS * 24 * 60 * 60_000
 
+/**
+ * Part of the reuse key (reuse.ts). BUMP IT whenever the meaning of the Brief or
+ * Select stage changes in code (what they read, how Select's caps and fallbacks
+ * choose, how the stored brief or selection is shaped or interpreted by the
+ * writers): a stored selection from before the change must not be reused. A prompt
+ * edit by the user needs no bump: the effective prompt texts are hashed too.
+ */
+export const SELECTION_PIPELINE_VERSION = 1
+
+/** A failed run whose Brief and Select were paid for may still donate them: only these failures happened AFTER Select (at Land), so the stored pair is whole. */
+export const REUSABLE_FAILURE_KINDS = ['draft_exists', 'document_limit'] as const
+
 /** Time kept back at the end of the run for Land (ms): Review never starts without it. */
 export const LAND_RESERVE_MS = 12_000
 /** Review is skipped (logged, never a failure) with less than this left before the Land reserve (ms). */
@@ -271,6 +283,10 @@ export const CvGenerationLogSchema = z.object({
    * finished CV.
    */
   partial: z.boolean().default(false),
+  /** sha256 of what a stored brief and selection depend on (reuse.ts reuseKeyOf); set once Gather has ended. Absent on older runs, which are therefore never reused. */
+  reuseKey: z.string().optional(),
+  /** The run whose Brief and Select this run holds (itself when it made them): the window of reuse is measured from here, so reuse cannot chain forever. */
+  reuseOrigin: z.object({ runId: z.string(), at: z.string() }).optional(),
 })
 export type CvGenerationLog = z.infer<typeof CvGenerationLogSchema>
 
