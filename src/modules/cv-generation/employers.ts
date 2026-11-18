@@ -199,13 +199,43 @@ function pickCompanySpelling(members: readonly RoleInput[], latest: RoleInput): 
   )[0][0]
 }
 
+/** Compares two end dates, later first; a current role (null end) is the latest, two current ones tie. */
+const laterEnd = (a: Pick<RoleInput, 'end'>, b: Pick<RoleInput, 'end'>) => (endMs(a) === endMs(b) ? 0 : endMs(b) > endMs(a) ? 1 : -1)
+
 /**
- * Groups roles by employer. Employers come back newest first (by their most
- * recent role: a current role beats a finished one, then the later start).
- * `roles` of an employer are oldest first (by start, then end). The latest
- * title is the most recent role by end date, then start date. Ties keep the
- * order the roles were given in. A role whose company normalises to nothing
- * is its own employer (never merged with another blank one).
+ * Which of two roles at ONE employer is the later one (negative: `a` is later).
+ * A current role (no end date) wins; otherwise the LATER START wins; the end
+ * date is only the tiebreak for equal starts. Why not the end date first: roles
+ * in a promotion chain often share or overlap end dates (one "left the company"
+ * date entered on each, or an earlier role left open a month longer), and then
+ * the end date picks the oldest title (Megarom: Co-ordinator, Executive,
+ * Manager showed the Co-ordinator title). The start date is what orders a
+ * chain. Exported for tests.
+ */
+export function laterRole(a: RoleInput, b: RoleInput): number {
+  return Number(b.end === null) - Number(a.end === null) || b.start.getTime() - a.start.getTime() || laterEnd(a, b)
+}
+
+/**
+ * How recently a person worked at an EMPLOYER (negative: `a` is more recent):
+ * any current role first, then the latest end date over all its roles, then the
+ * later start of its latest role. This is employer-level on purpose: when you
+ * left a company is what orders a work history, and it does not have the
+ * latest-title flaw (it never reads one role's end date as the title's).
+ */
+type EmployerRecency = { current: boolean; end: number; start: number }
+const byEmployerRecency = (a: EmployerRecency, b: EmployerRecency) =>
+  Number(b.current) - Number(a.current) || (a.end === b.end ? 0 : b.end > a.end ? 1 : -1) || b.start - a.start
+
+/**
+ * Groups roles by employer. Employers come back newest first (by when they
+ * were last worked at: a current role beats a finished one, then the latest
+ * end date, then the later start of the latest role). `roles` of an employer
+ * are oldest first (by start, then end). The latest title is the title of the
+ * latest role by `laterRole` (current role, else the later START, end date only
+ * as the tiebreak). Ties keep the order the roles were given in. A role whose
+ * company normalises to nothing is its own employer (never merged with another
+ * blank one).
  */
 export function groupEmployers(roles: readonly RoleInput[]): EmployerGroup[] {
   const byKey = new Map<string, RoleInput[]>()
@@ -213,10 +243,9 @@ export function groupEmployers(roles: readonly RoleInput[]): EmployerGroup[] {
     const key = normaliseEmployerName(r.company) || `role-${r.experienceId}`
     byKey.set(key, [...(byKey.get(key) ?? []), r])
   }
-  const recency = (a: RoleInput, b: RoleInput) => endMs(b) - endMs(a) || b.start.getTime() - a.start.getTime()
 
   const groups = [...byKey.entries()].map(([key, members]) => {
-    const latest = [...members].sort(recency)[0]
+    const latest = [...members].sort(laterRole)[0]
     const oldestFirst = [...members].sort((a, b) => a.start.getTime() - b.start.getTime() || endMs(a) - endMs(b))
     const employerRoles: EmployerRole[] = oldestFirst.map((r) => ({
       experienceId: r.experienceId,
@@ -230,7 +259,13 @@ export function groupEmployers(roles: readonly RoleInput[]): EmployerGroup[] {
       : iso(new Date(Math.max(...members.map((m) => m.end!.getTime()))))
     const stints = mergeStints(employerRoles)
     const company = pickCompanySpelling(members, latest)
+    const recency: EmployerRecency = {
+      current: members.some((m) => !m.end),
+      end: Math.max(...members.map((m) => (m.end ? m.end.getTime() : Number.NEGATIVE_INFINITY))),
+      start: latest.start.getTime(),
+    }
     return {
+      recency,
       group: {
         key,
         company,
@@ -241,10 +276,9 @@ export function groupEmployers(roles: readonly RoleInput[]): EmployerGroup[] {
         roles: employerRoles,
         progression: progressionLine(company, employerRoles, stints),
       } satisfies EmployerGroup,
-      latest,
     }
   })
-  return groups.sort((a, b) => recency(a.latest, b.latest)).map((g) => g.group)
+  return groups.sort((a, b) => byEmployerRecency(a.recency, b.recency)).map((g) => g.group)
 }
 
 /**

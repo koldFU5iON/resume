@@ -133,6 +133,75 @@ describe('groupEmployers', () => {
     expect(overlap[0].latestTitle).toBe('Director')
   })
 
+  describe('latest title: a current role wins, else the later START; the end date is only the tiebreak', () => {
+    const megarom = (ends: [string, string, string]) => [
+      role('m1', 'Megarom Interactive', 'Marketing & Events Co-ordinator', '2010-03', ends[0]),
+      role('m2', 'Megarom Interactive', 'Marketing & PR Executive', '2012-05', ends[1]),
+      role('m3', 'Megarom Interactive', 'PR & Promotions Manager', '2014-02', ends[2]),
+    ]
+
+    it('shows the promotion-chain title when the end dates overlap (the oldest role ends last)', () => {
+      const g = groupEmployers(megarom(['2016-06', '2016-03', '2016-03']))
+      expect(g[0].latestTitle).toBe('PR & Promotions Manager')
+      expect(g[0].roles.map((r) => r.title)).toEqual(['Marketing & Events Co-ordinator', 'Marketing & PR Executive', 'PR & Promotions Manager'])
+    })
+
+    it('shows the promotion-chain title when every role has the same end date', () => {
+      const g = groupEmployers(megarom(['2016-03', '2016-03', '2016-03']))
+      expect(g[0].latestTitle).toBe('PR & Promotions Manager')
+    })
+
+    it('is the same whatever order the roles are given in', () => {
+      const roles = megarom(['2016-06', '2016-03', '2016-03'])
+      for (const order of [[0, 1, 2], [2, 1, 0], [1, 0, 2], [2, 0, 1]]) {
+        expect(groupEmployers(order.map((i) => roles[i]))[0].latestTitle).toBe('PR & Promotions Manager')
+      }
+    })
+
+    it('a current role beats a finished role that started later', () => {
+      const g = groupEmployers([
+        role('a', 'Co', 'Advisor', '2015-01', null),
+        role('b', 'Co', 'Contractor', '2020-01', '2021-01'),
+      ])
+      expect(g[0].latestTitle).toBe('Advisor')
+    })
+
+    it('uses the end date only when two roles start together', () => {
+      const g = groupEmployers([
+        role('a', 'Co', 'Shorter', '2018-01', '2019-01'),
+        role('b', 'Co', 'Longer', '2018-01', '2020-01'),
+      ])
+      expect(g[0].latestTitle).toBe('Longer')
+    })
+
+    it('a chain that ends in a current role shows the current title', () => {
+      const g = groupEmployers([
+        role('a', 'Co', 'Analyst', '2016-01', '2018-06'),
+        role('b', 'Co', 'Senior Analyst', '2018-06', '2021-03'),
+        role('c', 'Co', 'Lead Analyst', '2021-03', null),
+      ])
+      expect(g[0].latestTitle).toBe('Lead Analyst')
+      expect(g[0].progression).toBe('Three roles at Co (2016–present): Analyst → Senior Analyst → Lead Analyst')
+    })
+
+    it('keeps ordering employers by when they were last worked at, not by one role\'s end date', () => {
+      const g = groupEmployers([
+        ...megarom(['2016-06', '2016-03', '2016-03']),
+        role('x1', 'Other Co', 'Producer', '2015-01', '2016-05'),
+        role('y1', 'Third Co', 'Intern', '2009-01', '2010-01'),
+      ])
+      expect(g.map((e) => e.company)).toEqual(['Megarom Interactive', 'Other Co', 'Third Co'])
+      // Same employer end, the later start of the latest role goes first.
+      const tie = groupEmployers([role('a', 'A Co', 'Dev', '2010-01', '2016-03'), role('b', 'B Co', 'Dev', '2014-01', '2016-03')])
+      expect(tie.map((e) => e.company)).toEqual(['B Co', 'A Co'])
+    })
+
+    it('leaves stints alone: overlapping roles are still one stint', () => {
+      const g = groupEmployers(megarom(['2016-06', '2016-03', '2016-03']))
+      expect(g[0].stints).toEqual([{ start: '2010-03-01', end: '2016-06-01' }])
+    })
+  })
+
   it('returns employers newest first, a current employer ahead of a finished one', () => {
     const g = groupEmployers([
       role('e1', 'Old Co', 'Dev', '2010-01', '2014-12'),
