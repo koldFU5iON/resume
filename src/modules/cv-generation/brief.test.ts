@@ -12,7 +12,7 @@ import { completeJSON } from '@/modules/llm/complete-json'
 import { LLMError } from '@/modules/llm/errors'
 import { readFileSync } from 'node:fs'
 import { applyProfileBudgets, briefPrompt, runBrief } from './brief'
-import { CvBriefSchema, parseBrief } from './schema'
+import { TEMPERATURE, CvBriefSchema, parseBrief } from './schema'
 import { gathered } from './__fixtures__/gathered'
 import { bigCandidates } from './__fixtures__/candidates'
 
@@ -118,6 +118,14 @@ describe('runBrief', () => {
     mockJSON.mockResolvedValue(ok({ ...goodBrief, budgets: { ...goodBrief.budgets, education: 0 } }))
     const r = await runBrief(gathered(), ctx)
     expect(r.value.budgets.education).toBe(1)
+  })
+
+  it('samples at the named low temperature, and records why when it had to retry', async () => {
+    mockJSON.mockResolvedValueOnce(bad()).mockResolvedValueOnce(ok(goodBrief))
+    const r = await runBrief(gathered(), ctx)
+    expect(TEMPERATURE.brief).toBe(0.2)
+    for (const c of mockJSON.mock.calls) expect(c[3]).toMatchObject({ temperature: TEMPERATURE.brief })
+    expect(r.retryReasons).toEqual([expect.stringMatching(/the answer was rejected/)])
   })
 
   it('runs the analysis role under the brief tag, attributed to the run', async () => {

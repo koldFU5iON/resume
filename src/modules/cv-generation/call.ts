@@ -80,7 +80,23 @@ export function addUsage(a: CallUsage, b: CallUsage): CallUsage {
   }
 }
 
-export type ValidatedCall<T> = { value: T; model: string; retries: number; usage: CallUsage }
+/** Longest a recorded retry reason may be: the log shows them as short phrases. */
+const REASON_MAX_CHARS = 140
+
+/** A retry reason for the log: one line, never longer than REASON_MAX_CHARS. */
+export function shortReason(text: string): string {
+  const t = text.replace(/\s+/g, ' ').trim()
+  return t.length > REASON_MAX_CHARS ? `${t.slice(0, REASON_MAX_CHARS - 1)}…` : t
+}
+
+export type ValidatedCall<T> = {
+  value: T
+  model: string
+  retries: number
+  usage: CallUsage
+  /** Why the retry happened (short phrases); empty with no retry. Always set by completeValidated; optional so test doubles may omit it. */
+  retryReasons?: string[]
+}
 
 /** Why an answer failed, in words that name fields but never quote the model's text. */
 export function describeFailure(ex: Extract<ExtractJSONResult<unknown>, { ok: false }>): string {
@@ -108,6 +124,7 @@ export async function completeValidated<T>(
   const { label, ...callOpts } = opts
   let note = ''
   let reason = ''
+  let retryWhy = ''
   let usage = NO_USAGE
   for (let attempt = 0; attempt < 2; attempt++) {
     const maxOutputTokens = attempt === 0 ? opts.maxOutputTokens : opts.retryMaxOutputTokens
@@ -124,8 +141,9 @@ export async function completeValidated<T>(
       throw withUsage(err, usage)
     }
     usage = addUsage(usage, usageOf(result))
-    if (result.extracted.ok) return { value: result.extracted.value, model: result.model, retries: attempt, usage }
+    if (result.extracted.ok) return { value: result.extracted.value, model: result.model, retries: attempt, usage, retryReasons: attempt > 0 ? [shortReason(retryWhy)] : [] }
     reason = describeFailure(result.extracted)
+    retryWhy = result.finishReason === 'length' ? 'the answer was cut off' : `the answer was rejected: ${reason}`
     // No raw text in the log: it can echo the profile and the job description.
     console.error(`[cv-generation] ${label} output unusable`, {
       runId: opts.attribution.runId,
@@ -140,14 +158,21 @@ export async function completeValidated<T>(
   throw withUsage(new LLMError(`The ${label} did not match the expected shape (${reason}).`, 'invalid_output'), usage)
 }
 
-/** What a writer's code check found. `hard` = the output cannot be used (invalid blocks); `soft` = usable but breaks a rule (limits, figures, claimed tools). */
-export type CheckResult = { hard: string[]; soft: string[] }
+/**
+ * What a writer's code check found. `hard` = the output cannot be used (invalid
+ * blocks); `soft` = usable but breaks a rule (limits, figures, claimed tools).
+ * `why` = the same problems as short phrases for the log ("figure 14k not in
+ * evidence", "first person"); when absent the problem sentences are logged.
+ */
+export type CheckResult = { hard: string[]; soft: string[]; why?: string[] }
 
 export type CheckedCall<T> = ValidatedCall<T> & {
   /** Soft problems still present in the accepted answer (after the one retry, or with none when there was no time for it). */
   softIssues: string[]
   /** A retry for soft problems was skipped because too little time was left. */
   retrySkipped: boolean
+  /** Why the retry happened, as short phrases; empty with no retry. */
+  retryReasons: string[]
 }
 
 /** Log notes for the soft problems of an accepted answer. */
@@ -192,7 +217,8 @@ export async function completeChecked<T>(
   let held: { value: T; soft: string[] } | null = null // an earlier answer with soft problems only
   let firstMs = 0
   let retrySkipped = false
-  const accept = (value: T, soft: string[], retries: number): CheckedCall<T> => ({ value, model, retries, usage, softIssues: soft, retrySkipped })
+  let retryReasons: string[] = []
+  const accept = (value: T, soft: string[], retries: number): CheckedCall<T> => ({ value, model, retries, usage, softIssues: soft, retrySkipped, retryReasons: retries > 0 ? retryReasons : [] })
 
   for (let attempt = 0; attempt < 2; attempt++) {
     const maxOutputTokens = attempt === 0 ? opts.maxOutputTokens : opts.retryMaxOutputTokens
@@ -235,6 +261,7 @@ export async function completeChecked<T>(
       throw withUsage(new LLMError(`The ${label} could not be used (${detail}).`, 'invalid_output'), usage)
     }
     const feedback = [...problems.hard, ...problems.soft]
+    retryReasons = (problems.why && problems.why.length > 0 ? problems.why : result.extracted.ok || result.finishReason !== 'length' ? feedback : ['the answer was cut off']).map(shortReason)
     note = result.extracted.ok || result.finishReason !== 'length'
       ? `\n\n== NOTE ==\nYour previous answer had problems. Fix every one of them and return the complete JSON object again, in one \`\`\`json code block, matching the schema exactly:\n${feedback.map((f) => `- ${f}`).join('\n')}`
       : `\n\n== NOTE ==\nYour previous answer was cut off before the JSON object was complete. Return the COMPLETE JSON object this time, in one \`\`\`json code block, with nothing truncated. Keep every text field short.`

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  claimedHits, containsPhrase, credentialProblems, figuresIn, headlineTitleProblem, introducedNames, mentionsName, titleLikePhrases,
-  unsupportedFigures, wordCount,
+  claimedHits, competencyLabelProblem, containsPhrase, credentialProblems, distinctNotableFigures, figuresIn, headlineTitleProblem, introducedNames,
+  isNotableFigure, mentionsName, projectReflected, repeatedFigures, sharedFigures, titleLikePhrases, unsupportedFigures, wordCount,
 } from './checks'
 
 const keys = (text: string, opts?: Parameters<typeof figuresIn>[1]) => figuresIn(text, opts).map((f) => f.key)
@@ -244,5 +244,75 @@ describe('helpers', () => {
     expect(wordCount('  one two\nthree ')).toBe(3)
     expect(containsPhrase('Led C++ work', 'C++')).toBe(true)
     expect(containsPhrase('Led Java work', 'Jav')).toBe(false)
+  })
+})
+
+describe('repeated figures (one figure, one place)', () => {
+  it('treats percentages, multipliers and numbers of 100 or more as notable; small numbers and years are not', () => {
+    const notable = (t: string) => figuresIn(t).filter(isNotableFigure).map((f) => f.key)
+    expect(notable('Won 14,000+ votes, cut 40% and doubled revenue')).toEqual(['14000', '40%', '2x'])
+    expect(notable('8 teams across 3 markets in 2019 and 12 months')).toEqual([])
+    expect(notable('Reached 2,000 players and £500k')).toEqual(['2000', '500000'])
+  })
+
+  it('finds a figure stated twice, by value (14k = 14,000), however it is written', () => {
+    expect(repeatedFigures(['Won the Unity Awards with 14,000+ attendees.', 'Brought 14k people to the awards.'])).toEqual(['14,000'])
+    expect(repeatedFigures(['Cut cost by 40%.', 'Raised margin 25%.'])).toEqual([])
+    expect(repeatedFigures(['Cut cost by forty percent.', 'A 40% saving.'])).toEqual(['forty percent'])
+    expect(repeatedFigures(['8 teams.', '8 markets.'])).toEqual([]) // small numbers are coincidence
+  })
+
+  it('finds the figures a text shares with others', () => {
+    expect(sharedFigures('Leader behind the 14,000+ awards.', ['Won 14k votes.', 'Cut 40%.'])).toEqual(['14,000'])
+    expect(sharedFigures('Leader behind the awards.', ['Won 14k votes.'])).toEqual([])
+  })
+
+  it('lists the distinct notable figures of a text', () => {
+    expect(distinctNotableFigures('Grew 40% and then 40% again, plus 2M users')).toEqual(['40%', '2M'])
+  })
+})
+
+describe('competencyLabelProblem (short noun phrases, 2-5 words, no numbers)', () => {
+  const b = { min: 2, max: 5 }
+  it.each(['Go-to-market strategy', 'Stakeholder management', 'Cross-functional programme leadership', 'Product launch planning and execution'])('accepts "%s"', (l) => {
+    expect(competencyLabelProblem(l, b)).toBeNull()
+  })
+
+  it('rejects a single word, a long phrase, a number and a sentence', () => {
+    expect(competencyLabelProblem('Leadership', b)).toMatch(/one word/)
+    expect(competencyLabelProblem('Led the whole cross functional programme delivery', b)).toMatch(/7 words/)
+    expect(competencyLabelProblem('Delivered 14,000 attendee events', b)).toMatch(/has a number/)
+    expect(competencyLabelProblem('Five year planning', b)).toMatch(/has a number/)
+    expect(competencyLabelProblem('Shipped titles on time.', b)).toMatch(/sentence/)
+    expect(competencyLabelProblem('', b)).toMatch(/empty/)
+    expect(competencyLabelProblem('Top 10 lists', b)).toMatch(/has a number/)
+    expect(competencyLabelProblem('Growth. Leadership', b)).toMatch(/sentence/)
+  })
+
+  it.each(['B2B product marketing', 'Web3 community growth', '3D art pipeline', 'Node.js tooling', 'Vue.js and Next.js delivery'])('accepts a name that carries digits or a dot inside a token: "%s"', (l) => {
+    expect(competencyLabelProblem(l, b)).toBeNull()
+  })
+})
+
+describe('projectReflected', () => {
+  const p = { name: 'Enemies Demo Campaign' }
+  it('is reflected when the text names the project (case, accents and punctuation ignored), or uses a distinctive word of its name', () => {
+    expect(projectReflected('Led the Enemies Demo Campaign.', p)).toBe(true)
+    expect(projectReflected('Ran the enemies-demo campaign for launch.', p)).toBe(true)
+    expect(projectReflected('Ran an Enemies demo reaching 14,000+ players.', p)).toBe(true)
+  })
+  it('is not reflected by unrelated text, nor by generic words alone', () => {
+    expect(projectReflected('Cut release time by 40% across 8 teams.', p)).toBe(false)
+    // Two shared 5+ letter words used to count as covered.
+    expect(projectReflected('Launched marketing campaign across social channels', p)).toBe(false)
+    expect(projectReflected('Ran a demo campaign reaching 14,000+ players before launch.', p)).toBe(false)
+  })
+  it('ignores a word the employer\'s ordinary activity text already uses', () => {
+    expect(projectReflected('Ran the Enemies programme.', p, 'Ran the Enemies programme for studio partners')).toBe(false)
+    expect(projectReflected('Ran the Enemies programme.', p, 'Cut release time')).toBe(true)
+  })
+  it('a name of generic words only is reflected by its full name alone', () => {
+    expect(projectReflected('Ran the demo campaign.', { name: 'Demo Campaign' })).toBe(true)
+    expect(projectReflected('Ran a campaign.', { name: 'Demo Campaign' })).toBe(false)
   })
 })

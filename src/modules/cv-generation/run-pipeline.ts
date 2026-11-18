@@ -137,7 +137,7 @@ export async function runCvGenerationStages(runId: string, profileId: string, op
     entries.push({
       stage, status: 'failed', model: null, startedAt: new Date(stageStart).toISOString(), durationMs: timings[stage] ?? null,
       tokens: { input: spent?.input ?? 0, output: spent?.output ?? 0 }, costUsd: spent && spent.calls > 0 ? spent.costUsd : null,
-      notes: [FAILURE_MESSAGES[kind], ...notes], kept: [], dropped: [], retries: 0, flaggedClaims: [], sections,
+      notes: [FAILURE_MESSAGES[kind], ...notes], kept: [], dropped: [], retries: 0, retryReasons: [], flaggedClaims: [], sections,
     })
     await failRun(profileId, runId, kind, null, { stageTimings: timings, log: log() })
   }
@@ -165,7 +165,7 @@ export async function runCvGenerationStages(runId: string, profileId: string, op
         ...g.notes,
         `Profile: ${countOf(roleCount, 'role')} at ${countOf(c.employers.length, 'employer')} with ${countOf(activityCount, 'activity', 'activities')}; ${countOf(c.skills.length, 'skill')}, ${countOf(c.tools.length, 'tool')}, ${countOf(c.competencies.length, 'competency', 'competencies')}, ${countOf(c.certifications.length, 'certification')}, ${c.education.length} education, ${countOf(c.projects.length, 'project')}.`,
       ],
-      kept: [], dropped: [], retries: 0, flaggedClaims: [], sections: [],
+      kept: [], dropped: [], retries: 0, retryReasons: [], flaggedClaims: [], sections: [],
     })
 
     // 1. Brief
@@ -176,7 +176,7 @@ export async function runCvGenerationStages(runId: string, profileId: string, op
     const brief = await runBrief(g, { profileId, jobApplicationId: jobId, runId, deadline })
     end({
       status: 'ok', model: brief.model, ...(await stageUsage(profileId, runId, CV_GENERATION_FEATURES.brief, brief.usage)),
-      notes: [], kept: [], dropped: [], retries: brief.retries, flaggedClaims: [], sections: [],
+      notes: [], kept: [], dropped: [], retries: brief.retries, retryReasons: brief.retryReasons ?? [], flaggedClaims: [], sections: [],
     })
 
     // 2. Select
@@ -192,7 +192,7 @@ export async function runCvGenerationStages(runId: string, profileId: string, op
         ...picked.notes,
         ...(lines.notSelected > 0 ? [`${lines.notSelected === 1 ? '1 other profile item was' : `${lines.notSelected} other profile items were`} not selected.`] : []),
       ],
-      kept: lines.kept, dropped: lines.dropped, retries: picked.retries, flaggedClaims: [], sections: [],
+      kept: lines.kept, dropped: lines.dropped, retries: picked.retries, retryReasons: picked.retryReasons ?? [], flaggedClaims: [], sections: [],
     })
 
     // Review and Land (stages 5-6) do not exist yet: stopping after Select or
@@ -228,6 +228,7 @@ export async function runCvGenerationStages(runId: string, profileId: string, op
       ],
       kept: [], dropped: [],
       retries: written.sections.reduce((n, s) => n + s.log.retries, 0),
+      retryReasons: [],
       flaggedClaims: [],
       sections: written.sections.map((s) => s.log),
     })
@@ -253,7 +254,7 @@ export async function runCvGenerationStages(runId: string, profileId: string, op
         ...cv.checkNotes.map((n) => `${CHECK_NOTE_PREFIX}${n}`),
         `The whole run took ${seconds(Date.now() - runStart)} of its ${seconds(TIME_BUDGET_MS.run)} budget.`,
       ],
-      kept: [], dropped: [], retries: 0, flaggedClaims: [], sections: [],
+      kept: [], dropped: [], retries: 0, retryReasons: [], flaggedClaims: [], sections: [],
     })
     await updateActive(profileId, runId, {
       status: 'complete',

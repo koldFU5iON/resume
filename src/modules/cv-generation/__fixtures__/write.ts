@@ -16,7 +16,7 @@ export const OLD_CO = 'old'
  * becomes a header-only entry), a claimed tool (Tableau: no evidence behind it),
  * evidence-backed skills, an in-progress certification and education.
  */
-export function writeVaultSource() {
+export function writeVaultSource(opts: { projects?: object[] } = {}) {
   const src = vaultSource()
   const base = src.experiences[0]
   const role = (id: string, company: string, title: string, start: string, end: string | null, acts: Array<[string, string, string | null]>) => ({
@@ -35,7 +35,7 @@ export function writeVaultSource() {
     role('e-b1', 'Blizzard Entertainment', 'Program Manager', '2015-01', '2018-12', [['ba1', 'Launched a live-service title for 2M players', null]]),
     role('e-o1', 'Old Co', 'Coordinator', '2010-01', '2014-12', [['oa1', 'Kept the release calendar', null]]),
   ] as never
-  src.projects = []
+  src.projects = (opts.projects ?? []) as never
   const cap = (id: string, name: string, kind: string, extra: object = {}) => ({
     id, profileId: 'p1', name, kind, category: null, level: null, order: 0, origin: null, yearsOfExperience: null, tags: '[]', notes: null, createdAt: new Date(0), updatedAt: new Date(0), ...extra,
   })
@@ -66,7 +66,13 @@ export function writeVaultSource() {
   return src
 }
 
-export const writeVault = (): Vault => buildVault(writeVaultSource())
+/** A project row of the fixture profile (no role, no dates by default). */
+export const projectRow = (id: string, name: string, description: string, over: object = {}) => ({
+  id, profileId: 'p1', experienceId: null, name, description, notes: '', url: null, repoUrl: null, startDate: null, endDate: null,
+  status: 'active', highlights: '[]', tags: '[]', createdAt: new Date(0), updatedAt: new Date(0), skills: [], activities: [], ...over,
+})
+
+export const writeVault = (projects: object[] = []): Vault => buildVault(writeVaultSource({ projects }))
 
 const pick = (...ids: string[]) => ids.map((id) => ({ id, reason: '' }))
 
@@ -117,7 +123,7 @@ import type { WrittenSection } from '../write/types'
 import type { WriteResult } from '../write/run-write'
 
 const wsec = (id: string, kind: string, markdown: string, over: Partial<WrittenSection> = {}): WrittenSection => ({
-  id, kind, markdown, log: { id, label: id, status: 'ok', model: null, durationMs: 0, tokens: { input: 0, output: 0 }, costUsd: null, retries: 0, notes: [] }, ...over,
+  id, kind, markdown, log: { id, label: id, status: 'ok', model: null, durationMs: 0, tokens: { input: 0, output: 0 }, costUsd: null, retries: 0, retryReasons: [], notes: [] }, ...over,
 })
 
 /** Written sections of the fixture profile, deliberately out of CV order. */
@@ -130,7 +136,7 @@ export function writtenSections(): WrittenSection[] {
     wsec(`experience:${OLD_CO}`, 'experience', '### Old Co\n**Coordinator** · Jan 2010 – Dec 2014', { employerKey: OLD_CO }),
     wsec('tools', 'tools', ':::inline-list\n- Jira\n:::'),
     wsec('profile', 'profile', 'Delivery leader.'),
-    wsec('competencies', 'competencies', ':::compact-list\n- Cross-functional leadership: shipped 12 titles\n:::'),
+    wsec('competencies', 'competencies', ':::skills\n- Cross-functional leadership\n:::'),
     wsec('certification', 'certification', '- **PMP** — PMI (2018)'),
     wsec('languages', 'languages', ':::inline-list\n- French (Native)\n:::'),
   ]

@@ -66,7 +66,7 @@ export class WriteStageError extends Error {
 const tokensOf = (u: CallUsage) => ({ input: u.input, output: u.output })
 
 function logOf(id: string, label: string, over: Partial<SectionLogEntry>): SectionLogEntry {
-  return { id, label, status: 'ok', model: null, durationMs: 0, tokens: { input: 0, output: 0 }, costUsd: null, retries: 0, notes: [], ...over }
+  return { id, label, status: 'ok', model: null, durationMs: 0, tokens: { input: 0, output: 0 }, costUsd: null, retries: 0, retryReasons: [], notes: [], ...over }
 }
 
 async function timed<T>(fn: () => Promise<T>): Promise<{ value: T; ms: number }> {
@@ -79,6 +79,9 @@ async function timed<T>(fn: () => Promise<T>): Promise<{ value: T; ms: number }>
 function ensureTime(deadline: number): void {
   if (deadline - Date.now() < MIN_CALL_MS) throw new LLMError('The run ran out of time before every section was written.', 'timeout')
 }
+
+/** Singular names of the flat sections, for log notes. */
+const SECTION_WORD: Record<string, string> = { skills: 'skill', tools: 'tool', competencies: 'competency', certifications: 'certification', education: 'education', projects: 'project' }
 
 const experienceLabel = (e: EmployerEvidence['employer']) => `Experience: ${e.latestTitle} — ${e.company}`
 
@@ -142,7 +145,7 @@ export async function runWrite(
     const withBullets: EmployerEvidence[] = []
     for (const e of evidence.employers) {
       const id = `experience:${e.employer.key}`
-      if (e.employer.headerOnly || e.activities.length === 0) {
+      if (e.employer.headerOnly || (e.activities.length === 0 && e.projects.length === 0)) {
         const why = e.employer.headerOnly
           ? 'Listed without bullets: rendered by code, no model call.'
           : 'None of its selected activities is still in the profile, so it is listed without bullets: rendered by code, no model call.'
@@ -171,7 +174,7 @@ export async function runWrite(
             out.checks.forEach((c) => note(c, employerIndex.get(key) ?? 0))
             keep({
               id, kind: 'experience', employerKey: key, markdown: out.markdown, model: out.model ?? undefined, tokens: tokensOf(out.usage),
-              log: logOf(id, label, { model: out.model, durationMs: ms, tokens: tokensOf(out.usage), costUsd: out.usage.costUsd, retries: out.retries, notes: out.notes }),
+              log: logOf(id, label, { model: out.model, durationMs: ms, tokens: tokensOf(out.usage), costUsd: out.usage.costUsd, retries: out.retries, retryReasons: out.retryReasons, notes: out.notes }),
             })
           } catch (err) {
             if (!isTimeout(err)) throw err
@@ -181,7 +184,7 @@ export async function runWrite(
             digests.set(key, { summary: fb.summary, bullets: fb.bullets })
             keep({
               id, kind: 'experience', employerKey: key, markdown: fb.markdown, tokens: tokensOf(u),
-              log: logOf(id, label, { durationMs: Date.now() - t0, tokens: tokensOf(u), costUsd: u.calls > 0 ? u.costUsd : null, notes: ['The run ran out of time for this entry, so its bullets are your own activity text from the profile, with no summary.'] }),
+              log: logOf(id, label, { durationMs: Date.now() - t0, tokens: tokensOf(u), costUsd: u.calls > 0 ? u.costUsd : null, notes: ['The run ran out of time for this entry, so its bullets are your own activity text from the profile, with no summary.', ...fb.notes] }),
             })
           }
           return
@@ -197,7 +200,7 @@ export async function runWrite(
           id: r.id, kind: r.kind, markdown: r.markdown, model: s.model ?? undefined, tokens: tokensOf(i === 0 ? s.usage : NO_USAGE),
           log: logOf(r.id, r.label, {
             model: s.model, durationMs: i === 0 ? ms : 0, tokens: tokensOf(i === 0 ? s.usage : NO_USAGE), costUsd: s.usage.calls > 0 ? (i === 0 ? s.usage.costUsd : 0) : null,
-            retries: i === 0 ? s.retries : 0, notes: i === 0 ? s.notes : ['Written by the same call as the other list.'],
+            retries: i === 0 ? s.retries : 0, retryReasons: i === 0 ? s.retryReasons : [], notes: i === 0 ? s.notes : ['Written by the same call as the other list.'],
           }),
         }))
       } catch (err) {
@@ -233,7 +236,7 @@ export async function runWrite(
     p.checks.forEach((c) => note(c, evidence.employers.length))
     keep({
       id: 'profile', kind: 'profile', markdown: p.profileMarkdown, model: p.model ?? undefined, tokens: tokensOf(p.usage),
-      log: logOf('profile', 'Profile, headline and competencies', { model: p.model, durationMs: Date.now() - t2, tokens: tokensOf(p.usage), costUsd: p.usage.calls > 0 ? p.usage.costUsd : null, retries: p.retries, notes: p.notes }),
+      log: logOf('profile', 'Profile, headline and competencies', { model: p.model, durationMs: Date.now() - t2, tokens: tokensOf(p.usage), costUsd: p.usage.calls > 0 ? p.usage.costUsd : null, retries: p.retries, retryReasons: p.retryReasons, notes: p.notes }),
     })
     if (p.competenciesMarkdown) {
       keep({ id: 'competencies', kind: 'competencies', markdown: p.competenciesMarkdown, log: logOf('competencies', 'Core competencies', { notes: [p.model ? 'Written by the profile call.' : 'Made by code from the selected competencies.'] }) })
@@ -250,9 +253,9 @@ export async function runWrite(
     const langs = renderLanguages(evidence.languages)
     if (langs) keep({ id: 'languages', kind: 'languages', markdown: langs, log: logOf('languages', 'Languages', { notes: ['Rendered by code from your profile, no model call.'] }) })
 
-    if (selection.projects.length > 0) {
-      notes.push(`${selection.projects.length === 1 ? '1 selected project is' : `${selection.projects.length} selected projects are`} not on the CV: the default CV structure has no projects section.`)
-    }
+    // Nothing selected is dropped silently: a project no entry could carry, and an item no longer in the profile, are named.
+    for (const p of evidence.unroutedProjects) notes.push(`Selected project "${p.name}" is not on the CV: ${p.why}.`)
+    for (const u of evidence.unresolved) notes.push(`A selected ${SECTION_WORD[u.section] ?? u.section} item is no longer in your profile, so it is not on the CV.`)
     const checkNotes = [...checks]
       .sort((a, b) => CHECK_KIND_RANK[a.kind] - CHECK_KIND_RANK[b.kind] || a.order - b.order)
       .map((c) => c.text)

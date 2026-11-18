@@ -19,21 +19,19 @@
 import * as z from 'zod'
 import { composeSystem } from '@/modules/llm/prompt-context'
 import { completeChecked, softIssueNotes, type CheckResult } from '../call'
-import { CV_GENERATION_FEATURES, MAX_OUTPUT_TOKENS, TIME_BUDGET_MS } from '../schema'
-import { COMPETENCY_MAX_WORDS, HEADLINE_MAX_WORDS, PROFILE_MAX_WORDS } from './limits'
-import { claimedHits, credentialProblems, headlineTitleProblem, introducedNames, unsupportedFigures, wordCount } from './checks'
+import { CV_GENERATION_FEATURES, MAX_OUTPUT_TOKENS, TEMPERATURE, TIME_BUDGET_MS } from '../schema'
+import { COMPETENCY_LABEL_MAX_WORDS, COMPETENCY_LABEL_MIN_WORDS, COMPETENCY_MAX_LABELS, HEADLINE_MAX_WORDS, PROFILE_MAX_FIGURES, PROFILE_MAX_WORDS } from './limits'
+import { claimedHits, competencyLabelProblem, credentialProblems, distinctNotableFigures, headlineTitleProblem, introducedNames, labelGroundedIn, labelReflectsCompetency, sharedFigures, unsupportedFigures, wordCount } from './checks'
 import { evidenceTexts, figureIgnoredNames, type CapabilityEvidence } from './evidence'
-import { plainFeedback, plainLine } from './plain'
+import { plainFeedback, plainLine, plainReasons } from './plain'
 import { briefText, data, requirementsBlock } from './prompt'
+import { renderNameGroups } from './render'
 import type { CheckNote, WriteContext, WriterOutcome } from './types'
 
 export const ProfileOutputSchema = z.object({
-  profile: z.string().describe(`The professional profile, one short plain-text paragraph, at most ${PROFILE_MAX_WORDS} words`),
+  profile: z.string().describe(`The professional profile, one short plain-text paragraph, at most ${PROFILE_MAX_WORDS} words, with no first person`),
   headline: z.string().describe(`A short plain-text descriptor under the name, at most ${HEADLINE_MAX_WORDS} words; never a job title`),
-  competencies: z.array(z.object({
-    name: z.string().describe('A competency from the given list, copied exactly'),
-    line: z.string().describe(`The competency followed by a short outcome-led phrase, plain text, at most ${COMPETENCY_MAX_WORDS} words in all`),
-  })).default([]).describe('One line per competency, up to the number allowed'),
+  competencies: z.array(z.string()).default([]).describe(`Core competency labels: short noun phrases of ${COMPETENCY_LABEL_MIN_WORDS} to ${COMPETENCY_LABEL_MAX_WORDS} words, no numbers, no sentences (for example "Go-to-market strategy")`),
 })
 export type ProfileOutput = z.infer<typeof ProfileOutputSchema>
 
@@ -42,9 +40,15 @@ export const PROFILE_OUTPUT_FORMAT = `Output: one JSON object in a \`\`\`json co
 ${JSON.stringify(z.toJSONSchema(ProfileOutputSchema, { io: 'input' }))}
 \`\`\``
 
-/** The competencies the writer may write lines for: the selected ones with evidence behind them. */
+/** The selected competencies with evidence behind them: what the labels may draw on (a claimed one is never given to the writer). */
 export function writableCompetencies(items: readonly CapabilityEvidence[]): CapabilityEvidence[] {
   return items.filter((c) => !c.claimed)
+}
+
+/** How many competency labels the CV shows: none when no evidenced competency was selected or the brief budgets none, else the budget up to COMPETENCY_MAX_LABELS. */
+export function maxCompetencyLabels(ctx: Pick<WriteContext, 'brief' | 'evidence'>): number {
+  if (writableCompetencies(ctx.evidence.competencies).length === 0) return 0
+  return Math.max(0, Math.min(COMPETENCY_MAX_LABELS, ctx.brief.budgets.competencies))
 }
 
 /** The experience as the profile writer reads it: no names, titles or dates, only the written text. */
@@ -58,29 +62,37 @@ export function profilePrompt(
   ctx: Pick<WriteContext, 'brief' | 'strategy'>,
   digest: string,
   competencies: readonly CapabilityEvidence[],
+  maxLabels: number,
 ): string {
+  const used = distinctNotableFigures(digest)
   return [
     '# Brief',
     briefText(ctx.brief),
-    '# Job requirements\n\nFor emphasis only. They are not facts about the candidate.',
+    '# Job requirements\n\nFor emphasis only. They are not facts about the candidate. Use their key terms (what the company or product is, the domain, the audience) to say who the candidate is FOR THIS ROLE.',
     data('job_requirements', requirementsBlock(ctx.strategy)),
     '# The experience section as written\n\nEverything you claim must be visible here.',
     data('experience', digest || '(no experience bullets)'),
-    '# Competencies to write lines for (copy names exactly)',
+    `# Competencies chosen for this CV\n\nThe candidate's own competencies for this role: use their wording where it fits. Claim nothing the experience section does not support.`,
     data('competencies', competencies.length > 0 ? competencies.map((c) => `- ${c.name}`).join('\n') : '(none: return an empty list)'),
-    `# Limits\n\n- Profile: at most ${PROFILE_MAX_WORDS} words.\n- Headline: at most ${HEADLINE_MAX_WORDS} words, a descriptor and never a job title or seniority level.\n- Competencies: at most ${competencies.length} lines, each at most ${COMPETENCY_MAX_WORDS} words, outcome-led, from the experience section only.\n- Plain text only: no Markdown, links, HTML or ":::".\n- Numbers exactly as written in the experience section, whether you write them as digits or words; no title, company or date.`,
-    'Return the profile, headline and competency lines as one JSON object matching the schema, in a ```json code block.',
+    `# Limits\n\n- Profile: at most ${PROFILE_MAX_WORDS} words. Open with the positioning for THIS role, in the brief's positioning and hidden-question language and the job's key terms; then what the candidate has done. No first person ("I", "my", "we"): an implied subject, present tense.\n- Figures: at most ${PROFILE_MAX_FIGURES} in the profile and headline together, and never one that already appears in the experience section${used.length > 0 ? ` (those are: ${used.join(', ')})` : ''}. The experience section carries the numbers; do not restate them.\n- Headline: at most ${HEADLINE_MAX_WORDS} words, a descriptor and never a job title or seniority level.\n- Competencies: ${maxLabels === 0 ? 'none: return an empty list' : `up to ${maxLabels} labels, each a short noun phrase of ${COMPETENCY_LABEL_MIN_WORDS} to ${COMPETENCY_LABEL_MAX_WORDS} words, with no numbers and no sentence`}.\n- Plain text only: no Markdown, links, HTML or ":::".\n- Numbers exactly as in the evidence, whether you write them as digits or words; no title, company or date.`,
+    'Return the profile, headline and competency labels as one JSON object matching the schema, in a ```json code block.',
   ].join('\n\n')
 }
 
 type Check = {
-  /** The cleaned (plainLine) answer. */
+  /** The cleaned (plainLine) answer; `competencies` holds only the valid, de-duplicated labels, at most the allowed number. */
   profile: ProfileOutput
+  /** Labels that were dropped (not a 2-5 word noun phrase, a repeat, over the limit), with why. */
+  droppedLabels: string[]
+  /** Kept labels that overlap neither a selected competency nor the employers' evidence text: they may name something the profile does not back. */
+  ungroundedLabels: string[]
   /** The headline problem, or null when it is fine. */
   headlineProblem: string | null
   /** Figures in the headline that nothing supports. */
   headlineUnsupported: string[]
   unsupported: string[]
+  /** Figures the profile or headline shares with the experience text, or states in excess of PROFILE_MAX_FIGURES. */
+  repeatedFigures: string[]
   claimed: Array<{ name: string; requested: boolean }>
   inProgressNamed: string[]
 }
@@ -88,51 +100,87 @@ type Check = {
 /** The text sources a profile figure or name may come from: the wave-1 text and every selected evidence item. */
 const sourcesOf = (ctx: Pick<WriteContext, 'evidence'>, digest: string) => [digest, ...ctx.evidence.employers.flatMap(evidenceTexts)]
 
+const LABEL_BOUNDS = { min: COMPETENCY_LABEL_MIN_WORDS, max: COMPETENCY_LABEL_MAX_WORDS }
+
 /** All code checks on one answer. Pure. */
 export function analyseProfile(
   out: ProfileOutput,
   ctx: Pick<WriteContext, 'evidence' | 'requirementText'>,
-  allowed: { digest: string; competencies: readonly CapabilityEvidence[] },
+  allowed: { digest: string; competencies: readonly CapabilityEvidence[]; maxLabels: number },
 ): CheckResult & Check {
   const hard: string[] = []
   const soft: string[] = []
+  const why: string[] = []
+  const problem = (long: string, short: string) => { soft.push(long); why.push(short) }
   const profile = plainLine(out.profile)
   const headline = plainLine(out.headline)
-  for (const f of [plainFeedback('the profile', out.profile), plainFeedback('the headline', out.headline), ...out.competencies.map((c) => plainFeedback(`the "${c.name}" line`, c.line))]) if (f) soft.push(f)
+  // Verbatim names from the candidate's own text ("Our World in Data") are not first person: the wave-1 digest is model output, so it is not used.
+  const ownText = [...ctx.evidence.employers.flatMap(evidenceTexts), ...ctx.evidence.profileCompanies, ...ctx.evidence.profileTitles].join('\n')
+  const fields: Array<[string, string]> = [['the profile', out.profile], ['the headline', out.headline], ...out.competencies.map((c): [string, string] => [`the competency "${c}"`, c])]
+  for (const [label, text] of fields) {
+    const f = plainFeedback(label, text, ownText)
+    if (f) problem(f, plainReasons(text, ownText).join(', '))
+  }
   if (!profile) hard.push('the profile is empty; write the paragraph')
-  else if (wordCount(profile) > PROFILE_MAX_WORDS) soft.push(`the profile is ${wordCount(profile)} words; it must be at most ${PROFILE_MAX_WORDS}`)
-  if (wordCount(headline) > HEADLINE_MAX_WORDS) soft.push(`the headline is ${wordCount(headline)} words; it must be at most ${HEADLINE_MAX_WORDS}`)
+  else if (wordCount(profile) > PROFILE_MAX_WORDS) problem(`the profile is ${wordCount(profile)} words; it must be at most ${PROFILE_MAX_WORDS}`, `profile over ${PROFILE_MAX_WORDS} words`)
+  if (wordCount(headline) > HEADLINE_MAX_WORDS) problem(`the headline is ${wordCount(headline)} words; it must be at most ${HEADLINE_MAX_WORDS}`, `headline over ${HEADLINE_MAX_WORDS} words`)
   const headlineProblem = headline ? headlineTitleProblem(headline, ctx.evidence.profileTitles) : null
-  if (headlineProblem) soft.push(`the headline is not acceptable: ${headlineProblem}`)
+  if (headlineProblem) problem(`the headline is not acceptable: ${headlineProblem}`, 'headline reads as a title')
 
-  const names = new Set(allowed.competencies.map((c) => c.name.trim().toLowerCase()))
-  const lines = out.competencies
-    .filter((c) => names.has(c.name.trim().toLowerCase()))
-    .map((c) => ({ name: c.name, line: plainLine(c.line) }))
-  if (lines.length > allowed.competencies.length) soft.push(`there are ${lines.length} competency lines; at most ${allowed.competencies.length} are allowed`)
-  lines.forEach((c) => {
-    if (wordCount(c.line) > COMPETENCY_MAX_WORDS) soft.push(`the "${c.name}" line is ${wordCount(c.line)} words; each must be at most ${COMPETENCY_MAX_WORDS}`)
-  })
-
-  const text = [profile, headline, ...lines.map((c) => c.line)].join('\n')
-  // Figures may come from the experience text or from any selected evidence.
   const sources = sourcesOf(ctx, allowed.digest)
   const ignored = figureIgnoredNames(ctx.evidence)
+  const claimedCompetencies = new Set(ctx.evidence.competencies.filter((c) => c.claimed).map((c) => c.name.trim().toLowerCase()))
+
+  // Competency labels: short noun phrases, de-duplicated, at most the allowed number.
+  const labels: string[] = []
+  const droppedLabels: string[] = []
+  const badLabels: string[] = []
+  for (const raw of out.competencies) {
+    const label = plainLine(raw)
+    const bad = competencyLabelProblem(label, LABEL_BOUNDS)
+    if (bad) { badLabels.push(bad); droppedLabels.push(bad); continue }
+    if (labels.some((l) => l.toLowerCase() === label.toLowerCase())) { droppedLabels.push(`"${label}" appears twice`); continue }
+    // A claimed competency is never written into Core Competencies (decision 5); nor is any other unevidenced name the job does not ask for.
+    const claimedIn = claimedHits(label, ctx.evidence.claimedNames, { evidenceText: sources.join('\n'), requirementText: ctx.requirementText })
+      .filter((h) => !h.requested || claimedCompetencies.has(h.name.toLowerCase()))
+    if (claimedIn.length > 0) { droppedLabels.push(`"${label}" names ${claimedIn.map((h) => h.name).join(', ')}, which your profile lists without evidence`); continue }
+    labels.push(label)
+  }
+  if (badLabels.length > 0) problem(`competency labels must be short noun phrases of ${COMPETENCY_LABEL_MIN_WORDS} to ${COMPETENCY_LABEL_MAX_WORDS} words with no numbers and no sentences: ${badLabels.join('; ')}`, 'competency label format')
+  if (labels.length > allowed.maxLabels) {
+    problem(`there are ${labels.length} competency labels; at most ${allowed.maxLabels} are allowed`, `${labels.length} competency labels, limit ${allowed.maxLabels}`)
+    droppedLabels.push(...labels.slice(allowed.maxLabels).map((l) => `"${l}" is over the limit of ${allowed.maxLabels}`))
+    labels.length = allowed.maxLabels
+  }
+
+  // Free-text labels must stay grounded: each overlaps a selected competency or the evidence text of the employers.
+  const groundTexts = [...allowed.competencies.map((c) => c.name), ...ctx.evidence.employers.flatMap(evidenceTexts)]
+  const ungroundedLabels = labels.filter((l) => !labelGroundedIn(l, groundTexts))
+  if (ungroundedLabels.length > 0) problem(`these competency labels match none of the selected competencies or the experience evidence, so use only what they support: ${ungroundedLabels.map((l) => `"${l}"`).join(', ')}`, `competency label ${ungroundedLabels.map((l) => `"${l}"`).join(', ')} not backed by the profile`)
+
+  const text = [profile, headline, ...labels].join('\n')
+  // Figures may come from the experience text or from any selected evidence.
   const unsupported = unsupportedFigures(text, sources, ignored)
-  if (unsupported.length > 0) soft.push(`these figures are not in the experience section (digits or words), so remove them or use its exact figures: ${unsupported.join(', ')}`)
+  if (unsupported.length > 0) problem(`these figures are not in the experience section (digits or words), so remove them or use its exact figures: ${unsupported.join(', ')}`, `figure ${unsupported.join(', ')} not in evidence`)
+  // The experience section carries the numbers: the profile and competencies may not restate them, and use at most one of their own.
+  const shared = sharedFigures(text, [allowed.digest], ignored)
+  if (shared.length > 0) problem(`these figures already appear in the experience bullets, so do not repeat them in the profile, headline or competencies (say it without the number, or use a different fact): ${shared.join(', ')}`, `duplicate figure ${shared.join(', ')}`)
+  const own = distinctNotableFigures([profile, headline].join('\n'), ignored).filter((f) => !shared.includes(f))
+  const excess = own.length + shared.length > PROFILE_MAX_FIGURES ? own.slice(Math.max(0, PROFILE_MAX_FIGURES - shared.length)) : []
+  if (excess.length > 0) problem(`the profile and headline may use at most ${PROFILE_MAX_FIGURES} figure; keep the most important and drop: ${excess.join(', ')}`, `more than ${PROFILE_MAX_FIGURES} figure in the profile`)
   const headlineUnsupported = headline ? unsupportedFigures(headline, sources, ignored) : []
   const claimed = claimedHits(text, ctx.evidence.claimedNames, { evidenceText: sources.join('\n'), requirementText: ctx.requirementText })
   const unrequested = claimed.filter((c) => !c.requested).map((c) => c.name)
-  if (unrequested.length > 0) soft.push(`these are listed in the profile without evidence and the job does not ask for them, so do not name them: ${unrequested.join(', ')}`)
+  if (unrequested.length > 0) problem(`these are listed in the profile without evidence and the job does not ask for them, so do not name them: ${unrequested.join(', ')}`, `unevidenced skill or tool ${unrequested.join(', ')}`)
   const intro = introducedNames(text, { titles: ctx.evidence.profileTitles, companies: ctx.evidence.profileCompanies }, sources.join('\n'))
-  if (intro.titles.length > 0) soft.push(`do not write job titles (code shows them): ${intro.titles.join(', ')}`)
-  if (intro.companies.length > 0) soft.push(`do not write company names: ${intro.companies.join(', ')}`)
+  if (intro.titles.length > 0) problem(`do not write job titles (code shows them): ${intro.titles.join(', ')}`, `job title ${intro.titles.join(', ')}`)
+  if (intro.companies.length > 0) problem(`do not write company names: ${intro.companies.join(', ')}`, `company name ${intro.companies.join(', ')}`)
   const creds = credentialProblems(text, ctx.evidence.credentials, sources.join('\n'))
-  for (const c of creds) soft.push(c.problem)
+  for (const c of creds) problem(c.problem, `credential ${c.name}`)
 
   return {
-    hard, soft, profile: { profile, headline, competencies: lines }, headlineProblem, headlineUnsupported, unsupported, claimed,
-    inProgressNamed: creds.filter((c) => c.inProgress).map((c) => c.name),
+    hard, soft, why: [...new Set(why)], profile: { profile, headline, competencies: labels }, droppedLabels, ungroundedLabels, headlineProblem, headlineUnsupported, unsupported,
+    repeatedFigures: [...shared, ...excess], claimed, inProgressNamed: creds.filter((c) => c.inProgress).map((c) => c.name),
   }
 }
 
@@ -144,7 +192,36 @@ export type ProfileOutcome = WriterOutcome & {
   competenciesMarkdown: string
 }
 
-const competencyBlock = (lines: readonly string[]) => (lines.length > 0 ? `:::compact-list\n${lines.map((l) => `- ${l}`).join('\n')}\n:::` : '')
+/** Core Competencies as an inline `:::skills` list of short labels (like the regression fixture); '' when there are none. */
+export const competencyBlock = (labels: readonly string[]) => renderNameGroups([{ label: null, names: [...labels] }], 'skills')
+
+/**
+ * The selected competency names that already are short noun-phrase labels,
+ * de-duplicated, at most `max`; with the ones that were not usable (`skipped`)
+ * and the usable ones that did not fit (`overflow`).
+ */
+export function labelsFromSelected(competencies: readonly CapabilityEvidence[], max: number): { labels: string[]; skipped: string[]; overflow: string[] } {
+  const labels: string[] = []
+  const skipped: string[] = []
+  for (const c of competencies) {
+    const label = plainLine(c.name)
+    if (competencyLabelProblem(label, LABEL_BOUNDS)) skipped.push(c.name)
+    else if (!labels.some((l) => l.toLowerCase() === label.toLowerCase())) labels.push(label)
+  }
+  return { labels: labels.slice(0, max), skipped, overflow: labels.slice(max) }
+}
+
+/**
+ * Log notes for selected, evidenced competencies that no Core Competencies
+ * label reflects (matched on the full name or its words, not the first word),
+ * so none vanishes silently. A brief budget of 0 drops them all: said once.
+ */
+export function competencyNotes(competencies: readonly CapabilityEvidence[], labels: readonly string[], maxLabels: number): string[] {
+  if (competencies.length === 0) return []
+  if (maxLabels === 0) return [`Core Competencies is empty because the brief's competency budget is 0, so these selected competencies are not on the CV: ${competencies.map((c) => c.name).join(', ')}.`]
+  const missing = competencies.filter((c) => !labels.some((l) => labelReflectsCompetency(l, c.name))).map((c) => c.name)
+  return missing.length > 0 ? [`Selected ${missing.length === 1 ? 'competency is' : 'competencies are'} not reflected in Core Competencies, so ${missing.length === 1 ? 'it is' : 'they are'} not on the CV: ${missing.join(', ')}.`] : []
+}
 
 /**
  * The profile section by code, with no model call: used when the run has too
@@ -160,12 +237,17 @@ export function fallbackProfile(
   why: string,
 ): ProfileOutcome {
   const competencies = writableCompetencies(ctx.evidence.competencies)
+  const maxLabels = maxCompetencyLabels(ctx)
+  const picked = labelsFromSelected(competencies, maxLabels)
   const notes = [`${why} The profile section was made by code from the brief and the selection, without a model call.`]
+  if (picked.skipped.length > 0) notes.push(`Left out of Core Competencies because they are not a short noun phrase of ${COMPETENCY_LABEL_MIN_WORDS} to ${COMPETENCY_LABEL_MAX_WORDS} words: ${picked.skipped.join(', ')}.`)
+  // The ones that fit no room (more than the allowed labels, or a budget of 0) are named too.
+  notes.push(...competencyNotes(competencies.filter((c) => !picked.skipped.includes(c.name)), picked.labels, maxLabels))
   const words = plainLine(ctx.brief.positioning).split(/\s+/).filter(Boolean)
   const candidate = words.slice(0, PROFILE_MAX_WORDS).join(' ')
   let profile = candidate
   if (candidate) {
-    const a = analyseProfile({ profile: candidate, headline: '', competencies: [] }, ctx, { digest, competencies })
+    const a = analyseProfile({ profile: candidate, headline: '', competencies: [] }, ctx, { digest, competencies, maxLabels })
     if (a.soft.length > 0 || a.hard.length > 0) {
       profile = ''
       notes.push('The brief\'s positioning was not used as the profile paragraph because it claims something the evidence does not support.')
@@ -176,10 +258,11 @@ export function fallbackProfile(
     markdown: '',
     headline: null,
     profileMarkdown: profile,
-    competenciesMarkdown: competencyBlock(competencies.map((c) => plainLine(c.name)).filter(Boolean)),
+    competenciesMarkdown: competencyBlock(picked.labels),
     model: null,
     usage: { input: 0, output: 0, costUsd: 0, calls: 0 },
     retries: 0,
+    retryReasons: [],
     notes,
     checks: [],
     checkNotes: [],
@@ -193,13 +276,14 @@ export async function writeProfile(
   instructions: { rules: string; brief: string | null; prompt: string },
 ): Promise<ProfileOutcome> {
   const competencies = writableCompetencies(ctx.evidence.competencies)
-  const allowed = { digest, competencies }
-  const call = await completeChecked(ctx.profileId, profilePrompt(ctx, digest, competencies), ProfileOutputSchema, {
+  const maxLabels = maxCompetencyLabels(ctx)
+  const allowed = { digest, competencies, maxLabels }
+  const call = await completeChecked(ctx.profileId, profilePrompt(ctx, digest, competencies, maxLabels), ProfileOutputSchema, {
     role: 'default',
     system: composeSystem(instructions.rules, instructions.brief, instructions.prompt, PROFILE_OUTPUT_FORMAT),
     maxOutputTokens: MAX_OUTPUT_TOKENS.writeProfile,
     retryMaxOutputTokens: MAX_OUTPUT_TOKENS.writeProfileRetry,
-    temperature: 0.4,
+    temperature: TEMPERATURE.writeProfile,
     timeoutMs: TIME_BUDGET_MS.write,
     deadline: ctx.deadline,
     feature: CV_GENERATION_FEATURES.writeProfile,
@@ -226,12 +310,19 @@ export async function writeProfile(
     checks.push({ kind: 'credential', text: `Profile: "${name}" is still in progress in your profile, and the text may present it as finished. Worth a quick check.` })
   }
 
-  // Lines in the selected order, one per competency, each under its canonical name.
-  const lineOf = new Map(a.profile.competencies.map((c) => [c.name.trim().toLowerCase(), c.line]))
-  const lines = competencies.flatMap((c) => {
-    const line = lineOf.get(c.name.trim().toLowerCase())
-    return line ? [line] : []
-  })
+  // Core Competencies: the writer's valid labels; when it gave none usable, the selected names that already are labels.
+  let labels = a.profile.competencies
+  if (a.droppedLabels.length > 0) notes.push(`Left out of Core Competencies: ${a.droppedLabels.join('; ')}.`)
+  if (labels.length === 0 && maxLabels > 0) {
+    const picked = labelsFromSelected(competencies, maxLabels)
+    labels = picked.labels
+    if (labels.length > 0) notes.push('The answer had no usable competency labels, so Core Competencies uses your selected competency names.')
+  }
+  notes.push(...competencyNotes(competencies, labels, maxLabels))
+  if (a.ungroundedLabels.length > 0) {
+    notes.push(`These Core Competencies labels match none of your selected competencies or experience text: ${a.ungroundedLabels.join(', ')}.`)
+    checks.push({ kind: 'competency', text: `Core Competencies: ${a.ungroundedLabels.map((l) => `"${l}"`).join(', ')} could not be matched to your profile. Worth a quick check.` })
+  }
   const skippedClaimed = ctx.evidence.competencies.filter((c) => c.claimed).map((c) => c.name)
   if (skippedClaimed.length > 0) {
     notes.push(`Left out of Core Competencies because the profile lists ${skippedClaimed.length === 1 ? 'it' : 'them'} without evidence: ${skippedClaimed.join(', ')}. ${skippedClaimed.length === 1 ? 'It is' : 'They are'} allowed in the Skills and Tools lists only.`)
@@ -240,10 +331,11 @@ export async function writeProfile(
     markdown: '',
     headline,
     profileMarkdown: a.profile.profile,
-    competenciesMarkdown: competencyBlock(lines),
+    competenciesMarkdown: competencyBlock(labels),
     model: call.model,
     usage: call.usage,
     retries: call.retries,
+    retryReasons: call.retryReasons,
     notes,
     checks,
     checkNotes: checks.map((c) => c.text),

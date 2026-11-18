@@ -69,4 +69,27 @@ describe('the writer prompts, after the review fixes', () => {
     const t = readFileSync('src/lib/prompts/cv-gen-select.md', 'utf8')
     expect(t).toMatch(/\(in progress\)/)
   })
+
+  describe('phase 3b rules', () => {
+    it('the experience prompt: merge same-outcome items, each figure once, projects, voice and tense', () => {
+      const t = read('cv-gen-write-experience')
+      expect(t).toContain('Merge items that state the same outcome into ONE bullet')
+      expect(t).toContain('Each figure once')
+      expect(t).toMatch(/Projects:.*extra evidence/)
+      expect(t).toMatch(/never "I", "my", "me" or "we"/)
+      expect(t).toMatch(/implied subject/)
+      expect(t).toMatch(/past tense for a role the candidate has left and the present tense for their current role/)
+    })
+
+    it('the profile prompt: opens with positioning for this role, at most one figure none of them from the bullets, labels of 2 to 5 words, no pronouns', () => {
+      const t = read('cv-gen-write-profile')
+      expect(t).toContain('opens with the positioning for THIS role')
+      expect(t).toMatch(/hidden question/)
+      expect(t).toMatch(/what kind of company or product it is/)
+      expect(t).toMatch(/at most ONE figure.*never a figure that already appears in the experience section/)
+      expect(t).toMatch(/short noun-phrase labels\*\* of 2 to 5 words/)
+      expect(t).toMatch(/no numbers, no sentences/)
+      expect(t).toMatch(/never "I", "my", "me" or "we"/)
+    })
+  })
 })

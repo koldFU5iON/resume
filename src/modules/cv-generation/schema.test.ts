@@ -51,7 +51,7 @@ describe('StageLogEntrySchema', () => {
   it('fills defaults for a minimal entry', () => {
     expect(StageLogEntrySchema.parse({ stage: 'gather' })).toEqual({
       stage: 'gather', status: 'ok', model: null, startedAt: null, durationMs: null,
-      tokens: { input: 0, output: 0 }, costUsd: null, notes: [], kept: [], dropped: [], retries: 0, flaggedClaims: [], sections: [],
+      tokens: { input: 0, output: 0 }, costUsd: null, notes: [], kept: [], dropped: [], retries: 0, retryReasons: [], flaggedClaims: [], sections: [],
     })
   })
 
@@ -62,7 +62,7 @@ describe('StageLogEntrySchema', () => {
       kept: ['a'], dropped: ['b'], retries: 1,
       flaggedClaims: [{ claim: 'Led a team of 12', verdict: 'unsupported', section: 'Experience', reason: 'Profile says 4' }],
     }
-    expect(StageLogEntrySchema.parse(entry)).toEqual({ ...entry, sections: [] })
+    expect(StageLogEntrySchema.parse(entry)).toEqual({ ...entry, retryReasons: [], sections: [] })
   })
 
   it('rejects an unknown stage or verdict', () => {
@@ -79,7 +79,7 @@ describe('section log rows (phase 3)', () => {
     })
     expect(entry.sections).toHaveLength(2)
     expect(entry.sections[0]).toMatchObject({ status: 'ok', retries: 1, tokens: { input: 900, output: 200 } })
-    expect(entry.sections[1]).toEqual({ id: 'tools', label: 'Tools', status: 'ok', model: null, durationMs: null, tokens: { input: 0, output: 0 }, costUsd: null, retries: 0, notes: [] })
+    expect(entry.sections[1]).toEqual({ id: 'tools', label: 'Tools', status: 'ok', model: null, durationMs: null, tokens: { input: 0, output: 0 }, costUsd: null, retries: 0, retryReasons: [], notes: [] })
   })
 
   it('drops a stage entry with a malformed section instead of failing the whole log', () => {
@@ -206,5 +206,18 @@ describe('CvSelectionSchema', () => {
 
   it('exposes the employers-with-bullets budget under its true name', () => {
     expect(employersWithBullets({ budgets: { experiences: 3, skills: 1, tools: 1, competencies: 1, certifications: 1, education: 1, projects: 1 } })).toBe(3)
+  })
+})
+
+describe('retry reasons (phase 3b): stored runs from before they were recorded still parse', () => {
+  it('defaults retryReasons to [] on stage and section rows without the field', () => {
+    const entries = parseCvGenerationLog({ entries: [{ stage: 'select', retries: 1 }, { stage: 'write', sections: [{ id: 'skills', label: 'Skills', retries: 1 }] }] })
+    expect(entries[0].retryReasons).toEqual([])
+    expect(entries[1].sections[0].retryReasons).toEqual([])
+  })
+
+  it('keeps the recorded reasons', () => {
+    const entries = parseCvGenerationLog({ entries: [{ stage: 'write', sections: [{ id: 'profile', label: 'Profile', retries: 1, retryReasons: ['first person'] }] }] })
+    expect(entries[0].sections[0].retryReasons).toEqual(['first person'])
   })
 })

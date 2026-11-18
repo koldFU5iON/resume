@@ -20,11 +20,12 @@ export type WriteContext = {
 /**
  * What a "worth a quick check" note is about. Notes are cut to MAX_CHECK_NOTES
  * in this priority order: invented figures first, then claimed tools, then a
- * certification or education that may be shown as finished, then a missing
+ * certification or education that may be shown as finished, then a
+ * competency label the profile and experience do not back, then a missing
  * education end date.
  */
-export type CheckKind = 'figure' | 'claimed' | 'credential' | 'education'
-export const CHECK_KIND_RANK: Record<CheckKind, number> = { figure: 0, claimed: 1, credential: 2, education: 3 }
+export type CheckKind = 'figure' | 'claimed' | 'credential' | 'competency' | 'education'
+export const CHECK_KIND_RANK: Record<CheckKind, number> = { figure: 0, claimed: 1, credential: 2, competency: 3, education: 4 }
 export type CheckNote = { kind: CheckKind; text: string }
 
 /** The result of one writer: its markdown and what to log. */
@@ -33,6 +34,8 @@ export type WriterOutcome = {
   model: string | null
   usage: CallUsage
   retries: number
+  /** Why the retry happened, as short phrases ("figure 14k not in evidence", "first person"); empty with no retry. */
+  retryReasons: string[]
   /** Notes for this section's log row. */
   notes: string[]
   /** Genuinely risky items, for "worth a quick check". Rare by design. */

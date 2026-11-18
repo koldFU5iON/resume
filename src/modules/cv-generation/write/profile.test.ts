@@ -8,7 +8,7 @@ import { extractJSON } from '@/modules/llm/extract-json'
 import { scripted, writeSelection, writeVault } from '../__fixtures__/write'
 import { buildBriefFor } from '../__fixtures__/gathered'
 import { evidenceFromVault } from './evidence'
-import { analyseProfile, experienceDigest, fallbackProfile, profilePrompt, writableCompetencies, writeProfile } from './profile'
+import { analyseProfile, experienceDigest, fallbackProfile, labelsFromSelected, maxCompetencyLabels, profilePrompt, writableCompetencies, writeProfile } from './profile'
 import { requirementText } from './prompt'
 import type { WriteContext } from './types'
 
@@ -26,9 +26,9 @@ const digest = experienceDigest([
   { summary: '', bullets: ['Launched a live-service title for 2M players.'] },
 ])
 const good = {
-  profile: 'Delivery leader who turns multi-team programmes into predictable releases, cutting release time by 40% across 8 teams.',
+  profile: 'Delivery leader who turns multi-team programmes into predictable releases for platform organisations.',
   headline: 'Delivery and operations leader | systems thinker',
-  competencies: [{ name: 'Cross-functional leadership', line: 'Cross-functional leadership: shipped 12 titles on schedule' }],
+  competencies: ['Cross-functional leadership'],
 }
 const run = (replies: Array<object | 'junk'>, c = ctx()) => {
   const s = scripted((t, sch) => extractJSON(t, sch as never), replies)
@@ -50,7 +50,7 @@ describe('writeProfile', () => {
     expect(s.calls[0].opts.system).toContain('RULES')
     expect(r.profileMarkdown).toContain('Delivery leader')
     expect(r.headline).toBe('Delivery and operations leader | systems thinker')
-    expect(r.competenciesMarkdown).toBe(':::compact-list\n- Cross-functional leadership: shipped 12 titles on schedule\n:::')
+    expect(r.competenciesMarkdown).toBe(':::skills\n- Cross-functional leadership\n:::')
   })
 
   it('shows the model the wave-1 text (no names, titles or dates) and only the evidenced competencies', async () => {
@@ -64,7 +64,7 @@ describe('writeProfile', () => {
   })
 
   it('leaves out a claimed competency, with a note, instead of giving it an outcome line', async () => {
-    const { result } = run([{ ...good, competencies: [...good.competencies, { name: 'Change management', line: 'Change management: led a rollout' }] }])
+    const { result } = run([{ ...good, competencies: [...good.competencies, 'Change management'] }])
     const r = await result
     expect(r.competenciesMarkdown).not.toContain('Change management')
     expect(r.notes.join(' ')).toMatch(/Left out of Core Competencies.*Change management.*Skills and Tools lists only/)
@@ -101,7 +101,7 @@ describe('writeProfile', () => {
   })
 
   it('accepts a figure from the selected evidence even if the experience text dropped it', () => {
-    const a = analyseProfile({ ...good, profile: 'Saved 2 weeks per release.' }, ctx(), { digest: 'nothing numeric', competencies: writableCompetencies(evidence.competencies) })
+    const a = analyseProfile({ ...good, profile: 'Saved 2 weeks per release.' }, ctx(), { digest: 'nothing numeric', competencies: writableCompetencies(evidence.competencies), maxLabels: 6 })
     expect(a.unsupported).toEqual([])
   })
 
@@ -142,7 +142,7 @@ describe('writeProfile', () => {
     })
 
     it('drops a number word headline the evidence does not support', () => {
-      const a = analyseProfile({ ...good, headline: 'Opened five markets' }, ctx(), { digest, competencies: [] })
+      const a = analyseProfile({ ...good, headline: 'Opened five markets' }, ctx(), { digest, competencies: [], maxLabels: 6 })
       expect(a.headlineUnsupported).toEqual(['five'])
     })
   })
@@ -152,7 +152,7 @@ describe('writeProfile', () => {
       const dirty = {
         profile: '# Delivery leader ![x](http://evil.test/i.png)who ships :::, see [my site](http://x.test) {{contact}}',
         headline: '> **Delivery** leader',
-        competencies: [{ name: 'Cross-functional leadership', line: '- Cross-functional leadership: shipped 12 titles <i>on schedule</i>' }],
+        competencies: ['- Cross-functional <i>leadership</i>'],
       }
       const { s, result } = run([dirty, dirty])
       const r = await result
@@ -161,19 +161,19 @@ describe('writeProfile', () => {
       expect(s.calls[1].prompt).toContain('"{{"')
       expect(r.profileMarkdown).toBe('Delivery leader who ships , see my site contact')
       expect(r.headline).toBe('Delivery leader')
-      expect(r.competenciesMarkdown).toBe(':::compact-list\n- Cross-functional leadership: shipped 12 titles on schedule\n:::')
+      expect(r.competenciesMarkdown).toBe(':::skills\n- Cross-functional leadership\n:::')
       expect(`${r.profileMarkdown}${r.headline}${r.competenciesMarkdown}`).not.toMatch(/\{\{|http|<i>|!\[/)
     })
   })
 
   describe('numbers by value and words', () => {
     it('flags number words and multipliers the experience text does not support', () => {
-      const a = analyseProfile({ ...good, profile: 'Leader who opened five markets and doubled revenue.' }, ctx(), { digest, competencies: [] })
+      const a = analyseProfile({ ...good, profile: 'Leader who opened five markets and doubled revenue.' }, ctx(), { digest, competencies: [], maxLabels: 6 })
       expect(a.unsupported).toEqual(['five', 'doubled'])
     })
 
     it('accepts forty percent for 40% and 12 for twelve', () => {
-      const a = analyseProfile({ ...good, profile: 'Leader who cut release time by forty percent across eight teams.' }, ctx(), { digest, competencies: [] })
+      const a = analyseProfile({ ...good, profile: 'Leader who cut release time by forty percent across eight teams.' }, ctx(), { digest, competencies: [], maxLabels: 6 })
       expect(a.unsupported).toEqual([])
     })
   })
@@ -182,7 +182,7 @@ describe('writeProfile', () => {
     const named = (credentials: Array<{ name: string; inProgress: boolean }>) => ctx({ evidence: { ...evidence, credentials } })
 
     it('fails "PMP-certified" while the PMP is in progress: retried once with feedback, then accepted with a "worth a quick check" note', async () => {
-      const bad = { ...good, profile: 'PMP-certified delivery leader who cut release time by 40% across 8 teams.' }
+      const bad = { ...good, profile: 'PMP-certified delivery leader for platform organisations.' }
       const { s, result } = run([bad, bad], named([{ name: 'PMP', inProgress: true }]))
       const r = await result
       expect(s.calls).toHaveLength(2)
@@ -192,12 +192,12 @@ describe('writeProfile', () => {
     })
 
     it('accepts the in-progress wording', () => {
-      const a = analyseProfile({ ...good, profile: 'Delivery leader, currently studying for the PMP.' }, named([{ name: 'PMP', inProgress: true }]), { digest, competencies: [] })
+      const a = analyseProfile({ ...good, profile: 'Delivery leader, currently studying for the PMP.' }, named([{ name: 'PMP', inProgress: true }]), { digest, competencies: writableCompetencies(evidence.competencies), maxLabels: 6 })
       expect(a.soft).toEqual([])
     })
 
     it('flags a certification the evidence text does not mention', () => {
-      const a = analyseProfile({ ...good, profile: 'CISM-certified delivery leader.' }, named([{ name: 'CISM', inProgress: false }]), { digest, competencies: [] })
+      const a = analyseProfile({ ...good, profile: 'CISM-certified delivery leader.' }, named([{ name: 'CISM', inProgress: false }]), { digest, competencies: [], maxLabels: 6 })
       expect(a.soft.join(' ')).toMatch(/"CISM" is a certification or qualification the evidence does not mention/)
     })
   })
@@ -210,7 +210,7 @@ describe('writeProfile', () => {
 
   it('does not call a short claimed name in "go-to-market" or "C-suite"', () => {
     const claimedGo = ctx({ evidence: { ...evidence, claimedNames: [...evidence.claimedNames, 'Go', 'C'] } })
-    const a = analyseProfile({ ...good, profile: 'Leader of go-to-market launches who briefs the C-suite.' }, claimedGo, { digest, competencies: [] })
+    const a = analyseProfile({ ...good, profile: 'Leader of go-to-market launches who briefs the C-suite.' }, claimedGo, { digest, competencies: [], maxLabels: 6 })
     expect(a.claimed).toEqual([])
   })
 
@@ -223,7 +223,7 @@ describe('writeProfile', () => {
       expect(f.usage.calls).toBe(0)
       expect(f.headline).toBeNull()
       expect(f.profileMarkdown).toBe(base.brief.positioning)
-      expect(f.competenciesMarkdown).toBe(':::compact-list\n- Cross-functional leadership\n:::')
+      expect(f.competenciesMarkdown).toBe(':::skills\n- Cross-functional leadership\n:::')
       expect(f.notes[0]).toMatch(/No time\. The profile section was made by code/)
     })
 
@@ -259,14 +259,204 @@ describe('writeProfile', () => {
 describe('profilePrompt and helpers', () => {
   it('lists the limits, and only evidenced competencies are writable', () => {
     expect(writableCompetencies(evidence.competencies).map((c) => c.name)).toEqual(['Cross-functional leadership'])
-    const p = profilePrompt(ctx(), digest, writableCompetencies(evidence.competencies))
+    const p = profilePrompt(ctx(), digest, writableCompetencies(evidence.competencies), 6)
     expect(p).toMatch(/at most 80 words/)
     expect(p).toMatch(/at most 12 words/)
-    expect(p).toMatch(/at most 1 lines/)
+    expect(p).toMatch(/up to 6 labels.*2 to 5 words/)
   })
 
   it('numbers the employers without naming them', () => {
     expect(digest).toContain('Employer 1 (most recent):\nRan release and planning')
     expect(digest).toContain('Employer 2:\n- Launched')
+  })
+})
+
+describe('Phase 3b: no cross-section repetition, short competency labels, voice', () => {
+  const allowed = { digest, competencies: writableCompetencies(evidence.competencies), maxLabels: 6 }
+  // The digest holds 40% (experience bullets); the profile must not restate it.
+  const repeating = { ...good, profile: 'Delivery leader who cut release time by 40% for platform organisations.' }
+
+  it('flags a figure that the profile shares with an experience bullet, naming it', () => {
+    const a = analyseProfile(repeating, ctx(), allowed)
+    expect(a.soft.join(' ')).toMatch(/already appear in the experience bullets.*40%/)
+    expect(a.why).toContain('duplicate figure 40%')
+    expect(a.repeatedFigures).toEqual(['40%'])
+  })
+
+  it('catches the same figure written differently (14k vs 14,000+) in the headline too', () => {
+    const d = experienceDigest([{ summary: '', bullets: ['Won the Unity Awards with 14,000+ attendees.'] }])
+    const a = analyseProfile({ ...good, headline: 'Event marketer behind 14k-strong awards' }, ctx({ evidence: { ...evidence } }), { ...allowed, digest: d })
+    expect(a.repeatedFigures.length).toBeGreaterThan(0)
+    expect(a.soft.join(' ')).toMatch(/already appear in the experience bullets/)
+  })
+
+  it('retries once with the offending figure named, records why, then accepts with a log note (never fails)', async () => {
+    const { s, result } = run([repeating, repeating])
+    const r = await result
+    expect(s.calls).toHaveLength(2)
+    expect(s.calls[1].prompt).toMatch(/already appear in the experience bullets.*40%/)
+    expect(r.retryReasons).toEqual(['duplicate figure 40%'])
+    expect(r.notes.join(' ')).toMatch(/Accepted with a problem after the retry: these figures already appear in the experience bullets/)
+    expect(r.profileMarkdown).toContain('40%') // accepted as written
+  })
+
+  it('accepts one figure the experience bullets do not use, and flags a second', () => {
+    // 2M players is in the selected evidence but not in this digest.
+    const d = experienceDigest([{ summary: '', bullets: ['Shipped on schedule.'] }])
+    const one = analyseProfile({ ...good, profile: 'Delivery leader behind a launch for 2M players.' }, ctx(), { ...allowed, digest: d })
+    expect(one.soft.join(' ')).not.toMatch(/at most 1 figure/)
+    const two = analyseProfile({ ...good, profile: 'Delivery leader behind a launch for 2M players that saved 40% of release time.' }, ctx(), { ...allowed, digest: d })
+    expect(two.soft.join(' ')).toMatch(/at most 1 figure.*drop: 40%/)
+    expect(two.why).toContain('more than 1 figure in the profile')
+  })
+
+  it('does not count small numbers as a repeated figure', () => {
+    const a = analyseProfile({ ...good, profile: 'Delivery leader across 8 teams.' }, ctx(), allowed)
+    expect(a.repeatedFigures).toEqual([])
+  })
+
+  describe('competencies are short noun-phrase labels in a :::skills block', () => {
+    it('renders the labels as an inline :::skills list, at most the budget, de-duplicated', async () => {
+      const labels = ['Cross-functional leadership', 'cross-functional leadership', 'Release governance', 'Programme planning', 'Stakeholder management', 'Risk and dependency management', 'Delivery operations', 'Change management']
+      const { result } = run([{ ...good, competencies: labels }], ctx({ brief: buildBriefFor({ budgets: { experiences: 2, skills: 12, tools: 10, competencies: 5, certifications: 4, education: 3, projects: 2 } }) }))
+      const r = await result
+      expect(r.competenciesMarkdown).toBe(':::skills\n- Cross-functional leadership\n- Release governance\n- Programme planning\n- Stakeholder management\n- Risk and dependency management\n:::')
+    })
+
+    it('retries when a label is a sentence, has a number or is too long; drops what is still bad and notes it', async () => {
+      const bad = { ...good, competencies: ['Cross-functional leadership', 'Shipped 12 titles on schedule across eight studios.', 'Leadership', 'Cut release time by 40%'] }
+      const { s, result } = run([bad, bad])
+      const r = await result
+      expect(s.calls).toHaveLength(2)
+      expect(s.calls[1].prompt).toMatch(/competency labels must be short noun phrases of 2 to 5 words/)
+      expect(r.retryReasons).toContain('competency label format')
+      expect(r.competenciesMarkdown).toBe(':::skills\n- Cross-functional leadership\n:::')
+      expect(r.notes.join(' ')).toMatch(/Left out of Core Competencies:.*has a number/)
+    })
+
+    it('falls back to the selected competency names that already are labels when none is usable', async () => {
+      const { result } = run([{ ...good, competencies: ['x'] }])
+      const r = await result
+      expect(r.competenciesMarkdown).toBe(':::skills\n- Cross-functional leadership\n:::')
+      expect(r.notes.join(' ')).toMatch(/no usable competency labels/)
+    })
+
+    it('never writes a claimed competency into the section, even as a label', async () => {
+      const { result } = run([{ ...good, competencies: ['Cross-functional leadership', 'Change management'] }])
+      const r = await result
+      expect(r.competenciesMarkdown).not.toContain('Change management')
+      expect(r.notes.join(' ')).toMatch(/"Change management" names Change management, which your profile lists without evidence/)
+    })
+
+    it('shows no section when the brief budgets none or nothing evidenced is selected', () => {
+      expect(maxCompetencyLabels({ brief: buildBriefFor({ budgets: { experiences: 2, skills: 12, tools: 10, competencies: 0, certifications: 4, education: 3, projects: 2 } }), evidence })).toBe(0)
+      expect(maxCompetencyLabels({ brief: buildBriefFor(), evidence: { ...evidence, competencies: [] } })).toBe(0)
+      expect(maxCompetencyLabels({ brief: buildBriefFor(), evidence })).toBeGreaterThan(0)
+    })
+
+    it('labelsFromSelected keeps only names that already are short labels', () => {
+      const comp = (name: string) => ({ id: name, name, category: null, level: null, claimed: false })
+      expect(labelsFromSelected([comp('Stakeholder management'), comp('Leadership'), comp('Cut release time by 40%'), comp('Stakeholder Management')], 6))
+        .toEqual({ labels: ['Stakeholder management'], skipped: ['Leadership', 'Cut release time by 40%'], overflow: [] })
+      expect(labelsFromSelected([comp('Stakeholder management'), comp('Release governance')], 1)).toEqual({ labels: ['Stakeholder management'], skipped: [], overflow: ['Release governance'] })
+    })
+
+    describe('nothing selected vanishes silently', () => {
+      const comp = (name: string, claimed = false) => ({ id: name, name, category: null, level: null, claimed })
+      const withComps = (names: string[], budget = 6) => ctx({
+        evidence: { ...evidence, competencies: names.map((n) => comp(n)) },
+        brief: buildBriefFor({ budgets: { experiences: 2, skills: 12, tools: 10, competencies: budget, certifications: 4, education: 3, projects: 2 } }),
+      })
+
+      it('names a selected evidenced competency that no label reflects', async () => {
+        const { result } = run([{ ...good, competencies: ['Cross-functional leadership'] }], withComps(['Cross-functional leadership', 'Vendor negotiation']))
+        const r = await result
+        expect(r.competenciesMarkdown).toBe(':::skills\n- Cross-functional leadership\n:::')
+        expect(r.notes.join(' ')).toMatch(/not reflected in Core Competencies.*Vendor negotiation/)
+        expect(r.notes.join(' ')).not.toMatch(/Cross-functional leadership\./)
+      })
+
+      it('matches on the full name or its words: a reworded label still reflects the competency, a shared first word does not', async () => {
+        const { result } = run([{ ...good, competencies: ['Stakeholder and risk management', 'Change communications'] }], withComps(['Stakeholder management', 'Change management']))
+        const r = await result
+        const note = r.notes.find((n) => /not reflected in Core Competencies/.test(n)) ?? ''
+        expect(note).toContain('Change management')
+        expect(note).not.toContain('Stakeholder management')
+      })
+
+      it('says so when the fallback has more evidenced competencies than room', () => {
+        const f = fallbackProfile(withComps(['Release governance', 'Programme planning', 'Stakeholder management'], 2), digest, 'No time.')
+        expect(f.competenciesMarkdown).toBe(':::skills\n- Release governance\n- Programme planning\n:::')
+        expect(f.notes.join(' ')).toMatch(/not reflected in Core Competencies.*Stakeholder management/)
+        expect(f.notes.join(' ')).not.toMatch(/reflected.*Release governance/)
+      })
+
+      it('says so when the brief budgets 0 competencies, naming each selected one (writer and fallback)', async () => {
+        const c = withComps(['Release governance', 'Programme planning'], 0)
+        const f = fallbackProfile(c, digest, 'No time.')
+        expect(f.competenciesMarkdown).toBe('')
+        expect(f.notes.join(' ')).toMatch(/competency budget is 0.*Release governance, Programme planning/)
+        const { result } = run([{ ...good, competencies: [] }], c)
+        expect((await result).notes.join(' ')).toMatch(/competency budget is 0.*Release governance, Programme planning/)
+      })
+
+      it('when the writer gave no usable label and the fallback names overflow, the overflow is noted', async () => {
+        const { result } = run([{ ...good, competencies: ['x'] }], withComps(['Release governance', 'Programme planning', 'Stakeholder management'], 2))
+        const r = await result
+        expect(r.notes.join(' ')).toMatch(/not reflected in Core Competencies.*Stakeholder management/)
+      })
+    })
+
+    describe('labels must be grounded in the profile', () => {
+      it('flags a label that overlaps no selected competency and no evidence text: one retry, then a check note, label kept', async () => {
+        const ungrounded = { ...good, competencies: ['Cross-functional leadership', 'Blockchain tokenomics design'] }
+        const { s, result } = run([ungrounded, ungrounded])
+        const r = await result
+        expect(s.calls).toHaveLength(2)
+        expect(s.calls[1].prompt).toMatch(/match none of the selected competencies or the experience evidence.*Blockchain tokenomics design/)
+        expect(r.retryReasons.join(' ')).toMatch(/Blockchain tokenomics design/)
+        expect(r.competenciesMarkdown).toContain('Blockchain tokenomics design')
+        expect(r.checks).toEqual([{ kind: 'competency', text: expect.stringContaining('"Blockchain tokenomics design"') }])
+        expect(r.notes.join(' ')).toMatch(/match none of your selected competencies or experience text: Blockchain tokenomics design/)
+      })
+
+      it('does not flag a label that shares a word with a selected competency or with the evidence text', () => {
+        const a = analyseProfile({ ...good, competencies: ['Leadership across teams', 'Release process improvement'] }, ctx(), { digest, competencies: writableCompetencies(evidence.competencies), maxLabels: 6 })
+        expect(a.ungroundedLabels).toEqual([])
+      })
+    })
+  })
+
+  describe('voice', () => {
+    it('rejects first person in the profile: retry once with feedback, record why, then accept with a log note', async () => {
+      const mine = { ...good, profile: 'I turn multi-team programmes into predictable releases for my clients.' }
+      const { s, result } = run([mine, mine])
+      const r = await result
+      expect(s.calls).toHaveLength(2)
+      expect(s.calls[1].prompt).toMatch(/the profile contains first person/)
+      expect(r.retryReasons).toEqual(['first person'])
+      expect(r.notes.join(' ')).toMatch(/Accepted with a problem after the retry: the profile contains first person/)
+    })
+
+    it('rejects first person in a competency label and in the headline', () => {
+      const a = analyseProfile({ ...good, headline: 'My delivery craft', competencies: ['Our delivery model'] }, ctx(), allowed)
+      expect(a.soft.filter((x) => /first person/.test(x))).toHaveLength(2)
+    })
+  })
+
+  describe('the prompt', () => {
+    const p = profilePrompt(ctx(), digest, writableCompetencies(evidence.competencies), 6)
+    it('opens with positioning for this role, in the brief language and the job key terms', () => {
+      expect(p).toMatch(/Open with the positioning for THIS role.*brief's positioning and hidden-question language and the job's key terms/)
+      expect(p).toMatch(/what the company or product is/)
+    })
+    it('allows one figure, and names the ones the experience section already uses', () => {
+      expect(p).toMatch(/at most 1 in the profile and headline together/)
+      expect(p).toMatch(/those are: 40%, 2M/)
+    })
+    it('asks for no pronouns and 2-5 word noun-phrase labels', () => {
+      expect(p).toMatch(/No first person \("I", "my", "we"\)/)
+      expect(p).toMatch(/2 to 5 words, with no numbers and no sentence/)
+    })
   })
 })

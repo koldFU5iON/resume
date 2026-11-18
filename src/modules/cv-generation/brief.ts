@@ -15,7 +15,7 @@ import { composeSystem, loadCVBriefPrompt } from '@/modules/llm/prompt-context'
 import { completeValidated, type ValidatedCall } from './call'
 import type { Candidates } from './candidates'
 import type { GatherResult } from './gather'
-import { CV_GENERATION_FEATURES, CvBriefSchema, MAX_OUTPUT_TOKENS, TIME_BUDGET_MS, type CvBrief } from './schema'
+import { CV_GENERATION_FEATURES, CvBriefSchema, MAX_OUTPUT_TOKENS, TEMPERATURE, TIME_BUDGET_MS, type CvBrief } from './schema'
 import { strategyToPrompt } from './strategy'
 
 type Gathered = Extract<GatherResult, { ok: true }>
@@ -55,7 +55,7 @@ export async function runBrief(
     system: composeSystem(instructions, OUTPUT_FORMAT),
     maxOutputTokens: MAX_OUTPUT_TOKENS.brief,
     retryMaxOutputTokens: MAX_OUTPUT_TOKENS.briefRetry,
-    temperature: 0.3,
+    temperature: TEMPERATURE.brief,
     timeoutMs: TIME_BUDGET_MS.brief,
     deadline: ctx.deadline,
     feature: CV_GENERATION_FEATURES.brief,

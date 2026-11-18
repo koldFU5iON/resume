@@ -133,6 +133,121 @@ describe('groupEmployers', () => {
     expect(overlap[0].latestTitle).toBe('Director')
   })
 
+  describe('latest title: a current role wins, else the later START; the end date is only the tiebreak', () => {
+    const megarom = (ends: [string, string, string]) => [
+      role('m1', 'Megarom Interactive', 'Marketing & Events Co-ordinator', '2010-03', ends[0]),
+      role('m2', 'Megarom Interactive', 'Marketing & PR Executive', '2012-05', ends[1]),
+      role('m3', 'Megarom Interactive', 'PR & Promotions Manager', '2014-02', ends[2]),
+    ]
+
+    it('shows the promotion-chain title when the end dates overlap (the oldest role ends last)', () => {
+      const g = groupEmployers(megarom(['2016-06', '2016-03', '2016-03']))
+      expect(g[0].latestTitle).toBe('PR & Promotions Manager')
+      expect(g[0].roles.map((r) => r.title)).toEqual(['Marketing & Events Co-ordinator', 'Marketing & PR Executive', 'PR & Promotions Manager'])
+    })
+
+    it('shows the promotion-chain title when every role has the same end date', () => {
+      const g = groupEmployers(megarom(['2016-03', '2016-03', '2016-03']))
+      expect(g[0].latestTitle).toBe('PR & Promotions Manager')
+    })
+
+    it('is the same whatever order the roles are given in', () => {
+      const roles = megarom(['2016-06', '2016-03', '2016-03'])
+      for (const order of [[0, 1, 2], [2, 1, 0], [1, 0, 2], [2, 0, 1]]) {
+        expect(groupEmployers(order.map((i) => roles[i]))[0].latestTitle).toBe('PR & Promotions Manager')
+      }
+    })
+
+    it('a current role beats a finished role that started later', () => {
+      const g = groupEmployers([
+        role('a', 'Co', 'Advisor', '2015-01', null),
+        role('b', 'Co', 'Contractor', '2020-01', '2021-01'),
+      ])
+      expect(g[0].latestTitle).toBe('Advisor')
+    })
+
+    it('uses the end date only when two roles start together', () => {
+      const g = groupEmployers([
+        role('a', 'Co', 'Shorter', '2018-01', '2019-01'),
+        role('b', 'Co', 'Longer', '2018-01', '2020-01'),
+      ])
+      expect(g[0].latestTitle).toBe('Longer')
+    })
+
+    it('a chain that ends in a current role shows the current title', () => {
+      const g = groupEmployers([
+        role('a', 'Co', 'Analyst', '2016-01', '2018-06'),
+        role('b', 'Co', 'Senior Analyst', '2018-06', '2021-03'),
+        role('c', 'Co', 'Lead Analyst', '2021-03', null),
+      ])
+      expect(g[0].latestTitle).toBe('Lead Analyst')
+      expect(g[0].progression).toBe('Three roles at Co (2016–present): Analyst → Senior Analyst → Lead Analyst')
+    })
+
+    it('keeps ordering employers by when they were last worked at, not by one role\'s end date', () => {
+      const g = groupEmployers([
+        ...megarom(['2016-06', '2016-03', '2016-03']),
+        role('x1', 'Other Co', 'Producer', '2015-01', '2016-05'),
+        role('y1', 'Third Co', 'Intern', '2009-01', '2010-01'),
+      ])
+      expect(g.map((e) => e.company)).toEqual(['Megarom Interactive', 'Other Co', 'Third Co'])
+      // Same employer end, the later start of the latest role goes first.
+      const tie = groupEmployers([role('a', 'A Co', 'Dev', '2010-01', '2016-03'), role('b', 'B Co', 'Dev', '2014-01', '2016-03')])
+      expect(tie.map((e) => e.company)).toEqual(['B Co', 'A Co'])
+    })
+
+    it('between two CURRENT employers the one started more recently comes first, even when the other has a finished role', () => {
+      const g = groupEmployers([
+        role('o1', 'OldCo', 'Advisor', '2010-01', null),
+        role('o2', 'OldCo', 'Analyst', '2005-01', '2009-01'),
+        role('n1', 'NewCo', 'Director', '2025-01', null),
+      ])
+      expect(g.map((e) => e.company)).toEqual(['NewCo', 'OldCo'])
+      // Input order does not matter.
+      expect(groupEmployers([role('n1', 'NewCo', 'Director', '2025-01', null), role('o2', 'OldCo', 'Analyst', '2005-01', '2009-01'), role('o1', 'OldCo', 'Advisor', '2010-01', null)]).map((e) => e.company)).toEqual(['NewCo', 'OldCo'])
+    })
+
+    describe('a nested role does not take the heading (LATEST_TITLE_END_TOLERANCE_MONTHS)', () => {
+      it('a role that started later but ended years before the other keeps the title of the one that kept running', () => {
+        const roles = [
+          role('a', 'Co', 'Program Manager', '2016-01', '2023-01'),
+          role('b', 'Co', 'Interim Head', '2019-01', '2020-01'),
+        ]
+        expect(groupEmployers(roles)[0].latestTitle).toBe('Program Manager')
+        expect(groupEmployers([...roles].reverse())[0].latestTitle).toBe('Program Manager')
+        // The progression and stints are untouched.
+        expect(groupEmployers(roles)[0].roles.map((r) => r.title)).toEqual(['Program Manager', 'Interim Head'])
+      })
+
+      it('a later-starting role ending within six months of the other still wins (Megarom stays right)', () => {
+        const g = groupEmployers([
+          role('a', 'Co', 'Executive', '2012-05', '2016-06'),
+          role('b', 'Co', 'Manager', '2014-02', '2016-01'),
+        ])
+        expect(g[0].latestTitle).toBe('Manager')
+        // Seven months short: the longer role wins.
+        const far = groupEmployers([
+          role('a', 'Co', 'Executive', '2012-05', '2016-09'),
+          role('b', 'Co', 'Manager', '2014-02', '2016-01'),
+        ])
+        expect(far[0].latestTitle).toBe('Executive')
+      })
+
+      it('a later-starting CURRENT role wins whatever the other ended', () => {
+        const g = groupEmployers([
+          role('a', 'Co', 'Program Manager', '2016-01', '2023-01'),
+          role('b', 'Co', 'Interim Head', '2019-01', null),
+        ])
+        expect(g[0].latestTitle).toBe('Interim Head')
+      })
+    })
+
+    it('leaves stints alone: overlapping roles are still one stint', () => {
+      const g = groupEmployers(megarom(['2016-06', '2016-03', '2016-03']))
+      expect(g[0].stints).toEqual([{ start: '2010-03-01', end: '2016-06-01' }])
+    })
+  })
+
   it('returns employers newest first, a current employer ahead of a finished one', () => {
     const g = groupEmployers([
       role('e1', 'Old Co', 'Dev', '2010-01', '2014-12'),

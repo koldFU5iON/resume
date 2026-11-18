@@ -321,6 +321,17 @@ export function selectionSummary(sel: CvSelection): string {
 
 // ── Write and Assemble (stages 3-4) ─────────────────────────────────────────
 
+/**
+ * Why a stage or section retried, as one line ("Retried because: figure 14k not
+ * in evidence; first person"), or null when it did not retry or the stored row
+ * has no reasons (rows from before they were recorded).
+ */
+export function retryReasonLine(e: { retries: number; retryReasons?: readonly string[] }): string | null {
+  const reasons = (e.retryReasons ?? []).map((r) => r.trim()).filter(Boolean)
+  if (e.retries <= 0 || reasons.length === 0) return null
+  return `Retried because: ${reasons.join("; ")}`
+}
+
 /** The facts of one section row under Write, in order; empty ones left out. */
 export function sectionMeta(s: Pick<SectionLogEntry, "model" | "durationMs" | "tokens" | "costUsd" | "retries">): string[] {
   const out: string[] = []

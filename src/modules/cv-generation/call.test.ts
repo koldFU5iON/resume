@@ -83,6 +83,55 @@ describe('completeValidated', () => {
   })
 })
 
+describe('retry reasons (why a retry happened)', () => {
+  it('completeValidated records why: rejected fields, or cut off', async () => {
+    mockJSON.mockResolvedValueOnce(bad('stop')).mockResolvedValueOnce(good)
+    const rejected = await completeValidated('p1', 'prompt', schema, opts())
+    expect(rejected.retryReasons).toEqual([expect.stringMatching(/the answer was rejected: /)])
+    mockJSON.mockResolvedValueOnce(bad('length')).mockResolvedValueOnce(good)
+    const cut = await completeValidated('p1', 'prompt', schema, opts())
+    expect(cut.retryReasons).toEqual(['the answer was cut off'])
+  })
+
+  it('completeValidated records none when there was no retry', async () => {
+    mockJSON.mockResolvedValue(good)
+    expect((await completeValidated('p1', 'prompt', schema, opts())).retryReasons).toEqual([])
+  })
+
+  it('completeChecked records the short reasons of the problems that triggered the retry', async () => {
+    mockJSON.mockResolvedValue(good)
+    let n = 0
+    const r = await completeChecked('p1', 'prompt', schema, {
+      ...opts({ maxOutputTokens: 1_500, retryMaxOutputTokens: 3_000, label: 'experience section' }),
+      check: () => (n++ === 0 ? { hard: [], soft: ['these figures are not in the evidence: 14k', 'bullet 2 contains first person'], why: ['figure 14k not in evidence', 'first person'] } : { hard: [], soft: [] }),
+    })
+    expect(r.retries).toBe(1)
+    expect(r.retryReasons).toEqual(['figure 14k not in evidence', 'first person'])
+  })
+
+  it('completeChecked falls back to the problem sentences (shortened to one line) when a check gives no short reasons', async () => {
+    mockJSON.mockResolvedValue(good)
+    let n = 0
+    const long = `too long ${'x'.repeat(300)}`
+    const r = await completeChecked('p1', 'prompt', schema, {
+      ...opts({ maxOutputTokens: 1_500, retryMaxOutputTokens: 3_000, label: 'experience section' }),
+      check: () => (n++ === 0 ? { hard: [], soft: [long] } : { hard: [], soft: [] }),
+    })
+    expect(r.retryReasons).toHaveLength(1)
+    expect(r.retryReasons[0].length).toBeLessThanOrEqual(140)
+    expect(r.retryReasons[0]).toMatch(/^too long/)
+  })
+
+  it('completeChecked records an unusable first answer as a reason, and none without a retry', async () => {
+    mockJSON.mockResolvedValueOnce(bad('stop')).mockResolvedValueOnce(good)
+    const r = await completeChecked('p1', 'prompt', schema, { ...opts({ maxOutputTokens: 1_500, retryMaxOutputTokens: 3_000, label: 'x' }), check: () => ({ hard: [], soft: [] }) })
+    expect(r.retryReasons).toEqual([expect.stringMatching(/rejected/)])
+    mockJSON.mockResolvedValue(good)
+    const clean = await completeChecked('p1', 'prompt', schema, { ...opts({ maxOutputTokens: 1_500, retryMaxOutputTokens: 3_000, label: 'x' }), check: () => ({ hard: [], soft: [] }) })
+    expect(clean.retryReasons).toEqual([])
+  })
+})
+
 describe('usage from the call results (not from rows that may not be written yet)', () => {
   const withUsage = (usage: { inputTokens: number; outputTokens: number; cacheReadTokens: number | null; cacheWriteTokens: number | null } | undefined, model = 'claude-haiku-5-5') => ({ ...good, model, provider: 'anthropic', usage })
 

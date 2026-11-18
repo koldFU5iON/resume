@@ -138,6 +138,129 @@ export function unsupportedFigures(output: string, evidence: readonly string[], 
   return bad
 }
 
+// ── Repeated figures ────────────────────────────────────────────────────────
+
+/**
+ * A figure worth guarding against repetition: a percentage, a multiplier, or a
+ * number of 100 or more (14,000+, £500k, "doubled"). Small bare numbers ("3
+ * markets", "8 teams") and years are not: two different facts often share them,
+ * and a retry for that would cost more than the repetition does.
+ */
+export function isNotableFigure(f: Figure): boolean {
+  if (/[%x]$/.test(f.key)) return true
+  if (/^(?:19|20)\d{2}$/.test(f.raw.replace(/^[£$€]/, '').trim())) return false
+  return Number(f.key) >= 100
+}
+
+const notableIn = (text: string, names: readonly string[]) => figuresIn(text, { names }).filter(isNotableFigure)
+
+/** Notable figures (by value) that appear more than once across `parts`, as first written. */
+export function repeatedFigures(parts: readonly string[], names: readonly string[] = []): string[] {
+  const seen = new Map<string, { raw: string; n: number }>()
+  for (const part of parts) {
+    for (const f of notableIn(part, names)) {
+      const e = seen.get(f.key)
+      if (e) e.n++
+      else seen.set(f.key, { raw: f.raw, n: 1 })
+    }
+  }
+  return [...seen.values()].filter((e) => e.n > 1).map((e) => e.raw)
+}
+
+/** Notable figures of `text` (by value) that also appear in any of `others`, as written in `text`. */
+export function sharedFigures(text: string, others: readonly string[], names: readonly string[] = []): string[] {
+  const taken = new Set(others.flatMap((o) => notableIn(o, names).map((f) => f.key)))
+  const out: string[] = []
+  for (const f of notableIn(text, names)) if (taken.has(f.key) && !out.includes(f.raw)) out.push(f.raw)
+  return out
+}
+
+/** The distinct notable figures in `text`, as first written. */
+export function distinctNotableFigures(text: string, names: readonly string[] = []): string[] {
+  const seen = new Map<string, string>()
+  for (const f of notableIn(text, names)) if (!seen.has(f.key)) seen.set(f.key, f.raw)
+  return [...seen.values()]
+}
+
+// ── Projects ────────────────────────────────────────────────────────────────
+
+/** Words that say nothing about WHICH project it was: they never prove one was reflected. */
+const GENERIC_PROJECT_WORDS = new Set([
+  'project', 'projects', 'campaign', 'campaigns', 'launch', 'launches', 'demo', 'demos', 'program', 'programme', 'initiative', 'event', 'events',
+  'product', 'platform', 'redesign', 'website', 'site', 'team', 'update', 'new', 'the', 'and', 'for', 'with',
+])
+
+const normalised = (text: string) => text.toLowerCase().normalize('NFKD').replace(/\p{M}/gu, '').split(/[^\p{L}\p{N}]+/u).filter(Boolean)
+
+/** The words of a project's name that identify it: 4+ characters, not a generic word, not in the employer's ordinary activity text. */
+export function distinctiveNameTokens(name: string, ordinaryText: string): string[] {
+  const ordinary = new Set(normalised(ordinaryText))
+  return [...new Set(normalised(name))].filter((w) => w.length >= 4 && !GENERIC_PROJECT_WORDS.has(w) && !ordinary.has(w))
+}
+
+/**
+ * Whether `output` reflects a selected project: it contains the project's name
+ * (normalised: case, accents and punctuation ignored), or a DISTINCTIVE token
+ * of that name. A word that is generic ("campaign", "launch") or appears in the
+ * employer's ordinary activity text (`ordinaryText`) never counts, so "Launched
+ * marketing campaign across social channels" does not cover a project called
+ * "Enemies Demo Campaign". A project whose name is nothing but generic words
+ * is reflected only by its full name. Best effort: a paraphrase is a false
+ * negative, which costs one retry and a log note, never a failed run.
+ */
+export function projectReflected(output: string, project: { name: string }, ordinaryText = ''): boolean {
+  const name = normalised(project.name).join(' ')
+  const out = ` ${normalised(output).join(' ')} `
+  if (name && out.includes(` ${name} `)) return true
+  const outWords = new Set(normalised(output))
+  return distinctiveNameTokens(project.name, ordinaryText).some((w) => outWords.has(w))
+}
+
+// ── Competency labels ───────────────────────────────────────────────────────
+
+/** A number standing on its own ("Top 10 lists", "24/7"); digits inside a name ("B2B", "Web3", "3D") are not. */
+const STANDALONE_DIGITS = /(?<![\p{L}\p{N}])\d+(?![\p{L}\p{N}])/u
+/** Sentence punctuation; a dot inside a token ("Node.js") is not a sentence. */
+const SENTENCE_MARK = /[;:!?]|\.(?:\s|$)/
+
+/** Why a Core Competencies label is not a short noun phrase (2-5 words, no numbers, no sentence), or null when it is fine. */
+export function competencyLabelProblem(label: string, bounds: { min: number; max: number }): string | null {
+  const l = label.trim()
+  const n = wordCount(l)
+  if (n < bounds.min) return `"${l}" is ${n === 0 ? 'empty' : 'one word'}; use ${bounds.min} to ${bounds.max} words`
+  if (n > bounds.max) return `"${l}" is ${n} words; use ${bounds.min} to ${bounds.max}`
+  if (figuresIn(l, { bareOne: true }).length > 0 || STANDALONE_DIGITS.test(l)) return `"${l}" has a number; labels carry no numbers`
+  if (SENTENCE_MARK.test(l)) return `"${l}" reads as a sentence; use a plain noun phrase`
+  return null
+}
+
+/** Short words and fillers that say nothing about what a label is about. */
+const LABEL_STOP = new Set(['with', 'from', 'that', 'this', 'across', 'into', 'over', 'under', 'and', 'for', 'the', 'their', 'your', 'using', 'based'])
+
+/** The content words of a text as 5-letter stems, so "launch", "launched" and "launching" meet. */
+function contentStems(text: string): Set<string> {
+  return new Set(normalised(text).filter((w) => w.length >= 4 && !LABEL_STOP.has(w)).map((w) => w.slice(0, 5)))
+}
+
+/** Whether a Core Competencies label is grounded in `texts` (the selected competency names, the employers' evidence): it shares a content word with any of them. */
+export function labelGroundedIn(label: string, texts: readonly string[]): boolean {
+  const mine = contentStems(label)
+  return texts.some((t) => [...contentStems(t)].some((w) => mine.has(w)) || containsPhrase(t, label))
+}
+
+/**
+ * Whether a label reflects a selected competency: it contains the name (or the
+ * name contains it), or more than half of the name's content words appear in it.
+ * Matching on full names and words, not the first word.
+ */
+export function labelReflectsCompetency(label: string, name: string): boolean {
+  if (containsPhrase(label, name) || containsPhrase(name, label)) return true
+  const wanted = [...contentStems(name)]
+  if (wanted.length === 0) return false
+  const mine = contentStems(label)
+  return wanted.filter((w) => mine.has(w)).length > wanted.length / 2
+}
+
 // ── Names ───────────────────────────────────────────────────────────────────
 
 const SHORT_NAME_MAX = 2

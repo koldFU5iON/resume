@@ -1,6 +1,7 @@
 import { Check, Circle, CircleAlert, Loader2, MinusCircle, TriangleAlert } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
+  retryReasonLine,
   sectionMeta,
   stageMeta,
   stageNotes,
@@ -64,6 +65,7 @@ function LogRow({ row, warnings }: { row: StageRow; warnings: string[] }) {
   const meta = stageMeta(row)
   const e = row.entry
   const notes = e ? stageNotes(e) : []
+  const retryLine = e ? retryReasonLine(e) : null
   return (
     <li className="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-x-3 px-4 py-3.5">
       <span className="mt-0.5"><StateIcon state={row.state} /></span>
@@ -83,6 +85,8 @@ function LogRow({ row, warnings }: { row: StageRow; warnings: string[] }) {
             {meta.map((m, i) => <span key={i} className={i === 0 && e?.model ? "font-mono" : undefined}>{m}</span>)}
           </p>
         )}
+
+        {retryLine && <p className="text-sm text-muted-foreground">{retryLine}</p>}
 
         {notes.length > 0 && (
           <ul className="list-disc space-y-0.5 pl-4 text-sm text-muted-foreground">
@@ -106,6 +110,7 @@ function SectionRows({ sections }: { sections: SectionLogEntry[] }) {
     <ul className="divide-y rounded-md border text-sm" aria-label="Sections">
       {sections.map((s) => {
         const meta = sectionMeta(s)
+        const retryLine = retryReasonLine(s)
         return (
           <li key={s.id} className="space-y-1 px-3 py-2">
             <p className="flex flex-wrap items-baseline gap-x-2">
@@ -115,6 +120,7 @@ function SectionRows({ sections }: { sections: SectionLogEntry[] }) {
             <p className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs tabular-nums text-muted-foreground">
               {meta.map((m, i) => <span key={i} className={i === 0 && s.model ? "font-mono" : undefined}>{m}</span>)}
             </p>
+            {retryLine && <p className="text-xs text-muted-foreground">{retryLine}</p>}
             {s.notes.length > 0 && (
               <ul className="list-disc space-y-0.5 pl-4 text-xs text-muted-foreground">
                 {s.notes.map((n, i) => <li key={i}>{n}</li>)}

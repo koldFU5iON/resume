@@ -16,7 +16,7 @@ import { buildVault } from '@/modules/profile-map/build'
 import { vaultSource } from '@/modules/profile-map/__fixtures__/source'
 import { buildCandidates } from '../candidates'
 import { buildBriefFor } from '../__fixtures__/gathered'
-import { BLIZZARD, OLD_CO, UNITY, llmReply, writeSelection, writeVault, writeVaultSource } from '../__fixtures__/write'
+import { BLIZZARD, OLD_CO, UNITY, llmReply, projectRow, writeSelection, writeVault, writeVaultSource } from '../__fixtures__/write'
 import { LLMError } from '@/modules/llm/errors'
 import { WRITE_CONCURRENCY } from '../schema'
 import { ASSEMBLE_RESERVE_MS, WAVE2_RESERVE_MS } from './limits'
@@ -50,7 +50,7 @@ const skillsAnswer = {
 const profileAnswer = {
   profile: 'Delivery leader who turns multi-team programmes into predictable releases.',
   headline: 'Delivery and operations leader',
-  competencies: [{ name: 'Cross-functional leadership', line: 'Cross-functional leadership: shipped 12 titles on schedule' }],
+  competencies: ['Cross-functional leadership'],
 }
 
 beforeEach(() => {
@@ -169,7 +169,7 @@ describe('runWrite', () => {
       const profile = r.sections.find((s) => s.id === 'profile')!
       expect(profile.markdown).toBe(buildBriefFor().positioning)
       expect(profile.log.notes.join(' ')).toMatch(/not enough time left for the profile call.*made by code from the brief and the selection/)
-      expect(r.sections.find((s) => s.id === 'competencies')!.markdown).toBe(':::compact-list\n- Cross-functional leadership\n:::')
+      expect(r.sections.find((s) => s.id === 'competencies')!.markdown).toBe(':::skills\n- Cross-functional leadership\n:::')
       expect(r.headline).toBeNull()
       // The wave-1 work is all there.
       expect(r.sections.find((s) => s.id === `experience:${UNITY}`)!.markdown).toContain('Cut platform release time by 40%')
@@ -384,4 +384,116 @@ describe('runWrite', () => {
     expect(r.sections.find((s) => s.id === 'tools')).toBeUndefined()
   })
 
+  describe('Phase 3b: projects, silent drops, retry reasons', () => {
+    const d = (ym: string) => new Date(`${ym}-01T00:00:00Z`)
+    const demo = projectRow('pa', 'Enemies Demo Campaign', 'Ran the demo campaign for the new title, reaching 14,000+ players at launch.', { experienceId: 'e-u2' })
+    const bootCamp = projectRow('pb', 'Boot Camp', 'Ran the studio boot camp for new hires.', { startDate: d('2016-06') })
+    const sideProject = projectRow('pc', 'Side project', 'Built on weekends.')
+    const oldCoProject = projectRow('pd', 'Old Co project', 'Built at Old Co.', { experienceId: 'e-o1' })
+    const pick = (...ids: string[]) => ids.map((id) => ({ id, reason: '' }))
+    const unityWithProject = { summary: 'Ran release and planning for the platform org.', bullets: [...unityAnswer.bullets, 'Ran the Enemies Demo Campaign, reaching 14,000+ players at launch.'] }
+    const bootCampAnswer = { summary: 'Launched a live-service title.', bullets: ['Launched a live-service title for 2M players.', 'Ran the Boot Camp for new hires.'] }
+    const allNotes = (r: Awaited<ReturnType<typeof runWrite>>) => [...r.notes, ...r.sections.flatMap((s) => s.log.notes)].join('\n')
+
+    it('gives each selected project to the writer of the employer it belongs to, and it reaches the CV', async () => {
+      experienceOverride = (prompt) => (prompt.includes('[ua1]') ? unityWithProject : bootCampAnswer)
+      const vault = writeVault([demo, bootCamp])
+      const r = await runWrite(vault, buildBriefFor(), writeSelection(vault, { projects: pick('pa', 'pb') }), strategy, ctx())
+      const prompts = seen.filter((x) => x.feature === 'cv-gen-write-experience')
+      const unityPrompt = prompts.find((x) => x.prompt.includes('[ua1]'))!.prompt
+      const blizzardPrompt = prompts.find((x) => x.prompt.includes('[ba1]'))!.prompt
+      expect(unityPrompt).toContain('[pa] project "Enemies Demo Campaign"')
+      expect(unityPrompt).not.toContain('[pb]')
+      expect(blizzardPrompt).toContain('[pb] project "Boot Camp"') // no role: placed by its date (2016-06 is in Blizzard's stint)
+      expect(r.sections.find((x) => x.id === `experience:${UNITY}`)!.markdown).toContain('Enemies Demo Campaign')
+      expect(r.sections.find((x) => x.id === `experience:${BLIZZARD}`)!.markdown).toContain('Boot Camp')
+      expect(r.notes.join(' ')).not.toMatch(/not on the CV/)
+    })
+
+    it('never says again that the default structure has no projects section', async () => {
+      const vault = writeVault([demo])
+      const r = await runWrite(vault, buildBriefFor(), writeSelection(vault, { projects: pick('pa') }), strategy, ctx())
+      expect(allNotes(r)).not.toMatch(/no projects section/)
+    })
+
+    it('names a project no employer can carry, and why', async () => {
+      const vault = writeVault([sideProject, oldCoProject])
+      const r = await runWrite(vault, buildBriefFor(), writeSelection(vault, { projects: pick('pc', 'pd') }), strategy, ctx())
+      expect(r.notes).toEqual(expect.arrayContaining([
+        'Selected project "Side project" is not on the CV: it has no role and no date, so there is no employer to attach it to.',
+        'Selected project "Old Co project" is not on the CV: the role it belongs to is listed without bullets, so there is no entry to put it in.',
+      ]))
+    })
+
+    it('records why an entry retried on its section row', async () => {
+      let n = 0
+      experienceOverride = (prompt) => {
+        if (!prompt.includes('[ua1]')) return blizzardAnswer
+        return n++ === 0 ? { ...unityAnswer, bullets: ['Led my team to cut release time by 40%.', ...unityAnswer.bullets.slice(1)] } : unityAnswer
+      }
+      const vault = writeVault()
+      const r = await runWrite(vault, buildBriefFor(), writeSelection(vault), strategy, ctx())
+      const row = r.sections.find((x) => x.id === `experience:${UNITY}`)!.log
+      expect(row.retries).toBe(1)
+      expect(row.retryReasons).toEqual(['first person'])
+      expect(r.sections.find((x) => x.id === `experience:${BLIZZARD}`)!.log.retryReasons).toEqual([])
+    })
+
+    it('skips a weak certification (no issuer, no date) that Select did not rank first, and says so', async () => {
+      const src = writeVaultSource()
+      ;(src.certifications as unknown[]).push({ id: 'wcw', profileId: 'p1', name: 'React Front-End Course', issuer: null, issueDate: null, expiryDate: null, credentialUrl: null, tags: '[]', createdAt: new Date(0), updatedAt: new Date(0), skills: [] })
+      const vault = buildVault(src)
+      const r = await runWrite(vault, buildBriefFor(), writeSelection(vault, { certifications: pick('wc1', 'wcw') }), strategy, ctx())
+      const cert = r.sections.find((x) => x.id === 'certification')!
+      expect(cert.markdown).toBe('- **PMP** — PMI (2018)')
+      expect(cert.log.notes.join(' ')).toContain('"React Front-End Course" has no issuer and no date, and Select did not rank it first, so it was left out.')
+    })
+
+    it('leaves no selected item silently dropped: each is on the CV or named in a log note', async () => {
+      const src = writeVaultSource({ projects: [demo, sideProject] })
+      ;(src.certifications as unknown[]).push(
+        { id: 'wcx', profileId: 'p1', name: 'ITIL 3', issuer: 'Axelos', issueDate: d('2018-01'), expiryDate: d('2021-01'), credentialUrl: null, tags: '[]', createdAt: new Date(0), updatedAt: new Date(0), skills: [] },
+        { id: 'wcw', profileId: 'p1', name: 'React Front-End Course', issuer: null, issueDate: null, expiryDate: null, credentialUrl: null, tags: '[]', createdAt: new Date(0), updatedAt: new Date(0), skills: [] },
+      )
+      const vault = buildVault(src)
+      experienceOverride = (prompt) => (prompt.includes('[ua1]') ? unityWithProject : blizzardAnswer)
+      const sel = writeSelection(vault, { projects: pick('pa', 'pc'), certifications: pick('wc1', 'wcx', 'wcw', 'wc2') })
+      const r = await runWrite(vault, buildBriefFor(), sel, strategy, ctx())
+      const onCv = r.sections.map((x) => x.markdown).join('\n')
+      const notes = allNotes(r)
+      // Each selected item is matched by its FULL name (education by its qualification and institution), never by a first word.
+      const nameOf = (id: string): string[] => {
+        const n = vault.notes.get(id)!
+        return n.type === 'education' ? [n.props.qualification, n.props.institution] : [n.title]
+      }
+      const selected = [
+        ...sel.projects, ...sel.certifications, ...sel.competencies, ...sel.tools, ...sel.skills, ...sel.education,
+      ].map((i) => ({ id: i.id, names: nameOf(i.id) }))
+      expect(selected.length).toBeGreaterThan(10)
+      const missing = selected.filter((i) => !i.names.every((n) => onCv.includes(n) || notes.includes(n)))
+      expect(missing).toEqual([])
+      // The ones the CV leaves out are each named.
+      for (const name of ['Side project', 'ITIL 3', 'React Front-End Course', 'Change management']) {
+        expect(onCv).not.toContain(name)
+        expect(notes).toContain(name)
+      }
+    })
+
+    it('keeps an in-progress certification that has no issuer and no date, even when it is not Select\'s first pick', async () => {
+      const src = writeVaultSource()
+      ;(src.certifications as unknown[]).push({ id: 'wcp', profileId: 'p1', name: 'PMP (in progress)', issuer: null, issueDate: null, expiryDate: null, credentialUrl: null, tags: '[]', createdAt: new Date(0), updatedAt: new Date(0), skills: [] })
+      const vault = buildVault(src)
+      const r = await runWrite(vault, buildBriefFor(), writeSelection(vault, { certifications: pick('wc1', 'wcp') }), strategy, ctx())
+      const cert = r.sections.find((x) => x.id === 'certification')!
+      expect(cert.markdown).toBe('- **PMP** — PMI (2018)\n- **PMP (in progress)**')
+      expect(cert.log.notes.join(' ')).not.toContain('left out')
+    })
+
+    it('names a selected item that was removed from the profile since the run', async () => {
+      const vault = writeVault([demo])
+      const sel = writeSelection(vault, { projects: pick('pa') })
+      const r = await runWrite(writeVault(), buildBriefFor(), sel, strategy, ctx()) // the project is gone from this vault
+      expect(r.notes.join('\n')).toMatch(/^A selected project item is no longer in your profile, so it is not on the CV\.$/m)
+    })
+  })
 })

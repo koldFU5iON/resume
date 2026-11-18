@@ -93,6 +93,24 @@ export const TIME_BUDGET_MS = {
   run: (CV_GENERATION_ROUTE_MAX_DURATION_S - 20) * 1_000,
 } as const
 
+/**
+ * Sampling temperature per call, named in one place (no magic numbers at the
+ * call sites). Select is 0 and Brief low so two runs of the same job pick alike.
+ * CAVEAT: the llm layer (`samplingOptions`, src/modules/llm/client.ts) sends a
+ * temperature to every provider EXCEPT Anthropic's Claude 5 family (Sonnet,
+ * Opus, Haiku 5.x reject non-default sampling with a 400), where it is dropped.
+ * On those models these values change nothing, so run-to-run stability there
+ * cannot rest on temperature: the selection rules in cv-gen-select.md and the
+ * deterministic code caps carry it (docs/cv-generation.md, Phase 3b).
+ */
+export const TEMPERATURE = {
+  brief: 0.2,
+  select: 0,
+  writeExperience: 0.4,
+  writeProfile: 0.4,
+  writeSkills: 0.2,
+} as const
+
 /** Usage tags (also labelled in src/app/dashboard/settings/usage/_components/feature-labels.ts). */
 export const CV_GENERATION_FEATURES = {
   brief: 'cv-gen-brief',
@@ -169,6 +187,8 @@ export const SectionLogEntrySchema = z.object({
   costUsd: z.number().nonnegative().nullable().default(null),
   /** Model calls beyond the first (a retry after a bad answer or a failed check). */
   retries: z.number().int().nonnegative().default(0),
+  /** Why the retry happened, as short phrases ("figure 14k not in evidence", "first person"). Empty when there was none and on rows stored before it existed. */
+  retryReasons: z.array(z.string()).default([]),
   notes: z.array(z.string()).default([]),
 })
 export type SectionLogEntry = z.infer<typeof SectionLogEntrySchema>
@@ -196,6 +216,8 @@ export const StageLogEntrySchema = z.object({
   dropped: z.array(z.string()).default([]),
   /** Validation retries the stage needed. */
   retries: z.number().int().nonnegative().default(0),
+  /** Why the stage retried (short phrases); empty when it did not and on rows stored before it existed. */
+  retryReasons: z.array(z.string()).default([]),
   /** Review: claims that were not plainly supported. */
   flaggedClaims: z.array(FlaggedClaimSchema).default([]),
   /** Write: one row per section (employer, skills, profile...). Empty for every other stage and for rows stored before Phase 3. */
