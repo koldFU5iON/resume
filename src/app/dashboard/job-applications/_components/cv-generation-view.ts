@@ -24,7 +24,9 @@ import {
   type StageLogEntry,
 } from "@/modules/cv-generation/schema"
 
-export { formatRunCost } from "./deep-dive-view"
+import { formatRunCost } from "./deep-dive-view"
+
+export { formatRunCost }
 
 /** The stages as the page shows them, in order (docs/cv-generation.md). */
 export const CV_GENERATION_STAGE_INFO: Record<CvGenerationStage, { label: string; detail: string }> = {
@@ -367,3 +369,156 @@ export function uncoveredLine(sel: Pick<CvSelection, "uncovered">): string | nul
     ? `No kept evidence supports ${sel.uncovered.length === 1 ? "this emphasise item" : "these emphasise items"}: ${sel.uncovered.join("; ")}`
     : null
 }
+
+// ── Copy log: the whole run as readable Markdown ────────────────────────────
+
+/** What the copy-log text needs. Every run field is optional so a row stored by an earlier phase (no brief, no assembled CV, no retry reasons) still produces a log. */
+export type RunLogInput = {
+  jobTitle: string
+  company: string | null
+  run: {
+    id: string
+    status: CvGenerationStatus
+    createdAt: Date | string
+    startedAt?: Date | string | null
+    completedAt?: Date | string | null
+    failureMessage?: string | null
+    partial?: boolean
+    log?: readonly StageLogEntry[] | null
+    stageTimings?: Partial<Record<CvGenerationStage, number>> | null
+    brief?: CvBrief | null
+    selection?: CvSelection | null
+    assembled?: Pick<CvAssembled, "markdown" | "warnings" | "checkNotes"> | null
+    /** The run's usage total (calls, tokens, estimated cost). */
+    usage?: { total: { requests: number; failedRequests?: number; inputTokens: number; outputTokens: number; estimatedCostUsd: number; estimateComplete: boolean } } | null
+  }
+}
+
+const iso = (d: Date | string | null | undefined): string | null => {
+  if (!d) return null
+  const t = d instanceof Date ? d : new Date(d)
+  return Number.isNaN(t.getTime()) ? null : t.toISOString()
+}
+
+/** A run's total duration: start to completion when both are known, else the sum of the stage timings, else null. */
+function runDurationMs(run: RunLogInput["run"]): number | null {
+  const from = iso(run.startedAt ?? run.createdAt)
+  const to = iso(run.completedAt)
+  if (from && to) return Math.max(0, Date.parse(to) - Date.parse(from))
+  const sum = Object.values(run.stageTimings ?? {}).reduce<number>((n, v) => n + (typeof v === "number" ? v : 0), 0)
+  return sum > 0 ? sum : null
+}
+
+/** A fence longer than any run of backticks in `text`, so the CV can sit in a code block whatever it holds. */
+const fenceFor = (text: string) => "`".repeat(Math.max(3, ...[...text.matchAll(/`+/g)].map((m) => m[0].length + 1)))
+
+const bulletList = (items: readonly string[]) => items.map((i) => `- ${i.replace(/\s*\n\s*/g, " ")}`)
+
+/**
+ * The whole run as Markdown, for the "Copy log" button: header (job, run id,
+ * date, status, total cost, tokens, calls, duration), the Brief, the Selection,
+ * every stage with its model, time, tokens, cost, retries and why, its notes
+ * and check notes, and the assembled CV at the end. The CV carries the literal
+ * {{contact}} placeholder, never contact details, and nothing here reads any.
+ * Pure: no React, no DB. Sections with nothing to say are left out.
+ */
+export function runLogMarkdown({ jobTitle, company, run }: RunLogInput): string {
+  const out: string[] = []
+  const title = `${jobTitle.trim() || "Untitled job"}${company?.trim() ? ` at ${company.trim()}` : ""}`
+  out.push(`# CV generation log: ${title}`, "")
+
+  const total = run.usage?.total
+  const duration = runDurationMs(run)
+  const head: string[] = [
+    `Run: ${run.id}`,
+    `Date: ${iso(run.createdAt) ?? "unknown"}`,
+    `Status: ${CV_GENERATION_STATUS_LABEL[run.status] ?? run.status}${run.partial ? " (preview run: no review, no draft)" : ""}`,
+    ...(run.failureMessage ? [`Failure: ${run.failureMessage}`] : []),
+    ...(total && total.requests > 0
+      ? [
+          `Cost (estimate): ${formatRunCost(total.estimatedCostUsd, total.estimateComplete)}`,
+          `Calls: ${total.requests}${total.failedRequests ? ` (${total.failedRequests} failed)` : ""}`,
+          `Tokens: ${formatTokens(total.inputTokens)} in · ${formatTokens(total.outputTokens)} out`,
+        ]
+      : ["Cost (estimate): none recorded"]),
+    ...(duration !== null ? [`Duration: ${formatDuration(duration)}`] : []),
+  ]
+  out.push(...bulletList(head), "")
+
+  if (run.brief) {
+    out.push("## Brief", "")
+    for (const row of briefRows(run.brief)) {
+      if (row.text !== undefined) out.push(`**${row.label}:** ${row.text.replace(/\s*\n\s*/g, " ")}`, "")
+      else {
+        out.push(`**${row.label}:**`)
+        out.push(...(row.items ?? []).map((it) => `- ${it.text}${it.note ? ` — ${it.note}` : ""}`), "")
+      }
+    }
+  }
+
+  if (run.selection) {
+    const sel = run.selection
+    out.push("## Selection", "", selectionSummary(sel), "")
+    const unc = uncoveredLine(sel)
+    if (unc) out.push(`**Uncovered:** ${unc}`, "")
+    const work = employerBlocks(sel)
+    for (const e of work.withBullets) {
+      out.push(`### ${e.company}: ${e.title}${e.period ? ` (${e.period})` : ""}`)
+      out.push(`${e.relevance !== undefined ? `Relevance ${e.relevance}/5, ` : ""}${countLabel(e.kept.length, "bullet")} kept${e.dropped.length > 0 ? `, ${e.dropped.length} left out` : ""}${e.reason ? ` · ${e.reason}` : ""}`)
+      out.push(...e.kept.map((k) => `- ${k.label}${k.reason ? ` (${k.reason})` : ""}`), "")
+    }
+    if (work.headerOnly.length > 0) {
+      out.push("### Listed without bullets", ...work.headerOnly.map((e) => `- ${e.company}: ${e.title}${e.period ? ` (${e.period})` : ""}`), "")
+    }
+    if (work.dropped.length > 0) out.push(`### Employers left out (${work.dropped.length})`, ...work.dropped.map((d) => `- ${d.label} (${d.why})`), "")
+    for (const g of selectionGroups(sel)) {
+      out.push(`### ${g.title}: ${g.kept.length} kept${g.dropped.length > 0 ? `, ${g.dropped.length} left out` : ""}`)
+      out.push(...g.kept.map((k) => `- ${k.label}${k.reason ? ` (${k.reason})` : ""}`), "")
+    }
+  }
+
+  const log = run.log ?? []
+  if (log.length > 0) {
+    out.push("## Stages", "")
+    const rows = buildStageRows({ status: run.status, partial: run.partial, log, stageTimings: run.stageTimings ?? {} })
+    for (const row of rows) {
+      const e = row.entry
+      if (!e) continue
+      const meta = stageMeta(row)
+      out.push(`### ${row.label}: ${e.status}${meta.length > 0 ? ` · ${meta.join(" · ")}` : ""}`)
+      const retry = retryReasonLine(e)
+      if (retry) out.push(retry)
+      const notes = stageNotes(e)
+      if (notes.length > 0) out.push("", ...bulletList(notes))
+      if (e.kept.length > 0 || e.dropped.length > 0) out.push("", `Kept ${e.kept.length}, dropped ${e.dropped.length}.`)
+      if (e.sections.length > 0) {
+        out.push("")
+        for (const s of e.sections) {
+          const sm = sectionMeta(s)
+          out.push(`- **${s.label}**${s.status === "failed" ? " (failed)" : ""}: ${sm.join(" · ")}`)
+          const r = retryReasonLine(s)
+          if (r) out.push(`  - ${r}`)
+          out.push(...s.notes.map((n) => `  - ${n.replace(/\s*\n\s*/g, " ")}`))
+        }
+      }
+      if (e.flaggedClaims.length > 0) {
+        out.push("", ...e.flaggedClaims.map((c) => `- ${c.verdict === "unsupported" ? "Removed" : "Verify"}: ${c.claim}${c.reason ? ` (${c.reason})` : ""}`))
+      }
+      if (e.stage === "assemble" && run.assembled) {
+        const checks = run.assembled.checkNotes.slice(0, MAX_CHECK_NOTES)
+        if (checks.length > 0) out.push("", "Worth a quick check:", ...bulletList(checks))
+        if (run.assembled.warnings.length > 0) out.push("", `Warnings (${run.assembled.warnings.length}):`, ...bulletList(run.assembled.warnings))
+      }
+      out.push("")
+    }
+  }
+
+  if (run.assembled) {
+    const fence = fenceFor(run.assembled.markdown)
+    out.push("## Assembled CV", "", `${fence}markdown`, run.assembled.markdown.replace(/\n+$/, ""), fence, "")
+  }
+
+  return `${out.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd()}\n`
+}
+
+const countLabel = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`
