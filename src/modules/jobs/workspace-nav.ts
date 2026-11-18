@@ -85,15 +85,14 @@ export function jobCvGenerationHref(jobId: string): string {
 export type JobExtraDestination = { key: "deep-dive" | "cv-generation"; kind: "deep-dive" | "cv-generation"; label: string; href: string }
 
 /**
- * The destinations "All documents" lists after the documents. Deep Dive is
- * always there; CV generation only once the job already has a run, because
- * until the phase 5 menu switch its page is reachable by URL only and an empty
- * entry would invite a preview feature nobody has started.
+ * The destinations "All documents" lists after the documents: Deep Dive and
+ * CV generation, both always there. The CV generation page is also where a
+ * job's first generation is started, so it never waits for a run to exist.
  */
-export function jobExtraDestinations(jobId: string, hasCvGeneration: boolean): JobExtraDestination[] {
+export function jobExtraDestinations(jobId: string): JobExtraDestination[] {
   return [
     { key: "deep-dive", kind: "deep-dive", label: "Deep Dive", href: jobDeepDiveHref(jobId) },
-    ...(hasCvGeneration ? [{ key: "cv-generation", kind: "cv-generation", label: "CV generation", href: jobCvGenerationHref(jobId) } as const] : []),
+    { key: "cv-generation", kind: "cv-generation", label: "CV generation", href: jobCvGenerationHref(jobId) },
   ]
 }
 

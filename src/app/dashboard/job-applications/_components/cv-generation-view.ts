@@ -632,3 +632,30 @@ export function runLogMarkdown({ jobTitle, company, run }: RunLogInput): string 
 }
 
 const countLabel = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`
+
+// ── Discussing concerns with the coach ──────────────────────────────────────
+
+type CoachJob = { title: string; company?: string | null }
+
+const jobPhrase = (job: CoachJob) => `${job.title}${job.company ? ` at ${job.company}` : ""}`
+
+const concernBlock = (c: ConcernRow) => [
+  `- ${c.title}${c.why ? `: ${c.why}` : ""}`,
+  `  Question: ${c.question}`,
+  ...c.refs.map((r) => `  Evidence: ${r}`),
+].join("\n")
+
+const COACH_TAIL = "Please talk it through with me first. Don't change my profile; I'll make any change myself."
+
+/**
+ * The message put in the coach's input (never sent for the user) to talk one
+ * concern through. Plain, short, and clear that nothing should be written to the profile.
+ */
+export function concernCoachMessage(concern: ConcernRow, job: CoachJob): string {
+  return [`The review of the CV drafted for ${jobPhrase(job)} raised a question I'd like to talk through.`, "", concernBlock(concern), "", COACH_TAIL].join("\n")
+}
+
+/** As `concernCoachMessage`, for every concern at once. */
+export function allConcernsCoachMessage(concerns: ConcernRow[], job: CoachJob): string {
+  return [`The review of the CV drafted for ${jobPhrase(job)} raised ${concerns.length === 1 ? "a question" : `${concerns.length} questions`} I'd like to talk through.`, "", ...concerns.map(concernBlock), "", COACH_TAIL].join("\n")
+}

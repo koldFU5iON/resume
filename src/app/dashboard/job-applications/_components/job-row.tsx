@@ -30,13 +30,11 @@ type JobRowProps = {
   onToggleSelect: (id: string) => void
   onEdit: (job: Job) => void
   onArchive: (id: string) => void
-  onGenerateCV: (id: string) => void
-  onCreateCoverLetter: (id: string) => void
   hasLLMKey: boolean
   earlyEnabled: boolean
 }
 
-export function JobRow({ job, selected, busyLabel, onToggleSelect, onEdit, onArchive, onGenerateCV, onCreateCoverLetter, earlyEnabled }: JobRowProps) {
+export function JobRow({ job, selected, busyLabel, onToggleSelect, onEdit, onArchive, earlyEnabled }: JobRowProps) {
   const {
     id, jobNumber, title, company, countries, url,
     dateApplied, datePublished, lastUpdated, status, progress,
@@ -182,8 +180,6 @@ export function JobRow({ job, selected, busyLabel, onToggleSelect, onEdit, onArc
           coverLetterDocumentId={coverLetterDocumentId}
           onEdit={() => onEdit(job)}
           onArchive={() => onArchive(id)}
-          onGenerateCV={() => onGenerateCV(id)}
-          onCreateCoverLetter={() => onCreateCoverLetter(id)}
         />
       </div>
     </div>

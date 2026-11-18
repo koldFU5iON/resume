@@ -54,7 +54,7 @@ export function JobDocumentNav({ workspace }: { workspace: JobWorkspace }) {
   const legacyCreateLinks = jobDocumentCreateLinks(assets)
   const active = activeJobDocument(pathname, links)
     ?? (isJobDeepDivePath(pathname, workspace.jobId) ? "deep-dive" : isJobCvGenerationPath(pathname, workspace.jobId) ? "cv-generation" : null)
-  const entries: SwitcherEntry[] = [...links, ...jobExtraDestinations(workspace.jobId, workspace.hasCvGeneration)]
+  const entries: SwitcherEntry[] = [...links, ...jobExtraDestinations(workspace.jobId)]
   const canAdd = canAddWritingDeskDocument(assets)
 
   // A document opened before this (client-cached) layout knew about it: the
@@ -144,6 +144,7 @@ export function JobDocumentNav({ workspace }: { workspace: JobWorkspace }) {
         <NewDocumentDialog
           jobId={workspace.jobId}
           existingNames={assets.writingDesks.map((desk) => desk.name)}
+          hasCvGeneration={workspace.hasCvGeneration}
           open
           onOpenChange={setCreating}
         />

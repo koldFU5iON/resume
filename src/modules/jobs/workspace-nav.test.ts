@@ -229,9 +229,8 @@ describe("CV generation log link", () => {
 })
 
 describe("jobExtraDestinations", () => {
-  it("lists Deep Dive always, and CV generation only when the job already has a run", () => {
-    expect(jobExtraDestinations("job1", false).map((e) => e.key)).toEqual(["deep-dive"])
-    expect(jobExtraDestinations("job1", true).map((e) => e.key)).toEqual(["deep-dive", "cv-generation"])
-    expect(jobExtraDestinations("job1", true)[1].href).toBe(jobCvGenerationHref("job1"))
+  it("lists Deep Dive and CV generation always, whether or not the job has a run", () => {
+    expect(jobExtraDestinations("job1").map((e) => e.key)).toEqual(["deep-dive", "cv-generation"])
+    expect(jobExtraDestinations("job1")[1].href).toBe(jobCvGenerationHref("job1"))
   })
 })

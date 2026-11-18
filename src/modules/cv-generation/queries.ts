@@ -175,3 +175,9 @@ export async function getCvGeneration(profileId: string, runId: string): Promise
   })
   return row ? toCvGenerationView(row, await getRunUsage(profileId, row.id)) : null
 }
+
+/** Whether the profile has any CV generation run for the job (the writing desk offers "View last generation" when it does). */
+export async function hasCvGeneration(profileId: string, jobId: string): Promise<boolean> {
+  const row = await prisma.cvGeneration.findFirst({ where: { profileId, jobApplicationId: jobId }, select: { id: true } })
+  return row !== null
+}

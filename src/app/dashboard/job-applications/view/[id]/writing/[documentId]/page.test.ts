@@ -5,6 +5,7 @@ vi.mock("@/modules/writing-desk/queries", () => ({
   getWritingDeskDocument: vi.fn(),
   listWritingDeskSourceCVs: vi.fn().mockResolvedValue([]),
 }))
+vi.mock("@/modules/cv-generation/queries", () => ({ hasCvGeneration: vi.fn().mockResolvedValue(true) }))
 vi.mock("../_components/writing-desk", () => ({ WritingDesk: () => null }))
 vi.mock("next/navigation", () => ({ notFound: vi.fn(() => { throw new Error("NEXT_NOT_FOUND") }) }))
 
@@ -23,6 +24,7 @@ describe("Writing Desk document page", () => {
 
     expect(getWritingDeskDocument).toHaveBeenCalledWith("profile-1", "job-1", "desk-b")
     expect(element.props.desk).toEqual({ id: "desk-b" })
+    expect(element.props.hasCvGeneration).toBe(true)
   })
 
   it("is not found for another profile's document or another job's", async () => {

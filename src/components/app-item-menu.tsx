@@ -21,6 +21,14 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { DeprecatingSoonBadge } from "@/components/legacy-editors/deprecation"
 
+/** The links the job menu keeps for documents made by the legacy editors. There is no "Generate" entry: the writing desk makes new ones. */
+export function legacyDocumentLinks({ cvDocumentId, coverLetterDocumentId }: { cvDocumentId?: string | null; coverLetterDocumentId?: string | null }): Array<{ label: string; href: string }> {
+  return [
+    ...(cvDocumentId ? [{ label: "View CV", href: `/dashboard/cv-builder/${cvDocumentId}` }] : []),
+    ...(coverLetterDocumentId ? [{ label: "View Cover Letter", href: `/dashboard/cover-letters/${coverLetterDocumentId}` }] : []),
+  ]
+}
+
 type AppControlsProps = {
   id: string
   className?: string
@@ -28,11 +36,9 @@ type AppControlsProps = {
   coverLetterDocumentId?: string | null
   onEdit?: () => void
   onArchive?: () => void
-  onGenerateCV?: () => void
-  onCreateCoverLetter?: () => void
 }
 
-export function AppControls({ id, className, cvDocumentId, coverLetterDocumentId, onEdit, onArchive, onGenerateCV, onCreateCoverLetter }: AppControlsProps) {
+export function AppControls({ id, className, cvDocumentId, coverLetterDocumentId, onEdit, onArchive }: AppControlsProps) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -55,41 +61,14 @@ export function AppControls({ id, className, cvDocumentId, coverLetterDocumentId
 
         <DropdownMenuGroup>
           <DropdownMenuLabel className="text-xs text-muted-foreground">File Management</DropdownMenuLabel>
-          {cvDocumentId ? (
-            <AppControlsItem
-              Icon={FileText}
-              label="View CV"
-              deprecated
-              action={`/dashboard/cv-builder/${cvDocumentId}`}
-            />
-          ) : (
-            <AppControlsItem
-              Icon={FileText}
-              label="Generate CV"
-              deprecated
-              onSelect={onGenerateCV}
-              action={onGenerateCV ? undefined : `/dashboard/cv-builder/new?jobId=${id}`}
-            />
-          )}
-          {coverLetterDocumentId ? (
-            <AppControlsItem
-              Icon={Mail}
-              label="View Cover Letter"
-              deprecated
-              action={`/dashboard/cover-letters/${coverLetterDocumentId}`}
-            />
-          ) : (
-            <AppControlsItem
-              Icon={Mail}
-              label="Create Cover Letter"
-              deprecated
-              onSelect={onCreateCoverLetter}
-              action={onCreateCoverLetter ? undefined : `/dashboard/cover-letters/new?jobId=${id}`}
-            />
-          )}
+          {/* CVs and cover letters are made in the writing desk; only an existing
+              legacy document keeps a link here until the legacy editors are removed. */}
+          {legacyDocumentLinks({ cvDocumentId, coverLetterDocumentId }).map(link => (
+            <AppControlsItem key={link.label} Icon={link.label === "View CV" ? FileText : Mail} label={link.label} deprecated action={link.href} />
+          ))}
           <AppControlsItem
             Icon={NotebookPen}
-            label="Open writing desk"
+            label="Writing desk"
             action={`/dashboard/job-applications/view/${id}/writing`}
           />
           <AppControlsItem

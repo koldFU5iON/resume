@@ -4,6 +4,8 @@ import {
   CHECK_NOTE_PREFIX, parseAssembled,
 } from "@/modules/cv-generation/schema"
 import {
+  allConcernsCoachMessage,
+  concernCoachMessage,
   PREVIEW_DETAIL,
   PREVIEW_NOTICE,
   assembledSummary,
@@ -724,5 +726,27 @@ describe("bullets the review reworded (review fix 7)", () => {
     expect(bulletSourceLines({ sources: [], editedByReview: true })).toEqual([EDITED_BY_REVIEW])
     expect(bulletSourceLines({ sources: [] })).toEqual(["from: no source cited"])
     expect(bulletSourceLines({ sources: [src] })).toEqual(["from: Cut asset collection from 4 weeks to 1 week (activity)"])
+  })
+})
+
+describe("coach messages for concerns (prefilled, never sent)", () => {
+  const c = { kind: "metric_conflict", badge: "Conflicting figures", title: "Two figures", why: "They differ.", question: "Which is right?", refs: ["4 weeks to 1 week"] }
+  const d = { kind: "weak_proof", badge: "Thin proof", title: "Thin proof", why: "", question: "What was the result?", refs: [] }
+
+  it("names the job, the concern, its question and evidence", () => {
+    const m = concernCoachMessage(c, { title: "Senior PMM", company: "Canonical" })
+    for (const t of ["Senior PMM at Canonical", "Two figures", "They differ.", "Which is right?", "4 weeks to 1 week"]) expect(m).toContain(t)
+  })
+
+  it("asks the coach not to change the profile", () => {
+    expect(concernCoachMessage(c, { title: "PMM" })).toMatch(/Don't change my profile/)
+    expect(concernCoachMessage(c, { title: "PMM" })).not.toContain(" at null")
+  })
+
+  it("covers every concern for 'discuss all'", () => {
+    const m = allConcernsCoachMessage([c, d], { title: "PMM" })
+    expect(m).toContain("2 questions")
+    expect(m).toContain("Two figures")
+    expect(m).toContain("What was the result?")
   })
 })

@@ -10,6 +10,7 @@ import { usePageContext, useWorkspaceContext } from "@/lib/context/page-context"
 import { useDocumentSave } from "@/components/document-editor/use-document-save"
 import { SaveStatus } from "@/components/document-editor/save-status"
 import { DocumentSaveDialogs } from "@/components/document-editor/document-save-dialogs"
+import { GenerateCvForJob } from "@/components/job-workspace/generate-cv-for-job"
 import { FOCUS_NEW_DOCUMENT_KEY } from "@/components/job-workspace/new-document-dialog"
 import {
   deleteWritingDeskDocumentAction,
@@ -56,9 +57,12 @@ function documentTypeLabel(type: WritingDeskDocumentType): string {
 export function WritingDesk({
   desk,
   sourceCVs,
+  hasCvGeneration = false,
 }: {
   desk: WritingDeskWithJob
   sourceCVs: WritingDeskSourceOption[]
+  /** The job already has a CV generation run: "View last generation" is offered. */
+  hasCvGeneration?: boolean
 }) {
   const recoveryKey = `writing-desk-recovery-${desk.id}`
   const [name, setName] = useState(desk.name)
@@ -351,6 +355,13 @@ export function WritingDesk({
             <p role="note" className="mb-4 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
               Replace <code>{CONTACT_PLACEHOLDER}</code> with your contact details before exporting.
             </p>
+          )}
+          {documentType === "cv" && !content.trim() && !desk.draft && (
+            <div className="mb-4 space-y-2 rounded-md border bg-muted/30 px-4 py-3.5">
+              <p className="text-sm font-medium">Start this CV from your profile</p>
+              <p className="text-xs text-muted-foreground">The writing desk picks the evidence that fits this job, writes the CV and saves it as a draft here. You accept or discard it; nothing live is overwritten. Or just start typing below.</p>
+              <GenerateCvForJob jobId={desk.jobApplication.id} hasCvGeneration={hasCvGeneration} />
+            </div>
           )}
           {mode === "markdown"
             ? <textarea ref={textareaRef} aria-label={`${name}, Markdown`} value={content} onChange={event => save.onChange(event.target.value)} className="min-h-[500px] flex-1 resize-none bg-transparent font-mono text-sm leading-relaxed outline-none" placeholder="Start writing..." />

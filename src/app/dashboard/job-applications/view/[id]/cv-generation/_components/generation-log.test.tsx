@@ -54,7 +54,7 @@ describe("ConcernsPanel (phase 4a)", () => {
     <ConcernsPanel concerns={concernRows({ concerns: [
       { kind: "metric_conflict", title: "Two figures", why: "They differ.", question: "Which is right?", refs: [{ label: "S1", snippet: "Cut asset collection from 4 weeks to 1 week" }] },
       { kind: "claimed_in_bullet", title: "Tableau in a bullet", why: "Listed without evidence.", question: "Have you used it?", refs: [] },
-    ] })} />,
+    ] })} job={{ title: "Senior PMM", company: "Canonical" }} />,
   )
 
   it("shows each concern as a kind badge, a title, why and the question, under a heading that counts them", () => {
@@ -72,7 +72,35 @@ describe("ConcernsPanel (phase 4a)", () => {
   })
 
   it("is singular for one concern", () => {
-    const one = renderToStaticMarkup(<ConcernsPanel concerns={concernRows({ concerns: [{ kind: "other", title: "T", why: "", question: "Q?", refs: [] }] })} />)
+    const one = renderToStaticMarkup(<ConcernsPanel concerns={concernRows({ concerns: [{ kind: "other", title: "T", why: "", question: "Q?", refs: [] }] })} job={{ title: "T" }} />)
     expect(one).toContain("1 concern to discuss")
+  })
+})
+
+describe("ConcernsPanel (phase 4b): a previewable panel with a coach handoff", () => {
+  const concerns = concernRows({ concerns: [
+    { kind: "metric_conflict", title: "Two figures", why: "They differ.", question: "Which is right?", refs: [{ label: "S1", snippet: "4 weeks to 1 week" }] },
+    { kind: "weak_proof", title: "Thin proof for launch", why: "Title only.", question: "What was the result?", refs: [] },
+  ] })
+  const html = renderToStaticMarkup(<ConcernsPanel concerns={concerns} job={{ title: "Senior PMM", company: "Canonical" }} />)
+
+  it("is collapsed by default (a details element without open) and previews the count and every title", () => {
+    expect(html).toMatch(/<details(?![^>]*\sopen)/)
+    const summary = html.slice(html.indexOf("<summary"), html.indexOf("</summary>"))
+    expect(summary).toContain("2 concerns to discuss with the coach")
+    expect(summary).toContain("Two figures")
+    expect(summary).toContain("Thin proof for launch")
+    expect(summary).not.toContain("Which is right?")
+  })
+
+  it("expands to kind, why, the question and evidence snippets", () => {
+    const body = html.slice(html.indexOf("</summary>"))
+    for (const t of ["Conflicting figures", "They differ.", "Which is right?", "4 weeks to 1 week", "What was the result?"]) expect(body).toContain(t)
+  })
+
+  it("has a Discuss with coach button per concern and one for all, and says the draft does not wait", () => {
+    expect(html.match(/Discuss with coach/g)).toHaveLength(2)
+    expect(html).toContain("Discuss all with coach")
+    expect(html).toContain("the draft does not wait on them")
   })
 })
