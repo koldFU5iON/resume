@@ -265,6 +265,7 @@ When adding a new LLM-powered feature, also add its label to `FEATURE_LABELS` in
 - `docs/llm-usage-tracking.md` — usage logging system, feature registry, cost estimates
 - `docs/deep-dive.md` — job deep dive backend: pipeline, code-side checks, limits, API, usage tags
 - `docs/companies.md` — companies, job↔company matching, UK sponsor register import and cron
+- `docs/cv-generation.md` — writing-desk CV generation: staged pipeline, run log, attribution, delivery plan and implementation record
 - `docs/job-assessment.md` — early job assessment (Jev): pipeline, scoring, queue, usage tracking, tuning, troubleshooting
 - `src/lib/integrations/skills/claude-code.md` — canonical Claude Code skill source. Served by `GET /api/integrations/skills/claude-code`; downloaded SKILL.md goes in `~/.claude/skills/capture-job/`.
 - `src/lib/integrations/skills/hermes.md` — canonical Hermes skill source. Served by `GET /api/integrations/skills/hermes`; downloaded SKILL.md goes in `~/.hermes/skills/job-search/capture-job/`.

@@ -205,6 +205,7 @@ describe('askJev', () => {
       usageKnown: false,
       jobApplicationId: null,
       cvDocumentId: null,
+      writingDeskDocumentId: null,
       runId: null,
     })
     expect(mockUpdate).toHaveBeenCalledWith({

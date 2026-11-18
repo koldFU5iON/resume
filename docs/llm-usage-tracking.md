@@ -25,20 +25,21 @@ Each log entry captures:
 
 Log entries are stored in the `LlmUsageLog` table and never deleted — they are the source of truth for cost analysis and user-facing usage reporting.
 
-### Job / CV attribution (#345)
+### Job / CV / desk document attribution (#345)
 
-Job-scoped calls also pass an explicit `attribution` so usage can be costed per job application and per CV:
+Job-scoped calls also pass an explicit `attribution` so usage can be costed per job application, per CV and per writing desk document:
 
 ```ts
 await completeStructured(profileId, prompt, schema, {
   feature: 'cv-generate',
-  attribution: { jobApplicationId, cvDocumentId, runId }, // all optional
+  attribution: { jobApplicationId, cvDocumentId, writingDeskDocumentId, runId }, // all optional
 })
 await askJev(profileId, request, { feature: 'job-assessment-judge', attribution: { jobApplicationId, runId } })
 ```
 
-- `jobApplicationId` / `cvDocumentId` are validated against the profile before the row is written (`src/modules/llm/attribution.ts`): a job or CV the profile doesn't own, or a CV linked to a different job, is dropped (logged as a warning), never stored. A CV given without a job inherits the CV's own job link.
-- `runId` groups the calls of one multi-call operation. Use `newRunId()`; CV generation and ATS checks make one per attempt, and the early assessment uses its `JobAssessment.id`.
+- `jobApplicationId` / `cvDocumentId` / `writingDeskDocumentId` are validated against the profile before the row is written (`src/modules/llm/attribution.ts`): a job, CV or desk document the profile doesn't own, or a CV or desk document linked to a different job, is dropped (logged as a warning), never stored. A CV or desk document given without a job inherits its own job link.
+- `writingDeskDocumentId` (`LlmUsageLog.writingDeskDocumentId`, added for CV generation, `docs/cv-generation.md`) is the writing desk document a call wrote, reviewed or refined. `cvDocumentId` points at the legacy `CVDocument`, so desk documents need their own column. A run sets it once the draft's target document is known; calls made before that carry only the job and `runId`. Deleting the document sets it to null (`onDelete: SetNull`), like the other references. Both writers (the BYOK client's `writeUsageLog`, which also covers failed calls, and the Jev reservation) store whatever `resolveAttribution` returns.
+- `runId` groups the calls of one multi-call operation. Use `newRunId()`; the legacy CV generation and ATS checks make one per attempt; the new CV generation (`CvGeneration`) uses its row id, and the early assessment uses its `JobAssessment.id`.
 - Profile-only work (master profile, chat, imports, discovered jobs not yet in the tracker) passes no attribution and stays unattributed. Older rows are never back-filled or matched by timestamp.
 - Deleting a job or CV sets the reference to null (`onDelete: SetNull`); the usage row and its tokens stay.
 
@@ -60,17 +61,26 @@ await complete(profileId, prompt, { feature: 'job-fit' })
 await completeStructured(profileId, prompt, schema, { feature: 'cv-import' })
 ```
 
-Use a short kebab-case string. Established values:
+Use a short kebab-case string. The values in use today (the authoritative display names are in `FEATURE_LABELS`):
 
-| Value | Operation |
+| Area | Values |
 |---|---|
-| `job-fit` | Job fit scoring against a user's profile |
-| `job-extract` | LLM fallback for extracting job details from a URL |
-| `cv-import` | Parsing a pasted CV into structured profile data |
-| `profile-summary` | Generating the career profile summary |
-| `profile-extract` | Extracting structured suggestions from an experience entry |
-| `project-extract` | Retired: it wrote a project's legacy highlights. A project's Extract now creates evidence and is tagged `profile-extract`. Old usage rows keep this tag. |
-| `ping` | Sanity-check round-trip from `/api/llm/ping` |
+| Jobs | `job-extract` (LLM fallback for extracting a job from a URL), `salary-estimate` |
+| Profile | `cv-import` (parsing a pasted CV into profile data), `profile-summary`, `profile-extract` (suggestions from an experience or project; also writes project evidence), `profile-evidence-links` |
+| Legacy CV builder | `cv-generate`, `cv-job-analysis`, `cv-evidence-score`, `cv-recruiter-scan` |
+| ATS check | `ats-keyword-expand`, `ats-interpret`, `ats-context` |
+| Cover letters (writing guide) | `cover-letter-analyse`, `cover-letter-architect`, `cover-letter-draft`, `cover-letter-review-pass`, `cover-letter-finalise`, `cover-letter-build`, `cover-letter-review` |
+| Interview prep | `interview-prep-doc-analysis`, `interview-prep-interviewer-analysis` |
+| Early assessment | `job-assessment-enrich`, `job-assessment-facts`; app-billed Jev: `job-assessment-verify`, `job-assessment-judge` (failed Jev calls get a `:failed` suffix) |
+| Deep dive | `deep-dive-research-company`, `deep-dive-research-pay`, `deep-dive-research-practicalities`, `deep-dive-structure`, `deep-dive-synthesis` (`DEEP_DIVE_FEATURES`); the first builds used `deep-dive:<stage>` tags, kept as labels |
+| Career vertical | `career-vertical-analyse`, `master-cv-generate` |
+| Job hunt | `job-hunt-ats-discovery`, `scout-triage` |
+| Chat | `chat-turn`, `chat-summarize` |
+| Diagnostics | `ping` (round-trip from `/api/llm/ping`) |
+
+Retired tags still have labels because old usage rows carry them: `job-fit` (JobFit was retired), `project-extract`, `job-hunt-fit`, `interview-prep-bulk-analysis`, `interview-prep-qa-generation`.
+
+Planned for CV generation into the writing desk (`docs/cv-generation.md`; labels are added with the stage that emits them): `cv-gen-brief`, `cv-gen-select`, `cv-gen-write-*`, `cv-gen-review`.
 
 When you add a new LLM-powered feature, choose a value from the pattern above and add it to `FEATURE_LABELS` in `src/app/dashboard/settings/usage/_components/feature-labels.ts` so it displays a human-readable label in the usage UI rather than the raw key.
 

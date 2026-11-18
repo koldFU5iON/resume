@@ -37,6 +37,7 @@ model JobDeepDive {
   profile          Profile        @relation(fields: [profileId], references: [id], onDelete: Cascade)
   jobApplication   JobApplication @relation(fields: [jobApplicationId], references: [id], onDelete: Cascade)
   sourceAssessment JobAssessment? @relation(fields: [sourceAssessmentId], references: [id], onDelete: SetNull)
+  cvGenerations    CvGeneration[]
 
   @@index([jobApplicationId, createdAt])
   @@index([profileId, status])
