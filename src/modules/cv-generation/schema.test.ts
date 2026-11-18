@@ -51,7 +51,7 @@ describe('StageLogEntrySchema', () => {
   it('fills defaults for a minimal entry', () => {
     expect(StageLogEntrySchema.parse({ stage: 'gather' })).toEqual({
       stage: 'gather', status: 'ok', model: null, startedAt: null, durationMs: null,
-      tokens: { input: 0, output: 0 }, costUsd: null, notes: [], kept: [], dropped: [], retries: 0, flaggedClaims: [],
+      tokens: { input: 0, output: 0 }, costUsd: null, notes: [], kept: [], dropped: [], retries: 0, flaggedClaims: [], sections: [],
     })
   })
 
@@ -62,12 +62,29 @@ describe('StageLogEntrySchema', () => {
       kept: ['a'], dropped: ['b'], retries: 1,
       flaggedClaims: [{ claim: 'Led a team of 12', verdict: 'unsupported', section: 'Experience', reason: 'Profile says 4' }],
     }
-    expect(StageLogEntrySchema.parse(entry)).toEqual(entry)
+    expect(StageLogEntrySchema.parse(entry)).toEqual({ ...entry, sections: [] })
   })
 
   it('rejects an unknown stage or verdict', () => {
     expect(StageLogEntrySchema.safeParse({ stage: 'nope' }).success).toBe(false)
     expect(StageLogEntrySchema.safeParse({ stage: 'review', flaggedClaims: [{ claim: 'x', verdict: 'maybe' }] }).success).toBe(false)
+  })
+})
+
+describe('section log rows (phase 3)', () => {
+  it('keeps the sections of a Write entry and defaults their fields', () => {
+    const entry = StageLogEntrySchema.parse({
+      stage: 'write',
+      sections: [{ id: 'experience:unity', label: 'Experience: Snr. Program Manager — Unity', model: 'm', durationMs: 4200, tokens: { input: 900, output: 200 }, costUsd: 0.01, retries: 1, notes: ['n'] }, { id: 'tools', label: 'Tools' }],
+    })
+    expect(entry.sections).toHaveLength(2)
+    expect(entry.sections[0]).toMatchObject({ status: 'ok', retries: 1, tokens: { input: 900, output: 200 } })
+    expect(entry.sections[1]).toEqual({ id: 'tools', label: 'Tools', status: 'ok', model: null, durationMs: null, tokens: { input: 0, output: 0 }, costUsd: null, retries: 0, notes: [] })
+  })
+
+  it('drops a stage entry with a malformed section instead of failing the whole log', () => {
+    const entries = parseCvGenerationLog({ entries: [{ stage: 'gather' }, { stage: 'write', sections: [{ nope: true }] }] })
+    expect(entries.map((e) => e.stage)).toEqual(['gather'])
   })
 })
 
