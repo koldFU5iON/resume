@@ -86,6 +86,8 @@ export const CV_GENERATION_ROUTE_MAX_DURATION_S = 300
 export const TIME_BUDGET_MS = {
   brief: 90_000,
   select: 60_000,
+  /** One writer call (a retry is a second call, both inside the run deadline). A timeout fails the run (kind timeout). */
+  write: 70_000,
   /** The last-resort analyseJob call in Gather. A timeout is treated as strategy source 'none'. */
   analyse: 60_000,
   run: (CV_GENERATION_ROUTE_MAX_DURATION_S - 20) * 1_000,
@@ -95,9 +97,18 @@ export const TIME_BUDGET_MS = {
 export const CV_GENERATION_FEATURES = {
   brief: 'cv-gen-brief',
   select: 'cv-gen-select',
+  /** One experience writer call per employer that shows bullets (wave 1). */
+  writeExperience: 'cv-gen-write-experience',
+  /** The skills and tools grouping call (wave 1). */
+  writeSkills: 'cv-gen-write-skills',
+  /** Professional profile, headline and competencies (wave 2). */
+  writeProfile: 'cv-gen-write-profile',
   /** analyseJob, when neither a deep dive nor jobAnalysis exists; keeps its own tag. */
   analyse: 'cv-job-analysis',
 } as const
+
+/** Most writer calls in flight at once in wave 1 (kind to the provider's rate limits, and to the run's time budget). */
+export const WRITE_CONCURRENCY = 3
 
 /**
  * Output caps (tokens): small JSON, but generous enough that a cut-off is not
@@ -109,6 +120,15 @@ export const MAX_OUTPUT_TOKENS = {
   briefRetry: 8_000,
   select: 8_000,
   selectRetry: 16_000,
+  /** An experience writer: a summary and a handful of bullets. */
+  writeExperience: 1_500,
+  writeExperienceRetry: 3_000,
+  /** Skills grouping: names only. */
+  writeSkills: 1_500,
+  writeSkillsRetry: 3_000,
+  /** Profile, headline and competencies. */
+  writeProfile: 1_500,
+  writeProfileRetry: 3_000,
 } as const
 
 /** Where the Brief's strategy input came from (gather stage). `none`: analyseJob also failed, so the Brief reads the job description alone. */
@@ -130,6 +150,28 @@ export const FlaggedClaimSchema = z.object({
 export type FlaggedClaim = z.infer<typeof FlaggedClaimSchema>
 
 export const LOG_ENTRY_STATUSES = ['ok', 'skipped', 'failed'] as const
+
+/** One section's own row under the Write stage: what writing that section cost and noted. */
+export const SectionLogEntrySchema = z.object({
+  /** Stable id, e.g. "experience:unity", "skills", "profile". */
+  id: z.string(),
+  /** What the page shows, e.g. "Experience: Snr. Program Manager — Unity". */
+  label: z.string(),
+  /** ok: written; skipped: nothing to write; failed: the run failed here. */
+  status: z.enum(LOG_ENTRY_STATUSES).default('ok'),
+  /** The model of the section's calls; null when code rendered it (no model call). */
+  model: z.string().nullable().default(null),
+  durationMs: z.number().nonnegative().nullable().default(null),
+  tokens: z.object({
+    input: z.number().nonnegative().default(0),
+    output: z.number().nonnegative().default(0),
+  }).default({ input: 0, output: 0 }),
+  costUsd: z.number().nonnegative().nullable().default(null),
+  /** Model calls beyond the first (a retry after a bad answer or a failed check). */
+  retries: z.number().int().nonnegative().default(0),
+  notes: z.array(z.string()).default([]),
+})
+export type SectionLogEntry = z.infer<typeof SectionLogEntrySchema>
 
 /** What one stage did. Code-only stages (gather, assemble, land) have a null model and zero tokens. */
 export const StageLogEntrySchema = z.object({
@@ -156,6 +198,8 @@ export const StageLogEntrySchema = z.object({
   retries: z.number().int().nonnegative().default(0),
   /** Review: claims that were not plainly supported. */
   flaggedClaims: z.array(FlaggedClaimSchema).default([]),
+  /** Write: one row per section (employer, skills, profile...). Empty for every other stage and for rows stored before Phase 3. */
+  sections: z.array(SectionLogEntrySchema).default([]),
 })
 export type StageLogEntry = z.infer<typeof StageLogEntrySchema>
 
@@ -403,6 +447,11 @@ export const CvSelectionSchema = z.object({
    * ('not_selected'). Absent on rows stored before it existed.
    */
   notSelectedTotal: z.number().int().nonnegative().optional(),
+  /**
+   * Brief "emphasise" items that no kept activity or project supports (a gap the
+   * CV cannot fill from the evidence). Absent on rows stored before it existed.
+   */
+  uncovered: z.array(z.string()).default([]),
 })
 export type CvSelection = z.infer<typeof CvSelectionSchema>
 export type FlatSelectionKey = typeof FLAT_SECTIONS[number]
@@ -412,3 +461,55 @@ export function parseSelection(value: unknown): CvSelection | null {
   const parsed = CvSelectionSchema.safeParse(value)
   return parsed.success ? parsed.data : null
 }
+
+
+// ── Assembled CV (stage 4) ──────────────────────────────────────────────────
+
+/** The kinds of section the writers and code produce. */
+export const ASSEMBLED_SECTION_KINDS = [
+  'header', 'profile', 'competencies', 'experience', 'tools', 'skills', 'certification', 'education', 'languages',
+] as const
+export type AssembledSectionKind = typeof ASSEMBLED_SECTION_KINDS[number]
+
+/**
+ * One section of the assembled CV. `model` is the model that wrote it (absent
+ * when code rendered it); `tokens` its total tokens. An experience section is
+ * one employer (`employerKey`).
+ */
+export const AssembledSectionSchema = z.object({
+  id: z.string(),
+  kind: z.string(),
+  employerKey: z.string().optional(),
+  markdown: z.string(),
+  model: z.string().optional(),
+  tokens: z.object({ input: z.number().nonnegative().default(0), output: z.number().nonnegative().default(0) }).optional(),
+})
+export type AssembledSection = z.infer<typeof AssembledSectionSchema>
+
+/**
+ * `CvGeneration.assembled`: the CV as one Markdown document (with the literal
+ * `{{contact}}` placeholder, never contact details), its sections, the
+ * fact-check warnings and the few "worth a quick check" notes. Read tolerantly:
+ * a malformed row reads as null (parseAssembled), and a bad entry inside a list
+ * is dropped, never the whole CV.
+ */
+export const CvAssembledSchema = z.object({
+  markdown: z.string(),
+  sections: z.array(z.unknown()).default([]).transform((items) =>
+    items.flatMap((i) => { const p = AssembledSectionSchema.safeParse(i); return p.success ? [p.data] : [] })).catch([]),
+  warnings: z.array(z.unknown()).default([]).transform((items) => items.filter((i): i is string => typeof i === 'string')).catch([]),
+  checkNotes: z.array(z.unknown()).default([]).transform((items) => items.filter((i): i is string => typeof i === 'string')).catch([]),
+})
+export type CvAssembled = z.infer<typeof CvAssembledSchema>
+
+/** A stored assembled CV, or null when absent or unreadable (never throws). */
+export function parseAssembled(value: unknown): CvAssembled | null {
+  const parsed = CvAssembledSchema.safeParse(value)
+  return parsed.success ? parsed.data : null
+}
+
+/** Most "worth a quick check" notes the log shows: coach/verification flags stay rare. */
+export const MAX_CHECK_NOTES = 3
+
+/** Starts every "worth a quick check" line in the Assemble log entry's notes. */
+export const CHECK_NOTE_PREFIX = 'Worth a quick check: '

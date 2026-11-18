@@ -8,16 +8,17 @@ import { AssessmentPoller } from "@/app/dashboard/job-applications/_components/a
 import {
   CV_GENERATION_STAGE_INFO,
   CV_GENERATION_STATUS_LABEL,
-  PREVIEW_DETAIL,
   PREVIEW_NOTICE,
   buildStageRows,
   cvGenerationSignature,
   formatRunCost,
   formatTokens,
   isCvGenerationActive,
+  previewCopy,
 } from "@/app/dashboard/job-applications/_components/cv-generation-view"
 import { CV_GENERATION_STAGES } from "@/modules/cv-generation/schema"
 import { Elapsed, LocalDateTime } from "../deep-dive/_components/run-controls"
+import { AssembledCvPanel } from "./_components/assembled-cv"
 import { BriefPanel, SelectionPanel } from "./_components/brief-and-selection"
 import { GenerationLog, StageStepper } from "./_components/generation-log"
 import { RunPreviewButton } from "./_components/run-preview-button"
@@ -63,7 +64,7 @@ function EmptyState({ jobId }: { jobId: string }) {
       </p>
       <div className="mt-5 space-y-2">
         <RunPreviewButton jobId={jobId} />
-        <p className="text-sm text-muted-foreground">{PREVIEW_NOTICE}. A preview runs the first three stages only, on your own LLM key.</p>
+        <p className="text-sm text-muted-foreground">{PREVIEW_NOTICE}. A preview runs everything up to the assembled CV (no review, no draft), on your own LLM key.</p>
       </div>
       <ol className="mt-8 space-y-4 border-t pt-6">
         {CV_GENERATION_STAGES.map((s, i) => (
@@ -114,9 +115,9 @@ function RunBody({ jobId, view }: { jobId: string; view: CvGenerationView }) {
         <div className="space-y-2">
           <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-[-0.02em]">
             <Check className="size-5 text-emerald-700 dark:text-emerald-400" aria-hidden="true" />
-            {PREVIEW_NOTICE}
+            {previewCopy(!!view.assembled).notice}
           </h1>
-          <p className="text-sm leading-relaxed text-muted-foreground">{PREVIEW_DETAIL}</p>
+          <p className="text-sm leading-relaxed text-muted-foreground">{previewCopy(!!view.assembled).detail}</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -144,9 +145,10 @@ function RunBody({ jobId, view }: { jobId: string; view: CvGenerationView }) {
       )}
 
       <StageStepper rows={rows} />
+      {view.assembled && <AssembledCvPanel assembled={view.assembled} />}
       {view.brief && <BriefPanel brief={view.brief} />}
       {view.selection && <SelectionPanel selection={view.selection} />}
-      <GenerationLog rows={rows} />
+      <GenerationLog rows={rows} assembled={view.assembled} />
       {!active && <RunPreviewButton jobId={jobId} label="Run preview again" />}
     </div>
   )

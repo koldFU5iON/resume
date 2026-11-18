@@ -25,7 +25,7 @@
 import * as z from 'zod'
 import { composeSystem, loadCVSelectPrompt } from '@/modules/llm/prompt-context'
 import { LLMError } from '@/modules/llm/errors'
-import { completeValidated } from './call'
+import { completeValidated, type CallUsage } from './call'
 import {
   FLAT_CAPS,
   FLAT_SECTIONS,
@@ -87,6 +87,8 @@ export const SelectOutputSchema = z.object({
   certifications: list(),
   education: list(),
   projects: list(),
+  emphasise: z.array(z.object({ item: z.string(), evidence: z.array(z.string()).default([]) })).default([])
+    .describe('For each emphasise item (copied exactly), the ids of the picked activities or projects that support it; an empty list when no candidate does'),
 })
 export type SelectOutput = z.infer<typeof SelectOutputSchema>
 
@@ -127,8 +129,14 @@ export function selectPrompt(brief: CvBrief, cands: Candidates, strategy?: Pick<
       `<job_requirements>\nMust-have:\n${l(strategy.mustHave)}\n\nNice-to-have:\n${l(strategy.niceToHave)}\n\nKey terms: ${terms.length > 0 ? inBlock(terms.join(', ')) : '(none)'}\n</job_requirements>`,
     )
   }
+  if (brief.emphasise.length > 0) {
+    sections.push(
+      `# Emphasise\n\nThe brief asks the CV to give weight to these. For each one, pick at least one supporting activity (or project) where the candidates have one, and list the ids you picked for it under \`emphasise\`, with the item copied exactly. An item with no supporting candidate gets an empty list: say so, do not stretch an unrelated item to fit.`,
+      brief.emphasise.map((e, i) => `${i + 1}. ${inBlock(e.item)}`).join('\n'),
+    )
+  }
   sections.push(
-    `# Budgets (hard limits; extra picks are discarded)\n\nEmployers with bullets ${employersWithBullets(brief)}, skills ${b.skills}, tools ${b.tools}, competencies ${b.competencies}, certifications ${b.certifications}, education ${b.education}, projects ${b.projects}. Employers you do not pick are still listed on the CV as a title line with no bullets (up to ${MAX_HEADER_ONLY_EMPLOYERS}), so do not spend a pick on an employer only to keep it visible.`,
+    `# Budgets (maximums; fewer is fine, extra picks are discarded)\n\nEmployers with bullets ${employersWithBullets(brief)}, skills ${b.skills}, tools ${b.tools}, competencies ${b.competencies}, certifications ${b.certifications}, education ${b.education}, projects ${b.projects}. Employers you do not pick are still listed on the CV as a title line with no bullets (up to ${MAX_HEADER_ONLY_EMPLOYERS}), so do not spend a pick on an employer only to keep it visible. A budget is a ceiling, never a target: when the evidence for a section is weak (a certification that does not matter for this job, a skill the profile barely backs), pick fewer, or none.`,
     `# Bullets\n\n${TOTAL_ACTIVITY_BUDGET} activities in all across the employers with bullets, split in proportion to the relevance score (${MIN_RELEVANCE}-${MAX_RELEVANCE}) you give each employer, with at least ${MIN_ACTIVITIES_PER_EMPLOYER} and at most ${MAX_ACTIVITIES_PER_EMPLOYER} for each. Code applies the split after you answer. Give every employer you pick a relevance score (${MAX_RELEVANCE} = central to the role, 3 = supports the story but not central, ${MIN_RELEVANCE} = barely relevant), and list up to ${MAX_ACTIVITIES_PER_EMPLOYER} activities for it, best first: the first ones are kept if the split gives the employer fewer. Recency does not set the split: an older employer that answers the brief better gets more bullets than a recent one that does not.`,
   )
   if (required.length === 1) {
@@ -397,6 +405,23 @@ export function enforceSelection(
     for (const k of kept) keptFlat.add(k.id)
   }
 
+  // Emphasise items that no kept activity or project supports. The model says
+  // which picks support each item (only kept ones count); where it did not, an
+  // item counts as covered when a kept activity or project text matches its words.
+  const keptText = [
+    ...cands.employers.flatMap((e) => e.activities.filter((a) => keptActIds.has(a.id)).map((a) => `${a.text} ${a.impact ?? ''}`)),
+    ...cands.projects.filter((p) => keptFlat.has(p.id)).map((p) => `${p.label} ${p.detail ?? ''}`),
+  ]
+  const keptSupportIds = new Set([...keptActIds, ...flat.projects.map((p) => p.id)])
+  const claimed = new Map(out.emphasise.map((c) => [c.item.trim().toLowerCase(), c.evidence]))
+  const uncovered = (brief.emphasise ?? []).map((e) => e.item).filter((item) => {
+    if ((claimed.get(item.trim().toLowerCase()) ?? []).some((id) => keptSupportIds.has(id))) return false
+    const words = termsOf(item)
+    const need = Math.min(2, words.length)
+    return need === 0 || !keptText.some((t) => matches(t, words).length >= need)
+  })
+  if (uncovered.length > 0) notes.push(`No kept evidence supports ${countOf(uncovered.length, 'emphasise item')}: ${uncovered.map((u) => `“${u}”`).join(', ')}.`)
+
   // What was dropped: every candidate that is not kept, with why. Not-selected
   // activities of employers that do not show bullets are not listed one by one.
   // Items code cut are recorded first, so a long profile's not-selected items
@@ -428,7 +453,7 @@ export function enforceSelection(
   if (overCap > 0) notes.push(`Cut ${countOf(overCap, 'pick')} over the limits.`)
 
   return {
-    selection: { mode, employers, experiences: [], headerOnlyRoles: [], activities: {}, ...flat, dropped, droppedTotal: all.length, notSelectedTotal: left.length },
+    selection: { mode, employers, experiences: [], headerOnlyRoles: [], activities: {}, ...flat, dropped, droppedTotal: all.length, notSelectedTotal: left.length, uncovered },
     notes,
     recognised,
   }
@@ -508,6 +533,7 @@ export function fallbackPicks(
     certifications: ranked(cands.certifications),
     education: cands.education.map((c) => ({ id: c.id, reason: '' })),
     projects: ranked(cands.projects),
+    emphasise: [],
   }
 }
 
@@ -526,6 +552,8 @@ export type SelectResult = {
   model: string | null
   retries: number
   notes: string[]
+  /** Tokens and cost of the model calls, from the call results (kept when the rules chose after an answer that named nothing real); absent when the call itself failed. */
+  usage?: CallUsage
 }
 
 /** Runs Select. Never throws for a failed or unusable model answer: the fallback chooses. */
@@ -536,6 +564,8 @@ export async function runSelect(
 ): Promise<SelectResult> {
   let failure: string
   let retries = 0
+  // What the model call used, kept even when the rules end up choosing (the usage rows are written after the call returns, so reading them back races).
+  let used: CallUsage | undefined
   try {
     const instructions = await loadCVSelectPrompt(ctx.profileId)
     const call = await completeValidated(ctx.profileId, selectPrompt(brief, g.candidates, g.strategy), SelectOutputSchema, {
@@ -551,9 +581,10 @@ export async function runSelect(
       label: 'selection',
     })
     retries = call.retries
+    used = call.usage
     const enforced = enforceSelection(call.value, g.candidates, brief, 'model', { requirementTerms: requirementTerms(g.strategy) })
     if (enforced.recognised > 0) {
-      return { selection: enforced.selection, model: call.model, retries, notes: enforced.notes }
+      return { selection: enforced.selection, model: call.model, retries, notes: enforced.notes, usage: call.usage }
     }
     failure = 'the answer named no item that is in the profile'
   } catch (err) {
@@ -566,6 +597,7 @@ export async function runSelect(
     model: null,
     retries,
     notes: [`Chose by rules instead: ${failure}.`, ...fb.notes],
+    ...(used ? { usage: used } : {}),
   }
 }
 

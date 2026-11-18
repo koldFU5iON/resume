@@ -96,4 +96,25 @@ describe('completeJSON', () => {
     expect(mockComplete.mock.calls[0][2].timeoutMs).toBe(60_000)
     expect(mockComplete.mock.calls[0][2]).not.toHaveProperty('deadline')
   })
+
+  it('reports the provider and the summed token usage of every attempt', async () => {
+    mockComplete
+      .mockResolvedValueOnce({
+        text: '```json\n{"name":"devon","count":', finishReason: 'length', provider: 'anthropic', model: 'm',
+        usage: { inputTokens: 100, outputTokens: 40, inputTokenDetails: { cacheReadTokens: 10, cacheWriteTokens: undefined } },
+      } as never)
+      .mockResolvedValueOnce({
+        text: `\`\`\`json\n${JSON.stringify(FIXTURE)}\n\`\`\``, finishReason: 'stop', provider: 'anthropic', model: 'm',
+        usage: { inputTokens: 100, outputTokens: 60, inputTokenDetails: { cacheReadTokens: 5, cacheWriteTokens: undefined } },
+      } as never)
+    const res = await completeJSON('p', 'prompt', SCHEMA, { feature: 'cv-generate' })
+    expect(res.provider).toBe('anthropic')
+    expect(res.usage).toEqual({ inputTokens: 200, outputTokens: 100, cacheReadTokens: 15, cacheWriteTokens: null })
+  })
+
+  it('tolerates a result without usage', async () => {
+    mockComplete.mockResolvedValueOnce({ text: JSON.stringify(FIXTURE), finishReason: 'stop' } as never)
+    const res = await completeJSON('p', 'prompt', SCHEMA, { feature: 'cv-generate' })
+    expect(res.usage).toEqual({ inputTokens: 0, outputTokens: 0, cacheReadTokens: null, cacheWriteTokens: null })
+  })
 })

@@ -20,6 +20,7 @@ import type { Vault } from '@/modules/profile-map/types'
 import { FLAT_SECTIONS, type FlatSection } from './caps'
 import { countOf } from './text'
 import { employerPeriod, groupEmployers, type EmployerGroup } from './employers'
+import { ALREADY_MARKED, certificationStatus, educationStatus, isClaimedCapability } from './write/status'
 
 export type CandidateActivity = {
   id: string
@@ -57,8 +58,11 @@ export function emptyCandidates(): Candidates {
 
 const LABEL_MAX = 90
 
+/** Tells Brief and Select that a certification or education is not finished (status.ts). */
+const markInProgress = (label: string, inProgress: boolean) => (inProgress && !ALREADY_MARKED.test(label) ? `${label} (in progress)` : label)
+
 /** Candidate list of a vault, newest employer first. */
-export function buildCandidates(vault: Vault): Candidates {
+export function buildCandidates(vault: Vault, now: Date = new Date()): Candidates {
   const c = vault.identity.props.contact
   const scrub = makeContactScrubber(c)
   const text = (s: string) => scrub(stripWikilinks(s)).trim()
@@ -96,7 +100,7 @@ export function buildCandidates(vault: Vault): Candidates {
     id: n.id,
     label: n.props.name,
     detail: [n.props.category, n.props.level, n.props.yearsOfExperience ? `${n.props.yearsOfExperience}y` : null].filter(Boolean).join(', ') || null,
-    proven: n.props.status !== 'claimed',
+    proven: !isClaimedCapability(vault, n, now),
   })
 
   return {
@@ -106,13 +110,13 @@ export function buildCandidates(vault: Vault): Candidates {
     competencies: caps.filter((n) => n.props.kind === 'competency').map(capItem),
     certifications: notesOf(vault, 'certification').map((n) => ({
       id: n.id,
-      label: n.props.name,
+      label: markInProgress(n.props.name, certificationStatus(n.props, now) === 'in_progress'),
       detail: n.props.issuer,
       proven: true,
     })),
     education: notesOf(vault, 'education').map((n) => ({
       id: n.id,
-      label: `${n.props.qualification}${n.props.field ? ` in ${n.props.field}` : ''} — ${n.props.institution}`,
+      label: markInProgress(`${n.props.qualification}${n.props.field ? ` in ${n.props.field}` : ''} — ${n.props.institution}`, educationStatus(n.props, now) === 'in_progress'),
       detail: formatSpan(n.props.startDate, n.props.endDate),
       proven: true,
     })),

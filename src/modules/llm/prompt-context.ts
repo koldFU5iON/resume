@@ -44,6 +44,18 @@ export async function loadCVSelectPrompt(profileId: string): Promise<string> {
   return loadPromptText(profileId, 'cv-gen-select')
 }
 
+export async function loadCVWriteExperiencePrompt(profileId: string): Promise<string> {
+  return loadPromptText(profileId, 'cv-gen-write-experience')
+}
+
+export async function loadCVWriteSkillsPrompt(profileId: string): Promise<string> {
+  return loadPromptText(profileId, 'cv-gen-write-skills')
+}
+
+export async function loadCVWriteProfilePrompt(profileId: string): Promise<string> {
+  return loadPromptText(profileId, 'cv-gen-write-profile')
+}
+
 export async function loadWritingContext(profileId: string): Promise<WritingContext> {
   const [rules, settings] = await Promise.all([
     loadWritingRules(profileId).catch(() => ''),

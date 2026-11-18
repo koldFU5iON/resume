@@ -79,6 +79,23 @@ describe('gatherCvInputs', () => {
     expect(mockAnalyse).not.toHaveBeenCalled()
   })
 
+  it('takes the job’s requirements from jobAnalysis when a deep dive supplies the strategy (its cvStrategy has none)', async () => {
+    db.jobApplication.findFirst.mockResolvedValue(job({ jobAnalysis: analysis }) as never)
+    db.jobDeepDive.findFirst.mockResolvedValue({ id: 'dd-9', report } as never)
+    const r = await gatherCvInputs('p1', 'job-1', { runId: 'r1' })
+    expect(r.ok && r.strategy.source).toBe('deep-dive')
+    expect(r.ok && r.strategy.mustHave).toEqual(['Program delivery'])
+    expect(r.ok && r.strategy.niceToHave).toEqual(['Agile'])
+    expect(r.ok && r.strategy.leadWith).toEqual(['Release train']) // the deep dive's own strategy is untouched
+  })
+
+  it('leaves the requirements empty for a deep dive when there is no jobAnalysis either', async () => {
+    db.jobApplication.findFirst.mockResolvedValue(job({ jobAnalysis: null }) as never)
+    db.jobDeepDive.findFirst.mockResolvedValue({ id: 'dd-9', report } as never)
+    const r = await gatherCvInputs('p1', 'job-1', { runId: 'r1' })
+    expect(r.ok && r.strategy.mustHave).toEqual([])
+  })
+
   it('uses jobAnalysis when there is no complete deep dive, without calling the model', async () => {
     db.jobApplication.findFirst.mockResolvedValue(job({ jobAnalysis: analysis }) as never)
     const r = await gatherCvInputs('p1', 'job-1', { runId: 'r1' })

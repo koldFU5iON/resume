@@ -9,8 +9,8 @@ import { notifyAssessmentStarted } from "@/app/dashboard/job-applications/_compo
 import { startResponseMessage } from "@/app/dashboard/job-applications/_components/cv-generation-view"
 
 /**
- * Starts a preview run (brief and selection only: the writing stages are not
- * built yet) through POST /api/jobs/[id]/cv-generation, then refreshes so the
+ * Starts a preview run (everything up to the assembled CV: review and draft
+ * creation are not built yet) through POST /api/jobs/[id]/cv-generation, then refreshes so the
  * page's poller picks up progress. Disabled from the click until the
  * refreshed page has rendered (the transition), at which point the page
  * itself no longer offers the button while a run is active.

@@ -11,9 +11,11 @@
  *   with the guarded `setStatus` (a stage never runs twice, a finished or
  *   stale row is never written), logs one entry per stage as it ends, and
  *   ends the row on any failure. It never throws.
- * - Stages 3-6 (write, assemble, review, land) do not exist yet, so a run is
- *   told to `stopAfter: 'selecting'`: it finishes as `complete` with
- *   `log.partial = true` (a preview run that creates no draft).
+ * - Stages 3-4 (write, assemble) move it writing → assembling; review and land
+ *   (stages 5-6) do not exist yet, so a run is told where to `stopAfter`
+ *   ('selecting' or 'assembling'): it finishes as `complete` with
+ *   `log.partial = true` (a preview run that creates no draft). The assembled
+ *   CV is stored on the row.
  *
  * A run killed mid-way stays in its active status and reads as failed /
  * timeout after CV_GENERATION_STALE_MS (queries.ts).
@@ -24,11 +26,16 @@ import type { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
 import { getLLMConfigStatus } from '@/modules/llm/client'
 import { LLMError } from '@/modules/llm/errors'
+import { loadVault } from '@/modules/profile-map/load'
+import { toProfileSnapshot } from '@/modules/profile/snapshot'
+import { assembleCv, employerOrderOf } from './assemble'
 import { runBrief } from './brief'
+import type { CallUsage } from './call'
 import { gatherCvInputs } from './gather'
 import { getRunUsage } from './queries'
 import { createCvGenerationRun, failRun, setStatus, updateActive, FAILURE_MESSAGES } from './run'
 import {
+  CHECK_NOTE_PREFIX,
   CV_GENERATION_FEATURES,
   TIME_BUDGET_MS,
   type CvGenerationFailureKind,
@@ -37,9 +44,10 @@ import {
 } from './schema'
 import { runSelect, selectionLogLines } from './select'
 import { countOf } from './text'
+import { runWrite, WriteStageError } from './write/run-write'
 
-/** How far a run goes. Only the Select stage exists so far; later phases widen this. */
-export type StopAfter = 'selecting'
+/** How far a run goes. Review and Land do not exist yet; later phases widen this. */
+export type StopAfter = 'selecting' | 'assembling'
 
 export type StartCvGenerationResult =
   | { kind: 'started'; runId: string }
@@ -100,13 +108,22 @@ async function featureUsage(profileId: string, runId: string, feature: string): 
 
 const json = (v: unknown) => v as Prisma.InputJsonValue
 
+/** Stage tokens and cost: from the call results when the stage has them (race-free), else the usage rows of its feature. */
+async function stageUsage(profileId: string, runId: string, feature: string, calls: CallUsage | undefined): Promise<Pick<StageLogEntry, 'tokens' | 'costUsd'>> {
+  if (calls && calls.calls > 0) return { tokens: { input: calls.input, output: calls.output }, costUsd: calls.costUsd }
+  return featureUsage(profileId, runId, feature)
+}
+
+const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`
+
 /** The pipeline. Never throws: every failure ends on the row. */
-export async function runCvGenerationStages(runId: string, profileId: string, opts: { stopAfter: StopAfter } = { stopAfter: 'selecting' }): Promise<void> {
+export async function runCvGenerationStages(runId: string, profileId: string, opts: { stopAfter: StopAfter } = { stopAfter: 'assembling' }): Promise<void> {
   const entries: StageLogEntry[] = []
   const timings: Partial<Record<CvGenerationStage, number>> = {}
   let stage: CvGenerationStage = 'gather'
   let stageStart = Date.now()
-  const deadline = Date.now() + TIME_BUDGET_MS.run
+  const runStart = Date.now()
+  const deadline = runStart + TIME_BUDGET_MS.run
 
   const log = (partial = false) => ({ entries, partial })
   const begin = (s: CvGenerationStage) => { stage = s; stageStart = Date.now() }
@@ -115,11 +132,12 @@ export async function runCvGenerationStages(runId: string, profileId: string, op
     timings[stage] = durationMs
     entries.push({ stage, startedAt: new Date(stageStart).toISOString(), durationMs, ...entry })
   }
-  const fail = async (kind: CvGenerationFailureKind, notes: string[] = []) => {
+  const fail = async (kind: CvGenerationFailureKind, notes: string[] = [], sections: StageLogEntry['sections'] = [], spent?: CallUsage) => {
     timings[stage] = Date.now() - stageStart
     entries.push({
       stage, status: 'failed', model: null, startedAt: new Date(stageStart).toISOString(), durationMs: timings[stage] ?? null,
-      tokens: { input: 0, output: 0 }, costUsd: null, notes: [FAILURE_MESSAGES[kind], ...notes], kept: [], dropped: [], retries: 0, flaggedClaims: [],
+      tokens: { input: spent?.input ?? 0, output: spent?.output ?? 0 }, costUsd: spent && spent.calls > 0 ? spent.costUsd : null,
+      notes: [FAILURE_MESSAGES[kind], ...notes], kept: [], dropped: [], retries: 0, flaggedClaims: [], sections,
     })
     await failRun(profileId, runId, kind, null, { stageTimings: timings, log: log() })
   }
@@ -147,7 +165,7 @@ export async function runCvGenerationStages(runId: string, profileId: string, op
         ...g.notes,
         `Profile: ${countOf(roleCount, 'role')} at ${countOf(c.employers.length, 'employer')} with ${countOf(activityCount, 'activity', 'activities')}; ${countOf(c.skills.length, 'skill')}, ${countOf(c.tools.length, 'tool')}, ${countOf(c.competencies.length, 'competency', 'competencies')}, ${countOf(c.certifications.length, 'certification')}, ${c.education.length} education, ${countOf(c.projects.length, 'project')}.`,
       ],
-      kept: [], dropped: [], retries: 0, flaggedClaims: [],
+      kept: [], dropped: [], retries: 0, flaggedClaims: [], sections: [],
     })
 
     // 1. Brief
@@ -157,8 +175,8 @@ export async function runCvGenerationStages(runId: string, profileId: string, op
     begin('brief')
     const brief = await runBrief(g, { profileId, jobApplicationId: jobId, runId, deadline })
     end({
-      status: 'ok', model: brief.model, ...(await featureUsage(profileId, runId, CV_GENERATION_FEATURES.brief)),
-      notes: [], kept: [], dropped: [], retries: brief.retries, flaggedClaims: [],
+      status: 'ok', model: brief.model, ...(await stageUsage(profileId, runId, CV_GENERATION_FEATURES.brief, brief.usage)),
+      notes: [], kept: [], dropped: [], retries: brief.retries, flaggedClaims: [], sections: [],
     })
 
     // 2. Select
@@ -169,16 +187,16 @@ export async function runCvGenerationStages(runId: string, profileId: string, op
     const picked = await runSelect(g, brief.value, { profileId, jobApplicationId: jobId, runId, deadline })
     const lines = selectionLogLines(picked.selection)
     end({
-      status: 'ok', model: picked.model, ...(await featureUsage(profileId, runId, CV_GENERATION_FEATURES.select)),
+      status: 'ok', model: picked.model, ...(await stageUsage(profileId, runId, CV_GENERATION_FEATURES.select, picked.usage)),
       notes: [
         ...picked.notes,
         ...(lines.notSelected > 0 ? [`${lines.notSelected === 1 ? '1 other profile item was' : `${lines.notSelected} other profile items were`} not selected.`] : []),
       ],
-      kept: lines.kept, dropped: lines.dropped, retries: picked.retries, flaggedClaims: [],
+      kept: lines.kept, dropped: lines.dropped, retries: picked.retries, flaggedClaims: [], sections: [],
     })
 
-    // Stages 3-6 do not exist yet, so the only place to stop is after Select:
-    // finish as a preview run (log.partial) that creates no draft.
+    // Review and Land (stages 5-6) do not exist yet: stopping after Select or
+    // Assemble finishes a preview run (log.partial) that creates no draft.
     if (opts.stopAfter === 'selecting') {
       await updateActive(profileId, runId, {
         status: 'complete',
@@ -187,10 +205,77 @@ export async function runCvGenerationStages(runId: string, profileId: string, op
         stageTimings: json(timings),
         log: json(log(true)),
       })
+      return
     }
+
+    // 3. Write. The selection is stored as the stage starts, so the page shows
+    // what is being written from.
+    if (!(await setStatus(profileId, runId, 'writing', {
+      selection: json(picked.selection), stageTimings: json(timings), log: json(log()),
+    }))) return
+    begin('write')
+    const vault = await loadVault(profileId)
+    const written = await runWrite(vault, brief.value, picked.selection, g.strategy, { profileId, jobApplicationId: jobId, runId, deadline })
+    const writeMs = Date.now() - stageStart
+    end({
+      status: 'ok',
+      model: written.models.length === 0 ? null : written.models.join(', '),
+      tokens: { input: written.usage.input, output: written.usage.output },
+      costUsd: written.usage.calls > 0 ? written.usage.costUsd : null,
+      notes: [
+        `Wrote ${countOf(written.sections.length, 'section')} in ${seconds(writeMs)} (${countOf(written.usage.calls, 'model call')}); the run's budget is ${seconds(TIME_BUDGET_MS.run)}.`,
+        ...written.notes,
+      ],
+      kept: [], dropped: [],
+      retries: written.sections.reduce((n, s) => n + s.log.retries, 0),
+      flaggedClaims: [],
+      sections: written.sections.map((s) => s.log),
+    })
+
+    // 4. Assemble: code only.
+    if (!(await setStatus(profileId, runId, 'assembling', { stageTimings: json(timings), log: json(log()) }))) return
+    begin('assemble')
+    const assembled = assembleCv({
+      name: vault.identity.props.name,
+      headline: written.headline,
+      sections: written.sections,
+      employerOrder: employerOrderOf(picked.selection),
+      checkNotes: written.checkNotes,
+      snapshot: toProfileSnapshot(vault),
+    })
+    if (!assembled.ok) return await fail('invalid_output', ['The assembled CV has invalid blocks.', ...assembled.issues])
+    const cv = assembled.assembled
+    end({
+      status: 'ok', model: null, tokens: { input: 0, output: 0 }, costUsd: null,
+      notes: [
+        `Assembled ${countOf(cv.sections.length, 'section')} in the default CV structure, with the contact placeholder in the header.`,
+        ...(cv.warnings.length > 0 ? [`${countOf(cv.warnings.length, 'warning')} from the block and fact checks (see below).`] : ['No warnings from the block and fact checks.']),
+        ...cv.checkNotes.map((n) => `${CHECK_NOTE_PREFIX}${n}`),
+        `The whole run took ${seconds(Date.now() - runStart)} of its ${seconds(TIME_BUDGET_MS.run)} budget.`,
+      ],
+      kept: [], dropped: [], retries: 0, flaggedClaims: [], sections: [],
+    })
+    await updateActive(profileId, runId, {
+      status: 'complete',
+      assembled: json(cv),
+      completedAt: new Date(),
+      stageTimings: json(timings),
+      log: json(log(true)),
+    })
   } catch (err) {
-    const kind = failureKindFor(err)
-    if (kind === 'error') console.error('[cv-generation] run failed', { runId, err })
-    await fail(kind, err instanceof LLMError && kind === 'invalid_output' ? [err.message] : [])
+    let cause = err
+    let sections: StageLogEntry['sections'] = []
+    let spent: CallUsage | undefined
+    if (err instanceof WriteStageError) {
+      cause = err.original
+      sections = err.sectionLogs
+      spent = err.usage
+    }
+    const kind = failureKindFor(cause)
+    if (kind === 'error') console.error('[cv-generation] run failed', { runId, err: cause })
+    const notes: string[] = []
+    if (cause instanceof LLMError && kind === 'invalid_output') notes.push(cause.message)
+    if (kind === 'timeout') notes.push(`Timed out in the ${stage} stage after ${seconds(Date.now() - stageStart)}; the whole run had taken ${seconds(Date.now() - runStart)} of its ${seconds(TIME_BUDGET_MS.run)} budget.`)
+    await fail(kind, notes, sections, spent)
   }
 }

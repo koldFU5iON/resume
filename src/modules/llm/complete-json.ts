@@ -17,6 +17,10 @@ export type CompleteJSONResult<T> = {
   rawText: string
   /** Model that answered the last attempt. */
   model: string
+  /** Provider of the last attempt (with `model`, prices the call). */
+  provider?: string
+  /** Token usage of ALL attempts of this call, summed (a cut-off retry is a second call). */
+  usage?: { inputTokens: number; outputTokens: number; cacheReadTokens: number | null; cacheWriteTokens: number | null }
 }
 
 export async function completeJSON<T>(
@@ -51,13 +55,25 @@ export async function completeJSON<T>(
       timeoutMs: timeoutFor(),
     })
 
+  const usage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: null as number | null, cacheWriteTokens: null as number | null }
+  const add = (r: Awaited<ReturnType<typeof call>>) => {
+    usage.inputTokens += r.usage?.inputTokens ?? 0
+    usage.outputTokens += r.usage?.outputTokens ?? 0
+    const cr = r.usage?.inputTokenDetails?.cacheReadTokens
+    const cw = r.usage?.inputTokenDetails?.cacheWriteTokens
+    if (cr !== undefined) usage.cacheReadTokens = (usage.cacheReadTokens ?? 0) + cr
+    if (cw !== undefined) usage.cacheWriteTokens = (usage.cacheWriteTokens ?? 0) + cw
+  }
+
   let result = await call(budget, false)
+  add(result)
   let extracted = extractJSON(result.text, schema)
 
   if (!extracted.ok && result.finishReason === 'length' && timeLeft() >= minRetryMs) {
     result = await call(retryBudget, true)
+    add(result)
     extracted = extractJSON(result.text, schema)
   }
 
-  return { extracted, finishReason: result.finishReason, rawText: result.text, model: result.model }
+  return { extracted, finishReason: result.finishReason, rawText: result.text, model: result.model, provider: result.provider, usage }
 }

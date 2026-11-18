@@ -76,6 +76,18 @@ describe('toCvGenerationView', () => {
     expect(bad).toMatchObject({ partial: false, brief: null, selection: null })
   })
 
+  it('exposes the assembled CV, and reads a run stored before it existed (no column) as none', () => {
+    const assembled = { markdown: ':::header\n# A\n{{contact}}\n:::\n', sections: [{ id: 'header', kind: 'header', markdown: 'x' }], warnings: ['w'], checkNotes: [] }
+    expect(toCvGenerationView(row({ assembled }), summarizeRunUsage([]), NOW).assembled).toEqual(assembled)
+    expect(toCvGenerationView(row(), summarizeRunUsage([]), NOW).assembled).toBeNull()
+    expect(toCvGenerationView(row({ assembled: { markdown: 5 } }), summarizeRunUsage([]), NOW).assembled).toBeNull()
+  })
+
+  it('reads a stored log without section rows (written before phase 3) with empty sections', () => {
+    const view = toCvGenerationView(row({ log: { entries: [{ stage: 'select', status: 'ok' }], partial: true } }), summarizeRunUsage([]), NOW)
+    expect(view.log[0].sections).toEqual([])
+  })
+
   it('treats an unknown stored status as failed', () => {
     expect(toCvGenerationView(row({ status: 'bogus' }), summarizeRunUsage([]), NOW).status).toBe('failed')
   })

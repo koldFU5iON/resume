@@ -28,4 +28,13 @@ describe('PROMPT_REGISTRY', () => {
       }
     }
   })
+
+  it('registers the three CV writer prompts, user-overridable like the others, in the cv group', () => {
+    for (const key of ['cv-gen-write-experience', 'cv-gen-write-skills', 'cv-gen-write-profile']) {
+      const def = PROMPT_REGISTRY.find((p) => p.key === key)
+      expect(def, key).toBeDefined()
+      expect(def!.group).toBe('cv')
+      expect(def!.filename).toBe(`${key}.md`)
+    }
+  })
 })

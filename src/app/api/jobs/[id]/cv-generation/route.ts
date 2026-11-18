@@ -5,8 +5,8 @@
 //
 // Session cookie only. The run executes in after()
 // (src/modules/cv-generation/run-pipeline.ts) on the user's own LLM key. Until
-// the writing stages exist this starts a preview run (brief and selection
-// only). A missing key or job description is not refused here: the run ends
+// review and draft creation exist this starts a preview run (gather through
+// assemble: the assembled CV is stored on the run, no draft is created). A missing key or job description is not refused here: the run ends
 // failed and the log page says why. Spec: docs/cv-generation.md.
 
 import { NextResponse, type NextRequest } from 'next/server'
@@ -29,7 +29,7 @@ export async function POST(_request: NextRequest, { params }: Params) {
   }
 
   const { id } = await params
-  const result = await startCvGeneration(profileId, id, { stopAfter: 'selecting' })
+  const result = await startCvGeneration(profileId, id, { stopAfter: 'assembling' })
   switch (result.kind) {
     case 'started':
       return NextResponse.json({ runId: result.runId, existing: false }, { status: 202 })

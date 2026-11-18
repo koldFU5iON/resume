@@ -77,6 +77,26 @@ export function jobDeepDiveHref(jobId: string): string {
   return `${jobHubHref(jobId)}/deep-dive`
 }
 
+/** The CV generation log page: how the last generated CV was made (reached from "All documents", like the Deep Dive). */
+export function jobCvGenerationHref(jobId: string): string {
+  return `${jobHubHref(jobId)}/cv-generation`
+}
+
+export type JobExtraDestination = { key: "deep-dive" | "cv-generation"; kind: "deep-dive" | "cv-generation"; label: string; href: string }
+
+/**
+ * The destinations "All documents" lists after the documents. Deep Dive is
+ * always there; CV generation only once the job already has a run, because
+ * until the phase 5 menu switch its page is reachable by URL only and an empty
+ * entry would invite a preview feature nobody has started.
+ */
+export function jobExtraDestinations(jobId: string, hasCvGeneration: boolean): JobExtraDestination[] {
+  return [
+    { key: "deep-dive", kind: "deep-dive", label: "Deep Dive", href: jobDeepDiveHref(jobId) },
+    ...(hasCvGeneration ? [{ key: "cv-generation", kind: "cv-generation", label: "CV generation", href: jobCvGenerationHref(jobId) } as const] : []),
+  ]
+}
+
 /**
  * The job-scoped Writing Desk URL. Kept for old links: it opens the job's
  * primary (oldest) document, creating a blank one when there is none.
@@ -181,6 +201,10 @@ export function activeJobDocument(pathname: string, links: readonly JobDocumentL
 
 export function isJobDeepDivePath(pathname: string, jobId: string): boolean {
   return isAt(pathname.replace(/\/+$/, ""), jobDeepDiveHref(jobId))
+}
+
+export function isJobCvGenerationPath(pathname: string, jobId: string): boolean {
+  return isAt(pathname.replace(/\/+$/, ""), jobCvGenerationHref(jobId))
 }
 
 /**

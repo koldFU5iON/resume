@@ -139,6 +139,14 @@ export async function gatherCvInputs(profileId: string, jobId: string, ctx: { ru
   } else {
     strategy = strategyFromAnalysis(job.jobAnalysis, 'job-analysis')
   }
+  // A deep dive's cvStrategy carries no must-have / nice-to-have lists. The job's
+  // requirements still matter (Select picks against them; the writers allow a
+  // claimed tool in a bullet only when they name it), so take them from the job
+  // analysis when there is one.
+  if (strategy && strategy.source === 'deep-dive' && strategy.mustHave.length === 0 && strategy.niceToHave.length === 0) {
+    const req = strategyFromAnalysis(job.jobAnalysis, 'job-analysis')
+    if (req) strategy = { ...strategy, mustHave: req.mustHave, niceToHave: req.niceToHave }
+  }
   if (!strategy) {
     // Last resort: analyseJob logs its own usage row (cv-job-analysis) against this run and saves jobAnalysis.
     const { analysis, timedOut } = await analyseWithDeadline(profileId, jobId, ctx.runId)

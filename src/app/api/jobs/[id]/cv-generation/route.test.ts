@@ -33,7 +33,7 @@ describe("POST /api/jobs/[id]/cv-generation", () => {
     const res = await POST(req(), params())
     expect(res.status).toBe(202)
     expect(await res.json()).toEqual({ runId: "run-1", existing: false })
-    expect(mockStart).toHaveBeenCalledWith("p1", "job-1", { stopAfter: "selecting" })
+    expect(mockStart).toHaveBeenCalledWith("p1", "job-1", { stopAfter: "assembling" })
   })
 
   it("200 with the running run when one is already active", async () => {
@@ -48,7 +48,7 @@ describe("POST /api/jobs/[id]/cv-generation", () => {
     mockStart.mockResolvedValue({ kind: "not_found" })
     const res = await POST(req(), params("someone-elses-job"))
     expect(res.status).toBe(404)
-    expect(mockStart).toHaveBeenCalledWith("p-other", "someone-elses-job", { stopAfter: "selecting" })
+    expect(mockStart).toHaveBeenCalledWith("p-other", "someone-elses-job", { stopAfter: "assembling" })
   })
 
   it("429 at the per-profile limit", async () => {
