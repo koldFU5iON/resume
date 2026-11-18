@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { COACH_DRAFT_EVENT, openCoachWithDraft } from "./coach-handoff"
+import { COACH_DRAFT_EVENT, mergeCoachDraft, openCoachWithDraft } from "./coach-handoff"
 
 describe("openCoachWithDraft", () => {
   afterEach(() => vi.unstubAllGlobals())
@@ -27,8 +27,15 @@ describe("openCoachWithDraft", () => {
     const { readFileSync } = await import("node:fs")
     const src = readFileSync("src/components/shell/chat-panel.tsx", "utf8")
     const block = src.slice(src.indexOf("function onDraft"), src.indexOf("window.removeEventListener(COACH_DRAFT_EVENT"))
-    expect(block).toContain("setInput(text)")
+    expect(block).toContain("mergeCoachDraft")
     expect(block).toContain("openPanel()")
     expect(block).not.toMatch(/sendMessage|handleSend/)
+  })
+
+  it("mergeCoachDraft keeps what the user already typed, appending after a blank line", () => {
+    expect(mergeCoachDraft("", "New")).toBe("New")
+    expect(mergeCoachDraft("   ", "New")).toBe("New")
+    expect(mergeCoachDraft("Mine", "New")).toBe("Mine\n\nNew")
+    expect(mergeCoachDraft("Mine\n", "New")).toBe("Mine\n\nNew")
   })
 })

@@ -21,7 +21,7 @@ import { splitThinkingContent } from '@/modules/chat/thinking'
 import { ChatMessage } from './chat-message'
 import { COACH_PANEL_CLASSES } from './coach-panel'
 import { toast } from 'sonner'
-import { COACH_DRAFT_EVENT, type CoachDraftDetail } from './coach-handoff'
+import { COACH_DRAFT_EVENT, mergeCoachDraft, type CoachDraftDetail } from './coach-handoff'
 
 type ChatSettings = {
   chatModel: string | null
@@ -170,7 +170,7 @@ export function ChatPanel({ open, onClose }: ChatPanelProps) {
     function onDraft(e: Event) {
       const text = (e as CustomEvent<CoachDraftDetail>).detail?.text
       if (!text) return
-      setInput(text)
+      setInput(current => mergeCoachDraft(current, text))
       setExpanded(true)
       openPanel()
       requestAnimationFrame(() => inputRef.current?.focus())

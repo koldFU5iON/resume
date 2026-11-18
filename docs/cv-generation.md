@@ -27,7 +27,7 @@ Goals, from the audit of the legacy generator (one 8,000-token call wrote everyt
 5. **Claimed skills stay in lists.** A skill with no evidence behind it may appear in Skills and Tools lists; in a bullet, summary or profile only if the job's requirements name it; never as a Core Competency.
 6. **Certifications and education are code-rendered, in relevance order**, with status derived from the data (in progress, expired, undated).
 7. **Coach and verification flags stay rare.** At most 3 "worth a quick check" notes per run.
-8. **Switch immediately** (done in 4b): the menu points at the writing desk; the old routes stay reachable but unlinked until Phase 5.
+8. **Switch immediately** (done in 4b): the menu points at the writing desk; the old routes stay reachable by URL only (nothing links to them: the job menu, the job nav's "Older editors" group and the CV and cover letter list pages no longer do) until Phase 5.
 
 ---
 
@@ -235,7 +235,7 @@ Policy: **soft** means one retry with the specific problems listed, then accept 
 - **Log page** (`src/app/dashboard/job-applications/view/[id]/cv-generation/page.tsx`): empty state with the stages and a Generate button; active stepper (mounts `AssessmentPoller`, "You can leave this page"); failed state with the reason, a link to the waiting draft on `draft_exists`, an "Add an LLM API key" link on `no_llm_key`; complete state "CV drafted: review it in the writing desk" with a link to the draft. Panels: stage stepper and rows (`generation-log.tsx`: model, time, tokens, cost, retries and why, notes, kept/dropped, section rows, "Where each bullet came from"), Copy log, **Review concerns** (below), Assembled CV (`assembled-cv.tsx`, rendered with `blockRemoteContent`, collapsible Markdown, copy), Brief and Selection (`brief-and-selection.tsx`, with the uncovered emphasise items), side panel (run time, status, estimated cost, calls and tokens). "Generate again" and "Generate again with a fresh brief and selection" (`generate-cv-button.tsx`) with the same 409 choice.
 - **Concerns panel** (`_components/concerns-panel.tsx`): a native `<details>`. Collapsed, it previews "N concerns to discuss with the coach" and every title; expanded it shows, per concern, the kind badge, why, the question and the evidence snippets, and a **Discuss with coach** button; a **Discuss all with coach** button sits outside the details. Wording is suggestion-only: "the draft does not wait on them".
 - **Coach handoff** (`src/components/shell/coach-handoff.ts`): the single helper `openCoachWithDraft(text)` dispatches a `coach-draft` event; `ChatPanel` (`src/components/shell/chat-panel.tsx`) listens, fills its input, expands it, opens the panel and focuses it. **It never sends** and writes nothing to the profile. The message text is built by `concernCoachMessage` / `allConcernsCoachMessage` (`cv-generation-view.ts`): the job, the concern, why, the question and evidence, and "Don't change my profile; I'll make any change myself." The coach is due a rework: this is the only coupling (one helper, one listener).
-- **Retired pages**: `/dashboard/cv-builder/new` and `/dashboard/cover-letters/new` are unlinked and show a retirement banner (`src/components/legacy-editors/legacy-generation-banner.tsx`) pointing at the job's writing desk; the old generator runs only on an explicit click.
+- **Retired pages**: `/dashboard/cv-builder/new` and `/dashboard/cover-letters/new` are linked from nowhere (the list pages' "New" buttons now go to the job list, `jobDocumentCreateLinks` offers interview prep only) and show a retirement banner (`src/components/legacy-editors/legacy-generation-banner.tsx`) pointing at the job's writing desk; the old generator runs only on an explicit click.
 
 Pure view helpers live in `src/app/dashboard/job-applications/_components/cv-generation-view.ts` (stage rows, `briefRows`, `selectionGroups`, `concernRows`, `reviewSummary`, `runLogMarkdown`, `startResponseMessage`, `draftHref`).
 
@@ -251,7 +251,7 @@ The legacy `cv-generate.md` is not used by this flow.
 
 ## 15. Cost and latency (real runs)
 
-On the Opus-default setup (the writers use the user's default model), a real run on a prod profile cost about **$0.54** and took about **2 minutes 40 seconds**. Estimated cost split per stage:
+**Observed on one production run, 2026-11-18** (a Canonical job, Opus as the default model, so the writers ran on Opus): about **$0.54** and about **2 minutes 40 seconds**. Estimated cost split per stage for that run (a single sample, not an average):
 
 | Stage | Cost |
 |---|---|
@@ -322,7 +322,7 @@ The legacy generator (`createAndGenerateCV` in `src/modules/cv/actions.ts`, `src
 
 **Phase 5 removal list** (do in one PR; confirm usage first):
 
-- `src/app/dashboard/cv-builder/new/page.tsx` and `src/app/dashboard/cover-letters/new/page.tsx`, and `src/components/legacy-editors/legacy-generation-banner.tsx`.
+- `src/app/dashboard/cv-builder/new/page.tsx` and `src/app/dashboard/cover-letters/new/page.tsx` (the only remaining pages that start the old generators; nothing links to them), and `src/components/legacy-editors/legacy-generation-banner.tsx`.
 - `createAndGenerateCV` (`src/modules/cv/actions.ts`) and `src/modules/cv/generate.ts` with its helpers used only by it (keep `analyse-job.ts`: `analyseJob` is still the last-resort Gather input here), `score-evidence.ts`, `scan-cv.ts`, and `src/lib/prompts/cv-generate.md` plus its `PROMPT_REGISTRY` entries (`cv-generate`, `cv-evidence-score`, `cv-recruiter-scan`) once nothing else uses them.
 - Legacy-only feature labels may stay (old usage rows carry them).
 - `docs/cv-generation-legacy.md` and its reference lines in AGENTS.md.

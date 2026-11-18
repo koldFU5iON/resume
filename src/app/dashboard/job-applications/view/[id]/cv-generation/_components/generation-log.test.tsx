@@ -86,11 +86,17 @@ describe("ConcernsPanel (phase 4b): a previewable panel with a coach handoff", (
 
   it("is collapsed by default (a details element without open) and previews the count and every title", () => {
     expect(html).toMatch(/<details(?![^>]*\sopen)/)
+    const preview = html.slice(0, html.indexOf("<details"))
+    expect(preview).toContain("2 concerns to discuss with the coach")
+    expect(preview).toContain("Two figures")
+    expect(preview).toContain("Thin proof for launch")
+    expect(preview).not.toContain("Which is right?")
+    // the summary is only the toggle, so the disclosure's accessible name is not the whole preview
     const summary = html.slice(html.indexOf("<summary"), html.indexOf("</summary>"))
-    expect(summary).toContain("2 concerns to discuss with the coach")
-    expect(summary).toContain("Two figures")
-    expect(summary).toContain("Thin proof for launch")
-    expect(summary).not.toContain("Which is right?")
+    expect(summary).toContain("Show the questions (2)")
+    expect(summary).toContain("Hide the questions")
+    expect(summary).not.toContain("Two figures")
+    expect(summary).toContain("-webkit-details-marker")
   })
 
   it("expands to kind, why, the question and evidence snippets", () => {

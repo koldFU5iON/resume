@@ -8,6 +8,12 @@ export const COACH_DRAFT_EVENT = "coach-draft"
 
 export type CoachDraftDetail = { text: string }
 
+/** A draft added to the coach input: what the user already typed stays, the new text follows a blank line. */
+export function mergeCoachDraft(current: string, text: string): string {
+  const typed = current.trimEnd()
+  return typed.trim() ? `${typed}\n\n${text}` : text
+}
+
 /** Open the coach with `text` as an unsent draft. No-op outside the browser or for empty text. */
 export function openCoachWithDraft(text: string): void {
   const draft = text.trim()

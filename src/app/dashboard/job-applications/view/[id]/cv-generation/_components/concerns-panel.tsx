@@ -20,16 +20,15 @@ export function ConcernsPanel({ concerns, job }: { concerns: ConcernRow[]; job: 
   const count = concerns.length === 1 ? "1 concern" : `${concerns.length} concerns`
   return (
     <section aria-labelledby="concerns-heading" className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3.5">
-      <details>
-        <summary className="cursor-pointer list-none">
-          <h2 id="concerns-heading" className="flex items-center gap-2 text-lg font-semibold tracking-[-0.01em]">
-            <CircleAlert className="size-4 text-amber-700 dark:text-amber-400" aria-hidden="true" />
-            {count} to discuss with the coach
-          </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {concerns.map((c) => c.title).join(" · ")}
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground underline underline-offset-2">Show the questions</p>
+      <h2 id="concerns-heading" className="flex items-center gap-2 text-lg font-semibold tracking-[-0.01em]">
+        <CircleAlert className="size-4 text-amber-700 dark:text-amber-400" aria-hidden="true" />
+        {count} to discuss with the coach
+      </h2>
+      <p className="mt-1 text-sm text-muted-foreground">{concerns.map((c) => c.title).join(" · ")}</p>
+      <details className="group mt-2">
+        <summary className="cursor-pointer list-none text-xs text-muted-foreground underline underline-offset-2 [&::-webkit-details-marker]:hidden">
+          <span className="group-open:hidden">Show the questions ({concerns.length})</span>
+          <span className="hidden group-open:inline">Hide the questions</span>
         </summary>
         <p className="mt-3 text-sm text-muted-foreground">Questions the review could not settle from your profile. They are suggestions: the draft does not wait on them.</p>
         <ul className="mt-3 space-y-4">
