@@ -157,7 +157,7 @@ export async function runCvGenerationStages(runId: string, profileId: string, op
     entries.push({ stage, startedAt: new Date(stageStart).toISOString(), durationMs, ...entry })
   }
   /** Data kept on a failed row so nothing generated is lost (set once the CV exists). */
-  let keep: Parameters<typeof failRun>[4]['data'] = {}
+  let keep: NonNullable<Parameters<typeof failRun>[4]>['data'] = {}
   const fail = async (kind: CvGenerationFailureKind, notes: string[] = [], sections: StageLogEntry['sections'] = [], spent?: CallUsage) => {
     timings[stage] = Date.now() - stageStart
     entries.push({

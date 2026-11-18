@@ -13,7 +13,10 @@ const mockProfile = vi.mocked(requireProfile)
 const mockStart = vi.mocked(startCvGeneration)
 
 const params = (id = "job-1") => ({ params: Promise.resolve({ id }) })
-const req = () => new Request("http://localhost/api/jobs/job-1/cv-generation", { method: "POST" }) as unknown as NextRequest
+const req = (body?: unknown) => new Request("http://localhost/api/jobs/job-1/cv-generation", {
+  method: "POST",
+  ...(body === undefined ? {} : { body: typeof body === "string" ? body : JSON.stringify(body) }),
+}) as unknown as NextRequest
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -28,12 +31,12 @@ describe("POST /api/jobs/[id]/cv-generation", () => {
     expect(mockStart).not.toHaveBeenCalled()
   })
 
-  it("starts a preview run for the signed-in profile: 202 with the run id", async () => {
+  it("starts a run for the signed-in profile: 202 with the run id", async () => {
     mockStart.mockResolvedValue({ kind: "started", runId: "run-1" })
     const res = await POST(req(), params())
     expect(res.status).toBe(202)
     expect(await res.json()).toEqual({ runId: "run-1", existing: false })
-    expect(mockStart).toHaveBeenCalledWith("p1", "job-1", { stopAfter: "assembling" })
+    expect(mockStart).toHaveBeenCalledWith("p1", "job-1", {})
   })
 
   it("200 with the running run when one is already active", async () => {
@@ -48,7 +51,7 @@ describe("POST /api/jobs/[id]/cv-generation", () => {
     mockStart.mockResolvedValue({ kind: "not_found" })
     const res = await POST(req(), params("someone-elses-job"))
     expect(res.status).toBe(404)
-    expect(mockStart).toHaveBeenCalledWith("p-other", "someone-elses-job", { stopAfter: "assembling" })
+    expect(mockStart).toHaveBeenCalledWith("p-other", "someone-elses-job", {})
   })
 
   it("429 at the per-profile limit", async () => {
@@ -56,6 +59,31 @@ describe("POST /api/jobs/[id]/cv-generation", () => {
     const res = await POST(req(), params())
     expect(res.status).toBe(429)
     expect((await res.json()).error).toBe("limit")
+  })
+
+  it("passes the body options to the run", async () => {
+    mockStart.mockResolvedValue({ kind: "started", runId: "run-1" })
+    await POST(req({ fresh: true, review: false }), params())
+    expect(mockStart).toHaveBeenCalledWith("p1", "job-1", { fresh: true, review: false })
+  })
+
+  it("ignores unknown body keys", async () => {
+    mockStart.mockResolvedValue({ kind: "started", runId: "run-1" })
+    await POST(req({ fresh: false, extra: 1 }), params())
+    expect(mockStart).toHaveBeenCalledWith("p1", "job-1", { fresh: false })
+  })
+
+  it.each([["fresh is not a boolean", { fresh: "yes" }], ["review is not a boolean", { review: 1 }], ["the body is not an object", [1]], ["the body is not JSON", "{nope"]])("400 when %s, and starts nothing", async (_n, body) => {
+    const res = await POST(req(body), params())
+    expect(res.status).toBe(400)
+    expect(mockStart).not.toHaveBeenCalled()
+  })
+
+  it("409 draft_exists with the document id when the job's CV document already has a draft", async () => {
+    mockStart.mockResolvedValue({ kind: "draft_exists", documentId: "doc-1" })
+    const res = await POST(req(), params())
+    expect(res.status).toBe(409)
+    expect(await res.json()).toMatchObject({ code: "draft_exists", documentId: "doc-1" })
   })
 
   it("runs within the platform's 300 s function limit", () => {
