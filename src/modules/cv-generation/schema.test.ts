@@ -8,6 +8,9 @@ import {
   StageLogEntrySchema,
   employersWithBullets,
   asFailureKind,
+  isPartialLog,
+  parseReview,
+  StartCvGenerationBodySchema,
   asStatus,
   isActiveStatus,
   parseCvGenerationLog,
@@ -219,5 +222,62 @@ describe('retry reasons (phase 3b): stored runs from before they were recorded s
   it('keeps the recorded reasons', () => {
     const entries = parseCvGenerationLog({ entries: [{ stage: 'write', sections: [{ id: 'profile', label: 'Profile', retries: 1, retryReasons: ['first person'] }] }] })
     expect(entries[0].sections[0].retryReasons).toEqual(['first person'])
+  })
+})
+
+describe('review (phase 4a): the stored column reads tolerantly', () => {
+  it('is null for a run that never reached Review or holds junk', () => {
+    expect(parseReview(null)).toBeNull()
+    expect(parseReview(undefined)).toBeNull()
+    expect(parseReview('x')).toBeNull()
+    expect(parseReview([1])).toBeNull()
+  })
+
+  it('an empty object reads as a review with nothing in it (every field defaults)', () => {
+    expect(parseReview({})).toEqual({ skipped: false, skipReason: null, model: null, tokens: { input: 0, output: 0 }, costUsd: null, applied: [], discarded: [], concerns: [] })
+  })
+
+  it('keeps a full review, drops bad list entries and bad lists instead of failing it', () => {
+    const r = parseReview({
+      skipped: false, model: 'm', tokens: { input: 5, output: 2 }, costUsd: 0.04,
+      applied: [{ sectionId: 'experience:unity', bulletId: 'b1', action: 'replace', before: 'a', after: 'b', reason: 'r' }, { nope: true }, 5],
+      discarded: 'not a list',
+      concerns: [{ kind: 'weak_proof', title: 'T', why: 'w', question: 'q?', refs: [{ label: 'S1', snippet: 's' }, 'bad'] }, { kind: 'vibes', title: 'Odd' }],
+    })!
+    expect(r.applied).toHaveLength(1)
+    expect(r.discarded).toEqual([])
+    expect(r.concerns).toHaveLength(2)
+    expect(r.concerns[0].refs).toEqual([{ label: 'S1', snippet: 's' }])
+    expect(r.concerns[1].kind).toBe('other') // an unknown kind reads as other
+    expect(r.concerns[1].refs).toEqual([])
+  })
+
+  it('a skipped review keeps its reason', () => {
+    expect(parseReview({ skipped: true, skipReason: 'timed out' })).toMatchObject({ skipped: true, skipReason: 'timed out', applied: [], concerns: [] })
+  })
+})
+
+describe('StartCvGenerationBodySchema', () => {
+  it('accepts no options, either option, or both, and ignores unknown keys', () => {
+    expect(StartCvGenerationBodySchema.parse({})).toEqual({})
+    expect(StartCvGenerationBodySchema.parse({ fresh: true })).toEqual({ fresh: true })
+    expect(StartCvGenerationBodySchema.parse({ review: false, fresh: false, other: 1 })).toEqual({ review: false, fresh: false })
+  })
+
+  it.each([[{ fresh: 'true' }], [{ review: 0 }], [null], [[]], ['x']])('rejects %j', (body) => {
+    expect(StartCvGenerationBodySchema.safeParse(body).success).toBe(false)
+  })
+})
+
+describe('failure kinds and the log (phase 4a)', () => {
+  it('knows document_limit and draft_exists', () => {
+    expect(asFailureKind('document_limit')).toBe('document_limit')
+    expect(asFailureKind('draft_exists')).toBe('draft_exists')
+  })
+
+  it('still reads an old partial (preview) log, and a new log is never partial', () => {
+    expect(isPartialLog({ entries: [], partial: true })).toBe(true)
+    expect(isPartialLog({ entries: [], partial: false })).toBe(false)
+    expect(isPartialLog({ entries: [] })).toBe(false)
   })
 })

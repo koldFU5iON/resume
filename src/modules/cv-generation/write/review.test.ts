@@ -80,8 +80,8 @@ const input = (over: Partial<ReviewPromptInput> = {}): ReviewPromptInput => ({
 const actx = (over: Partial<ApplyContext> = {}): ApplyContext => ({ brief, strategy, evidence, ...over })
 const freshDoc = () => reviewDoc(assembled(), selection, evidence)
 
-type Edit = { target: { sectionId: string; bulletId?: string }; action: 'replace' | 'remove'; newText?: string; reason: string }
-const edit = (sectionId: string, bulletId: string | undefined, action: 'replace' | 'remove', newText?: string): Edit => ({ target: { sectionId, ...(bulletId ? { bulletId } : {}) }, action, ...(newText ? { newText } : {}), reason: 'because' })
+type Edit = { target: { sectionId: string; bulletId?: string }; action: 'replace' | 'remove'; newText: string | undefined; reason: string }
+const edit = (sectionId: string, bulletId: string | undefined, action: 'replace' | 'remove', newText?: string): Edit => ({ target: { sectionId, ...(bulletId ? { bulletId } : {}) }, action, newText, reason: 'because' })
 const U = `experience:${UNITY}`
 
 beforeEach(() => {
