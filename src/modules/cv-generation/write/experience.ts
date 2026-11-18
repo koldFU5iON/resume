@@ -25,9 +25,9 @@ import { composeSystem } from '@/modules/llm/prompt-context'
 import { attributionOf, completeChecked, softIssueNotes, type CheckResult } from '../call'
 import { CV_GENERATION_FEATURES, TEMPERATURE, TIME_BUDGET_MS, type BulletProvenance } from '../schema'
 import { bulletAllowance, leadWithProjects, leadWithStanding, playDownBullets, shortened, trimBullets, wrongTenseLines } from './bullets'
-import { BULLET_MAX_WORDS, SUMMARY_MAX_WORDS, capProjectText, experienceTokenCaps } from './limits'
+import { BULLET_MAX_WORDS, SUMMARY_MAX_WORDS, experienceTokenCaps } from './limits'
 import { claimedHits, credentialProblems, introducedNames, projectReflected, repeatedFigures, unsupportedFigures, wordCount } from './checks'
-import { evidenceTexts, figureIgnoredNames, type EmployerEvidence } from './evidence'
+import { activityPromptText, evidenceTexts, figureIgnoredNames, projectPromptText, type EmployerEvidence } from './evidence'
 import { plainFeedback, plainLine, plainReasons } from './plain'
 import { evidenceRefs, mixedSourceNote, resolveSources, toProvenance, type EvidenceRef } from './provenance'
 import { briefText, data, requirementsBlock } from './prompt'
@@ -60,14 +60,14 @@ export function experiencePrompt(ctx: Pick<WriteContext, 'brief' | 'strategy'>, 
   const max = bulletAllowance(emp, ctx.brief)
   const leads = new Map(leadWithProjects(emp.projects, ctx.brief.leadWith).map((l) => [l.name, l]))
   // Short stable labels (E1.., P1..), never the real ids: the writer cites them per bullet and code maps them back (provenance.ts).
-  const items = emp.activities.map((a, i) => `[E${i + 1}] ${a.kind}: ${a.text}${a.impact ? ` — impact: ${a.impact}` : ''}${a.highlighted ? ' (the candidate highlighted this)' : ''}`)
+  const items = emp.activities.map((a, i) => `[E${i + 1}] ${activityPromptText(a)}${a.highlighted ? ' (the candidate highlighted this)' : ''}`)
   // A current employer: the summary and ongoing duties may be present tense, but a completed result is past tense. A finished one is past throughout.
   const tense = emp.employer.end === null
     ? 'The summary line and ongoing responsibilities may be in the present tense (the candidate works here now), but every completed achievement and every measured result is in the PAST tense ("Drove 14,000+ voters", never "Drives 14,000+ voters").'
     : 'Past tense throughout (the candidate has left).'
   const projectLine = (p: EmployerEvidence['projects'][number], i: number) => {
     const lead = leads.get(p.name)
-    return `[P${i + 1}] project "${p.name}": ${capProjectText(p.text.replace(/\n+/g, ' — '))}${lead ? `\n  LEAD WITH: the brief names this project and frames it as "${lead.line}". Give it an own bullet, framed that way, that starts with the project.` : ''}`
+    return `[P${i + 1}] project "${p.name}": ${projectPromptText(p)}${lead ? `\n  LEAD WITH: the brief names this project and frames it as "${lead.line}". Give it an own bullet, framed that way, that starts with the project.` : ''}`
   }
   const extra = max - emp.activities.length
   return [
@@ -75,6 +75,7 @@ export function experiencePrompt(ctx: Pick<WriteContext, 'brief' | 'strategy'>, 
     briefText(ctx.brief),
     '# Job requirements\n\nFor emphasis only. They are not facts about the candidate.',
     data('job_requirements', requirementsBlock(ctx.strategy)),
+    `# Hard limit\n\nThis entry may have at most ${max} bullets in total${extra > 0 ? ` (the ${emp.activities.length} evidence item${emp.activities.length === 1 ? '' : 's'} plus ${extra} own bullet${extra === 1 ? '' : 's'} for the LEAD WITH project${extra === 1 ? '' : 's'})` : ''}. Code counts them and cuts any beyond ${max}. Decide which items to merge before you write, and count your bullets before you answer.`,
     `# Evidence for this employer\n\nThese items are everything you may state. Best first.`,
     data('evidence', items.join('\n') || '(none: write from the projects below)'),
     ...(emp.projects.length > 0

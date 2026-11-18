@@ -41,7 +41,7 @@ import {
   claimedHits, credentialProblems, distinctNotableFigures, figuresIn, introducedNames, projectReflected, repeatedFigures, sharedFigures,
   unsupportedFigures, unsupportedProperNouns, unsupportedQualitative, wordCount,
 } from './checks'
-import { evidenceTexts, figureIgnoredNames, type EmployerEvidence, type Evidence } from './evidence'
+import { activityPromptText, evidenceTexts, figureIgnoredNames, projectPromptText, type EmployerEvidence, type Evidence } from './evidence'
 import { BULLET_MAX_WORDS, PROFILE_MAX_FIGURES, PROFILE_MAX_WORDS, SUMMARY_MAX_WORDS } from './limits'
 import { plainLine, plainProblems, plainReasons } from './plain'
 import { snippetOf } from './provenance'
@@ -137,15 +137,15 @@ export type ReviewPromptInput = {
   evidence: Evidence
 }
 
-/** One distinct piece of evidence shown to the reviewer, by label (S1, S2...). */
+/** One distinct piece of evidence shown to the reviewer, by label (S1, S2...). `snippet` is the full text the writer saw (activities whole, projects capped like the writer's), not a short display snippet. */
 export type ReviewLabel = { label: string; id: string; kind: BulletSource['kind']; snippet: string }
 
 function sourceText(evidence: Pick<Evidence, 'employers'>, id: string): string | null {
   for (const e of evidence.employers) {
     const a = e.activities.find((x) => x.id === id)
-    if (a) return [a.text, a.impact ?? ''].filter(Boolean).join(' — ')
+    if (a) return activityPromptText(a)
     const p = e.projects.find((x) => x.id === id)
-    if (p) return `${p.name}: ${p.text}`
+    if (p) return `${p.name}: ${projectPromptText(p)}`
   }
   return null
 }
@@ -161,7 +161,7 @@ export function reviewPrompt(input: ReviewPromptInput, doc: ReviewDoc): { prompt
     let l = labels.get(key)
     if (!l) {
       const full = sourceText(input.evidence, src.id) ?? src.snippet
-      l = { label: `S${labels.size + 1}`, id: src.id, kind: src.kind, snippet: snippetOf(full, REVIEW_LIMITS.snippetChars) }
+      l = { label: `S${labels.size + 1}`, id: src.id, kind: src.kind, snippet: full }
       labels.set(key, l)
     }
     return l

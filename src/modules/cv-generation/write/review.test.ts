@@ -17,6 +17,8 @@ import { buildBriefFor } from '../__fixtures__/gathered'
 import { BLIZZARD, UNITY, projectRow, scripted, writeSelection, writeVault } from '../__fixtures__/write'
 import { REVIEW_LIMITS, ReviewOutputContract, ReviewOutputSchema, type CvAssembled, type ReviewOutput } from '../schema'
 import { evidenceFromVault } from './evidence'
+import { experiencePrompt } from './experience'
+import { PROJECT_EVIDENCE_MAX_CHARS, capProjectText } from './limits'
 import { renderEmployerEntry } from './render'
 import {
   applyEdits, renderExperience, reviewDoc, reviewPrompt, runReview, splitExperience, toConcernRecords, writeBack, type ApplyContext, type ReviewPromptInput,
@@ -129,14 +131,41 @@ describe('reviewPrompt', () => {
     expect(prompt).toContain(`${BLIZZARD}`)
   })
 
-  it('shows each bullet its evidence by label with the real text (not the stored short snippet), cut to 300 characters', () => {
+  it('shows each bullet its evidence by label with the real text the writer saw (not the stored short snippet)', () => {
     expect(labels.length).toBeGreaterThanOrEqual(4)
-    expect(prompt).toMatch(/S1 \(activity\): Cut platform release time by 40% across 8 teams — saved 2 weeks per release/)
-    for (const l of labels) expect(l.snippet.length).toBeLessThanOrEqual(REVIEW_LIMITS.snippetChars)
+    expect(prompt).toMatch(/S1 \(activity\): \S+: Cut platform release time by 40% across 8 teams — impact: saved 2 weeks per release/)
+  })
+
+  it('gives the reviewer the same project text, with the same cap, as the experience writer (a figure late in a long project text is visible)', () => {
+    const tail = 'Outcomes and Metrics: reached 14,000+ voters.'
+    const text = `${'Built the campaign. '.repeat(40)}${tail}` // the figure sits past 300 characters but inside the writer's cap
+    expect(text.indexOf(tail)).toBeGreaterThan(300)
+    expect(text.indexOf(tail) + tail.length).toBeLessThan(PROJECT_EVIDENCE_MAX_CHARS)
+    const ev = evidenceFromVault(vault, selection)
+    ev.employers.find((e) => e.employer.key === UNITY)!.projects = [{ id: 'up1', name: 'Awards Demo', text }]
+    const asm = assembled({ unity: [...UNITY_BULLETS.slice(0, 2), { text: 'Reached 14,000+ voters with the demo.', id: 'up1', kind: 'project' }] })
+    const { prompt: p, labels: ls } = reviewPrompt(input({ evidence: ev, assembled: asm }), reviewDoc(asm, selection, ev))
+    expect(p).toContain(tail)
+    const writer = experiencePrompt({ brief, strategy }, ev.employers.find((e) => e.employer.key === UNITY)!)
+    expect(writer).toContain(capProjectText(text))
+    expect(ls.find((l) => l.id === 'up1')!.snippet).toBe(`Awards Demo: ${capProjectText(text)}`)
+  })
+
+  it('caps a very long project text at the writer cap, never at 300 characters', () => {
+    const ev = evidenceFromVault(vault, selection)
+    ev.employers.find((e) => e.employer.key === UNITY)!.projects = [{ id: 'up1', name: 'Big', text: 'word '.repeat(600) }]
+    const asm = assembled({ unity: [{ text: 'Did a thing for the demo.', id: 'up1', kind: 'project' }] })
+    const { labels: ls } = reviewPrompt(input({ evidence: ev, assembled: asm }), reviewDoc(asm, selection, ev))
+    const len = ls.find((l) => l.id === 'up1')!.snippet.length
+    expect(len).toBeGreaterThan(300)
+    expect(len).toBeLessThanOrEqual('Big: '.length + PROJECT_EVIDENCE_MAX_CHARS + 1)
+  })
+
+  it('shows an activity whole, as the writer sees it', () => {
     const long = evidenceFromVault(vault, selection)
-    long.employers[0].activities[0] = { ...long.employers[0].activities[0], text: 'word '.repeat(200) }
+    long.employers[0].activities[0] = { ...long.employers[0].activities[0], text: 'word '.repeat(200).trim(), impact: null }
     const { labels: l2 } = reviewPrompt(input({ evidence: long }), reviewDoc(assembled(), selection, long))
-    expect(Math.max(...l2.map((l) => l.snippet.length))).toBeLessThanOrEqual(REVIEW_LIMITS.snippetChars)
+    expect(l2[0].snippet.length).toBeGreaterThan(300)
   })
 
   it('carries the brief, the requirement terms, the claimed tools, the in-progress items and the uncovered emphasise items', () => {

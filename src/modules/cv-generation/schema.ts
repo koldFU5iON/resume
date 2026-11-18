@@ -190,8 +190,6 @@ export const REVIEW_LIMITS = {
   whyChars: 200,
   questionChars: 200,
   reasonChars: 200,
-  /** One piece of evidence shown to the reviewer for a bullet. */
-  snippetChars: 300,
   /** Replacement text longer than this is cut before the checks (the checks then enforce the word limits). */
   newTextChars: 800,
   /** Claimed names listed in the prompt. */

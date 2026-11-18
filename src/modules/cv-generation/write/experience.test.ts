@@ -296,6 +296,16 @@ describe('writeExperience', () => {
   })
 })
 
+describe('experiencePrompt: the bullet cap up front', () => {
+  it('states the employer bullet cap before the evidence, as a hard total, so the writer counts first', () => {
+    const p = experiencePrompt(ctx(), unity)
+    const at = p.indexOf('# Hard limit')
+    expect(at).toBeGreaterThan(-1)
+    expect(at).toBeLessThan(p.indexOf('# Evidence for this employer'))
+    expect(p.slice(at, p.indexOf('# Evidence for this employer'))).toMatch(/at most 3 bullets in total/)
+  })
+})
+
 describe('experiencePrompt (what the model sees)', () => {
   const prompt = experiencePrompt(ctx(), unity)
 
@@ -549,6 +559,7 @@ describe('Phase 3c', () => {
       expect(p).toContain('LEAD WITH: the brief names this project and frames it as "The Enemies Demo Campaign: a go-to-market launch-timing decision"')
       expect(p).toMatch(/Give it an own bullet/)
       expect(p).toMatch(/Bullets: at most 4 \(the 3 evidence items plus 1 own bullet for the LEAD WITH project\)/)
+      expect(p.slice(p.indexOf('# Hard limit'), p.indexOf('# Evidence for this employer'))).toMatch(/at most 4 bullets in total/)
       // The other project (a different employer) is not lead-with.
       expect(experiencePrompt(lctx(), blizzardP)).not.toContain('LEAD WITH: the brief names')
     })
