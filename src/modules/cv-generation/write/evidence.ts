@@ -16,6 +16,7 @@ import { makeContactScrubber } from '@/modules/profile-map/pii'
 import { stripWikilinks } from '@/modules/profile-map/links'
 import { buildCandidates, type CandidateActivity } from '../candidates'
 import type { CvSelection, SelectedEmployer } from '../schema'
+import { capProjectText } from './limits'
 import { certificationStatus, educationStatus, isClaimedCapability } from './status'
 
 /** A selected project, routed to the employer it belongs to as extra evidence for that employer's writer. */
@@ -222,4 +223,18 @@ export function evidenceFromVault(vault: Vault, selection: CvSelection, now: Dat
     unresolved,
     claimedNames: notesOf(vault, 'capability').filter((c) => isClaimedCapability(vault, c, now)).map((c) => c.props.name),
   }
+}
+
+/**
+ * The text of one activity exactly as the experience writer is shown it
+ * (without its E-label). The Review stage uses the same function, so the
+ * reviewer judges a bullet against what the writer could see.
+ */
+export function activityPromptText(a: Pick<CandidateActivity, 'kind' | 'text' | 'impact'>): string {
+  return `${a.kind}: ${a.text}${a.impact ? ` — impact: ${a.impact}` : ''}`
+}
+
+/** A project's text exactly as the experience writer is shown it (capped at PROJECT_EVIDENCE_MAX_CHARS). */
+export function projectPromptText(p: Pick<ProjectEvidence, 'text'>): string {
+  return capProjectText(p.text.replace(/\n+/g, ' — '))
 }
