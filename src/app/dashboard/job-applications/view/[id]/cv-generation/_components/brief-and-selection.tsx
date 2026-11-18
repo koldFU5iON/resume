@@ -6,13 +6,13 @@ import {
   uncoveredLine,
   type EmployerBlock,
 } from "@/app/dashboard/job-applications/_components/cv-generation-view"
+import { LogSection } from "./log-sections"
 import type { CvBrief, CvSelection } from "@/modules/cv-generation/schema"
 
 /** The Brief as labelled, readable rows. */
 export function BriefPanel({ brief }: { brief: CvBrief }) {
   return (
-    <section aria-labelledby="brief-heading">
-      <h2 id="brief-heading" className="text-lg font-semibold tracking-[-0.01em]">Brief</h2>
+    <LogSection id="brief" level={2} title="Brief" titleClassName="text-lg font-semibold tracking-[-0.01em]">
       <dl className="mt-4 space-y-3 rounded-lg border px-4 py-3.5 text-sm">
         {briefRows(brief).map((r) => (
           <div key={r.label}>
@@ -34,7 +34,7 @@ export function BriefPanel({ brief }: { brief: CvBrief }) {
           </div>
         ))}
       </dl>
-    </section>
+    </LogSection>
   )
 }
 
@@ -89,8 +89,7 @@ export function SelectionPanel({ selection }: { selection: CvSelection }) {
   const work = employerBlocks(selection)
   const uncovered = uncoveredLine(selection)
   return (
-    <section aria-labelledby="selection-heading">
-      <h2 id="selection-heading" className="text-lg font-semibold tracking-[-0.01em]">Selection</h2>
+    <LogSection id="selection" level={2} title="Selection" titleClassName="text-lg font-semibold tracking-[-0.01em]">
       <p className="mt-1 text-sm text-muted-foreground">{selectionSummary(selection)}</p>
       {uncovered && (
         <p className="mt-1 text-sm text-amber-800 dark:text-amber-300">{uncovered}</p>
@@ -136,6 +135,6 @@ export function SelectionPanel({ selection }: { selection: CvSelection }) {
           </div>
         ))}
       </div>
-    </section>
+    </LogSection>
   )
 }

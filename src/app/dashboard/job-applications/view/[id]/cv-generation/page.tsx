@@ -13,20 +13,19 @@ import {
   concernRows,
   draftHref,
   cvGenerationSignature,
-  formatRunCost,
-  formatTokens,
   isCvGenerationActive,
+  logSectionIds,
   previewCopy,
-  runLogMarkdown,
 } from "@/app/dashboard/job-applications/_components/cv-generation-view"
 import { CV_GENERATION_STAGES } from "@/modules/cv-generation/schema"
-import { Elapsed, LocalDateTime } from "../deep-dive/_components/run-controls"
+import { Elapsed } from "../deep-dive/_components/run-controls"
 import { AssembledCvPanel } from "./_components/assembled-cv"
 import { BriefPanel, SelectionPanel } from "./_components/brief-and-selection"
-import { CopyLogButton } from "./_components/copy-log-button"
+import { ExpandAllButton, LogSectionsProvider } from "./_components/log-sections"
 import { GenerationLog, StageStepper } from "./_components/generation-log"
 import { ConcernsPanel } from "./_components/concerns-panel"
 import { GenerateCvButton } from "./_components/generate-cv-button"
+import { RunPanel } from "./_components/run-panel"
 
 export default async function CvGenerationPage({ params }: { params: Promise<{ id: string }> }) {
   const [{ id }, { profile }] = await Promise.all([params, requireProfile()])
@@ -36,10 +35,7 @@ export default async function CvGenerationPage({ params }: { params: Promise<{ i
   ])
   if (!assets) notFound()
 
-  return (
-    <div>
-      <AssessmentPoller signature={cvGenerationSignature(view)} />
-
+  const page = (
       <div className="mx-auto grid max-w-6xl gap-10 px-4 py-8 sm:px-6 lg:grid-cols-[minmax(0,1fr)_15rem] lg:gap-14 lg:py-10">
         <main className="min-w-0">
           <p className="mb-6 text-sm text-muted-foreground">
@@ -50,13 +46,33 @@ export default async function CvGenerationPage({ params }: { params: Promise<{ i
         </main>
 
         {view && (
-          <aside className="lg:sticky lg:top-10 lg:self-start">
-            <RunPanel view={view} />
+          // Before the long sections on a narrow screen, so the controls stay near the top.
+          <aside className="order-first lg:sticky lg:top-10 lg:order-none lg:self-start">
+            <RunPanel view={view} jobId={id} jobTitle={assets.title} company={assets.company ?? null} />
           </aside>
         )}
       </div>
+  )
+
+  return (
+    <div>
+      <AssessmentPoller signature={cvGenerationSignature(view)} />
+      {view ? (
+        <LogSectionsProvider status={view.status} ids={sectionIdsFor(view)}>{page}</LogSectionsProvider>
+      ) : page}
     </div>
   )
+}
+
+function sectionIdsFor(view: CvGenerationView): string[] {
+  return logSectionIds({
+    rows: buildStageRows(view),
+    hasConcerns: concernRows(view.review).length > 0,
+    hasAssembled: !!view.assembled,
+    hasBrief: !!view.brief,
+    hasSelection: !!view.selection,
+    assembleWarnings: view.assembled?.warnings ?? [],
+  })
 }
 
 function EmptyState({ jobId }: { jobId: string }) {
@@ -89,8 +105,6 @@ function EmptyState({ jobId }: { jobId: string }) {
 function RunBody({ jobId, view, jobTitle, company }: { jobId: string; view: CvGenerationView; jobTitle: string; company: string | null }) {
   const rows = buildStageRows(view) // view carries status, log, stageTimings and partial
   const active = isCvGenerationActive(view.status)
-  // The whole run as Markdown for the Copy log button (the CV in it keeps the {{contact}} placeholder; no contact details are read).
-  const logText = runLogMarkdown({ jobTitle, company, run: view })
 
   return (
     <div className="max-w-[68ch] space-y-8">
@@ -160,58 +174,12 @@ function RunBody({ jobId, view, jobTitle, company }: { jobId: string; view: CvGe
       )}
 
       <StageStepper rows={rows} />
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-sm text-muted-foreground">The whole run, as readable text.</p>
-        <CopyLogButton text={logText} />
-      </div>
+      <div className="flex justify-end"><ExpandAllButton /></div>
       {concernRows(view.review).length > 0 && <ConcernsPanel concerns={concernRows(view.review)} job={{ title: jobTitle, company }} />}
       {view.assembled && <AssembledCvPanel assembled={view.assembled} />}
       {view.brief && <BriefPanel brief={view.brief} />}
       {view.selection && <SelectionPanel selection={view.selection} />}
       <GenerationLog rows={rows} assembled={view.assembled} />
-      {!active && (
-        <div className="flex flex-wrap items-center gap-2">
-          <GenerateCvButton jobId={jobId} label="Generate again" />
-          <GenerateCvButton jobId={jobId} label="Generate again with a fresh brief and selection" fresh />
-        </div>
-      )}
-    </div>
-  )
-}
-
-function RunPanel({ view }: { view: CvGenerationView }) {
-  const total = view.usage.total
-  return (
-    <dl className="space-y-2.5 text-sm">
-      <PanelFact label="Run">
-        <LocalDateTime iso={view.createdAt.toISOString()} />
-      </PanelFact>
-      <PanelFact label="Status">{CV_GENERATION_STATUS_LABEL[view.status]}</PanelFact>
-      <PanelFact label="Cost (estimate)">
-        {total.requests === 0
-          ? "—"
-          : <span className="tabular-nums">{formatRunCost(total.estimatedCostUsd, total.estimateComplete)}</span>}
-      </PanelFact>
-      {total.requests > 0 && (
-        <PanelFact label="Calls">
-          <span className="tabular-nums">{total.requests}</span>
-          <span className="block text-xs tabular-nums text-muted-foreground">
-            {formatTokens(total.inputTokens)} in · {formatTokens(total.outputTokens)} out
-          </span>
-          {total.failedRequests > 0 && (
-            <span className="block text-xs text-muted-foreground">{total.failedRequests} failed</span>
-          )}
-        </PanelFact>
-      )}
-    </dl>
-  )
-}
-
-function PanelFact({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="mt-0.5">{children}</dd>
     </div>
   )
 }

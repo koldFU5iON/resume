@@ -5,6 +5,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Loader2, Play } from "lucide-react"
 import { toast } from "sonner"
+import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { discardDraftAction } from "@/modules/writing-desk/draft-actions"
 import { notifyAssessmentStarted } from "@/app/dashboard/job-applications/_components/assessment-poller"
@@ -25,7 +26,7 @@ import {
  * the click until the refreshed page has rendered (the transition), at which
  * point the page itself no longer offers the button while a run is active.
  */
-export function GenerateCvButton({ jobId, label = "Generate CV", fresh = false }: { jobId: string; label?: string; fresh?: boolean }) {
+export function GenerateCvButton({ jobId, label = "Generate CV", fresh = false, className }: { jobId: string; label?: string; fresh?: boolean; className?: string }) {
   const router = useRouter()
   const [starting, setStarting] = useState(false)
   const [refreshing, startTransition] = useTransition()
@@ -60,12 +61,12 @@ export function GenerateCvButton({ jobId, label = "Generate CV", fresh = false }
 
   return (
     <div className="space-y-2">
-      <Button variant="outline" size="sm" className="gap-1.5" onClick={start} disabled={busy}>
+      <Button variant="outline" size="sm" className={cn("gap-1.5", className)} onClick={start} disabled={busy}>
         {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Play className="size-3.5" aria-hidden="true" />}
         {busy ? "Starting…" : label}
       </Button>
       {waitingDraft !== undefined && (
-        <div role="alert" className="max-w-[68ch] space-y-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-sm">
+        <div role="alert" className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-sm">
           <p>A draft is already waiting in this job&apos;s CV document. Open it, or discard it and generate a new one. Nothing was spent.</p>
           {!waitingDraft && (
             <Link href={jobWritingDeskHref(jobId)} className="underline underline-offset-2">Open this job&apos;s writing desk</Link>
