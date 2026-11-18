@@ -358,7 +358,7 @@ describe('applyEdits: names, tools and claims the evidence does not make (review
 
 describe('applyEdits: the writers\' lead-with and project rules still hold after an edit (review fix 2)', () => {
   const PROJ = 'Enemies Demo Campaign'
-  const pvault = writeVault([projectRow('pr1', PROJ, 'Ran the demo campaign for a new title and chose the launch timing.', { experienceId: 'e-u2' })])
+  const pvault = writeVault([projectRow('pr1', PROJ, 'Ran the demo campaign for a new title and chose the launch timing, then tracked how the first day went against the plan.', { experienceId: 'e-u2' })])
   const pselection = writeSelection(pvault, { projects: [{ id: 'pr1', reason: '' }] })
   const pevidence = evidenceFromVault(pvault, pselection)
   const lead = buildBriefFor({ leadWith: [`The ${PROJ}: a go-to-market launch-timing decision`] })
@@ -401,6 +401,30 @@ describe('applyEdits: the writers\' lead-with and project rules still hold after
     const broken = [{ ...bullets[0], text: 'Led launch timing for the new title.' }, bullets[1], bullets[2]]
     const r = applyEdits(reviewDoc(assembled({ unity: broken }), pselection, pevidence), [edit(U, 'b2', 'remove')], pctx(noLead))
     expect(r.applied).toHaveLength(1)
+  })
+})
+
+describe('applyEdits: a bullet whose only source is a thin project may be removed', () => {
+  const PROJ = 'Enemies Demo Campaign'
+  const tv = writeVault([projectRow('pr1', PROJ, `${PROJ}:`, { experienceId: 'e-u2' })])
+  const tsel = writeSelection(tv, { projects: [{ id: 'pr1', reason: '' }] })
+  const tev = evidenceFromVault(tv, tsel)
+  const lead = buildBriefFor({ leadWith: [`The ${PROJ}: launch and GTM decision`] })
+  const bullets = [
+    { text: `${PROJ}: set the timing and positioning narrative, and tracked the first-day result.`, id: 'pr1', kind: 'project' as const },
+    { text: 'Ran the quarterly planning cycle for the platform org.', id: 'ua2' },
+  ]
+  const doc = () => reviewDoc(assembled({ unity: bullets }), tsel, tev)
+
+  it('the removal is applied (it used to be discarded as "the own bullet of the lead-with project")', () => {
+    const r = applyEdits(doc(), [edit(U, 'b1', 'remove')], { brief: lead, strategy, evidence: tev })
+    expect(r.discarded).toEqual([])
+    expect(r.applied).toHaveLength(1)
+  })
+
+  it('rewording it to drop the project name is allowed too', () => {
+    const r = applyEdits(doc(), [edit(U, 'b1', 'replace', 'Set the launch timing for the new title.')], { brief: lead, strategy, evidence: tev })
+    expect(r.discarded).toEqual([])
   })
 })
 

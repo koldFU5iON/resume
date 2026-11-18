@@ -70,6 +70,22 @@ export function capProjectText(text: string, max: number = PROJECT_EVIDENCE_MAX_
 }
 
 /**
+ * A project whose text (description and highlights), once its own name and the
+ * punctuation around it are taken away, is shorter than this has no evidence to
+ * write from: only a title. Such a "thin" project never gets an own bullet, its
+ * brief framing line is never shown to a writer, and the log asks the owner to
+ * add detail to the project in the profile.
+ */
+export const THIN_PROJECT_MIN_CHARS = 80
+
+/** Whether a project is thin (see THIN_PROJECT_MIN_CHARS): its text beyond its own name and punctuation is under the minimum. */
+export function isThinProject(p: { name: string; text: string }): boolean {
+  const name = p.name.trim().toLowerCase()
+  const rest = (name ? p.text.toLowerCase().split(name).join(' ') : p.text.toLowerCase()).replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
+  return rest.length < THIN_PROJECT_MIN_CHARS
+}
+
+/**
  * About how many words a CV body can hold on one to two pages. Assemble logs a
  * soft note above this (nothing is trimmed): the writers' limits should keep a
  * CV under it, so a note means a limit leaked.

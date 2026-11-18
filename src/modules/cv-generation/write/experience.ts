@@ -28,7 +28,8 @@ import { bulletAllowance, leadWithProjects, leadWithStanding, playDownBullets, s
 import { BULLET_MAX_WORDS, SUMMARY_MAX_WORDS, experienceTokenCaps } from './limits'
 import { claimedHits, credentialProblems, introducedNames, projectReflected, repeatedFigures, unsupportedFigures, wordCount } from './checks'
 import { activityPromptText, evidenceTexts, figureIgnoredNames, projectPromptText, type EmployerEvidence } from './evidence'
-import { plainFeedback, plainLine, plainReasons } from './plain'
+import { plainFeedback, plainLine, plainReasons, shortenToWords } from './plain'
+import { isThin, thinProjectNote } from './thin'
 import { evidenceRefs, mixedSourceNote, resolveSources, toProvenance, type EvidenceRef } from './provenance'
 import { briefText, data, requirementsBlock } from './prompt'
 import { renderEmployerEntry } from './render'
@@ -66,6 +67,7 @@ export function experiencePrompt(ctx: Pick<WriteContext, 'brief' | 'strategy'>, 
     ? 'The summary line and ongoing responsibilities may be in the present tense (the candidate works here now), but every completed achievement and every measured result is in the PAST tense ("Drove 14,000+ voters", never "Drives 14,000+ voters").'
     : 'Past tense throughout (the candidate has left).'
   const projectLine = (p: EmployerEvidence['projects'][number], i: number) => {
+    if (isThin(p)) return `[P${i + 1}] project "${p.name}": NO EVIDENCE. The profile gives only the title, no description. Do not write a bullet about it, do not say what it achieved, and do not describe it from the brief. Name it only inside a bullet that an evidence item above already states.`
     const lead = leads.get(p.name)
     return `[P${i + 1}] project "${p.name}": ${projectPromptText(p)}${lead ? `\n  LEAD WITH: the brief names this project and frames it as "${lead.line}". Give it an own bullet, framed that way, that starts with the project.` : ''}`
   }
@@ -80,7 +82,7 @@ export function experiencePrompt(ctx: Pick<WriteContext, 'brief' | 'strategy'>, 
     data('evidence', items.join('\n') || '(none: write from the projects below)'),
     ...(emp.projects.length > 0
       ? [
-          `# Projects at this employer\n\nExtra evidence, equal to the items above. Each project must be reflected. A project marked LEAD WITH gets an own bullet (it is the one thing allowed beyond the evidence items' count); any other project is merged into a bullet that states the same outcome and never gets a bullet of its own. The project below is the only source for what you say about it.`,
+          `# Projects at this employer\n\nExtra evidence, equal to the items above. Each project must be reflected, except one marked NO EVIDENCE (it has no text: skip it). A project marked LEAD WITH gets an own bullet (it is the one thing allowed beyond the evidence items' count); any other project is merged into a bullet that states the same outcome and never gets a bullet of its own. The project below is the only source for what you say about it.`,
           data('projects', emp.projects.map((p, i) => projectLine(p, i)).join('\n')),
         ]
       : []),
@@ -136,12 +138,9 @@ export function analyseExperience(out: ExperienceOutput, ctx: Pick<WriteContext,
   }
 
   if (summary === '') problem('the summary is empty; write one sentence', 'empty summary')
-  else if (wordCount(summary) > SUMMARY_MAX_WORDS) problem(`the summary is ${wordCount(summary)} words; it must be at most ${SUMMARY_MAX_WORDS}`, `summary over ${SUMMARY_MAX_WORDS} words`)
+  // Over the word cap is NOT a retry reason (a retry doubles the call's cost): writeExperience shortens it in code.
   if (bullets.length === 0) problem('there are no bullets; write one per evidence item you use', 'no bullets')
   if (bullets.length > max) problem(`there are ${bullets.length} bullets; at most ${max} are allowed (merge items that state the same outcome; a project that is not marked LEAD WITH is merged into a bullet, never its own)`, `${bullets.length} bullets, limit ${max}`)
-  bullets.forEach((b, i) => {
-    if (wordCount(b) > BULLET_MAX_WORDS) problem(`bullet ${i + 1} is ${wordCount(b)} words; each must be at most ${BULLET_MAX_WORDS}`, `bullet ${i + 1} over ${BULLET_MAX_WORDS} words`)
-  })
 
   // Provenance: every bullet cites at least one evidence item that exists. Unknown labels are dropped; a bullet left with none is retried once.
   const unsourced = bulletSources.flatMap((s, i) => (s.length === 0 ? [i + 1] : []))
@@ -168,7 +167,7 @@ export function analyseExperience(out: ExperienceOutput, ctx: Pick<WriteContext,
   for (const c of creds) problem(c.problem, `credential ${c.name}`)
 
   // Selected projects are evidence too: each must be reflected (its name, or one of its figures, in the text).
-  const projectsMissed = emp.projects.filter((p) => !projectReflected(all, p)).map((p) => p.name)
+  const projectsMissed = emp.projects.filter((p) => !isThin(p) && !projectReflected(all, p)).map((p) => p.name)
   const leads = leadWithProjects(emp.projects, ctx.brief.leadWith)
   const leadNames = new Set(leads.map((l) => l.name))
   const otherMissed = projectsMissed.filter((n) => !leadNames.has(n))
@@ -228,8 +227,30 @@ export async function writeExperience(ctx: WriteContext, emp: EmployerEvidence, 
     label: 'experience section',
     check: (v) => analyseExperience(v, ctx, emp),
   })
-  const a = analyseExperience(call.value, ctx, emp)
+  const analysed = analyseExperience(call.value, ctx, emp)
   const notes = softIssueNotes(call)
+  // Over the word cap: shortened here, in code, at a clause boundary (a retry would double the cost); else kept and noted.
+  const fit = (text: string, max: number, what: string): string => {
+    const n = wordCount(text)
+    if (n <= max) return text
+    const cut = shortenToWords(text, max)
+    if (cut) { notes.push(`Shortened ${what} from ${n} to ${wordCount(cut)} words at a clause boundary (limit ${max}); no retry was made.`); return cut }
+    notes.push(`${what[0].toUpperCase()}${what.slice(1)} is ${n} words, over the limit of ${max}; kept as written because shortening it would cut its meaning (no retry was made).`)
+    return text
+  }
+  // A bullet whose only sources are thin projects (title only) is invented from the brief's framing: dropped, unless nothing else is left.
+  const thinIds = new Set(emp.projects.filter(isThin).map((p) => p.id))
+  const keepAt = analysed.bullets.map((_, i) => !(thinIds.size > 0 && analysed.bulletSources[i].length > 0 && analysed.bulletSources[i].every((r) => thinIds.has(r.id))))
+  const dropThin = keepAt.some((k) => !k) && keepAt.some(Boolean)
+  const bulletIdx = analysed.bullets.map((_, i) => i).filter((i) => !dropThin || keepAt[i])
+  if (dropThin) analysed.bullets.forEach((b, i) => { if (!keepAt[i]) notes.push(`Dropped a bullet that was written from a project with no text, not from evidence: “${shortened(b)}”.`) })
+  const a = {
+    ...analysed,
+    summary: fit(analysed.summary, SUMMARY_MAX_WORDS, 'the summary'),
+    bullets: bulletIdx.map((i) => fit(analysed.bullets[i], BULLET_MAX_WORDS, `bullet ${i + 1}`)),
+    bulletSources: bulletIdx.map((i) => analysed.bulletSources[i]),
+  }
+  for (const p of emp.projects.filter(isThin)) notes.push(thinProjectNote(p.name))
   const checks: CheckNote[] = []
   const who = emp.employer.company
   // The allowance is a hard cap: whatever the last answer held, trim to it (lead-with project and brief-matching bullets first, then the writer's order).

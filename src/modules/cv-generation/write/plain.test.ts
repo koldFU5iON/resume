@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { hasFirstPerson, plainFeedback, plainLine, plainProblems, plainReasons } from './plain'
+import { hasFirstPerson, plainFeedback, plainLine, plainProblems, plainReasons, shortenToWords } from './plain'
 
 describe('plainLine', () => {
   it('strips images, keeps link text, and removes HTML tags', () => {
@@ -129,5 +129,27 @@ describe('first person: verbatim names and roman numerals are not violations', (
     expect(hasFirstPerson('Then I led the team.', evidence)).toBe(true)
     expect(hasFirstPerson('Led Team I managed.', evidence)).toBe(true)
     expect(plainReasons('We shipped it.', evidence)).toEqual(['first person'])
+  })
+})
+
+describe('shortenToWords', () => {
+  const w = (n: number, p = 'w') => Array.from({ length: n }, (_, i) => `${p}${i}`).join(' ')
+  it('leaves text within the cap alone', () => {
+    expect(shortenToWords('Cut release time by 40%.', 25)).toBe('Cut release time by 40%.')
+  })
+  it('cuts at the last sentence boundary that fits, keeping the longest', () => {
+    expect(shortenToWords(`${w(12)}. ${w(8, 'x')}. ${w(10, 'y')}.`, 25)).toBe(`${w(12)}. ${w(8, 'x')}.`)
+  })
+  it('cuts at a clause (comma, semicolon, dash) when there is no sentence boundary, and drops the dangling mark', () => {
+    expect(shortenToWords(`${w(14)}, ${w(20, 'x')}.`, 25)).toBe(`${w(14)}.`)
+    expect(shortenToWords(`${w(14)} — ${w(20, 'x')}`, 25)).toBe(w(14))
+    expect(shortenToWords(`${w(14)}; ${w(20, 'x')}`, 25)).toBe(w(14))
+  })
+  it('returns null when the only boundary would cut away more than half the allowance, or there is none', () => {
+    expect(shortenToWords(`${w(5)}, ${w(30, 'x')}`, 25)).toBeNull()
+    expect(shortenToWords(w(40), 25)).toBeNull()
+  })
+  it('never cuts inside a number such as 14,000 or 9.4M', () => {
+    expect(shortenToWords(`${w(14)} reached 14,000 players and 9.4M views ${w(20, 'x')}`, 25)).toBeNull()
   })
 })

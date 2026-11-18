@@ -138,3 +138,20 @@ describe('the review prompt file (phase 4a)', () => {
     expect(t).toMatch(/last bullet|at least one bullet/)
   })
 })
+
+describe('the prompts, after the thin-project fix', () => {
+  it('the brief prompt: a framing line only describes what the outline supports, never an invented outcome or metric', () => {
+    const t = read('cv-gen-brief')
+    expect(t).toMatch(/framing line may only describe what the outline supports/)
+    expect(t).toMatch(/never an outcome, decision, metric or result the outline does not show/)
+    expect(t).toMatch(/only a title gets no framing beyond its title/)
+  })
+
+  it('the profile prompt: the brief is direction, not evidence; no outcome for a project with no bullet', () => {
+    expect(read('cv-gen-write-profile')).toMatch(/Claim no outcome, programme, result or framing for a project or theme that the experience section has no bullet about/)
+  })
+
+  it('the experience prompt: a project marked NO EVIDENCE gets no bullet and no framing', () => {
+    expect(read('cv-gen-write-experience')).toMatch(/NO EVIDENCE[^\n]*gets no bullet, no framing from the brief and no outcome/)
+  })
+})
