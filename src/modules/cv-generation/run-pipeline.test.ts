@@ -30,7 +30,8 @@ import { runWrite, WriteStageError } from './write/run-write'
 import { enforceSelection } from './select'
 import { bigCandidates } from './__fixtures__/candidates'
 import { buildBriefFor, gathered } from './__fixtures__/gathered'
-import { writeVault, writtenResult } from './__fixtures__/write'
+import { writeVault, writtenResult, writtenSections } from './__fixtures__/write'
+import { CV_BODY_WORDS_SOFT_LIMIT } from './write/limits'
 
 const db = vi.mocked(prisma, { deep: true })
 const mockSetStatus = vi.mocked(setStatus)
@@ -266,6 +267,23 @@ describe('runCvGenerationStages: write and assemble (phase 3)', () => {
     expect(assemble.notes.filter((n) => n.startsWith('Worth a quick check: '))).toEqual(['Worth a quick check: one', 'Worth a quick check: two', 'Worth a quick check: three'])
     expect(assemble.notes.some((n) => /The whole run took .* s of its 280\.0 s budget/.test(n))).toBe(true)
     expect((mockUpdate.mock.calls[0][2].assembled as { checkNotes: string[] }).checkNotes).toHaveLength(3)
+  })
+
+  it('logs a SOFT note when the CV body is over the length limit, trims nothing, and says nothing when it is not (Phase 3c)', async () => {
+    await runCvGenerationStages('run-1', 'p1', { stopAfter: 'assembling' })
+    const short = lastLog().entries[4]
+    expect(short.notes.join(' ')).toMatch(/Assembled \d+ sections \(about \d+ words\)/)
+    expect(short.notes.join(' ')).not.toMatch(/over the ~\d+ that fit/)
+
+    vi.clearAllMocks()
+    const filler = Array.from({ length: CV_BODY_WORDS_SOFT_LIMIT + 50 }, (_, i) => `word${i}`).join(' ')
+    const sections = writtenSections().map((x) => (x.id === 'profile' ? { ...x, markdown: filler } : x))
+    mockWrite.mockResolvedValue(writtenResult({ sections }))
+    await runCvGenerationStages('run-1', 'p1', { stopAfter: 'assembling' })
+    const long = lastLog().entries[4]
+    expect(long.status).toBe('ok')
+    expect(long.notes.join(' ')).toMatch(new RegExp(`The CV body is about \\d+ words, over the ~${CV_BODY_WORDS_SOFT_LIMIT} that fit one to two pages. Nothing was trimmed`))
+    expect((mockUpdate.mock.calls.at(-1)![2].assembled as { markdown: string }).markdown).toContain('word0 ')
   })
 
   it('calls the writers with the run’s own profile and the loaded vault, and the strategy and brief', async () => {

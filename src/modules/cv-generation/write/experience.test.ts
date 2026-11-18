@@ -8,6 +8,9 @@ import { extractJSON } from '@/modules/llm/extract-json'
 import { writeSelection, writeVault, scripted, projectRow, UNITY, BLIZZARD } from '../__fixtures__/write'
 import { buildBriefFor } from '../__fixtures__/gathered'
 import { evidenceFromVault, type EmployerEvidence } from './evidence'
+import { CutOffError } from '../call'
+import { experienceTokenCaps, PROJECT_EVIDENCE_MAX_CHARS } from './limits'
+import { llmReply } from '../__fixtures__/write'
 import { analyseExperience, experiencePrompt, fallbackExperience, writeExperience, ExperienceOutputSchema } from './experience'
 import { requirementText } from './prompt'
 import type { WriteContext } from './types'
@@ -378,11 +381,13 @@ describe('Phase 3b: repetition, voice, projects, retry reasons', () => {
       expect(p).toMatch(/Merge items that state the same outcome into ONE bullet/)
       expect(p).toMatch(/Never repeat a figure within this entry/)
       expect(p).toMatch(/no pronouns \("I", "my", "we"\)/)
-      expect(p).toMatch(/Use present tense/)
+      expect(p).toMatch(/summary line and ongoing responsibilities may be in the present tense/)
+      expect(p).toMatch(/completed achievement and every measured result is in the PAST tense/)
     })
     it('asks for the past tense for an employer the candidate has left', () => {
       const blizzard = evidence.employers.find((e) => e.employer.key === BLIZZARD)!
-      expect(prompt(blizzard)).toMatch(/Use past tense throughout/)
+      expect(prompt(blizzard)).toMatch(/Past tense throughout/)
+      expect(prompt(blizzard)).not.toMatch(/may be in the present tense/)
     })
   })
 
@@ -412,12 +417,14 @@ describe('Phase 3b: repetition, voice, projects, retry reasons', () => {
     const pctx = ctx({ evidence: pev })
     const projectAnswer = { summary: 'Ran release and planning for the platform org.', bullets: [...good.bullets, 'Ran the Enemies Demo Campaign, reaching 14,000+ players at launch.'] }
 
-    it('shows the project in the prompt as extra evidence and allows one more bullet for it', () => {
+    it('shows the project in the prompt as extra evidence; a project the brief does not lead with adds no bullet (it is merged)', () => {
       expect(withProject.projects.map((p) => p.name)).toEqual(['Enemies Demo Campaign'])
       const p = experiencePrompt(pctx, withProject)
       expect(p).toContain('# Projects at this employer')
       expect(p).toContain('[pa] project "Enemies Demo Campaign": Ran the demo campaign for the new title')
-      expect(p).toMatch(/Bullets: at most 4,/) // 3 activities + 1 project
+      expect(p).toMatch(/Bullets: at most 3,/) // the 3 activities: a project that is not lead-with is merged, never its own
+      expect(p).not.toContain('LEAD WITH: the brief names')
+      expect(p).toMatch(/never gets a bullet of its own/)
       expect(experiencePrompt(pctx, pev.employers.find((e) => e.employer.key === BLIZZARD)!)).toContain('[pb] project "Boot Camp"')
       expect(experiencePrompt(ctx(), unity)).not.toContain('# Projects')
     })
@@ -435,11 +442,11 @@ describe('Phase 3b: repetition, voice, projects, retry reasons', () => {
     })
 
     it('a generic bullet does not cover the project: only generic words in common with its name', () => {
-      const generic = { summary: 'Ran release and planning.', bullets: ['Launched marketing campaign across social channels, reaching 14,000+ players.'] }
+      const generic = { summary: 'Ran release and planning.', bullets: ['Launched marketing campaign across social channels.'] }
       expect(analyseExperience(generic, pctx, withProject).projectsMissed).toEqual(['Enemies Demo Campaign'])
     })
 
-    it('a word the employer\'s ordinary activities already use never covers a project', () => {
+    it('a word the employer\'s activities share with the project name is not enough to cover it', () => {
       const own = { ...withProject, activities: [{ ...withProject.activities[0], text: 'Ran the Enemies programme for studio partners' }, ...withProject.activities.slice(1)] }
       const out = { summary: 'Ran release and planning.', bullets: ['Ran the Enemies programme for studio partners.'] }
       expect(analyseExperience(out, pctx, own).projectsMissed).toEqual(['Enemies Demo Campaign'])
@@ -459,6 +466,235 @@ describe('Phase 3b: repetition, voice, projects, retry reasons', () => {
       expect(fb.bullets).toHaveLength(3)
       expect(fb.notes).toEqual(['Project "Enemies Demo Campaign" is not on the CV: this entry was made without a model call, from your activity text only.'])
       expect(fallbackExperience(unity).notes).toEqual([])
+    })
+  })
+})
+
+describe('Phase 3c', () => {
+  const d = (ym: string) => new Date(`${ym}-01T00:00:00Z`)
+  const demoText = 'Ran the demo campaign for the new title: a go-to-market and launch-timing decision, reaching 14,000+ players at launch.'
+  const pv = writeVault([projectRow('pa', 'Enemies Demo Campaign', demoText, { experienceId: 'e-u2' }), projectRow('pb', 'Boot Camp', 'Ran the studio boot camp.', { startDate: d('2016-06') })])
+  const pev = evidenceFromVault(pv, writeSelection(pv, { projects: [{ id: 'pa', reason: '' }, { id: 'pb', reason: '' }] }))
+  const unityP = pev.employers.find((e) => e.employer.key === UNITY)!
+  const blizzardP = pev.employers.find((e) => e.employer.key === BLIZZARD)!
+  const leadBrief = buildBriefFor({ leadWith: ['The Enemies Demo Campaign: a go-to-market launch-timing decision'], emphasise: [] })
+  const lctx = (over: Partial<WriteContext> = {}) => ctx({ evidence: pev, brief: leadBrief, ...over })
+  const ownBullet = 'Enemies Demo Campaign: chose the launch window for the new title, reaching 14,000+ players at launch.'
+  const withOwn = { summary: 'Ran release and planning for the platform org.', bullets: [good.bullets[0], good.bullets[1], good.bullets[2], ownBullet] }
+
+  describe('hard bullet cap (code, after the last attempt)', () => {
+    const six = {
+      summary: 'Ran release and planning for the platform org.',
+      bullets: [
+        'Ran the quarterly planning cycle for the platform org.',
+        'Shipped 12 titles on schedule.',
+        'Owned release management for the studio.',
+        'Led platform migration delivery.',
+        'Kept the calendar.',
+        'Wrote the roadmap.',
+      ],
+    }
+
+    it('trims an over-long final answer to the allocation: brief-matching bullets first, then the writer order, kept in writer order; each cut bullet is a note', async () => {
+      const { s, result } = run([six, six])
+      const r = await result
+      expect(s.calls).toHaveLength(2) // the over-limit answer was retried once, then trimmed in code
+      expect(s.calls[1].prompt).toMatch(/there are 6 bullets; at most 3 are allowed/)
+      expect(r.bullets).toEqual(['Ran the quarterly planning cycle for the platform org.', 'Owned release management for the studio.', 'Led platform migration delivery.'])
+      const cuts = r.notes.filter((n) => n.startsWith('Cut a bullet over this employer'))
+      expect(cuts).toHaveLength(3)
+      expect(cuts.join(' ')).toContain('Shipped 12 titles on schedule.')
+      expect(cuts[0]).toMatch(/limit of 3/)
+      expect(r.markdown.match(/^- /gm)).toHaveLength(3)
+    })
+
+    it('does not fail the run: the problem is accepted and logged after the retry', async () => {
+      const { result } = run([six, six])
+      const r = await result
+      expect(r.notes.join(' ')).toMatch(/Accepted with a problem after the retry: there are 6 bullets/)
+    })
+
+    it('trims a first answer when there is no time to retry', async () => {
+      const { s, result } = run([six], unity, ctx({ deadline: Date.now() + 1_000 }))
+      const r = await result
+      expect(s.calls).toHaveLength(1)
+      expect(r.bullets).toHaveLength(3)
+    })
+
+    it('names a selected project whose only bullet was cut, so it is never lost silently', async () => {
+      const merged = { summary: 'Ran release and planning for the platform org.', bullets: [...good.bullets, 'Ran the Enemies Demo Campaign, reaching 14,000+ players at launch.'] }
+      const noLead = ctx({ evidence: pev })
+      const { result } = run([merged, merged], unityP, noLead)
+      const r = await result
+      expect(r.bullets).toHaveLength(3)
+      expect(r.notes.join(' ')).toMatch(/Selected project "Enemies Demo Campaign" is no longer on the CV: the bullet that carried it was cut/)
+    })
+  })
+
+  describe('a lead-with project gets its own bullet (and one more bullet than the allocation)', () => {
+    it('the prompt gives the lead-with line, asks for an own bullet and allows allocation + 1', () => {
+      const p = experiencePrompt(lctx(), unityP)
+      expect(p).toContain('[pa] project "Enemies Demo Campaign"')
+      expect(p).toContain('LEAD WITH: the brief names this project and frames it as "The Enemies Demo Campaign: a go-to-market launch-timing decision"')
+      expect(p).toMatch(/Give it an own bullet/)
+      expect(p).toMatch(/Bullets: at most 4 \(the 3 evidence items plus 1 own bullet for the LEAD WITH project\)/)
+      // The other project (a different employer) is not lead-with.
+      expect(experiencePrompt(lctx(), blizzardP)).not.toContain('LEAD WITH: the brief names')
+    })
+
+    it('accepts an own bullet as the 4th bullet: no over-limit problem, nothing trimmed', async () => {
+      const a = analyseExperience(withOwn, lctx(), unityP)
+      expect(a.soft.join(' ')).not.toMatch(/bullets; at most/)
+      expect(a.leadWithNotOwn).toEqual([])
+      const { s, result } = run([withOwn], unityP, lctx())
+      const r = await result
+      expect(s.calls).toHaveLength(1)
+      expect(r.bullets).toHaveLength(4)
+      expect(r.notes.join(' ')).not.toMatch(/Cut a bullet/)
+    })
+
+    it('flags a lead-with project that is only a trailing clause, and the retry feedback says "own bullet"', async () => {
+      const trailing = { summary: 'Ran release and planning.', bullets: ['Cut platform release time by 40% across 8 teams, including the Enemies Demo Campaign for the new title.', good.bullets[1], good.bullets[2]] }
+      const a = analyseExperience(trailing, lctx(), unityP)
+      expect(a.leadWithNotOwn).toEqual(['Enemies Demo Campaign'])
+      expect(a.soft.join(' ')).toMatch(/lead-with project "Enemies Demo Campaign" needs an own bullet.*trailing clause/)
+      const { s, result } = run([trailing, withOwn], unityP, lctx())
+      const r = await result
+      expect(s.calls).toHaveLength(2)
+      expect(s.calls[1].prompt).toMatch(/own bullet/)
+      expect(s.calls[1].prompt).toContain('go-to-market launch-timing decision')
+      expect(r.retryReasons).toEqual(['project Enemies Demo Campaign needs its own bullet'])
+      expect(r.bullets[3]).toContain('Enemies Demo Campaign')
+    })
+
+    it('flags a lead-with project that no bullet names at all', () => {
+      const a = analyseExperience(good, lctx(), unityP)
+      expect(a.leadWithNotOwn).toEqual(['Enemies Demo Campaign'])
+      expect(a.soft.join(' ')).toMatch(/no bullet names it/)
+    })
+
+    it('a project the brief does not lead with may be merged into a bullet (no own bullet demanded)', () => {
+      const merged = { summary: 'Ran release and planning.', bullets: ['Cut platform release time by 40% across 8 teams, including the Enemies Demo Campaign.', good.bullets[1], good.bullets[2]] }
+      const a = analyseExperience(merged, ctx({ evidence: pev }), unityP)
+      expect(a.leadWithNotOwn).toEqual([])
+      expect(a.projectsMissed).toEqual([])
+    })
+
+    it('a trimmed answer keeps the lead-with project\'s own bullet', async () => {
+      const over = { summary: 'Ran release.', bullets: [good.bullets[0], good.bullets[1], good.bullets[2], 'Kept the calendar.', ownBullet] }
+      const { result } = run([over, over], unityP, lctx())
+      const r = await result
+      expect(r.bullets).toHaveLength(4)
+      expect(r.bullets).toContain(ownBullet)
+      expect(r.bullets).not.toContain('Kept the calendar.')
+    })
+  })
+
+  describe('play down', () => {
+    const pd = buildBriefFor({ playDown: ['React Router 7 and Prisma/PostgreSQL build detail'] })
+    const pdctx = () => ctx({ brief: pd })
+    const asBullet = { summary: 'Ran release and planning.', bullets: ['Built the tracker on React Router and Prisma/PostgreSQL for the team.', good.bullets[1], good.bullets[2]] }
+    const asClause = { summary: 'Ran release and planning.', bullets: ['Cut platform release time by 40% across 8 teams, using React Router and Prisma/PostgreSQL.', good.bullets[1], good.bullets[2]] }
+
+    it('sends the play-down items and the rule to the writer', () => {
+      const p = experiencePrompt({ brief: pd, strategy }, unity)
+      expect(p).toContain('React Router 7 and Prisma/PostgreSQL build detail')
+      expect(p).toMatch(/Play down: the "Play down" items in the brief may appear at most as a clause inside another bullet, never as a bullet of their own/)
+    })
+
+    it('flags a play-down item that is a bullet of its own', () => {
+      const a = analyseExperience(asBullet, pdctx(), unity)
+      expect(a.soft.join(' ')).toMatch(/bullet 1 is about the play-down item "React Router 7 and Prisma\/PostgreSQL build detail"/)
+      expect((a.why ?? []).join(' ')).toMatch(/play-down item/)
+    })
+
+    it('lets it appear as a clause inside another bullet', () => {
+      expect(analyseExperience(asClause, pdctx(), unity).soft.join(' ')).not.toMatch(/play-down/)
+    })
+
+    it('retries once with the item named, then accepts with a note (never trimmed, never fails)', async () => {
+      const { s, result } = run([asBullet, asBullet], unity, pdctx())
+      const r = await result
+      expect(s.calls).toHaveLength(2)
+      expect(s.calls[1].prompt).toMatch(/play-down item "React Router 7/)
+      expect(r.bullets).toHaveLength(3)
+      expect(r.notes.join(' ')).toMatch(/Accepted with a problem after the retry: bullet 1 is about the play-down item/)
+    })
+  })
+
+  describe('tense', () => {
+    it('flags a measured result in the present tense in the current role, and the retry says to use the past tense', async () => {
+      const present = { summary: 'Leads release and planning.', bullets: ['Drives a 40% cut in platform release time across 8 teams.', good.bullets[1], good.bullets[2]] }
+      const a = analyseExperience(present, ctx(), unity)
+      expect(a.soft.join(' ')).toMatch(/present tense.*past tense even in the current role.*"Drives a 40% cut/)
+      expect(a.why ?? []).toContain('present tense on a result')
+      const { s, result } = run([present, good])
+      const r = await result
+      expect(s.calls[1].prompt).toMatch(/past tense even in the current role/)
+      expect(r.bullets[0]).toMatch(/^Cut platform/)
+    })
+
+    it('does not flag a present-tense summary or an ongoing responsibility with no result in the current role', () => {
+      const ok = { summary: 'Leads the platform release and planning cycle.', bullets: ['Manages the quarterly planning cycle for the platform org.', good.bullets[0], good.bullets[2]] }
+      expect(analyseExperience(ok, ctx(), unity).soft.join(' ')).not.toMatch(/present tense/)
+    })
+
+    it('flags any present-tense opening in a finished role, summary included', () => {
+      const blizzard = evidence.employers.find((e) => e.employer.key === BLIZZARD)!
+      const a = analyseExperience({ summary: 'Leads a live-service launch.', bullets: ['Launched a live-service title for 2M players.'] }, ctx(), blizzard)
+      expect(a.soft.join(' ')).toMatch(/a finished role is past tense throughout.*"Leads a live-service launch\."/)
+    })
+  })
+
+  describe('truncation does not waste the retry', () => {
+    const cutOff = llmReply({ ok: false, reason: 'parse', error: null }, { finishReason: 'length', rawText: 'SECRET' })
+
+    it('the first attempt uses a cap scaled to the allocation (well above the old fixed 1,500) and the retry a larger one', async () => {
+      mockJSON.mockResolvedValueOnce(cutOff as never).mockResolvedValueOnce(llmReply({ ok: true, value: good }) as never)
+      const r = await writeExperience(ctx(), unity, instructions)
+      const caps = experienceTokenCaps(3, false)
+      expect(mockJSON).toHaveBeenCalledTimes(2)
+      expect(mockJSON.mock.calls[0][3]).toMatchObject({ maxOutputTokens: caps.first })
+      expect(mockJSON.mock.calls[1][3]).toMatchObject({ maxOutputTokens: caps.retry })
+      expect(caps.first).toBeGreaterThan(1_500)
+      expect(caps.retry).toBeGreaterThan(caps.first)
+      expect(r.retryReasons).toEqual(['the answer was cut off'])
+    })
+
+    it('an employer with project evidence starts at the larger cap, and a cut-off there is NOT retried at the same budget', async () => {
+      mockJSON.mockResolvedValue(cutOff as never)
+      const err = await writeExperience(lctx(), unityP, instructions).catch((e) => e)
+      const caps = experienceTokenCaps(4, true)
+      expect(caps.first).toBe(caps.retry)
+      expect(mockJSON).toHaveBeenCalledTimes(1)
+      expect(mockJSON.mock.calls[0][3]).toMatchObject({ maxOutputTokens: caps.first })
+      expect(err).toBeInstanceOf(CutOffError)
+    })
+
+    it('the cap grows with the number of bullets', async () => {
+      mockJSON.mockResolvedValue(llmReply({ ok: true, value: good }) as never)
+      await writeExperience(ctx(), unity, instructions)
+      await writeExperience(ctx(), evidence.employers.find((e) => e.employer.key === BLIZZARD)!, instructions)
+      expect(mockJSON.mock.calls[0][3].maxOutputTokens as number).toBeGreaterThan(mockJSON.mock.calls[1][3].maxOutputTokens as number)
+    })
+  })
+
+  describe('project evidence sent to the writer is capped, the numbers check still sees all of it', () => {
+    const long = `${demoText} ${'Filler sentence about the studio and the launch plan. '.repeat(60)} Final tally 777,000 wishlists.`
+    const lv = writeVault([projectRow('pa', 'Enemies Demo Campaign', long, { experienceId: 'e-u2' })])
+    const lev = evidenceFromVault(lv, writeSelection(lv, { projects: [{ id: 'pa', reason: '' }] }))
+    const emp = lev.employers.find((e) => e.employer.key === UNITY)!
+
+    it('cuts the text in the prompt to the per-project limit but keeps the full text as evidence', () => {
+      expect(long.length).toBeGreaterThan(PROJECT_EVIDENCE_MAX_CHARS * 2)
+      const p = experiencePrompt({ brief: buildBriefFor(), strategy }, emp)
+      const line = p.split('\n').find((l) => l.startsWith('[pa] project'))!
+      expect(line.length).toBeLessThan(PROJECT_EVIDENCE_MAX_CHARS + 100)
+      expect(line).toContain('14,000+')
+      expect(line).not.toContain('777,000')
+      expect(emp.projects[0].text).toContain('777,000')
+      const a = analyseExperience({ summary: 'Ran release.', bullets: ['Ran the Enemies Demo Campaign to 777,000 wishlists.', good.bullets[0], good.bullets[1]] }, ctx({ evidence: lev }), emp)
+      expect(a.unsupported).toEqual([])
     })
   })
 })

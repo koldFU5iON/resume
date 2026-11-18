@@ -205,6 +205,26 @@ describe('runWrite', () => {
       expect(r.sections.find((s) => s.id === 'profile')).toBeDefined()
     })
 
+    it('lists an employer with its own activity text, after ONE call, when its answer is cut off at the largest budget (Phase 3c)', async () => {
+      const bootCamp = projectRow('pb', 'Boot Camp', 'Ran the studio boot camp for new hires.', { startDate: new Date('2016-06-01T00:00:00Z') })
+      mockJSON.mockImplementation((async (_p: string, prompt: string, schema: never, opts: { feature: string }) => {
+        seen.push({ feature: opts.feature, prompt, system: '', at: Date.now(), deadline: 0 })
+        if (opts.feature === 'cv-gen-write-experience' && prompt.includes('[ba1]')) return llmReply({ ok: false, reason: 'parse', error: null }, { finishReason: 'length' })
+        const reply = opts.feature === 'cv-gen-write-skills' ? skillsAnswer : opts.feature === 'cv-gen-write-profile' ? profileAnswer : unityAnswer
+        return llmReply(extractJSON(`\`\`\`json\n${JSON.stringify(reply)}\n\`\`\``, schema))
+      }) as never)
+      const vault = writeVault([bootCamp])
+      const sel = writeSelection(vault, { projects: [{ id: 'pb', reason: '' }] })
+      const r = await runWrite(vault, buildBriefFor(), sel, strategy, ctx())
+      expect(seen.filter((x) => x.feature === 'cv-gen-write-experience' && x.prompt.includes('[ba1]'))).toHaveLength(1) // the retry was not spent on the same budget
+      const blizzard = r.sections.find((s) => s.id === `experience:${BLIZZARD}`)!
+      expect(blizzard.markdown).toContain('- Launched a live-service title for 2M players')
+      expect(blizzard.log.notes.join(' ')).toMatch(/cut off at the largest output budget/)
+      expect(blizzard.log.notes.join(' ')).toMatch(/Project "Boot Camp" is not on the CV/) // never silent
+      expect(r.sections.find((s) => s.id === `experience:${UNITY}`)).toBeDefined()
+      expect(r.sections.find((s) => s.id === 'profile')).toBeDefined()
+    })
+
     it('still fails other errors (an invalid wave-2 answer is not a time problem)', async () => {
       mockJSON.mockImplementation((async (_p: string, prompt: string, schema: never, opts: { feature: string }) => {
         const reply = opts.feature === 'cv-gen-write-skills' ? skillsAnswer : opts.feature === 'cv-gen-write-profile' ? 'junk' : prompt.includes('[ba1]') ? blizzardAnswer : unityAnswer
@@ -391,8 +411,8 @@ describe('runWrite', () => {
     const sideProject = projectRow('pc', 'Side project', 'Built on weekends.')
     const oldCoProject = projectRow('pd', 'Old Co project', 'Built at Old Co.', { experienceId: 'e-o1' })
     const pick = (...ids: string[]) => ids.map((id) => ({ id, reason: '' }))
-    const unityWithProject = { summary: 'Ran release and planning for the platform org.', bullets: [...unityAnswer.bullets, 'Ran the Enemies Demo Campaign, reaching 14,000+ players at launch.'] }
-    const bootCampAnswer = { summary: 'Launched a live-service title.', bullets: ['Launched a live-service title for 2M players.', 'Ran the Boot Camp for new hires.'] }
+    const unityWithProject = { summary: 'Ran release and planning for the platform org.', bullets: [unityAnswer.bullets[0], 'Ran the Enemies Demo Campaign, reaching 14,000+ players at launch.', unityAnswer.bullets[2]] }
+    const bootCampAnswer = { summary: 'Launched a live-service title.', bullets: ['Launched a live-service title for 2M players, and ran the Boot Camp for new hires.'] }
     const allNotes = (r: Awaited<ReturnType<typeof runWrite>>) => [...r.notes, ...r.sections.flatMap((s) => s.log.notes)].join('\n')
 
     it('gives each selected project to the writer of the employer it belongs to, and it reaches the CV', async () => {

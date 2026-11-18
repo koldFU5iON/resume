@@ -184,36 +184,55 @@ export function distinctNotableFigures(text: string, names: readonly string[] = 
 
 // ── Projects ────────────────────────────────────────────────────────────────
 
-/** Words that say nothing about WHICH project it was: they never prove one was reflected. */
-const GENERIC_PROJECT_WORDS = new Set([
-  'project', 'projects', 'campaign', 'campaigns', 'launch', 'launches', 'demo', 'demos', 'program', 'programme', 'initiative', 'event', 'events',
-  'product', 'platform', 'redesign', 'website', 'site', 'team', 'update', 'new', 'the', 'and', 'for', 'with',
-])
+/** Lower-case words of a text without accents or punctuation. */
+export const normalised = (text: string) => text.toLowerCase().normalize('NFKD').replace(/\p{M}/gu, '').split(/[^\p{L}\p{N}]+/u).filter(Boolean)
 
-const normalised = (text: string) => text.toLowerCase().normalize('NFKD').replace(/\p{M}/gu, '').split(/[^\p{L}\p{N}]+/u).filter(Boolean)
-
-/** The words of a project's name that identify it: 4+ characters, not a generic word, not in the employer's ordinary activity text. */
-export function distinctiveNameTokens(name: string, ordinaryText: string): string[] {
-  const ordinary = new Set(normalised(ordinaryText))
-  return [...new Set(normalised(name))].filter((w) => w.length >= 4 && !GENERIC_PROJECT_WORDS.has(w) && !ordinary.has(w))
-}
+const YEAR_WORD = /^(?:19|20)\d{2}$/
+const VERSION_WORD = /^v\d+$/
 
 /**
- * Whether `output` reflects a selected project: it contains the project's name
- * (normalised: case, accents and punctuation ignored), or a DISTINCTIVE token
- * of that name. A word that is generic ("campaign", "launch") or appears in the
- * employer's ordinary activity text (`ordinaryText`) never counts, so "Launched
- * marketing campaign across social channels" does not cover a project called
- * "Enemies Demo Campaign". A project whose name is nothing but generic words
- * is reflected only by its full name. Best effort: a paraphrase is a false
- * negative, which costs one retry and a log note, never a failed run.
+ * A project's name as it is recognised in text: case, accents and punctuation
+ * ignored, and the parts that change between editions dropped: years, "v2"
+ * style versions and trailing numbers ("Unity Awards 2025" and "Unity Awards"
+ * are the same project; "Release 7.1" is "release"). A name that is nothing but
+ * such parts keeps all its words.
  */
-export function projectReflected(output: string, project: { name: string }, ordinaryText = ''): boolean {
-  const name = normalised(project.name).join(' ')
-  const out = ` ${normalised(output).join(' ')} `
-  if (name && out.includes(` ${name} `)) return true
-  const outWords = new Set(normalised(output))
-  return distinctiveNameTokens(project.name, ordinaryText).some((w) => outWords.has(w))
+export function projectNameKey(name: string): string {
+  const all = normalised(name)
+  const words = all.filter((w) => !YEAR_WORD.test(w) && !VERSION_WORD.test(w))
+  while (words.length > 0 && /^\d+$/.test(words[words.length - 1])) words.pop()
+  return (words.length > 0 ? words : all).join(' ')
+}
+
+/** Index (in `normalised(text)`) of the first place the whole phrase appears, or -1. */
+export function phraseIndex(text: string, phrase: string): number {
+  const words = normalised(text)
+  const want = phrase.split(' ').filter(Boolean)
+  if (want.length === 0) return -1
+  for (let i = 0; i + want.length <= words.length; i++) if (want.every((w, j) => words[i + j] === w)) return i
+  return -1
+}
+
+const isYear = (f: Figure) => YEAR_WORD.test(f.raw.replace(/^[£$€]/, '').trim())
+
+/**
+ * Whether `output` (an employer's summary and bullets) reflects a selected
+ * project. Covered when EITHER the project's normalised name (projectNameKey)
+ * appears in it, OR one of the project's own figures appears in it (compared
+ * by value, as the numbers check does; a year is not a figure here). Words the
+ * name shares with ordinary activity text, or generic words, prove nothing, so
+ * "Launched marketing campaign across social channels" does not cover a project
+ * called "Enemies Demo Campaign", while a bullet naming "Unity Awards" covers
+ * "Unity Awards 2025" even though an activity says the same words.
+ * Best effort: a paraphrase with no figure is a false negative, which costs
+ * one retry and a log note, never a failed run.
+ */
+export function projectReflected(output: string, project: { name: string; text?: string }): boolean {
+  const key = projectNameKey(project.name)
+  if (key && phraseIndex(output, key) >= 0) return true
+  if (!project.text) return false
+  const mine = new Set(figuresIn(project.text, { names: [project.name] }).filter((f) => !isYear(f)).map((f) => f.key))
+  return mine.size > 0 && figuresIn(output, { names: [project.name] }).some((f) => !isYear(f) && mine.has(f.key))
 }
 
 // ── Competency labels ───────────────────────────────────────────────────────
@@ -238,8 +257,8 @@ export function competencyLabelProblem(label: string, bounds: { min: number; max
 const LABEL_STOP = new Set(['with', 'from', 'that', 'this', 'across', 'into', 'over', 'under', 'and', 'for', 'the', 'their', 'your', 'using', 'based'])
 
 /** The content words of a text as 5-letter stems, so "launch", "launched" and "launching" meet. */
-function contentStems(text: string): Set<string> {
-  return new Set(normalised(text).filter((w) => w.length >= 4 && !LABEL_STOP.has(w)).map((w) => w.slice(0, 5)))
+export function contentStems(text: string, minLength = 4): Set<string> {
+  return new Set(normalised(text).filter((w) => w.length >= minLength && !LABEL_STOP.has(w)).map((w) => w.slice(0, 5)))
 }
 
 /** Whether a Core Competencies label is grounded in `texts` (the selected competency names, the employers' evidence): it shares a content word with any of them. */

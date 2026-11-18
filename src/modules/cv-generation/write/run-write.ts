@@ -28,7 +28,7 @@ import {
   loadCVWriteExperiencePrompt, loadCVWriteProfilePrompt, loadCVWriteSkillsPrompt, loadWritingContext,
 } from '@/modules/llm/prompt-context'
 import type { Vault } from '@/modules/profile-map/types'
-import { addUsage, NO_USAGE, usageOfError, type CallUsage } from '../call'
+import { addUsage, CutOffError, NO_USAGE, usageOfError, type CallUsage } from '../call'
 import { MAX_CHECK_NOTES, WRITE_CONCURRENCY, type CvBrief, type CvSelection, type SectionLogEntry } from '../schema'
 import type { Strategy } from '../strategy'
 import { evidenceFromVault, type EmployerEvidence } from './evidence'
@@ -177,14 +177,14 @@ export async function runWrite(
               log: logOf(id, label, { model: out.model, durationMs: ms, tokens: tokensOf(out.usage), costUsd: out.usage.costUsd, retries: out.retries, retryReasons: out.retryReasons, notes: out.notes }),
             })
           } catch (err) {
-            if (!isTimeout(err)) throw err
-            // Out of time: the employer is listed with its own activity text instead of failing the run.
+            if (!isTimeout(err) && !(err instanceof CutOffError)) throw err
+            // Out of time, or cut off at the largest output budget: the employer is listed with its own activity text instead of failing the run.
             const u = spent(err)
             const fb = fallbackExperience(task.emp)
             digests.set(key, { summary: fb.summary, bullets: fb.bullets })
             keep({
               id, kind: 'experience', employerKey: key, markdown: fb.markdown, tokens: tokensOf(u),
-              log: logOf(id, label, { durationMs: Date.now() - t0, tokens: tokensOf(u), costUsd: u.calls > 0 ? u.costUsd : null, notes: ['The run ran out of time for this entry, so its bullets are your own activity text from the profile, with no summary.', ...fb.notes] }),
+              log: logOf(id, label, { durationMs: Date.now() - t0, tokens: tokensOf(u), costUsd: u.calls > 0 ? u.costUsd : null, notes: [err instanceof CutOffError ? 'The answer was cut off at the largest output budget, so the bullets are your own activity text from the profile, with no summary.' : 'The run ran out of time for this entry, so its bullets are your own activity text from the profile, with no summary.', ...fb.notes] }),
             })
           }
           return

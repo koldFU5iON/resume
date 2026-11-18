@@ -78,7 +78,23 @@ describe('the writer prompts, after the review fixes', () => {
       expect(t).toMatch(/Projects:.*extra evidence/)
       expect(t).toMatch(/never "I", "my", "me" or "we"/)
       expect(t).toMatch(/implied subject/)
-      expect(t).toMatch(/past tense for a role the candidate has left and the present tense for their current role/)
+      expect(t).toMatch(/a role the candidate has left is in the past tense throughout/)
+    })
+
+    it('phase 3c: completed achievements and measured results are PAST tense even in the current role; the summary and ongoing duties may be present', () => {
+      const t = read('cv-gen-write-experience')
+      expect(t).toMatch(/every \*\*completed achievement and every measured result is in the PAST tense\*\*, even here/)
+      expect(t).toMatch(/summary and genuinely ongoing responsibilities may be in the present tense/)
+      expect(t).not.toMatch(/the present tense for their current role/)
+    })
+
+    it('phase 3c: a lead-with project gets an own bullet, others merge, a play-down item is never a bullet of its own', () => {
+      const t = read('cv-gen-write-experience')
+      expect(t).toMatch(/\*\*LEAD WITH\*\* gets an own bullet/)
+      expect(t).toMatch(/starts with the project's name/)
+      expect(t).toMatch(/not a trailing clause/)
+      expect(t).toMatch(/does not get a bullet of its own/)
+      expect(t).toMatch(/Play down.*at most as a short clause inside another bullet.*never a bullet of its own/)
     })
 
     it('the profile prompt: opens with positioning for this role, at most one figure none of them from the bullets, labels of 2 to 5 words, no pronouns', () => {
