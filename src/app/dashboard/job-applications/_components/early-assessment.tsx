@@ -61,6 +61,11 @@ type EarlyAssessmentProps = {
   deepDiveAccess?: DeepDiveAccess
 }
 
+/** Jev's confidence (0–1) as a word; the cut-offs are display-only and don't affect the score. */
+function confidenceLabel(c: number): string {
+  return c >= 0.75 ? 'high' : c >= 0.5 ? 'medium' : 'low'
+}
+
 /**
  * Early assessment (Jev) pill, the job's fit score (it replaces the deprecated
  * JobFit pill wherever the feature is on). Works the same way as JobFit did:
@@ -269,6 +274,11 @@ export function EarlyAssessmentDetail({ view, enabled, onRerun, editHref, jobId,
             colorClass={EARLY_GAUGE_COLORS[earlyTone(view)]}
             titleClassName={view.blocked ? 'text-destructive' : undefined}
           />
+          {view.confidence !== null && (
+            <p className="text-xs text-muted-foreground">
+              Confidence: {confidenceLabel(view.confidence)}
+            </p>
+          )}
           {view.blocked && view.level && (
             <p className="text-xs text-muted-foreground">
               Scores as {view.level}, but at least one requirement rules it out.

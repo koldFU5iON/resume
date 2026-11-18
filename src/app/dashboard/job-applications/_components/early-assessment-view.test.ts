@@ -38,6 +38,7 @@ const view = (over: Partial<AssessmentView> = {}): AssessmentView => ({
   gaps: [],
   unsettled: [],
   notes: [],
+  confidence: null,
   enrichedFields: [],
   descriptionReplaced: false,
   failureKind: null,

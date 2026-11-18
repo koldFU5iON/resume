@@ -83,6 +83,20 @@ function choice(answers: JudgeAnswers, id: string): ChoiceResponse {
   return a
 }
 
+/** Jev's reported confidence (0–1) on a choice or score answer; null when absent. */
+function answerConfidence(answers: JudgeAnswers, id: string): number | null {
+  const a = answers[id]
+  if ((a?.type !== 'choice' && a?.type !== 'score') || typeof a.confidence !== 'number') return null
+  return clamp01(a.confidence)
+}
+
+/** Weakest confidence across the answers that feed the composite; null when none reported one. */
+export function overallConfidence(answers: JudgeAnswers): number | null {
+  const ids = [questionIds.skillsMatch, questionIds.seniorityFit, questionIds.domainFit, questionIds.directionFit]
+  const values = ids.map((id) => answerConfidence(answers, id)).filter((c): c is number => c !== null)
+  return values.length > 0 ? Math.min(...values) : null
+}
+
 function scoreValue(answers: JudgeAnswers, id: string): number {
   const a = answers[id]
   if (a?.type !== 'score' || typeof a.score !== 'number') throw new MissingAnswerError(id)
@@ -159,7 +173,7 @@ export function computeScore(signals: {
   const raw = 1 + 9 * composite
   const penalty = Math.min(pen.cap, pen.perItem * signals.penaltyItems)
   const score = Math.min(10, Math.max(1, Math.round(raw - penalty)))
-  return { ...signals, composite, raw, penalty, score }
+  return { ...signals, composite, raw, penalty, score, confidence: null }
 }
 
 function clamp01(n: number): number {
@@ -363,7 +377,8 @@ export function combineAssessment(input: CombineInput): AssessmentResult {
     belowTargetPay: pay.belowTarget,
     penaltyItems,
   })
-  const { score, ...scoreBreakdown } = breakdown
+  const { score, ...computed } = breakdown
+  const scoreBreakdown = { ...computed, confidence: overallConfidence(answers) }
 
   const strengths = [
     ...strengthCandidates.sort((a, b) => b.p - a.p || a.i - b.i).slice(0, maxStrengths).map((s) => s.text),

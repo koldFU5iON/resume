@@ -36,6 +36,8 @@ export interface AssessmentView {
   unsettled: string[]
   /** Informational lines from combine (signals.combine.notes), e.g. "Contract role". Complete runs only. */
   notes: string[]
+  /** Weakest Jev confidence (0–1) behind the score (signals.combine.breakdown.confidence). Display only; null on older runs. */
+  confidence: number | null
   /** Fields the run filled in from the job page (JobAssessment.enrichedFields). */
   enrichedFields: string[]
   /** The truncated job description was replaced with the full text from the job page. */
@@ -122,7 +124,7 @@ function parseNotes(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((n): n is string => typeof n === 'string') : []
 }
 
-export function toAssessmentView(row: AssessmentRow, now: Date = new Date(), notes: unknown = null): AssessmentView {
+export function toAssessmentView(row: AssessmentRow, now: Date = new Date(), notes: unknown = null, confidence: unknown = null): AssessmentView {
   const view: AssessmentView = {
     id: row.id,
     jobId: row.jobApplicationId,
@@ -135,6 +137,7 @@ export function toAssessmentView(row: AssessmentRow, now: Date = new Date(), not
     gaps: row.gaps,
     unsettled: row.unsettled,
     notes: parseNotes(notes),
+    confidence: typeof confidence === 'number' && confidence >= 0 && confidence <= 1 ? confidence : null,
     enrichedFields: row.enrichedFields,
     descriptionReplaced: row.enrichedFields.includes(REPLACED_DESCRIPTION),
     failureKind: (row.failureKind as FailureKind | null) ?? null,
@@ -156,13 +159,14 @@ export function toAssessmentView(row: AssessmentRow, now: Date = new Date(), not
  * raw Jev answers. Reading only that path keeps the large `signals` blob out
  * of list loads (they re-run every 3 s while a run is in progress).
  */
-async function loadNotes(profileId: string, ids: readonly string[]): Promise<Map<string, unknown>> {
+async function loadNotes(profileId: string, ids: readonly string[]): Promise<Map<string, { notes: unknown; confidence: unknown }>> {
   if (ids.length === 0) return new Map()
-  const rows = await prisma.$queryRaw<{ id: string; notes: unknown }[]>`
-    SELECT "id", "signals"->'combine'->'notes' AS "notes"
+  const rows = await prisma.$queryRaw<{ id: string; notes: unknown; confidence: unknown }[]>`
+    SELECT "id", "signals"->'combine'->'notes' AS "notes",
+      "signals"->'combine'->'breakdown'->'confidence' AS "confidence"
     FROM "JobAssessment"
     WHERE "profileId" = ${profileId} AND "status" = 'complete' AND "id" IN (${Prisma.join([...ids])})`
-  return new Map(rows.map((r) => [r.id, r.notes]))
+  return new Map(rows.map((r) => [r.id, { notes: r.notes, confidence: r.confidence }]))
 }
 
 const completeIds = (rows: readonly { id: string; status: string }[]) =>
@@ -181,9 +185,10 @@ export async function getLatestAssessments(
   jobIds: readonly string[],
 ): Promise<Record<string, AssessmentView>> {
   if (jobIds.length === 0) return {}
-  const latest = await prisma.$queryRaw<{ id: string; notes: unknown }[]>`
+  const latest = await prisma.$queryRaw<{ id: string; notes: unknown; confidence: unknown }[]>`
     SELECT DISTINCT ON ("jobApplicationId") "id",
-      CASE WHEN "status" = 'complete' THEN "signals"->'combine'->'notes' END AS "notes"
+      CASE WHEN "status" = 'complete' THEN "signals"->'combine'->'notes' END AS "notes",
+      CASE WHEN "status" = 'complete' THEN "signals"->'combine'->'breakdown'->'confidence' END AS "confidence"
     FROM "JobAssessment"
     WHERE "profileId" = ${profileId} AND "jobApplicationId" IN (${Prisma.join([...jobIds])})
     ORDER BY "jobApplicationId", "createdAt" DESC, "id" DESC`
@@ -192,10 +197,10 @@ export async function getLatestAssessments(
     where: { profileId, id: { in: latest.map((r) => r.id) } },
     select: VIEW_SELECT,
   })
-  const notes = new Map(latest.map((r) => [r.id, r.notes]))
+  const extras = new Map(latest.map((r) => [r.id, r]))
   const now = new Date()
   const out: Record<string, AssessmentView> = {}
-  for (const row of rows) out[row.jobApplicationId] = toAssessmentView(row, now, notes.get(row.id))
+  for (const row of rows) out[row.jobApplicationId] = toAssessmentView(row, now, extras.get(row.id)?.notes, extras.get(row.id)?.confidence)
   return out
 }
 
@@ -207,8 +212,8 @@ export async function getLatestAssessment(profileId: string, jobId: string): Pro
     select: VIEW_SELECT,
   })
   if (!row) return null
-  const notes = await loadNotes(profileId, completeIds([row]))
-  return toAssessmentView(row, new Date(), notes.get(row.id))
+  const extras = (await loadNotes(profileId, completeIds([row]))).get(row.id)
+  return toAssessmentView(row, new Date(), extras?.notes, extras?.confidence)
 }
 
 /**

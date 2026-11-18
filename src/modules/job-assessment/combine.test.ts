@@ -11,12 +11,13 @@ import {
   computeScore,
   displayLabel,
   levelForScore,
+  overallConfidence,
   senioritySignal,
   type CombineInput,
   type JevAnswer,
   type JudgeAnswers,
 } from './combine'
-import { buildJudgeQuestions } from './questions'
+import { buildJudgeQuestions, questionIds } from './questions'
 import type { JobFacts, JobRequirement } from './schema'
 
 const TODAY = new Date('2026-11-10T12:00:00Z')
@@ -534,5 +535,21 @@ describe('strengths, notes and errors', () => {
 
   it('tolerates one missing share order', () => {
     expect(() => run({ answers: { req_0_role_2_b: undefined } })).not.toThrow()
+  })
+})
+
+describe('overallConfidence', () => {
+  it('takes the weakest confidence across the composite answers and ignores noul answers', () => {
+    const answers = {
+      [questionIds.skillsMatch]: { type: 'score', score: 3, confidence: 0.9 },
+      [questionIds.seniorityFit]: { type: 'choice', choice: 'match', confidence: 0.6, probabilities: { match: 0.6 } },
+      [questionIds.domainFit]: { type: 'score', score: 2, confidence: 0.8 },
+      [questionIds.requirement(0)]: n(0.1),
+    } as unknown as JudgeAnswers
+    expect(overallConfidence(answers)).toBe(0.6)
+  })
+
+  it('is null when no answer reports one', () => {
+    expect(overallConfidence({})).toBeNull()
   })
 })
