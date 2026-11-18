@@ -136,11 +136,20 @@ function setStatus(id: string, status: DeepDiveStatus, data: Prisma.JobDeepDiveU
   return updateActive(id, { ...data, status })
 }
 
-async function fail(id: string, kind: DeepDiveFailureKind, message: string | null, timings: object): Promise<void> {
+/** A short technical cause for the failed run's page. Capped; the stack is never stored. */
+export function failureDetailFor(err: unknown): string {
+  const text = err instanceof LLMError
+    ? `${err.kind}: ${err.message}`
+    : err instanceof Error ? `${err.name}: ${err.message}` : String(err)
+  return text.length > 1000 ? `${text.slice(0, 1000)}…` : text
+}
+
+async function fail(id: string, kind: DeepDiveFailureKind, message: string | null, timings: object, detail: string | null = null): Promise<void> {
   await updateActive(id, {
     status: 'failed',
     failureKind: kind,
     failureMessage: message ?? FAILURE_MESSAGES[kind],
+    failureDetail: detail,
     completedAt: new Date(),
     stageTimings: timings as Prisma.InputJsonValue,
   }).catch((err) => console.error('[deep-dive] could not record failure', { id, err }))
@@ -213,7 +222,7 @@ export async function runDeepDive(profileId: string, jobId: string, deepDiveId: 
     const gathered = await gatherDeepDiveInputs(profileId, jobId)
     timings.gather = Date.now() - t
     if (!gathered.ok) {
-      await fail(deepDiveId, gathered.kind === 'no_description' ? 'no_description' : 'error', gathered.message, timings)
+      await fail(deepDiveId, gathered.kind === 'no_description' ? 'no_description' : 'error', gathered.message, timings, gathered.message)
       return
     }
     const g = gathered
@@ -276,6 +285,6 @@ export async function runDeepDive(profileId: string, jobId: string, deepDiveId: 
   } catch (err) {
     const kind = failureKindFor(err)
     if (kind === 'error') console.error('[deep-dive] run failed', { deepDiveId, err })
-    await fail(deepDiveId, kind, null, timings)
+    await fail(deepDiveId, kind, null, timings, failureDetailFor(err))
   }
 }

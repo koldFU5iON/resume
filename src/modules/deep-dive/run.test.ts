@@ -28,7 +28,7 @@ import { emitSearchProfileSuggestions, gatherDeepDiveInputs } from './gather'
 import { runResearch } from './research'
 import { DeepDiveReportSchema, DEEP_DIVE_CONCURRENCY_PER_PROFILE, DEEP_DIVE_ROUTE_MAX_DURATION_S } from './schema'
 import { synthesise } from './synthesise'
-import { failureKindFor, runDeepDive, startDeepDive } from './run'
+import { failureDetailFor, failureKindFor, runDeepDive, startDeepDive } from './run'
 
 const db = vi.mocked(prisma, { deep: true })
 const mockAfter = vi.mocked(after)
@@ -267,5 +267,14 @@ describe('failureKindFor', () => {
     expect(failureKindFor(new LLMError('', 'safety'))).toBe('refusal')
     expect(failureKindFor(new LLMError('', 'invalid_output'))).toBe('error')
     expect(failureKindFor(new Error('x'))).toBe('error')
+  })
+})
+
+describe('failureDetailFor', () => {
+  it('names the LLM error kind and message', () => {
+    expect(failureDetailFor(new LLMError('bad shape', 'invalid_output'))).toBe('invalid_output: bad shape')
+  })
+  it('caps long text', () => {
+    expect(failureDetailFor(new Error('x'.repeat(2000))).length).toBeLessThanOrEqual(1001)
   })
 })

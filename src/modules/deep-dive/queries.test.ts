@@ -13,7 +13,7 @@ const usage = summarizeRows([])
 
 function row(over: Record<string, unknown> = {}) {
   return {
-    id: 'dd-1', jobApplicationId: 'job-1', status: 'complete', failureKind: null, failureMessage: null,
+    id: 'dd-1', jobApplicationId: 'job-1', status: 'complete', failureKind: null, failureMessage: null, failureDetail: null,
     verdict: 'apply', worthTailoredCv: true, report: DeepDiveReportSchema.parse(modelReport({ verdict: 'apply' })),
     research: null, researchModel: 'r', synthesisModel: 's', sourceAssessmentId: null, inputsHash: 'h1',
     stageTimings: null, createdAt: new Date(now.getTime() - 60_000), startedAt: null, completedAt: now,

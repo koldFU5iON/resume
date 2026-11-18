@@ -181,6 +181,12 @@ export function enforceReportFacts(report: DeepDiveReport, g: GatherResult, find
   }
 }
 
+/** Up to 8 failing field paths from a zod error: paths and rule codes only, never values. */
+function zodPaths(error: unknown): string[] {
+  const issues = error instanceof z.ZodError ? error.issues : []
+  return [...new Set(issues.map((i) => `${i.path.join('.') || '(root)'} [${i.code}]`))].slice(0, 8)
+}
+
 export type SynthesisResult = { report: DeepDiveReport; model: string }
 
 /**
@@ -211,7 +217,11 @@ export async function synthesise(
       reason: result.extracted.reason,
       finishReason: result.finishReason,
     })
-    throw new LLMError('The report did not match the expected shape.', 'invalid_output')
+    const paths = zodPaths(result.extracted.error)
+    throw new LLMError(
+      `The report did not match the expected shape (${result.extracted.reason}, finish: ${result.finishReason}${paths.length ? `; fields: ${paths.join(', ')}` : ''}).`,
+      'invalid_output',
+    )
   }
   return { report: enforceReportFacts(result.extracted.value, g, research.findings), model: result.model }
 }

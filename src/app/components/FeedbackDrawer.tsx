@@ -46,21 +46,23 @@ const FALLBACK_URL = 'https://github.com/koldFU5iON/currnt/issues/new'
 type Props = {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** Prefills the form (e.g. a failure's technical details); kept after a reset. */
+  initial?: { title?: string; description?: string }
 }
 
-export function FeedbackDrawer({ open, onOpenChange }: Props) {
+export function FeedbackDrawer({ open, onOpenChange, initial }: Props) {
   const isMobile = useIsMobile()
   const pathname = usePathname()
 
   const [type, setType] = useState<FeedbackType>('bug')
-  const [title, setTitle] = useState('')
-  const [description, setDescription] = useState('')
+  const [title, setTitle] = useState(initial?.title ?? '')
+  const [description, setDescription] = useState(initial?.description ?? '')
   const [isPending, startTransition] = useTransition()
 
   function reset() {
     setType('bug')
-    setTitle('')
-    setDescription('')
+    setTitle(initial?.title ?? '')
+    setDescription(initial?.description ?? '')
   }
 
   function handleOpenChange(next: boolean) {
