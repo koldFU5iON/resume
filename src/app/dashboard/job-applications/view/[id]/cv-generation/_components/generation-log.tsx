@@ -7,10 +7,12 @@ import {
   retryReasonLine,
   sectionMeta,
   stageMeta,
+  stageRowHasDetail,
   stageNotes,
   type StageRow,
   type StageState,
 } from "@/app/dashboard/job-applications/_components/cv-generation-view"
+import { LogSection } from "./log-sections"
 import type { BulletProvenance, CvAssembled, FlaggedClaim, SectionLogEntry } from "@/modules/cv-generation/schema"
 
 const STATE_LABEL: Record<StageState, string> = {
@@ -70,39 +72,51 @@ function LogRow({ row, warnings, provenance }: { row: StageRow; warnings: string
   const e = row.entry
   const notes = e ? stageNotes(e) : []
   const retryLine = e ? retryReasonLine(e) : null
+  const header = (
+    <>
+      <span className={cn("font-medium", row.state === "waiting" && "text-muted-foreground")}>
+        {row.label}
+        <span className="sr-only"> ({STATE_LABEL[row.state]})</span>
+        {row.state === "skipped" && <span className="ml-2 text-xs font-normal text-muted-foreground">skipped</span>}
+        {row.state === "failed" && <span className="ml-2 text-xs font-normal text-destructive">failed</span>}
+      </span>
+    </>
+  )
+  const purpose = <p className="text-sm text-muted-foreground">{row.detail}</p>
+  const detail = (
+    <div className="space-y-2">
+      {meta.length > 0 && (
+        <p className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs tabular-nums text-muted-foreground">
+          {meta.map((m, i) => <span key={i} className={i === 0 && e?.model ? "font-mono" : undefined}>{m}</span>)}
+        </p>
+      )}
+
+      {retryLine && <p className="text-sm text-muted-foreground">{retryLine}</p>}
+
+      {notes.length > 0 && (
+        <ul className="list-disc space-y-0.5 pl-4 text-sm text-muted-foreground">
+          {notes.map((n, i) => <li key={i}>{n}</li>)}
+        </ul>
+      )}
+
+      {e && e.sections.length > 0 && <SectionRows sections={e.sections} provenance={provenance} />}
+      {warnings.length > 0 && <Warnings warnings={warnings} />}
+
+      {e && (e.kept.length > 0 || e.dropped.length > 0) && <KeptDropped kept={e.kept} dropped={e.dropped} />}
+      {e && e.flaggedClaims.length > 0 && <FlaggedClaims claims={e.flaggedClaims} />}
+    </div>
+  )
   return (
     <li className="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-x-3 px-4 py-3.5">
       <span className="mt-0.5"><StateIcon state={row.state} /></span>
-      <div className="min-w-0 space-y-2">
-        <div>
-          <p className={cn("font-medium", row.state === "waiting" && "text-muted-foreground")}>
-            {row.label}
-            <span className="sr-only"> ({STATE_LABEL[row.state]})</span>
-            {row.state === "skipped" && <span className="ml-2 text-xs font-normal text-muted-foreground">skipped</span>}
-            {row.state === "failed" && <span className="ml-2 text-xs font-normal text-destructive">failed</span>}
-          </p>
-          <p className="text-sm text-muted-foreground">{row.detail}</p>
-        </div>
-
-        {meta.length > 0 && (
-          <p className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs tabular-nums text-muted-foreground">
-            {meta.map((m, i) => <span key={i} className={i === 0 && e?.model ? "font-mono" : undefined}>{m}</span>)}
-          </p>
+      <div className="min-w-0">
+        {stageRowHasDetail(row, warnings) ? (
+          <LogSection id={`stage:${row.stage}`} title={header} preview={purpose}>
+            <div className="mt-2">{detail}</div>
+          </LogSection>
+        ) : (
+          <div><p>{header}</p>{purpose}</div>
         )}
-
-        {retryLine && <p className="text-sm text-muted-foreground">{retryLine}</p>}
-
-        {notes.length > 0 && (
-          <ul className="list-disc space-y-0.5 pl-4 text-sm text-muted-foreground">
-            {notes.map((n, i) => <li key={i}>{n}</li>)}
-          </ul>
-        )}
-
-        {e && e.sections.length > 0 && <SectionRows sections={e.sections} provenance={provenance} />}
-        {warnings.length > 0 && <Warnings warnings={warnings} />}
-
-        {e && (e.kept.length > 0 || e.dropped.length > 0) && <KeptDropped kept={e.kept} dropped={e.dropped} />}
-        {e && e.flaggedClaims.length > 0 && <FlaggedClaims claims={e.flaggedClaims} />}
       </div>
     </li>
   )

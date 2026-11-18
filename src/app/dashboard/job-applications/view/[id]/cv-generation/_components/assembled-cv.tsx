@@ -6,6 +6,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { WritingDeskPreview } from "@/app/components/writing-desk-preview"
 import { assembledSummary } from "@/app/dashboard/job-applications/_components/cv-generation-view"
+import { LogSection } from "./log-sections"
 import type { CvAssembled } from "@/modules/cv-generation/schema"
 
 /**
@@ -30,17 +31,19 @@ export function AssembledCvPanel({ assembled }: { assembled: CvAssembled }) {
   }
 
   return (
-    <section aria-labelledby="assembled-heading">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <div>
-          <h2 id="assembled-heading" className="text-lg font-semibold tracking-[-0.01em]">Assembled CV</h2>
-          <p className="mt-1 text-sm text-muted-foreground">{assembledSummary(assembled)}. Contact details are added when a draft is accepted, so the header shows a placeholder.</p>
-        </div>
+    <LogSection
+      id="assembled"
+      level={2}
+      title="Assembled CV"
+      titleClassName="text-lg font-semibold tracking-[-0.01em]"
+      actions={
         <Button variant="outline" size="sm" className="gap-1.5" onClick={copy}>
           {copied ? <Check className="size-3.5" aria-hidden="true" /> : <Copy className="size-3.5" aria-hidden="true" />}
           {copied ? "Copied" : "Copy Markdown"}
         </Button>
-      </div>
+      }
+    >
+      <p className="mt-1 text-sm text-muted-foreground">{assembledSummary(assembled)}. Contact details are added when a draft is accepted, so the header shows a placeholder.</p>
       <div className="mt-4 rounded-lg border bg-card px-5 py-5">
         <WritingDeskPreview markdown={assembled.markdown} documentType="cv" blockRemoteContent />
       </div>
@@ -48,6 +51,6 @@ export function AssembledCvPanel({ assembled }: { assembled: CvAssembled }) {
         <summary className="cursor-pointer text-muted-foreground hover:text-foreground">Markdown</summary>
         <pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-md border bg-muted/40 p-3 font-mono text-xs leading-relaxed">{assembled.markdown}</pre>
       </details>
-    </section>
+    </LogSection>
   )
 }

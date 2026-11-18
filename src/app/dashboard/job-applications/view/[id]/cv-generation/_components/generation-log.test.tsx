@@ -4,6 +4,11 @@ import { buildStageRows } from "@/app/dashboard/job-applications/_components/cv-
 import { StageLogEntrySchema, parseAssembled } from "@/modules/cv-generation/schema"
 import { GenerationLog } from "./generation-log"
 import { ConcernsPanel } from "./concerns-panel"
+import { LogSectionsProvider } from "./log-sections"
+import type { ReactElement } from "react"
+
+const withSections = (node: ReactElement, status: "writing" | "complete" = "complete") =>
+  renderToStaticMarkup(<LogSectionsProvider status={status} ids={[]}>{node}</LogSectionsProvider>)
 import { concernRows } from "@/app/dashboard/job-applications/_components/cv-generation-view"
 
 const write = StageLogEntrySchema.parse({
@@ -26,7 +31,7 @@ const assembled = parseAssembled({
 })
 
 describe("GenerationLog: where each bullet came from", () => {
-  const html = renderToStaticMarkup(<GenerationLog rows={rows} assembled={assembled} />)
+  const html = withSections(<GenerationLog rows={rows} assembled={assembled} />)
 
   it("shows a collapsible 'Where each bullet came from' under the experience row, with each bullet and its source", () => {
     expect(html).toContain("<details")
@@ -43,15 +48,14 @@ describe("GenerationLog: where each bullet came from", () => {
   })
 
   it("renders a run stored before provenance with no disclosure", () => {
-    const old = renderToStaticMarkup(<GenerationLog rows={rows} assembled={parseAssembled({ markdown: "# x", sections: [{ id: "experience:unity", kind: "experience", markdown: "m" }] })} />)
+    const old = withSections(<GenerationLog rows={rows} assembled={parseAssembled({ markdown: "# x", sections: [{ id: "experience:unity", kind: "experience", markdown: "m" }] })} />)
     expect(old).not.toContain("Where each bullet came from")
-    expect(renderToStaticMarkup(<GenerationLog rows={rows} />)).not.toContain("Where each bullet came from")
+    expect(withSections(<GenerationLog rows={rows} />)).not.toContain("Where each bullet came from")
   })
 })
 
 describe("ConcernsPanel (phase 4a)", () => {
-  const html = renderToStaticMarkup(
-    <ConcernsPanel concerns={concernRows({ concerns: [
+  const html = withSections(<ConcernsPanel concerns={concernRows({ concerns: [
       { kind: "metric_conflict", title: "Two figures", why: "They differ.", question: "Which is right?", refs: [{ label: "S1", snippet: "Cut asset collection from 4 weeks to 1 week" }] },
       { kind: "claimed_in_bullet", title: "Tableau in a bullet", why: "Listed without evidence.", question: "Have you used it?", refs: [] },
     ] })} job={{ title: "Senior PMM", company: "Canonical" }} />,
@@ -72,7 +76,7 @@ describe("ConcernsPanel (phase 4a)", () => {
   })
 
   it("is singular for one concern", () => {
-    const one = renderToStaticMarkup(<ConcernsPanel concerns={concernRows({ concerns: [{ kind: "other", title: "T", why: "", question: "Q?", refs: [] }] })} job={{ title: "T" }} />)
+    const one = withSections(<ConcernsPanel concerns={concernRows({ concerns: [{ kind: "other", title: "T", why: "", question: "Q?", refs: [] }] })} job={{ title: "T" }} />)
     expect(one).toContain("1 concern to discuss")
   })
 })
@@ -82,25 +86,23 @@ describe("ConcernsPanel (phase 4b): a previewable panel with a coach handoff", (
     { kind: "metric_conflict", title: "Two figures", why: "They differ.", question: "Which is right?", refs: [{ label: "S1", snippet: "4 weeks to 1 week" }] },
     { kind: "weak_proof", title: "Thin proof for launch", why: "Title only.", question: "What was the result?", refs: [] },
   ] })
-  const html = renderToStaticMarkup(<ConcernsPanel concerns={concerns} job={{ title: "Senior PMM", company: "Canonical" }} />)
+  const html = withSections(<ConcernsPanel concerns={concerns} job={{ title: "Senior PMM", company: "Canonical" }} />)
 
-  it("is collapsed by default (a details element without open) and previews the count and every title", () => {
-    expect(html).toMatch(/<details(?![^>]*\sopen)/)
-    const preview = html.slice(0, html.indexOf("<details"))
+  it("is a collapsible section on a finished run (open by default), with the count, every title and 'Discuss all' always visible", () => {
+    expect(html).toMatch(/<h2[^>]*><button[^>]*aria-expanded="true"[^>]*aria-controls="log-section-concerns"/)
+    expect(html).not.toContain("<details")
+    const closed = withSections(<ConcernsPanel concerns={concerns} job={{ title: "T" }} />, "writing")
+    expect(closed).toMatch(/aria-expanded="false"/)
+    const preview = closed.slice(0, closed.indexOf('id="log-section-concerns"'))
     expect(preview).toContain("2 concerns to discuss with the coach")
     expect(preview).toContain("Two figures")
     expect(preview).toContain("Thin proof for launch")
+    expect(preview).toContain("Discuss all with coach")
     expect(preview).not.toContain("Which is right?")
-    // the summary is only the toggle, so the disclosure's accessible name is not the whole preview
-    const summary = html.slice(html.indexOf("<summary"), html.indexOf("</summary>"))
-    expect(summary).toContain("Show the questions (2)")
-    expect(summary).toContain("Hide the questions")
-    expect(summary).not.toContain("Two figures")
-    expect(summary).toContain("-webkit-details-marker")
   })
 
   it("expands to kind, why, the question and evidence snippets", () => {
-    const body = html.slice(html.indexOf("</summary>"))
+    const body = html.slice(html.indexOf('id="log-section-concerns"'))
     for (const t of ["Conflicting figures", "They differ.", "Which is right?", "4 weeks to 1 week", "What was the result?"]) expect(body).toContain(t)
   })
 

@@ -659,3 +659,65 @@ export function concernCoachMessage(concern: ConcernRow, job: CoachJob): string 
 export function allConcernsCoachMessage(concerns: ConcernRow[], job: CoachJob): string {
   return [`The review of the CV drafted for ${jobPhrase(job)} raised ${concerns.length === 1 ? "a question" : `${concerns.length} questions`} I'd like to talk through.`, "", ...concerns.map(concernBlock), "", COACH_TAIL].join("\n")
 }
+
+// ── Collapsible sections on the log page ────────────────────────────────────
+
+/** Sections the user acts on: open by default once a run has finished. */
+const OPEN_WHEN_FINISHED: readonly string[] = ["concerns", "assembled"]
+
+/** Whether a section starts open. While a run is active every section starts collapsed. */
+export function defaultSectionOpen(status: CvGenerationStatus | null | undefined, id: string): boolean {
+  return !isCvGenerationActive(status) && OPEN_WHEN_FINISHED.includes(id)
+}
+
+/** A section's open state: the user's own choice wins, else the status default. */
+export function resolveSectionOpen(
+  overrides: Readonly<Record<string, boolean>>,
+  status: CvGenerationStatus | null | undefined,
+  id: string,
+): boolean {
+  return id in overrides ? overrides[id] : defaultSectionOpen(status, id)
+}
+
+/** "Expand all" / "Collapse all": an explicit choice for every section. */
+export function setAllSections(ids: readonly string[], open: boolean): Record<string, boolean> {
+  return Object.fromEntries(ids.map((id) => [id, open]))
+}
+
+/** The control offers "Collapse all" only when every section is open. */
+export function allSectionsOpen(
+  overrides: Readonly<Record<string, boolean>>,
+  status: CvGenerationStatus | null | undefined,
+  ids: readonly string[],
+): boolean {
+  return ids.length > 0 && ids.every((id) => resolveSectionOpen(overrides, status, id))
+}
+
+/** Whether a stage row has anything beyond its one-line purpose to show. */
+export function stageRowHasDetail(row: StageRow, warnings: readonly string[] = []): boolean {
+  const e = row.entry
+  if (warnings.length > 0) return true
+  if (!e) return stageMeta(row).length > 0
+  return (
+    stageMeta(row).length > 0 || retryReasonLine(e) !== null || stageNotes(e).length > 0 || e.sections.length > 0 ||
+    e.kept.length > 0 || e.dropped.length > 0 || e.flaggedClaims.length > 0
+  )
+}
+
+/** Every collapsible section on the page, in order (the ids "Expand all" acts on). */
+export function logSectionIds(p: {
+  rows: StageRow[]
+  hasConcerns: boolean
+  hasAssembled: boolean
+  hasBrief: boolean
+  hasSelection: boolean
+  assembleWarnings?: readonly string[]
+}): string[] {
+  const ids: string[] = []
+  if (p.hasConcerns) ids.push("concerns")
+  if (p.hasAssembled) ids.push("assembled")
+  if (p.hasBrief) ids.push("brief")
+  if (p.hasSelection) ids.push("selection")
+  for (const r of p.rows) if (stageRowHasDetail(r, r.stage === "assemble" ? p.assembleWarnings : [])) ids.push(`stage:${r.stage}`)
+  return ids
+}

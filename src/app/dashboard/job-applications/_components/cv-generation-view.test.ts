@@ -750,3 +750,40 @@ describe("coach messages for concerns (prefilled, never sent)", () => {
     expect(m).toContain("What was the result?")
   })
 })
+
+describe("collapsible log sections", () => {
+  it("collapses every section while a run is active", async () => {
+    const v = await import("./cv-generation-view")
+    for (const s of ["queued", "briefing", "selecting", "writing", "reviewing"] as const) {
+      for (const id of ["concerns", "assembled", "brief", "stage:write"]) expect(v.defaultSectionOpen(s, id), `${s}/${id}`).toBe(false)
+    }
+  })
+
+  it("opens Concerns and Assembled CV on a finished run, and nothing else", async () => {
+    const v = await import("./cv-generation-view")
+    for (const s of ["complete", "failed"] as const) {
+      expect(v.defaultSectionOpen(s, "concerns")).toBe(true)
+      expect(v.defaultSectionOpen(s, "assembled")).toBe(true)
+      expect(v.defaultSectionOpen(s, "brief")).toBe(false)
+      expect(v.defaultSectionOpen(s, "stage:select")).toBe(false)
+    }
+  })
+
+  it("keeps a manual choice over the status default, including when the run finishes", async () => {
+    const v = await import("./cv-generation-view")
+    expect(v.resolveSectionOpen({ brief: true }, "writing", "brief")).toBe(true)
+    expect(v.resolveSectionOpen({ brief: true }, "complete", "brief")).toBe(true)
+    expect(v.resolveSectionOpen({ concerns: false }, "complete", "concerns")).toBe(false)
+    expect(v.resolveSectionOpen({}, "complete", "concerns")).toBe(true)
+  })
+
+  it("expand all / collapse all set every id, and the toggle label follows", async () => {
+    const v = await import("./cv-generation-view")
+    const ids = ["concerns", "brief"]
+    expect(v.setAllSections(ids, true)).toEqual({ concerns: true, brief: true })
+    expect(v.setAllSections(ids, false)).toEqual({ concerns: false, brief: false })
+    expect(v.allSectionsOpen({}, "complete", ids)).toBe(false)
+    expect(v.allSectionsOpen(v.setAllSections(ids, true), "writing", ids)).toBe(true)
+    expect(v.allSectionsOpen({}, "complete", [])).toBe(false)
+  })
+})
