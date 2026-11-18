@@ -22,7 +22,7 @@
 
 import * as z from 'zod'
 import { composeSystem } from '@/modules/llm/prompt-context'
-import { completeChecked, softIssueNotes, type CheckResult } from '../call'
+import { attributionOf, completeChecked, softIssueNotes, type CheckResult } from '../call'
 import { CV_GENERATION_FEATURES, TEMPERATURE, TIME_BUDGET_MS, type BulletProvenance } from '../schema'
 import { bulletAllowance, leadWithProjects, leadWithStanding, playDownBullets, shortened, trimBullets, wrongTenseLines } from './bullets'
 import { BULLET_MAX_WORDS, SUMMARY_MAX_WORDS, capProjectText, experienceTokenCaps } from './limits'
@@ -223,7 +223,7 @@ export async function writeExperience(ctx: WriteContext, emp: EmployerEvidence, 
     timeoutMs: TIME_BUDGET_MS.write,
     deadline: ctx.deadline,
     feature: CV_GENERATION_FEATURES.writeExperience,
-    attribution: { jobApplicationId: ctx.jobApplicationId, runId: ctx.runId },
+    attribution: attributionOf(ctx),
     label: 'experience section',
     check: (v) => analyseExperience(v, ctx, emp),
   })

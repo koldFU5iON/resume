@@ -73,6 +73,24 @@ export async function createCvGenerationRun(
   })
 }
 
+/** The id of the job's live (active and not stale) run, or null. A plain read: admission (createCvGenerationRun) re-checks under its lock. */
+export async function findActiveCvGeneration(profileId: string, jobId: string): Promise<string | null> {
+  const row = await prisma.cvGeneration.findFirst({
+    where: { profileId, jobApplicationId: jobId, status: { in: [...ACTIVE_STATUSES] }, createdAt: { gte: new Date(Date.now() - CV_GENERATION_STALE_MS) } },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true },
+  })
+  return row?.id ?? null
+}
+
+/** Whether the run can still be written: active and not stale. False for a finished, killed or stale run. */
+export async function isRunActive(profileId: string, id: string): Promise<boolean> {
+  const n = await prisma.cvGeneration.count({
+    where: { id, profileId, status: { in: [...ACTIVE_STATUSES] }, createdAt: { gte: new Date(Date.now() - CV_GENERATION_STALE_MS) } },
+  })
+  return n > 0
+}
+
 /**
  * The statuses a run may move to `target` from: active statuses strictly
  * earlier in the pipeline. `complete` and `failed` are reachable from any

@@ -37,7 +37,7 @@ import type { CallUsage } from './call'
 import { gatherCvInputs } from './gather'
 import { checkLandingTarget, landCv } from './land'
 import { getRunUsage } from './queries'
-import { createCvGenerationRun, failRun, setStatus, updateActive, FAILURE_MESSAGES } from './run'
+import { createCvGenerationRun, failRun, findActiveCvGeneration, isRunActive, setStatus, updateActive, FAILURE_MESSAGES } from './run'
 import { computeReuseKey, findReusableSelection, reuseNote } from './reuse'
 import {
   CHECK_NOTE_PREFIX,
@@ -88,6 +88,9 @@ export async function startCvGeneration(
   jobId: string,
   opts: RunOptions = {},
 ): Promise<StartCvGenerationResult> {
+  // An already running run of this job is answered first (a second click is not a conflict); no run is created and nothing is spent here.
+  const active = await findActiveCvGeneration(profileId, jobId)
+  if (active) return { kind: 'existing', runId: active }
   const landing = await checkLandingTarget(profileId, jobId)
   if (landing.kind === 'draft_exists') return landing
   const result = await createCvGenerationRun(profileId, jobId)
@@ -184,6 +187,8 @@ export async function runCvGenerationStages(runId: string, profileId: string, op
     // Before any spend: a job already at its document limit with no CV document to reuse cannot land.
     const landing = await checkLandingTarget(profileId, jobId)
     if (landing.kind === 'limit') return await fail('document_limit')
+    // The desk document the draft will go to, when it already exists: the calls below carry it in their usage attribution.
+    const writingDeskDocumentId = landing.kind === 'ok' ? landing.documentId : null
     const g = await gatherCvInputs(profileId, jobId, { runId })
     if (!g.ok) return await fail(g.kind === 'no_description' ? 'no_description' : 'error', g.kind === 'not_found' ? [g.message] : [])
     const c = g.candidates
@@ -216,7 +221,7 @@ export async function runCvGenerationStages(runId: string, profileId: string, op
       briefValue = reuse.brief
       end({ status: 'skipped', model: null, ...noUsage, notes: [reuseNote(reuse.at)], kept: [], dropped: [], retries: 0, retryReasons: [], flaggedClaims: [], sections: [] })
     } else {
-      const brief = await runBrief(g, { profileId, jobApplicationId: jobId, runId, deadline })
+      const brief = await runBrief(g, { profileId, jobApplicationId: jobId, runId, deadline, writingDeskDocumentId })
       briefValue = brief.value
       end({
         status: 'ok', model: brief.model, ...(await stageUsage(profileId, runId, CV_GENERATION_FEATURES.brief, brief.usage)),
@@ -234,7 +239,7 @@ export async function runCvGenerationStages(runId: string, profileId: string, op
       selection = reuse.selection
       end({ status: 'skipped', model: null, ...noUsage, notes: [reuseNote(reuse.at)], kept: [], dropped: [], retries: 0, retryReasons: [], flaggedClaims: [], sections: [] })
     } else {
-      const picked = await runSelect(g, briefValue, { profileId, jobApplicationId: jobId, runId, deadline })
+      const picked = await runSelect(g, briefValue, { profileId, jobApplicationId: jobId, runId, deadline, writingDeskDocumentId })
       selection = picked.selection
       const lines = selectionLogLines(picked.selection)
       end({
@@ -254,7 +259,7 @@ export async function runCvGenerationStages(runId: string, profileId: string, op
     }))) return
     begin('write')
     const vault = await loadVault(profileId)
-    const written = await runWrite(vault, briefValue, selection, g.strategy, { profileId, jobApplicationId: jobId, runId, deadline })
+    const written = await runWrite(vault, briefValue, selection, g.strategy, { profileId, jobApplicationId: jobId, runId, deadline, writingDeskDocumentId })
     const writeMs = Date.now() - stageStart
     end({
       status: 'ok',
@@ -315,7 +320,7 @@ export async function runCvGenerationStages(runId: string, profileId: string, op
           assembled: cv, selection, brief: briefValue, strategy: g.strategy, evidence: evidenceFromVault(vault, selection),
           validate: (markdown) => recheckMarkdown(markdown, snapshot).errors,
         },
-        { profileId, jobApplicationId: jobId, runId, writingDeskDocumentId: landing.kind === 'ok' ? landing.documentId : null, deadline: deadline - LAND_RESERVE_MS },
+        { profileId, jobApplicationId: jobId, runId, writingDeskDocumentId, deadline: deadline - LAND_RESERVE_MS },
       )
       review = outcome.review
       if (outcome.assembled !== cv) {
@@ -343,8 +348,19 @@ export async function runCvGenerationStages(runId: string, profileId: string, op
     if (!(await setStatus(profileId, runId, 'landing', { assembled: json(finalCv), review: json(review), stageTimings: json(timings), log: json(log()) }))) return
     begin('land')
     const landed = await landCv(profileId, { id: jobId, company: g.job.company, title: g.job.title }, finalCv.markdown, {
-      onTarget: async (documentId) => { await updateActive(profileId, runId, { writingDeskDocumentId: documentId }); keep = { ...keep, writingDeskDocumentId: documentId } },
+      isActive: () => isRunActive(profileId, runId),
+      // false = the row can no longer be written (the run is stale or was killed): Land stops before it writes a draft.
+      onTarget: async (documentId) => {
+        const wrote = await updateActive(profileId, runId, { writingDeskDocumentId: documentId })
+        if (wrote) keep = { ...keep, writingDeskDocumentId: documentId }
+        return wrote
+      },
     })
+    if (landed.kind === 'aborted') {
+      // Nothing can be written to a dead run's row, so there is nothing to fail: say so in the server log and stop.
+      console.warn('[cv-generation] the run is no longer active; the draft was not written', { runId, documentId: landed.documentId })
+      return
+    }
     if (landed.kind !== 'landed') {
       if (landed.kind === 'draft_exists') return await fail('draft_exists', ['A draft appeared in the document while the CV was being generated. The generated CV is kept on this run (see below); nothing was written to the document.'])
       if (landed.kind === 'limit') return await fail('document_limit')

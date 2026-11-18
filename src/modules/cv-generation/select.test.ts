@@ -567,6 +567,14 @@ describe('runSelect', () => {
     expect(r.selection.skills.map((s) => s.id)).toEqual(['s0'])
   })
 
+  it('adds the desk document to the select call’s attribution when it is known', async () => {
+    call.mockResolvedValue({ value: { ...empty, employers: epick(['co-0', 4]), skills: pick('s0') }, model: 'm-fast', retries: 0, usage: NO_USAGE })
+    await runSelect(g, buildBriefFor(), { ...ctx, writingDeskDocumentId: 'doc-1' })
+    expect(call).toHaveBeenCalledWith('p1', expect.anything(), SelectOutputSchema, expect.objectContaining({
+      attribution: { jobApplicationId: 'job-1', runId: 'run-1', writingDeskDocumentId: 'doc-1' },
+    }))
+  })
+
   it('falls back, and records it, when the call throws', async () => {
     call.mockRejectedValue(new LLMError('slow', 'timeout'))
     const r = await runSelect(g, buildBriefFor(), ctx)

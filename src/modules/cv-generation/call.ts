@@ -33,6 +33,16 @@ export class CutOffError extends LLMError {
   }
 }
 
+/**
+ * The usage attribution of a CV generation call: the job and the run, plus the
+ * writing desk document the draft will land in when it is already known (the
+ * job's earlier generated CV document), so the usage page can tie the call to
+ * it. A document created in Land does not exist yet when the earlier calls run.
+ */
+export function attributionOf(ctx: { jobApplicationId: string; runId: string; writingDeskDocumentId?: string | null }): LlmAttribution {
+  return { jobApplicationId: ctx.jobApplicationId, runId: ctx.runId, ...(ctx.writingDeskDocumentId ? { writingDeskDocumentId: ctx.writingDeskDocumentId } : {}) }
+}
+
 /** Not enough time left for a second attempt (ms). */
 const MIN_RETRY_MS = 15_000
 /**

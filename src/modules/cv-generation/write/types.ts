@@ -8,6 +8,8 @@ export type WriteContext = {
   profileId: string
   jobApplicationId: string
   runId: string
+  /** The desk document the draft will land in, when it already exists (usage attribution). */
+  writingDeskDocumentId?: string | null
   /** Epoch ms every call must finish by (the run's deadline less the Assemble reserve). */
   deadline: number
   brief: CvBrief

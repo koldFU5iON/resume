@@ -97,7 +97,7 @@ export async function runWrite(
   brief: CvBrief,
   selection: CvSelection,
   strategy: Pick<Strategy, 'mustHave' | 'niceToHave'>,
-  ctx: { profileId: string; jobApplicationId: string; runId: string; deadline: number },
+  ctx: { profileId: string; jobApplicationId: string; runId: string; deadline: number; writingDeskDocumentId?: string | null },
 ): Promise<WriteResult> {
   const evidence = evidenceFromVault(vault, selection)
   const writeDeadline = ctx.deadline - ASSEMBLE_RESERVE_MS

@@ -14,7 +14,7 @@ vi.mock('./land', () => ({ checkLandingTarget: vi.fn(), landCv: vi.fn() }))
 vi.mock('./write/review', async (orig) => ({ ...(await orig<typeof import('./write/review')>()), runReview: vi.fn() }))
 vi.mock('./run', async (orig) => ({
   ...(await orig<typeof import('./run')>()),
-  createCvGenerationRun: vi.fn(), setStatus: vi.fn(), updateActive: vi.fn(), failRun: vi.fn(),
+  createCvGenerationRun: vi.fn(), setStatus: vi.fn(), updateActive: vi.fn(), failRun: vi.fn(), findActiveCvGeneration: vi.fn(), isRunActive: vi.fn(),
 }))
 
 import { after } from 'next/server'
@@ -25,7 +25,7 @@ import { runBrief } from './brief'
 import { NO_USAGE } from './call'
 import { gatherCvInputs } from './gather'
 import { getRunUsage } from './queries'
-import { createCvGenerationRun, failRun, setStatus, updateActive } from './run'
+import { createCvGenerationRun, failRun, findActiveCvGeneration, isRunActive, setStatus, updateActive } from './run'
 import { failureKindFor, runCvGenerationStages, startCvGeneration } from './run-pipeline'
 import { loadVault } from '@/modules/profile-map/load'
 import { checkLandingTarget, landCv } from './land'
@@ -54,6 +54,8 @@ const mockWrite = vi.mocked(runWrite)
 const mockVault = vi.mocked(loadVault)
 const mockCheckLanding = vi.mocked(checkLandingTarget)
 const mockLand = vi.mocked(landCv)
+const mockFindActive = vi.mocked(findActiveCvGeneration)
+const mockIsActive = vi.mocked(isRunActive)
 const mockReuse = vi.mocked(findReusableSelection)
 const mockReuseKey = vi.mocked(computeReuseKey)
 const mockReview = vi.mocked(runReview)
@@ -83,6 +85,8 @@ beforeEach(() => {
   mockCheckLanding.mockResolvedValue({ kind: 'ok', documentId: null })
   mockLand.mockResolvedValue({ kind: 'landed', documentId: 'doc-1', created: true })
   mockReuse.mockResolvedValue(null)
+  mockFindActive.mockResolvedValue(null)
+  mockIsActive.mockResolvedValue(true)
   mockReuseKey.mockResolvedValue('key-1')
   mockReview.mockImplementation(async (input) => ({
     review: { skipped: false, skipReason: null, model: 'm-review', tokens: { input: 900, output: 100 }, costUsd: 0.04, applied: [], discarded: [], concerns: [] },
@@ -522,5 +526,59 @@ describe('runCvGenerationStages: reuse, review and land (phase 4a)', () => {
     mockLand.mockResolvedValue({ kind: 'draft_exists', documentId: 'doc-9' })
     await runCvGenerationStages('run-1', 'p1')
     expect(mockFail.mock.calls[0][4]!.log).toMatchObject({ reuseKey: 'key-1', reuseOrigin: { runId: 'run-1' } })
+  })
+
+  it('startCvGeneration answers an already running run FIRST: a second click gets 200 existing, not a 409, and no new run', async () => {
+    mockFindActive.mockResolvedValue('run-live')
+    mockCheckLanding.mockResolvedValue({ kind: 'draft_exists', documentId: 'doc-3' })
+    expect(await startCvGeneration('p1', 'job-1', {})).toEqual({ kind: 'existing', runId: 'run-live' })
+    expect(mockFindActive).toHaveBeenCalledWith('p1', 'job-1')
+    expect(mockCheckLanding).not.toHaveBeenCalled()
+    expect(mockCreate).not.toHaveBeenCalled()
+    expect(mockAfter).not.toHaveBeenCalled()
+  })
+
+  it('with nothing running, a pending draft is still a 409 before any run (unchanged)', async () => {
+    mockCheckLanding.mockResolvedValue({ kind: 'draft_exists', documentId: 'doc-3' })
+    expect(await startCvGeneration('p1', 'job-1', {})).toEqual({ kind: 'draft_exists', documentId: 'doc-3' })
+    expect(mockCreate).not.toHaveBeenCalled()
+  })
+
+  it('passes the known target document to Brief, Select, Write and Review (usage attribution)', async () => {
+    mockCheckLanding.mockResolvedValue({ kind: 'ok', documentId: 'doc-known' })
+    await runCvGenerationStages('run-1', 'p1')
+    expect(mockBrief).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ writingDeskDocumentId: 'doc-known' }))
+    expect(mockSelect).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.objectContaining({ writingDeskDocumentId: 'doc-known' }))
+    expect(mockWrite).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.anything(), expect.anything(), expect.objectContaining({ writingDeskDocumentId: 'doc-known' }))
+    expect(mockReview.mock.calls[0][1]).toMatchObject({ writingDeskDocumentId: 'doc-known' })
+  })
+
+  it('passes none when the document does not exist yet (a new one is made in Land)', async () => {
+    await runCvGenerationStages('run-1', 'p1')
+    expect(mockBrief).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ writingDeskDocumentId: null }))
+    expect(mockWrite.mock.calls[0][4]).toMatchObject({ writingDeskDocumentId: null })
+  })
+
+  it('Land is told how to check the run is alive, and onTarget reports whether the row could be written', async () => {
+    mockLand.mockImplementation(async (_p, _j, _m, opts) => {
+      expect(await opts!.isActive!()).toBe(true)
+      expect(mockIsActive).toHaveBeenCalledWith('p1', 'run-1')
+      mockUpdate.mockResolvedValueOnce(false)
+      expect(await opts!.onTarget!('doc-7')).toBe(false)
+      mockUpdate.mockResolvedValueOnce(true)
+      expect(await opts!.onTarget!('doc-7')).toBe(true)
+      return { kind: 'landed', documentId: 'doc-7', created: false }
+    })
+    await runCvGenerationStages('run-1', 'p1')
+    expect(mockUpdate.mock.calls.at(-1)![2]).toMatchObject({ status: 'complete' })
+  })
+
+  it('a run that is no longer active at Land ends quietly: no failure write, no completion, a server-log line, no draft', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    mockLand.mockResolvedValue({ kind: 'aborted', documentId: null })
+    await runCvGenerationStages('run-1', 'p1')
+    expect(mockFail).not.toHaveBeenCalled()
+    expect(mockUpdate).not.toHaveBeenCalledWith('p1', 'run-1', expect.objectContaining({ status: 'complete' }))
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('no longer active'), expect.objectContaining({ runId: 'run-1' }))
   })
 })

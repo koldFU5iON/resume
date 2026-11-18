@@ -141,3 +141,33 @@ describe('landCv', () => {
     expect(db.cvGeneration.findFirst.mock.calls[0][0]!.where).toMatchObject({ profileId: 'p-other' })
   })
 })
+
+describe('landCv: a run that is no longer active writes nothing (phase 4a review fix)', () => {
+  it('stops before creating a new document when the run is dead', async () => {
+    const r = await landCv('p1', job, MD, { isActive: async () => false })
+    expect(r).toEqual({ kind: 'aborted', documentId: null })
+    expect(mockCreateDoc).not.toHaveBeenCalled()
+    expect(mockDraft).not.toHaveBeenCalled()
+  })
+
+  it('stops BEFORE createDraft when the run row can no longer be written (onTarget says false), for a new and for a reused document', async () => {
+    const created = await landCv('p1', job, MD, { isActive: async () => true, onTarget: async () => false })
+    expect(created).toEqual({ kind: 'aborted', documentId: 'doc-new' })
+    db.cvGeneration.findFirst.mockResolvedValue({ writingDeskDocumentId: 'doc-old' } as never)
+    const reused = await landCv('p1', job, MD, { onTarget: async () => false })
+    expect(reused).toEqual({ kind: 'aborted', documentId: 'doc-old' })
+    expect(mockDraft).not.toHaveBeenCalled()
+  })
+
+  it('goes on when the run is active (true, or no return value, from onTarget)', async () => {
+    expect(await landCv('p1', job, MD, { isActive: async () => true, onTarget: async () => true })).toMatchObject({ kind: 'landed' })
+    expect(await landCv('p1', job, MD, { onTarget: async () => undefined })).toMatchObject({ kind: 'landed' })
+  })
+
+  it('does not ask isActive for a reused document (nothing is created)', async () => {
+    db.cvGeneration.findFirst.mockResolvedValue({ writingDeskDocumentId: 'doc-old' } as never)
+    const isActive = vi.fn(async () => false)
+    expect(await landCv('p1', job, MD, { isActive })).toMatchObject({ kind: 'landed' })
+    expect(isActive).not.toHaveBeenCalled()
+  })
+})

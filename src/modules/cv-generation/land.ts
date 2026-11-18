@@ -68,17 +68,23 @@ export type LandResult =
   | { kind: 'draft_exists'; documentId: string }
   | { kind: 'limit' }
   | { kind: 'error'; message: string; documentId: string | null }
+  /** The run is no longer active (stale or killed): no draft was written, and no document was created when this was known in time. */
+  | { kind: 'aborted'; documentId: string | null }
 
 /**
- * Creates the draft. `onTarget` is called as soon as the document is known
- * (before the draft is written), so the run row records it even if the draft
- * then fails and a later run reuses the same document.
+ * Creates the draft. `isActive` is asked before a NEW document is created, and
+ * `onTarget` (which returns false when the run row could not be written, i.e.
+ * the run is dead) as soon as the document is known and BEFORE the draft is
+ * written: a run that is no longer active leaves no orphan draft behind (and,
+ * when the check comes in time, no orphan document). `onTarget` also lets the
+ * run row record the document even if the draft then fails, so a later run
+ * reuses the same one.
  */
 export async function landCv(
   profileId: string,
   job: { id: string; company: string | null; title: string },
   markdown: string,
-  opts: { onTarget?: (documentId: string) => Promise<void> } = {},
+  opts: { isActive?: () => Promise<boolean>; onTarget?: (documentId: string) => Promise<boolean | void> } = {},
 ): Promise<LandResult> {
   let documentId: string
   let created = false
@@ -86,12 +92,13 @@ export async function landCv(
   if (target) {
     documentId = target.documentId
   } else {
+    if (opts.isActive && !(await opts.isActive())) return { kind: 'aborted', documentId: null }
     const made = await createWritingDeskDocument(profileId, { jobId: job.id, name: landingDocumentName(job), documentType: 'cv' })
     if (!made.ok) return made.reason === 'limit' ? { kind: 'limit' } : { kind: 'error', message: made.message, documentId: null }
     documentId = made.id
     created = true
   }
-  await opts.onTarget?.(documentId)
+  if ((await opts.onTarget?.(documentId)) === false) return { kind: 'aborted', documentId }
 
   const draft = await createDraft(profileId, { jobId: job.id, documentId }, markdown)
   if (draft.ok) return { kind: 'landed', documentId, created }

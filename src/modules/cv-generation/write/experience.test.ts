@@ -67,6 +67,12 @@ describe('writeExperience', () => {
     expect(r.usage.costUsd).toBeGreaterThan(0)
   })
 
+  it('adds the desk document to the writer’s attribution when it is known', async () => {
+    const { s, result } = run([good], unity, ctx({ writingDeskDocumentId: 'doc-1' }))
+    await result
+    expect(s.calls[0].opts.attribution).toEqual({ jobApplicationId: 'job-1', runId: 'run-1', writingDeskDocumentId: 'doc-1' })
+  })
+
   it('calls the default role with the experience tag, the run attribution and the user writing rules in the system prompt', async () => {
     const { s, result } = run([good])
     await result
