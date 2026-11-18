@@ -88,6 +88,13 @@ export const PROMPT_REGISTRY: PromptDef[] = [
     group: 'cv',
   },
   {
+    key: 'cv-gen-review',
+    label: 'CV generation (writing desk): review',
+    description: 'Checks the assembled CV against the evidence and the brief: removes or rewords unsupported claims, fixes repetition and voice, and lists concerns for the coach. Code re-checks every edit before applying it.',
+    filename: 'cv-gen-review.md',
+    group: 'cv',
+  },
+  {
     key: 'cv-recruiter-scan',
     label: 'CV recruiter scan',
     description: 'Simulates a 15-second recruiter skim to check whether the CV surfaces its strongest evidence.',

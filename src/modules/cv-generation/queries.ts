@@ -15,10 +15,12 @@ import {
   parseAssembled,
   parseBrief,
   parseCvGenerationLog,
+  parseReview,
   parseSelection,
   parseStageTimings,
   type CvAssembled,
   type CvBrief,
+  type CvReview,
   type CvGenerationFailureKind,
   type CvGenerationStage,
   type CvGenerationStatus,
@@ -45,7 +47,7 @@ export type CvGenerationView = {
   /** The stage log, in pipeline order; empty when none has been written yet. */
   log: StageLogEntry[]
   stageTimings: Partial<Record<CvGenerationStage, number>>
-  /** The run stopped after Select because the later stages are not built yet (a preview run). */
+  /** Runs stored before Phase 4a that stopped after Select or Assemble (a preview run: no review, no draft). New runs are never partial. */
   partial: boolean
   /** The Brief stage's output; null until that stage ends, or when the stored value is unreadable. */
   brief: CvBrief | null
@@ -53,6 +55,10 @@ export type CvGenerationView = {
   selection: CvSelection | null
   /** The assembled CV (markdown, sections, warnings, check notes); null before Assemble ends, on runs stored before Phase 3, or when unreadable. */
   assembled: CvAssembled | null
+  /** The Review stage's output (edits applied and discarded, concerns for the coach, skipped flag); null before Review ends, on runs stored before Phase 4a, or when unreadable. */
+  review: CvReview | null
+  /** The earlier run whose brief and selection this run reused; null for a fresh Brief and Select. */
+  selectionReusedFromRunId: string | null
   /** Usage of this run's LLM calls (rows with runId = id); an estimate, billed to the user's own key. */
   usage: CvGenerationUsage
   createdAt: Date
@@ -73,6 +79,8 @@ type Row = {
   brief: unknown
   selection: unknown
   assembled?: unknown
+  review?: unknown
+  selectionReusedFromRunId?: string | null
   createdAt: Date
   startedAt: Date | null
   completedAt: Date | null
@@ -120,6 +128,8 @@ export function toCvGenerationView(row: Row, usage: CvGenerationUsage, now: Date
     brief: parseBrief(row.brief),
     selection: parseSelection(row.selection),
     assembled: parseAssembled(row.assembled),
+    review: parseReview(row.review),
+    selectionReusedFromRunId: row.selectionReusedFromRunId ?? null,
     usage,
     createdAt: row.createdAt,
     startedAt: row.startedAt,
@@ -130,7 +140,7 @@ export function toCvGenerationView(row: Row, usage: CvGenerationUsage, now: Date
 const ROW_SELECT = {
   id: true, jobApplicationId: true, writingDeskDocumentId: true, deepDiveId: true,
   status: true, failureKind: true, failureMessage: true,
-  stageTimings: true, log: true, brief: true, selection: true, assembled: true, createdAt: true, startedAt: true, completedAt: true,
+  stageTimings: true, log: true, brief: true, selection: true, assembled: true, review: true, selectionReusedFromRunId: true, createdAt: true, startedAt: true, completedAt: true,
 } as const
 
 /** Usage of one run: its LLM rows, grouped by runId. */

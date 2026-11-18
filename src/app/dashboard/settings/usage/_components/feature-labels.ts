@@ -17,6 +17,7 @@ export const FEATURE_LABELS: Record<string, string> = {
   'cv-gen-write-experience': 'CV generation — write experience',
   'cv-gen-write-skills': 'CV generation — order skills and tools',
   'cv-gen-write-profile': 'CV generation — write profile and competencies',
+  'cv-gen-review': 'CV generation — review',
   'cover-letter-analyse':      'Cover letter — analyse role',
   'cover-letter-architect':    'Cover letter — build message',
   'cover-letter-draft':        'Cover letter — write draft',

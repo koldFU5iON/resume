@@ -146,7 +146,8 @@ export const FAILURE_MESSAGES: Record<CvGenerationFailureKind, string> = {
   overloaded: 'Your LLM provider is unavailable right now. Try again shortly.',
   refusal: 'The model declined to write the CV.',
   invalid_output: 'The model returned output that could not be used. Try again.',
-  draft_exists: 'This job’s document already has a draft waiting. Accept or discard it first.',
+  draft_exists: 'This job’s CV document already has a draft waiting. Accept or discard it first. The generated CV is kept in the log.',
+  document_limit: 'This job already holds the most writing desk documents. Delete one you no longer need, then generate again.',
   error: 'The CV generation failed. Try again.',
 }
 
@@ -156,10 +157,11 @@ export async function failRun(
   id: string,
   kind: CvGenerationFailureKind,
   message: string | null,
-  extra: { stageTimings?: object; log?: object } = {},
+  extra: { stageTimings?: object; log?: object; /** More columns to keep on the failed row, e.g. the generated CV when Land failed. */ data?: CvGenerationRunData } = {},
 ): Promise<boolean> {
   try {
     return await updateActive(profileId, id, {
+      ...(extra.data ?? {}),
       status: 'failed',
       failureKind: kind,
       failureMessage: message ?? FAILURE_MESSAGES[kind],
