@@ -10,6 +10,7 @@ import {
   asFailureKind,
   isPartialLog,
   parseReview,
+  parseAssembled,
   StartCvGenerationBodySchema,
   asStatus,
   isActiveStatus,
@@ -279,5 +280,16 @@ describe('failure kinds and the log (phase 4a)', () => {
     expect(isPartialLog({ entries: [], partial: true })).toBe(true)
     expect(isPartialLog({ entries: [], partial: false })).toBe(false)
     expect(isPartialLog({ entries: [] })).toBe(false)
+  })
+})
+
+describe('review fix 7: the edited-by-review mark and the edit note read tolerantly', () => {
+  it('a bullet without the mark (an older run) reads as not edited, and a bad mark reads as absent', () => {
+    const a = parseAssembled({ markdown: 'x', sections: [{ id: 'experience:u', kind: 'experience', markdown: 'm', bullets: [{ text: 'a', sources: [] }, { text: 'b', sources: [], editedByReview: true }, { text: 'c', sources: [], editedByReview: 'yes' }] }] })!
+    expect(a.sections[0].bullets!.map((b) => b.editedByReview)).toEqual([undefined, true, undefined])
+  })
+
+  it('an applied edit stored before the note existed reads with an empty note', () => {
+    expect(parseReview({ applied: [{ sectionId: 'profile', action: 'replace', before: 'a', after: 'b' }] })!.applied[0].note).toBe('')
   })
 })

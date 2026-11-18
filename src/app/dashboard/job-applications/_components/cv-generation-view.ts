@@ -380,10 +380,15 @@ export function sourceLine(s: Pick<BulletSource, "snippet" | "kind">): string {
   return `from: ${s.snippet.trim() || "(no text)"} (${s.kind})`
 }
 
-/** The lines under one bullet: its sources, or a plain statement that the writer cited none. */
-export function bulletSourceLines(b: Pick<BulletProvenance, "sources">): string[] {
-  return b.sources.length > 0 ? b.sources.map(sourceLine) : ["from: no source cited"]
+/** The lines under one bullet: its sources, or a plain statement that the writer cited none; a bullet the review reworded says so first. */
+export function bulletSourceLines(b: Pick<BulletProvenance, "sources" | "editedByReview">): string[] {
+  const lines = b.sources.map(sourceLine)
+  if (!b.editedByReview) return lines.length > 0 ? lines : ["from: no source cited"]
+  return [EDITED_BY_REVIEW, ...lines]
 }
+
+/** Shown under a bullet the Review stage reworded after it was written. */
+export const EDITED_BY_REVIEW = "edited by review (reworded after the CV was written)"
 
 /** The provenance of every employer section of an assembled CV, by section id. Sections without bullets (and runs stored before provenance) are left out. */
 export function provenanceBySection(assembled: { sections?: ReadonlyArray<{ id: string; bullets?: readonly BulletProvenance[] }> } | null | undefined): Map<string, readonly BulletProvenance[]> {

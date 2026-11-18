@@ -8,13 +8,14 @@ vi.mock('@/modules/llm/prompt-context', () => ({
 }))
 
 import { completeJSON } from '@/modules/llm/complete-json'
+import * as z from 'zod'
 import { extractJSON } from '@/modules/llm/extract-json'
 import { LLMError } from '@/modules/llm/errors'
 import { toProfileSnapshot } from '@/modules/profile/snapshot'
 import { assembleCv, recheckMarkdown } from '../assemble'
 import { buildBriefFor } from '../__fixtures__/gathered'
-import { BLIZZARD, UNITY, scripted, writeSelection, writeVault } from '../__fixtures__/write'
-import { REVIEW_LIMITS, ReviewOutputSchema, type CvAssembled } from '../schema'
+import { BLIZZARD, UNITY, projectRow, scripted, writeSelection, writeVault } from '../__fixtures__/write'
+import { REVIEW_LIMITS, ReviewOutputContract, ReviewOutputSchema, type CvAssembled, type ReviewOutput } from '../schema'
 import { evidenceFromVault } from './evidence'
 import { renderEmployerEntry } from './render'
 import {
@@ -33,7 +34,7 @@ const brief = buildBriefFor()
 const emp = (key: string) => evidence.employers.find((e) => e.employer.key === key)!
 
 const UNITY_SUMMARY = 'Ran release and planning for the platform org.'
-const UNITY_BULLETS = [
+const UNITY_BULLETS: Array<{ text: string; id: string; kind?: 'activity' | 'project' }> = [
   { text: 'Cut platform release time by 40% across 8 teams, saving 2 weeks per release.', id: 'ua1' },
   { text: 'Ran the quarterly planning cycle for the platform org.', id: 'ua2' },
   { text: 'Shipped 12 titles on schedule.', id: 'ua3' },
@@ -44,7 +45,8 @@ const wsec = (id: string, kind: string, markdown: string, over: Partial<WrittenS
   id, kind, markdown, log: { id, label: id, status: 'ok', model: null, durationMs: 0, tokens: { input: 0, output: 0 }, costUsd: null, retries: 0, retryReasons: [], notes: [] }, ...over,
 })
 
-function assembled(over: { profile?: string } = {}): CvAssembled {
+function assembled(over: { profile?: string; unity?: Array<{ text: string; id: string; kind?: 'activity' | 'project' }> } = {}): CvAssembled {
+  const ub = over.unity ?? UNITY_BULLETS
   const unity = emp(UNITY).employer
   const blizzard = emp(BLIZZARD).employer
   const res = assembleCv({
@@ -54,9 +56,9 @@ function assembled(over: { profile?: string } = {}): CvAssembled {
     checkNotes: [],
     snapshot,
     sections: [
-      wsec(`experience:${UNITY}`, 'experience', renderEmployerEntry(unity, UNITY_SUMMARY, UNITY_BULLETS.map((b) => b.text)), {
+      wsec(`experience:${UNITY}`, 'experience', renderEmployerEntry(unity, UNITY_SUMMARY, ub.map((b) => b.text)), {
         employerKey: UNITY,
-        bullets: UNITY_BULLETS.map((b) => ({ text: b.text, sources: [{ id: b.id, kind: 'activity' as const, snippet: 'short snippet' }] })),
+        bullets: ub.map((b) => ({ text: b.text, sources: [{ id: b.id, kind: b.kind ?? ('activity' as const), snippet: 'short snippet' }] })),
       }),
       wsec(`experience:${BLIZZARD}`, 'experience', renderEmployerEntry(blizzard, 'Launched a title.', ['Launched a live-service title for 2M players.']), {
         employerKey: BLIZZARD, bullets: [{ text: 'Launched a live-service title for 2M players.', sources: [{ id: 'ba1', kind: 'activity' as const, snippet: 'x' }] }],
@@ -80,8 +82,8 @@ const input = (over: Partial<ReviewPromptInput> = {}): ReviewPromptInput => ({
 const actx = (over: Partial<ApplyContext> = {}): ApplyContext => ({ brief, strategy, evidence, ...over })
 const freshDoc = () => reviewDoc(assembled(), selection, evidence)
 
-type Edit = { target: { sectionId: string; bulletId?: string }; action: 'replace' | 'remove'; newText: string | undefined; reason: string }
-const edit = (sectionId: string, bulletId: string | undefined, action: 'replace' | 'remove', newText?: string): Edit => ({ target: { sectionId, ...(bulletId ? { bulletId } : {}) }, action, newText, reason: 'because' })
+type Edit = ReviewOutput['edits'][number]
+const edit = (sectionId: string, bulletId: string | undefined, action: 'replace' | 'remove', newText?: string): Edit => ({ target: { sectionId, bulletId }, action, newText, reason: 'because' })
 const U = `experience:${UNITY}`
 
 beforeEach(() => {
@@ -161,8 +163,9 @@ describe('applyEdits: edits applied only after the checks', () => {
     const doc = freshDoc()
     const r = applyEdits(doc, [edit(U, 'b2', 'replace', 'Led quarterly planning for the platform org.')], actx())
     expect(r.discarded).toEqual([])
-    expect(r.applied).toEqual([{ sectionId: U, bulletId: 'b2', action: 'replace', before: UNITY_BULLETS[1].text, after: 'Led quarterly planning for the platform org.', reason: 'because' }])
+    expect(r.applied).toEqual([{ sectionId: U, bulletId: 'b2', action: 'replace', before: UNITY_BULLETS[1].text, after: 'Led quarterly planning for the platform org.', reason: 'because', note: '' }])
     expect(doc.experience.get(U)!.bullets[1].sources[0].id).toBe('ua2')
+    expect(doc.experience.get(U)!.bullets[1].edited).toBe(true)
   })
 
   it('applies a removal and a summary reword, and rewords the profile', () => {
@@ -189,7 +192,7 @@ describe('applyEdits: edits applied only after the checks', () => {
     ['an in-progress certification as held', 'Ran planning and earned SAFe Program Consultant certification.', /not finished yet/],
     ['the present tense on a measured result in the current role', 'Cuts platform release time by 40% across 8 teams.', /present tense/],
     ['more than the word limit', Array.from({ length: 30 }, (_, i) => `word${i}`).join(' '), /30 words; the limit is 25/],
-    ['a figure that the entry already states', 'Cut release time by 40%.', /repeats a figure already stated in this entry/],
+    ['a figure that the entry already states', 'Cut release time by 40%.', /repeats a figure already stated in this entry or the profile/],
   ])('discards a replace with %s, naming why', (_n, text, why) => {
     const doc = freshDoc()
     const r = applyEdits(doc, [edit(U, 'b3', 'replace', text)], actx())
@@ -287,6 +290,132 @@ describe('applyEdits: edits applied only after the checks', () => {
   })
 })
 
+describe('applyEdits: names, tools and claims the evidence does not make (review fix 3)', () => {
+  it.each([
+    ['a tool', 'Shipped 12 titles on Kubernetes.', /Kubernetes/],
+    ['an acronym', 'Shipped 12 titles at EA.', /\bEA\b/],
+    ['a dotted tool', 'Shipped 12 titles using Node.js.', /Node\.js/],
+    ['a digit-bearing name', 'Shipped 12 titles on GA4.', /GA4/],
+    ['a capitalised name', 'Shipped 12 titles across Europe.', /Europe/],
+  ])('discards a replace that introduces %s', (_n, text, mention) => {
+    const r = applyEdits(freshDoc(), [edit(U, 'b3', 'replace', text)], actx())
+    expect(r.applied).toEqual([])
+    expect(r.discarded[0].why).toMatch(/introduces a name, tool or acronym/)
+    expect(r.discarded[0].why).toMatch(mention)
+  })
+
+  it('does NOT let the job\'s requirement text allow a name: job keywords cannot be stuffed in', () => {
+    const r = applyEdits(freshDoc(), [edit(U, 'b3', 'replace', 'Shipped 12 titles on Kubernetes.')], actx({ strategy: { mustHave: ['Kubernetes orchestration', 'Delivery at scale'], niceToHave: ['EA'] } }))
+    expect(r.applied).toEqual([])
+    expect(r.discarded[0].why).toMatch(/Kubernetes/)
+  })
+
+  it('discards an unsupported qualitative claim', () => {
+    const r = applyEdits(freshDoc(), [edit(U, 'b3', 'replace', 'Shipped 12 award-winning titles on schedule.')], actx())
+    expect(r.discarded[0].why).toMatch(/adds a claim the evidence does not make: award-winning/)
+  })
+
+  it('allows a name the old text, the evidence or the profile already has (a tool the profile lists with evidence)', () => {
+    const r = applyEdits(freshDoc(), [edit(U, 'b2', 'replace', 'Ran quarterly planning in Jira.')], actx())
+    expect(r.discarded).toEqual([])
+    expect(r.applied).toHaveLength(1)
+  })
+
+  it('checks number words in a replace by value, like digits', () => {
+    const r = applyEdits(freshDoc(), [edit(U, 'b2', 'replace', 'Ran planning for forty teams.')], actx())
+    expect(r.discarded[0].why).toMatch(/figures not in the employer's evidence: forty/)
+  })
+})
+
+describe('applyEdits: the writers\' lead-with and project rules still hold after an edit (review fix 2)', () => {
+  const PROJ = 'Enemies Demo Campaign'
+  const pvault = writeVault([projectRow('pr1', PROJ, 'Ran the demo campaign for a new title and chose the launch timing.', { experienceId: 'e-u2' })])
+  const pselection = writeSelection(pvault, { projects: [{ id: 'pr1', reason: '' }] })
+  const pevidence = evidenceFromVault(pvault, pselection)
+  const lead = buildBriefFor({ leadWith: [`The ${PROJ}: a go-to-market launch-timing decision`] })
+  const noLead = buildBriefFor({ leadWith: [] })
+  const bullets = [
+    { text: `${PROJ}: led the launch timing decision for the new title.`, id: 'pr1', kind: 'project' as const },
+    { text: 'Ran the quarterly planning cycle for the platform org.', id: 'ua2' },
+    { text: 'Shipped 12 titles on schedule.', id: 'ua3' },
+  ]
+  const pdoc = () => reviewDoc(assembled({ unity: bullets }), pselection, pevidence)
+  const pctx = (brief: typeof lead) => ({ brief, strategy, evidence: pevidence })
+
+  it('discards removing the lead-with project\'s own bullet', () => {
+    const r = applyEdits(pdoc(), [edit(U, 'b1', 'remove')], pctx(lead))
+    expect(r.applied).toEqual([])
+    expect(r.discarded[0].why).toMatch(/own bullet of the lead-with project "Enemies Demo Campaign"/)
+  })
+
+  it('discards a replace that moves the lead-with project out of its own bullet (named only late, or not at all)', () => {
+    const gone = applyEdits(pdoc(), [edit(U, 'b1', 'replace', 'Led launch timing for the new title.')], pctx(lead))
+    expect(gone.discarded[0].why).toMatch(/own bullet of the lead-with project/)
+    const trailing = applyEdits(pdoc(), [edit(U, 'b1', 'replace', `Led the launch timing decision for the new title in the ${PROJ}.`)], pctx(lead))
+    expect(trailing.discarded[0].why).toMatch(/own bullet of the lead-with project/)
+  })
+
+  it('still allows rewording that keeps the project as the bullet\'s subject', () => {
+    const r = applyEdits(pdoc(), [edit(U, 'b1', 'replace', `${PROJ}: led the launch timing for the new title.`)], pctx(lead))
+    expect(r.discarded).toEqual([])
+    expect(r.applied).toHaveLength(1)
+  })
+
+  it('discards removing or rewording away the only bullet that reflects a selected (not lead-with) project', () => {
+    const removed = applyEdits(pdoc(), [edit(U, 'b1', 'remove')], pctx(noLead))
+    expect(removed.discarded[0].why).toMatch(/leaves the selected project "Enemies Demo Campaign" out of the entry/)
+    const reworded = applyEdits(pdoc(), [edit(U, 'b1', 'replace', 'Led launch timing for the new title.')], pctx(noLead))
+    expect(reworded.discarded[0].why).toMatch(/leaves the selected project/)
+  })
+
+  it('does not blame an edit for a rule the entry already broke', () => {
+    const broken = [{ ...bullets[0], text: 'Led launch timing for the new title.' }, bullets[1], bullets[2]]
+    const r = applyEdits(reviewDoc(assembled({ unity: broken }), pselection, pevidence), [edit(U, 'b2', 'remove')], pctx(noLead))
+    expect(r.applied).toHaveLength(1)
+  })
+})
+
+describe('applyEdits: summary removal, the profile paragraph and provenance (review fixes 7, 8, 9)', () => {
+  it('refuses to remove an entry\'s summary (every entry keeps one) and says so', () => {
+    const r = applyEdits(freshDoc(), [edit(U, 'summary', 'remove')], actx())
+    expect(r.applied).toEqual([])
+    expect(r.discarded[0].why).toMatch(/summary cannot be removed/)
+  })
+
+  it('counts the profile paragraph when checking a bullet edit for a repeated figure (the order of the edits does not matter)', () => {
+    const doc = reviewDoc(assembled({ profile: 'Delivery leader behind a title for 2M players.' }), selection, evidence)
+    const r = applyEdits(doc, [edit(`experience:${BLIZZARD}`, 'b1', 'replace', 'Launched a live-service title for 2M players worldwide.')], actx())
+    expect(r.applied).toEqual([])
+    expect(r.discarded[0].why).toMatch(/repeats a figure already stated in this entry or the profile: 2M/)
+  })
+
+  it('marks a replaced bullet as edited by review and keeps its sources while it still states the figures it took from them', () => {
+    const a = assembled()
+    const doc = reviewDoc(a, selection, evidence)
+    const r = applyEdits(doc, [edit(U, 'b1', 'replace', 'Cut platform release time by 40% across 8 teams.')], actx())
+    expect(r.applied[0].note).toBe('')
+    const out = writeBack(a, doc).sections.find((x) => x.id === U)!
+    expect(out.bullets![0]).toMatchObject({ text: 'Cut platform release time by 40% across 8 teams.', editedByReview: true })
+    expect(out.bullets![0].sources.map((x) => x.id)).toEqual(['ua1'])
+    expect(out.bullets![1].editedByReview).toBeUndefined()
+  })
+
+  it('clears the sources and says so when the new text no longer states the figures of the evidence it cited', () => {
+    const a = assembled()
+    const doc = reviewDoc(a, selection, evidence)
+    const r = applyEdits(doc, [edit(U, 'b1', 'replace', 'Cut platform release time across the teams.')], actx())
+    expect(r.applied[0].note).toMatch(/sources were cleared: edited by review/)
+    const b = writeBack(a, doc).sections.find((x) => x.id === U)!.bullets![0]
+    expect(b).toMatchObject({ editedByReview: true, sources: [] })
+  })
+
+  it('logs when a figure is in the employer\'s evidence but not in the evidence the bullet cited', () => {
+    const r = applyEdits(freshDoc(), [edit(U, 'b2', 'replace', 'Ran planning that shipped 12 titles.')], actx())
+    expect(r.discarded).toEqual([])
+    expect(r.applied[0].note).toMatch(/12 is not in the evidence this bullet cited/)
+  })
+})
+
 describe('writeBack', () => {
   it('is the identity when nothing changed', () => {
     const a = assembled()
@@ -327,9 +456,46 @@ describe('ReviewOutputSchema and toConcernRecords', () => {
     expect(out.concerns[0].question.length).toBeLessThanOrEqual(REVIEW_LIMITS.questionChars)
   })
 
-  it('refuses an unknown action or concern kind (the answer is retried)', () => {
-    expect(ReviewOutputSchema.safeParse({ edits: [{ target: { sectionId: 'x' }, action: 'rewrite', reason: 'r' }], concerns: [] }).success).toBe(false)
-    expect(ReviewOutputSchema.safeParse({ edits: [], concerns: [{ ...concern(1), kind: 'vibes' }] }).success).toBe(false)
+  it('reads a null or missing bulletId as none (the profile edit): the answer is not thrown away', () => {
+    const out = ReviewOutputSchema.parse({
+      edits: [
+        { target: { sectionId: 'profile', bulletId: null }, action: 'replace', newText: 'Delivery leader.', reason: 'r' },
+        { target: { sectionId: 'profile' }, action: 'replace', newText: null, reason: 'r' },
+      ],
+      concerns: [],
+    })
+    expect(out.edits).toHaveLength(2)
+    expect(out.edits[0].target.bulletId).toBeUndefined()
+    expect(out.edits[1].newText).toBeUndefined()
+    expect(out.unreadable).toEqual({ edits: 0, concerns: 0 })
+  })
+
+  it('drops ONE malformed edit or concern among valid ones, counting them, instead of failing the answer', () => {
+    const out = ReviewOutputSchema.parse({
+      edits: [
+        { target: { sectionId: U, bulletId: 'b1' }, action: 'remove', reason: 'r' },
+        { target: { sectionId: U, bulletId: 'b2' }, action: 'rewrite', reason: 'bad action' },
+        { target: 'nope', action: 'remove', reason: 'r' },
+        'junk',
+        { target: { sectionId: U, bulletId: 'b3' }, action: 'remove', reason: 'r' },
+      ],
+      concerns: [concern(1), { ...concern(2), kind: 'vibes' }, concern(3)],
+    })
+    expect(out.edits.map((e) => e.target.bulletId)).toEqual(['b1', 'b3'])
+    expect(out.concerns.map((c) => c.title)).toEqual(['Concern 1', 'Concern 3'])
+    expect(out.unreadable).toEqual({ edits: 3, concerns: 1 })
+  })
+
+  it('reads a missing or non-list edits/concerns as empty, and still refuses an answer that is not an object', () => {
+    expect(ReviewOutputSchema.parse({})).toMatchObject({ edits: [], concerns: [] })
+    expect(ReviewOutputSchema.parse({ edits: 'none', concerns: null })).toMatchObject({ edits: [], concerns: [] })
+    expect(ReviewOutputSchema.safeParse('text').success).toBe(false)
+  })
+
+  it('shows the model the strict contract (items are described, null bulletId allowed)', () => {
+    const json = JSON.stringify(z.toJSONSchema(ReviewOutputContract, { io: 'input' }))
+    expect(json).toContain('sectionId')
+    expect(json).toContain('evidence_gap')
   })
 
   it('resolves refs to evidence snippets, drops unknown labels and repeated or empty concerns, and never stores more than 5', () => {
@@ -382,6 +548,27 @@ describe('runReview', () => {
     expect(r.review.concerns).toMatchObject([{ kind: 'evidence_gap', title: 'No migration evidence' }])
     expect(r.assembled.markdown).toContain('- Led quarterly planning for the platform org.')
     expect(r.usage.calls).toBe(1)
+  })
+
+  it('one malformed edit among valid ones costs nothing: ONE call, the valid edit applied, a note says one was dropped', async () => {
+    const { s, result } = run([answer({
+      edits: [
+        { target: { sectionId: U, bulletId: 'b2' }, action: 'rewrite', reason: 'bad action' },
+        { target: { sectionId: U, bulletId: 'b2' }, action: 'replace', newText: 'Led quarterly planning for the platform org.', reason: 'tighter' },
+      ],
+    })])
+    const r = await result
+    expect(s.calls).toHaveLength(1)
+    expect(r.review.applied).toHaveLength(1)
+    expect(r.review.concerns).toHaveLength(1)
+    expect(r.notes).toContain('1 edit in the answer could not be read and was dropped.')
+  })
+
+  it('a null bulletId (the profile edit) is accepted in the same single call', async () => {
+    const { s, result } = run([answer({ edits: [{ target: { sectionId: 'profile', bulletId: null }, action: 'replace', newText: 'Delivery leader for platform organisations.', reason: 'voice' }] })])
+    const r = await result
+    expect(s.calls).toHaveLength(1)
+    expect(r.review.applied).toMatchObject([{ sectionId: 'profile', bulletId: null }])
   })
 
   it('puts the writing-desk document in the attribution when the target is already known', async () => {

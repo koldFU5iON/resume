@@ -28,6 +28,7 @@ import {
   stageMeta,
   runLogMarkdown,
   COMPLETE_HEADING,
+  EDITED_BY_REVIEW,
   concernRows,
   draftHref,
   reviewMarkdown,
@@ -633,7 +634,7 @@ describe("per-bullet provenance on the log (Phase 3d)", () => {
 describe("Review, Land and reuse on the log (phase 4a)", () => {
   const review = {
     skipped: false, skipReason: null, model: "claude-opus-5-5", tokens: { input: 4000, output: 600 }, costUsd: 0.21,
-    applied: [{ sectionId: "experience:unity", bulletId: "b2", action: "replace" as const, before: "Ran 14,000 voters", after: "Ran voter campaigns", reason: "figure not in the evidence" }],
+    applied: [{ sectionId: "experience:unity", bulletId: "b2", action: "replace" as const, before: "Ran 14,000 voters", after: "Ran voter campaigns", reason: "figure not in the evidence", note: "" }],
     discarded: [{ sectionId: "header", bulletId: null, action: "remove" as const, proposed: null, why: "that section is rendered by code from your profile and is read-only", reason: "x" }],
     concerns: [
       { kind: "metric_conflict" as const, title: "Two figures for asset collection", why: "4 weeks to 1 week vs 3 weeks to under an hour.", question: "Which figure describes the Unity Awards work?", refs: [{ label: "S1", snippet: "Cut asset collection from 4 weeks to 1 week" }] },
@@ -713,5 +714,15 @@ describe("Review, Land and reuse on the log (phase 4a)", () => {
     })
     expect(rows.at(-1)!.state).toBe("failed")
     expect(rows.slice(0, 6).every((r) => r.state === "done")).toBe(true)
+  })
+})
+
+describe("bullets the review reworded (review fix 7)", () => {
+  it("say so first, then list the sources that are still cited", () => {
+    const src = { id: "a1", kind: "activity" as const, snippet: "Cut asset collection from 4 weeks to 1 week" }
+    expect(bulletSourceLines({ sources: [src], editedByReview: true })).toEqual([EDITED_BY_REVIEW, "from: Cut asset collection from 4 weeks to 1 week (activity)"])
+    expect(bulletSourceLines({ sources: [], editedByReview: true })).toEqual([EDITED_BY_REVIEW])
+    expect(bulletSourceLines({ sources: [] })).toEqual(["from: no source cited"])
+    expect(bulletSourceLines({ sources: [src] })).toEqual(["from: Cut asset collection from 4 weeks to 1 week (activity)"])
   })
 })

@@ -430,7 +430,7 @@ describe('runCvGenerationStages: reuse, review and land (phase 4a)', () => {
     mockReview.mockImplementation(async (input) => ({
       review: {
         skipped: false, skipReason: null, model: 'm-review', tokens: { input: 900, output: 100 }, costUsd: 0.04,
-        applied: [{ sectionId: 'experience:unity', bulletId: 'b1', action: 'replace', before: 'old bullet', after: 'new bullet', reason: 'unsupported figure' }],
+        applied: [{ sectionId: 'experience:unity', bulletId: 'b1', action: 'replace', before: 'old bullet', after: 'new bullet', reason: 'unsupported figure', note: '' }],
         discarded: [{ sectionId: 'header', bulletId: null, action: 'remove', proposed: null, why: 'that section is rendered by code from your profile and is read-only', reason: 'x' }],
         concerns: [{ kind: 'evidence_gap', title: 'No evidence of X', why: 'w', question: 'q?', refs: [] }],
       },

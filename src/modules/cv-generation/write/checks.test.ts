@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   claimedHits, competencyLabelProblem, containsPhrase, credentialProblems, distinctNotableFigures, figuresIn, headlineTitleProblem, introducedNames,
   isNotableFigure, mentionsName, projectNameKey, projectReflected, repeatedFigures, sharedFigures, titleLikePhrases, unsupportedFigures, wordCount,
+  unsupportedProperNouns, unsupportedQualitative,
 } from './checks'
 
 const keys = (text: string, opts?: Parameters<typeof figuresIn>[1]) => figuresIn(text, opts).map((f) => f.key)
@@ -339,5 +340,40 @@ describe('projectReflected', () => {
   })
   it('a project with no text is reflected by its name only', () => {
     expect(projectReflected('Reached 9.4M.', { name: 'Enemies Demo Campaign' })).toBe(false)
+  })
+})
+
+describe('unsupportedProperNouns (review re-check)', () => {
+  const evidence = ['Cut platform release time by 40% across 8 teams', 'Launched Unity Awards for 2M players', 'Worked with Jira and the Node.js toolchain']
+  it('flags capitalised words inside a sentence, acronyms, CamelCase, dotted and digit-bearing names that nothing allows', () => {
+    expect(unsupportedProperNouns('Shipped titles on Kubernetes and TypeScript at EA using Web3.', evidence).sort()).toEqual(['EA', 'Kubernetes', 'TypeScript', 'Web3'])
+    expect(unsupportedProperNouns('Built a Rust.js bridge', evidence)).toEqual(['Rust.js'])
+    expect(unsupportedProperNouns('Grew reach across Europe', evidence)).toEqual(['Europe'])
+  })
+
+  it('does not flag ordinary words, a capitalised sentence start, numbers or figures', () => {
+    expect(unsupportedProperNouns('Led the quarterly planning cycle. Cut release time by 14k, 40% and 2M, in 3D.', evidence)).toEqual([])
+    expect(unsupportedProperNouns('Ran cross-functional planning for the platform org', evidence)).toEqual([])
+  })
+
+  it('allows a name the allowed text has, in any case, and a possessive of it', () => {
+    expect(unsupportedProperNouns('Ran the Unity Awards launch in JIRA, with Node.js', evidence)).toEqual([])
+    expect(unsupportedProperNouns("Owned Jira's rollout", evidence)).toEqual([])
+  })
+
+  it('needs every word of a multi-word token to be allowed', () => {
+    expect(unsupportedProperNouns('Used Node.js', ['Node only'])).toEqual(['Node.js'])
+  })
+})
+
+describe('unsupportedQualitative (review re-check)', () => {
+  it('flags superlatives the allowed text does not contain, with hyphen or space', () => {
+    expect(unsupportedQualitative('Shipped award-winning titles', ['Shipped titles'])).toEqual(['award-winning'])
+    expect(unsupportedQualitative('A world class team and a cutting edge pipeline', [''])).toEqual(['world-class', 'cutting-edge'])
+  })
+
+  it('lets one through when the evidence itself says it, and ignores ordinary words', () => {
+    expect(unsupportedQualitative('Shipped award winning titles', ['Won an award-winning prize'])).toEqual([])
+    expect(unsupportedQualitative('Led the leading edge of the planning cycle', [''])).toEqual([])
   })
 })

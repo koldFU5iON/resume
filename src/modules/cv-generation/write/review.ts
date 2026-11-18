@@ -31,14 +31,15 @@ import { composeSystem, loadCVReviewPrompt, loadWritingContext } from '@/modules
 import { LLMError } from '@/modules/llm/errors'
 import { completeValidated, shortReason, usageOfError, NO_USAGE, type CallUsage } from '../call'
 import {
-  CV_GENERATION_FEATURES, MAX_OUTPUT_TOKENS, REVIEW_LIMITS, REVIEW_MIN_START_MS, ReviewOutputSchema, TEMPERATURE, TIME_BUDGET_MS,
+  CV_GENERATION_FEATURES, MAX_OUTPUT_TOKENS, REVIEW_LIMITS, REVIEW_MIN_START_MS, ReviewOutputContract, ReviewOutputSchema, TEMPERATURE, TIME_BUDGET_MS,
   type AppliedEdit, type BulletProvenance, type BulletSource, type ConcernRecord, type CvAssembled, type CvBrief, type CvReview, type CvSelection,
   type DiscardedEdit, type ReviewOutput,
 } from '../schema'
 import type { Strategy } from '../strategy'
-import { playDownBullets, shortened, wrongTenseLines } from './bullets'
+import { leadWithProjects, leadWithStanding, playDownBullets, shortened, wrongTenseLines } from './bullets'
 import {
-  claimedHits, credentialProblems, distinctNotableFigures, introducedNames, repeatedFigures, sharedFigures, unsupportedFigures, wordCount,
+  claimedHits, credentialProblems, distinctNotableFigures, figuresIn, introducedNames, projectReflected, repeatedFigures, sharedFigures,
+  unsupportedFigures, unsupportedProperNouns, unsupportedQualitative, wordCount,
 } from './checks'
 import { evidenceTexts, figureIgnoredNames, type EmployerEvidence, type Evidence } from './evidence'
 import { BULLET_MAX_WORDS, PROFILE_MAX_FIGURES, PROFILE_MAX_WORDS, SUMMARY_MAX_WORDS } from './limits'
@@ -48,7 +49,7 @@ import { briefText, data, requirementsBlock, requirementText } from './prompt'
 
 // ── The reviewable document ────────────────────────────────────────────────
 
-type BulletState = { id: string; text: string; sources: BulletSource[]; removed: boolean }
+type BulletState = { id: string; text: string; sources: BulletSource[]; removed: boolean; /** Reworded by the Review stage. */ edited?: boolean }
 
 /** An experience entry broken into the parts the reviewer may touch. */
 export type ExperienceState = {
@@ -219,13 +220,25 @@ export type ApplyContext = {
   evidence: Evidence
 }
 
-/** Why `text` may not replace an entry's text, or null (and the cleaned text). All the writers' checks, re-run on the new text. */
+/** What a re-check needs to know about where the new text goes. */
+export type RecheckScope = {
+  emp?: EmployerEvidence
+  current: boolean
+  /** The other text it must not repeat a figure of: the entry's other lines and the profile paragraph (experience), or the experience text (profile). */
+  others: readonly string[]
+  /** The text being replaced: its names are allowed in the new text. */
+  old: string
+  /** The full text of the evidence the replaced bullet cited (empty when it cited none). */
+  cited: readonly string[]
+}
+
+/** Why `text` may not replace an entry's text, or null (and the cleaned text, plus notes for the log). All the writers' checks, re-run on the new text, plus the proper-noun and qualitative-claim checks. */
 export function recheckText(
   kind: 'bullet' | 'summary' | 'profile',
   raw: string,
   ctx: ApplyContext,
-  scope: { emp?: EmployerEvidence; current: boolean; others: readonly string[] },
-): { text: string } | { why: string } {
+  scope: RecheckScope,
+): { text: string; notes: string[] } | { why: string } {
   const emp = scope.emp
   const texts = emp ? evidenceTexts(emp) : ctx.evidence.employers.flatMap(evidenceTexts)
   const evidenceText = texts.join('\n')
@@ -241,6 +254,12 @@ export function recheckText(
   const names = [...figureIgnoredNames(ctx.evidence), ...(emp ? emp.projects.map((p) => p.name) : [])]
   const unsupported = unsupportedFigures(text, texts, names)
   if (unsupported.length > 0) return { why: `figures not in the employer's evidence: ${unsupported.join(', ')}` }
+  const notes: string[] = []
+  // The figures were found in the employer's evidence; say when they are not in the evidence this bullet cited.
+  if (scope.cited.length > 0) {
+    const off = unsupportedFigures(text, scope.cited, names)
+    if (off.length > 0) notes.push(`${off.join(', ')} ${off.length === 1 ? 'is' : 'are'} not in the evidence this bullet cited (${off.length === 1 ? 'it is' : 'they are'} in the employer's other evidence).`)
+  }
 
   const unrequested = claimedHits(text, ctx.evidence.claimedNames, { evidenceText, requirementText: requirementText(ctx.strategy) }).filter((c) => !c.requested).map((c) => c.name)
   if (unrequested.length > 0) return { why: `names a tool or skill the profile lists without evidence and the job does not ask for: ${unrequested.join(', ')}` }
@@ -251,6 +270,19 @@ export function recheckText(
   const creds = credentialProblems(text, ctx.evidence.credentials, evidenceText)
   if (creds.length > 0) return { why: creds[0].problem }
 
+  // A name, tool or acronym that is not in the old text, the evidence or the profile's own names. The job's requirement
+  // text is deliberately NOT allowed: job keywords cannot be stuffed in. (The claimed-tool rule above is the one way a
+  // job-named tool gets in, and only a tool the profile lists.)
+  const allowed = [
+    scope.old, ...texts, ...(kind === 'profile' ? scope.others : []),
+    ...figureIgnoredNames(ctx.evidence), ...ctx.evidence.claimedNames, ...ctx.evidence.profileTitles, ...ctx.evidence.profileCompanies,
+    ...ctx.evidence.credentials.map((c) => c.name), ...(emp ? [emp.employer.company, emp.employer.latestTitle] : []),
+  ]
+  const newNames = unsupportedProperNouns(text, allowed)
+  if (newNames.length > 0) return { why: `introduces a name, tool or acronym that is not in the old text, the evidence or your profile: ${newNames.join(', ')}` }
+  const claims = unsupportedQualitative(text, allowed)
+  if (claims.length > 0) return { why: `adds a claim the evidence does not make: ${claims.join(', ')}` }
+
   if (kind !== 'profile') {
     const hit = playDownBullets([text], ctx.brief)[0]
     if (hit) return { why: `is about the play-down item "${hit.item}"` }
@@ -258,16 +290,50 @@ export function recheckText(
     if (wrongTense.length > 0) return { why: 'is in the present tense for a completed result' }
     const before = new Set(repeatedFigures(scope.others, names))
     const added = repeatedFigures([...scope.others, text], names).filter((f) => !before.has(f))
-    if (added.length > 0) return { why: `repeats a figure already stated in this entry: ${added.join(', ')}` }
+    if (added.length > 0) return { why: `repeats a figure already stated in this entry or the profile: ${added.join(', ')}` }
   } else {
     const shared = sharedFigures(text, scope.others, names)
     if (shared.length > 0) return { why: `repeats a figure the experience section already states: ${shared.join(', ')}` }
     if (distinctNotableFigures(text, names).length > PROFILE_MAX_FIGURES) return { why: `uses more than ${PROFILE_MAX_FIGURES} notable figure` }
   }
-  return { text }
+  return { text, notes }
+}
+
+/**
+ * The writers' lead-with and project rules, re-run on an entry AFTER an edit:
+ * a lead-with project that had its own bullet must still have one, and a
+ * selected project the entry reflected must still be reflected. Null when the
+ * edit keeps both (or they were already broken before it).
+ */
+export function entryRuleProblem(
+  emp: EmployerEvidence,
+  ctx: Pick<ApplyContext, 'brief'>,
+  before: { summary: string; bullets: readonly string[] },
+  after: { summary: string; bullets: readonly string[] },
+): string | null {
+  for (const l of leadWithProjects(emp.projects, ctx.brief.leadWith)) {
+    if (leadWithStanding(before.bullets, l) === 'own' && leadWithStanding(after.bullets, l) !== 'own') {
+      return `it takes away the own bullet of the lead-with project "${l.name}", which the brief asks the CV to lead with`
+    }
+  }
+  const all = (e: { summary: string; bullets: readonly string[] }) => [e.summary, ...e.bullets].join('\n')
+  for (const p of emp.projects) {
+    if (projectReflected(all(before), p) && !projectReflected(all(after), p)) return `it leaves the selected project "${p.name}" out of the entry`
+  }
+  return null
 }
 
 export type ApplyResult = { applied: AppliedEdit[]; discarded: DiscardedEdit[] }
+
+/** The full text of the evidence a bullet cited, by source id. */
+function citedTexts(emp: EmployerEvidence, sources: readonly BulletSource[]): string[] {
+  return sources.flatMap((s) => {
+    const a = emp.activities.find((x) => x.id === s.id)
+    if (a) return [[a.text, a.impact ?? ''].filter(Boolean).join('\n')]
+    const p = emp.projects.find((x) => x.id === s.id)
+    return p ? [`${p.name}\n${p.text}`] : []
+  })
+}
 
 /** Applies the model's edits to `doc` (mutated) one by one, after re-checking each. Pure given its inputs. */
 export function applyEdits(doc: ReviewDoc, edits: ReviewOutput['edits'], ctx: ApplyContext): ApplyResult {
@@ -284,36 +350,55 @@ export function applyEdits(doc: ReviewDoc, edits: ReviewOutput['edits'], ctx: Ap
     const ex = doc.experience.get(sectionId)
     if (ex) {
       if (!ex.emp) { discard('this entry has no evidence to check an edit against'); continue }
+      const emp = ex.emp
       if (!bulletId) { discard('name a bullet ("b1"...) or "summary" to edit in an experience entry'); continue }
-      const others = (skip: BulletState) => [ex.summary, ...ex.bullets.filter((b) => !b.removed && b !== skip).map((b) => b.text)].filter(Boolean)
+      const profileText = doc.profile?.paragraph ?? ''
+      const active = () => ex.bullets.filter((b) => !b.removed)
+      const activeTexts = () => active().map((b) => b.text)
       if (bulletId.toLowerCase() === 'summary') {
         if (!ex.summary) { discard('the entry has no summary'); continue }
-        if (e.action === 'remove') {
-          applied.push({ ...base, before: shortened(ex.summary, 160), after: null, reason: e.reason })
-          ex.summary = ''
-          continue
-        }
-        const ok = recheckText('summary', proposed, ctx, { emp: ex.emp, current: ex.current, others: ex.bullets.filter((b) => !b.removed).map((b) => b.text) })
+        if (e.action === 'remove') { discard('the summary cannot be removed (every entry keeps one): reword it instead'); continue }
+        const ok = recheckText('summary', proposed, ctx, { emp, current: ex.current, others: [...activeTexts(), profileText].filter(Boolean), old: ex.summary, cited: [] })
         if ('why' in ok) { discard(ok.why); continue }
         if (ok.text === ex.summary) { discard('the new text is the same as the old'); continue }
-        applied.push({ ...base, before: shortened(ex.summary, 160), after: shortened(ok.text, 160), reason: e.reason })
+        const rule = entryRuleProblem(emp, ctx, { summary: ex.summary, bullets: activeTexts() }, { summary: ok.text, bullets: activeTexts() })
+        if (rule) { discard(rule); continue }
+        applied.push({ ...base, before: shortened(ex.summary, 160), after: shortened(ok.text, 160), reason: e.reason, note: ok.notes.join(' ') })
         ex.summary = ok.text
         continue
       }
       const bullet = ex.bullets.find((b) => b.id === bulletId)
       if (!bullet) { discard(`there is no bullet "${bulletId}" in this entry`); continue }
       if (bullet.removed) { discard('that bullet was already removed'); continue }
+      const without = activeTexts().filter((t) => t !== bullet.text)
       if (e.action === 'remove') {
-        if (ex.bullets.filter((b) => !b.removed).length <= 1) { discard('it is the entry\'s last bullet, and an employer keeps at least one'); continue }
-        applied.push({ ...base, before: shortened(bullet.text, 160), after: null, reason: e.reason })
+        if (active().length <= 1) { discard('it is the entry\'s last bullet, and an employer keeps at least one'); continue }
+        const rule = entryRuleProblem(emp, ctx, { summary: ex.summary, bullets: activeTexts() }, { summary: ex.summary, bullets: without })
+        if (rule) { discard(rule); continue }
+        applied.push({ ...base, before: shortened(bullet.text, 160), after: null, reason: e.reason, note: '' })
         bullet.removed = true
         continue
       }
-      const ok = recheckText('bullet', proposed, ctx, { emp: ex.emp, current: ex.current, others: others(bullet) })
+      const ok = recheckText('bullet', proposed, ctx, {
+        emp, current: ex.current, others: [ex.summary, ...without, profileText].filter(Boolean), old: bullet.text, cited: citedTexts(emp, bullet.sources),
+      })
       if ('why' in ok) { discard(ok.why); continue }
       if (ok.text === bullet.text) { discard('the new text is the same as the old'); continue }
-      applied.push({ ...base, before: shortened(bullet.text, 160), after: shortened(ok.text, 160), reason: e.reason })
+      const after = active().map((b) => (b === bullet ? ok.text : b.text))
+      const rule = entryRuleProblem(emp, ctx, { summary: ex.summary, bullets: activeTexts() }, { summary: ex.summary, bullets: after })
+      if (rule) { discard(rule); continue }
+      // Provenance: the text is no longer the writer's. Keep the sources while the new text still states the figures the old
+      // text took from them (or neither states any); otherwise clear them. Either way it is marked as edited by review.
+      const names = [...figureIgnoredNames(ctx.evidence), ...emp.projects.map((p) => p.name)]
+      const oldFigures = figuresIn(bullet.text, { names }).map((f) => f.key)
+      const newFigures = figuresIn(ok.text, { names }).map((f) => f.key)
+      const keep = oldFigures.length === 0 || newFigures.some((k) => oldFigures.includes(k))
+      const notes = [...ok.notes]
+      if (!keep && bullet.sources.length > 0) notes.push('The new text no longer states the figures of the evidence it cited, so its sources were cleared: edited by review.')
+      applied.push({ ...base, before: shortened(bullet.text, 160), after: shortened(ok.text, 160), reason: e.reason, note: notes.join(' ') })
       bullet.text = ok.text
+      bullet.edited = true
+      if (!keep) bullet.sources = []
       continue
     }
 
@@ -321,10 +406,10 @@ export function applyEdits(doc: ReviewDoc, edits: ReviewOutput['edits'], ctx: Ap
       if (bulletId) { discard('the profile has no bullets: leave bulletId out to reword its paragraph'); continue }
       if (e.action === 'remove') { discard('the profile paragraph can only be reworded, not removed'); continue }
       const experienceText = [...doc.experience.values()].flatMap((x) => [x.summary, ...x.bullets.filter((b) => !b.removed).map((b) => b.text)])
-      const ok = recheckText('profile', proposed, ctx, { current: false, others: experienceText })
+      const ok = recheckText('profile', proposed, ctx, { current: false, others: experienceText, old: doc.profile.paragraph, cited: [] })
       if ('why' in ok) { discard(ok.why); continue }
       if (ok.text === doc.profile.paragraph) { discard('the new text is the same as the old'); continue }
-      applied.push({ ...base, before: shortened(doc.profile.paragraph, 160), after: shortened(ok.text, 160), reason: e.reason })
+      applied.push({ ...base, before: shortened(doc.profile.paragraph, 160), after: shortened(ok.text, 160), reason: e.reason, note: ok.notes.join(' ') })
       doc.profile.paragraph = ok.text
       continue
     }
@@ -342,7 +427,7 @@ export function writeBack(assembled: CvAssembled, doc: ReviewDoc): CvAssembled {
     const ex = doc.experience.get(s.id)
     if (ex) {
       const bullets: BulletProvenance[] | undefined = s.bullets
-        ? ex.bullets.filter((b) => !b.removed).map((b) => ({ text: b.text, sources: b.sources }))
+        ? ex.bullets.filter((b) => !b.removed).map((b): BulletProvenance => ({ text: b.text, sources: b.sources, ...(b.edited ? { editedByReview: true } : {}) }))
         : undefined
       return { ...s, markdown: renderExperience(ex), ...(bullets ? { bullets } : {}) }
     }
@@ -400,7 +485,7 @@ const skipped = (reason: string, over: Partial<CvReview> = {}): CvReview => ({
 
 const OUTPUT_FORMAT = `Output: one JSON object in a \`\`\`json code block, nothing else. It must match this JSON Schema. Limits in the descriptions are hard limits.
 \`\`\`json
-${JSON.stringify(z.toJSONSchema(ReviewOutputSchema, { io: 'input' }))}
+${JSON.stringify(z.toJSONSchema(ReviewOutputContract, { io: 'input' }))}
 \`\`\``
 
 /**
@@ -440,6 +525,9 @@ export async function runReview(
     const concerns = toConcernRecords(call.value.concerns, labels)
     const { applied, discarded } = applyEdits(doc, call.value.edits, input)
     const notes: string[] = []
+    const unreadable = call.value.unreadable
+    if (unreadable.edits > 0) notes.push(`${unreadable.edits === 1 ? '1 edit' : `${unreadable.edits} edits`} in the answer could not be read and ${unreadable.edits === 1 ? 'was' : 'were'} dropped.`)
+    if (unreadable.concerns > 0) notes.push(`${unreadable.concerns === 1 ? '1 concern' : `${unreadable.concerns} concerns`} in the answer could not be read and ${unreadable.concerns === 1 ? 'was' : 'were'} dropped.`)
     let assembled = input.assembled
     let finalApplied = applied
     if (applied.length > 0) {

@@ -324,7 +324,7 @@ export async function runCvGenerationStages(runId: string, profileId: string, op
           ? outcome.notes
           : [
               `Applied ${countOf(r.applied.length, 'edit')}, discarded ${r.discarded.length}; ${countOf(r.concerns.length, 'concern')} for the coach.`,
-              ...r.applied.map((a) => `Applied: ${a.action} ${a.sectionId}${a.bulletId ? ` ${a.bulletId}` : ''}: “${shortened(a.before, 60)}”${a.after ? ` → “${shortened(a.after, 60)}”` : ''} (${a.reason || 'no reason given'}).`),
+              ...r.applied.map((a) => `Applied: ${a.action} ${a.sectionId}${a.bulletId ? ` ${a.bulletId}` : ''}: “${shortened(a.before, 60)}”${a.after ? ` → “${shortened(a.after, 60)}”` : ''} (${a.reason || 'no reason given'}).${a.note ? ` ${a.note}` : ''}`),
               ...r.discarded.map((d) => `Discarded: ${d.action} ${d.sectionId}${d.bulletId ? ` ${d.bulletId}` : ''}: ${d.why}.`),
               ...outcome.notes,
             ],

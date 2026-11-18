@@ -541,6 +541,8 @@ export type BulletSource = z.infer<typeof BulletSourceSchema>
 /** One written bullet and the evidence it was written from. `sources` is empty when the writer did not cite one. */
 export const BulletProvenanceSchema = z.object({
   text: z.string(),
+  /** Phase 4a review fix: the Review stage reworded this bullet after it was written. Absent otherwise (and on older runs). */
+  editedByReview: z.boolean().optional().catch(undefined),
   sources: z.array(z.unknown()).default([]).transform((items) =>
     items.flatMap((i) => { const p = BulletSourceSchema.safeParse(i); return p.success ? [p.data] : [] })).catch([]),
 })
@@ -608,31 +610,66 @@ export const CONCERN_KIND_LABEL: Record<ConcernKind, string> = {
   other: 'Other',
 }
 
+/** One edit the Review model proposes. `bulletId` may be null or missing (the profile paragraph has none); both read as undefined. */
+export const ReviewEditSchema = z.object({
+  target: z.object({
+    sectionId: z.string().describe('The section id exactly as listed, e.g. "experience:unity" or "profile"'),
+    bulletId: z.string().nullish().describe('A bullet id of that section ("b1", "b2"...) or "summary"; leave out (or null) to edit the profile paragraph').transform((v) => v ?? undefined),
+  }),
+  action: z.enum(REVIEW_ACTIONS),
+  newText: z.string().nullish().describe('The replacement as plain text (replace only)').transform((v) => v?.trim().slice(0, REVIEW_LIMITS.newTextChars) || undefined),
+  reason: cutText(REVIEW_LIMITS.reasonChars, 'Why the edit is needed'),
+})
+
+/** One concern for the coach. */
+export const ReviewConcernSchema = z.object({
+  kind: z.enum(CONCERN_KINDS),
+  title: cutText(REVIEW_LIMITS.titleChars, 'A short name for the concern'),
+  why: cutText(REVIEW_LIMITS.whyChars, 'Why it is a concern'),
+  question: cutText(REVIEW_LIMITS.questionChars, 'A question to put to the candidate'),
+  refs: z.array(z.string()).default([]).describe('Evidence labels (S1, S2...) the concern is about; empty when none'),
+})
+
+/** The JSON Schema the model is shown (strict items: this is the contract, not the parser). */
+export const ReviewOutputContract = z.object({
+  edits: z.array(ReviewEditSchema).describe(`Edits to make (at most ${REVIEW_LIMITS.maxEdits})`),
+  concerns: z.array(ReviewConcernSchema).describe(`Concerns for the coach (at most ${REVIEW_LIMITS.maxConcerns})`),
+})
+
+/** The items of a list the model answered that parse, in order, plus how many did not. Not a list at all reads as empty. */
+function lenientItems<T extends z.ZodType>(item: T, max: number) {
+  return z.unknown().optional().transform((raw): { items: z.output<T>[]; dropped: number } => {
+    if (!Array.isArray(raw)) return { items: [], dropped: 0 }
+    const items: z.output<T>[] = []
+    let dropped = 0
+    for (const r of raw) {
+      const p = item.safeParse(r)
+      if (p.success) items.push(p.data)
+      else dropped++
+    }
+    return { items: items.slice(0, max), dropped }
+  })
+}
+
 /**
- * What the Review model answers. Lists are cut to their limits and text to its
- * length instead of failing (a cut is not worth a retry); code applies the
- * edits only after re-checking them (write/review.ts), so nothing here is
- * trusted. `newText` is required for 'replace'; code discards a replace without it.
+ * What the Review model answers, parsed item by item: ONE malformed edit or
+ * concern is dropped (and counted, for the log) instead of throwing away the
+ * whole answer and paying for a second call. Lists are cut to their limits and
+ * text to its length rather than failing; only an answer that is not an object
+ * fails (and is retried). `newText` is required for 'replace'; code discards a
+ * replace without it. Code applies the edits only after re-checking them
+ * (write/review.ts), so nothing here is trusted.
  */
 export const ReviewOutputSchema = z.object({
-  edits: capped(z.object({
-    target: z.object({
-      sectionId: z.string().describe('The section id exactly as listed, e.g. "experience:unity" or "profile"'),
-      bulletId: z.string().optional().describe('A bullet id of that section ("b1", "b2"...) or "summary"; leave out to edit the profile paragraph'),
-    }),
-    action: z.enum(REVIEW_ACTIONS),
-    newText: z.string().optional().describe('The replacement as plain text (replace only)').transform((v) => v?.trim().slice(0, REVIEW_LIMITS.newTextChars)),
-    reason: cutText(REVIEW_LIMITS.reasonChars, 'Why the edit is needed'),
-  }), REVIEW_LIMITS.maxEdits, 'Edits to make'),
-  concerns: capped(z.object({
-    kind: z.enum(CONCERN_KINDS),
-    title: cutText(REVIEW_LIMITS.titleChars, 'A short name for the concern'),
-    why: cutText(REVIEW_LIMITS.whyChars, 'Why it is a concern'),
-    question: cutText(REVIEW_LIMITS.questionChars, 'A question to put to the candidate'),
-    refs: z.array(z.string()).default([]).describe('Evidence labels (S1, S2...) the concern is about; empty when none'),
-  }), REVIEW_LIMITS.maxConcerns, 'Concerns for the coach'),
-})
-export type ReviewOutput = z.infer<typeof ReviewOutputSchema>
+  edits: lenientItems(ReviewEditSchema, REVIEW_LIMITS.maxEdits),
+  concerns: lenientItems(ReviewConcernSchema, REVIEW_LIMITS.maxConcerns),
+}).transform((o) => ({
+  edits: o.edits.items,
+  concerns: o.concerns.items,
+  /** Items of each list the model sent that could not be read. */
+  unreadable: { edits: o.edits.dropped, concerns: o.concerns.dropped },
+}))
+export type ReviewOutput = z.output<typeof ReviewOutputSchema>
 
 /** A lenient list: bad entries are dropped, a bad list reads as empty (never fails the whole record). */
 function lenientList<T extends z.ZodType>(item: T) {
@@ -653,6 +690,8 @@ export const AppliedEditSchema = z.object({
   before: z.string().default(''),
   after: z.string().nullable().default(null),
   reason: z.string().default(''),
+  /** What code noticed about the edit (a figure not in the bullet's cited sources, provenance cleared); empty when nothing. */
+  note: z.string().default(''),
 })
 export type AppliedEdit = z.infer<typeof AppliedEditSchema>
 
