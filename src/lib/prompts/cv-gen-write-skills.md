@@ -7,7 +7,7 @@ You get the brief, the job's requirements, the chosen skills and the chosen tool
 ## What to do
 
 - Put the names most relevant to the hidden question and the job's must-have requirements first.
-- Split a list into at most the allowed number of groups, each with a short plain label (a few words, a theme such as "Delivery" or "Planning tools"). A list may also be a single group with no label when grouping adds nothing.
+- Split a list into at most the allowed number of groups, each with a short plain label (a few words, a theme such as "Delivery" or "Planning tools"), but only when the list has at least 6 names and every group has at least 2 names. A list of fewer than 6 names is ONE group with an empty label; never a group of one name (a lone tool such as "Asset management: Brandfolder" reads as filler). Skills lists of 8-10 names split into groups of 2-4 are fine. A list may also be a single group with no label when grouping adds nothing. Code enforces this: it merges any group of one into a neighbour and ungroups a short list.
 - Skills and tools are separate lists: a skill stays in the skills list, a tool in the tools list.
 
 ## Rules

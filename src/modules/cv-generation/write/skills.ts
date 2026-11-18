@@ -15,7 +15,7 @@ import * as z from 'zod'
 import { composeSystem } from '@/modules/llm/prompt-context'
 import { attributionOf, completeValidated, type CallUsage, NO_USAGE, usageOfError } from '../call'
 import { CV_GENERATION_FEATURES, MAX_OUTPUT_TOKENS, TEMPERATURE, TIME_BUDGET_MS } from '../schema'
-import { GROUP_LABEL_MAX_WORDS, MAX_SKILL_GROUPS, MIN_CALL_MS, MIN_NAMES_TO_GROUP } from './limits'
+import { GROUP_LABEL_MAX_WORDS, MAX_SKILL_GROUPS, MIN_CALL_MS, MIN_GROUP_SIZE, MIN_NAMES_TO_GROUP } from './limits'
 import { wordCount } from './checks'
 import type { CapabilityEvidence } from './evidence'
 import { plainLine } from './plain'
@@ -58,7 +58,9 @@ const cleanLabel = (label: string): string | null => {
  * null when nothing usable remains (junk): the caller then orders by code.
  * Unknown names and repeats are dropped; names the model left out are appended
  * to the last group; surplus groups are merged into the last allowed one; a
- * label that is too long is dropped; a single group loses its label.
+ * label that is too long is dropped; a single group loses its label. A list
+ * under MIN_NAMES_TO_GROUP names is never grouped, and a group of fewer than
+ * MIN_GROUP_SIZE names is merged into its neighbour (previous, else next).
  */
 export function validateGroups(groups: ReadonlyArray<{ label: string; names: string[] }>, selected: readonly CapabilityEvidence[]): NameGroup[] | null {
   const canon = new Map(selected.map((c) => [c.name.trim().toLowerCase(), c.name]))
@@ -82,7 +84,15 @@ export function validateGroups(groups: ReadonlyArray<{ label: string; names: str
   }
   const left = selected.filter((c) => !used.has(c.name.trim().toLowerCase())).map((c) => c.name)
   if (left.length > 0) out[out.length - 1].names.push(...left)
-  return out.length === 1 ? [{ label: null, names: out[0].names }] : out
+  // Never a group that is too small: merge it into the previous group (the first one into the next).
+  for (let i = 0; i < out.length && out.length > 1; ) {
+    if (out[i].names.length >= MIN_GROUP_SIZE) { i++; continue }
+    const small = out.splice(i, 1)[0]
+    if (i > 0) out[i - 1].names.push(...small.names)
+    else out[0].names.unshift(...small.names)
+  }
+  const all = out.flatMap((g) => g.names)
+  return out.length === 1 || all.length < MIN_NAMES_TO_GROUP ? [{ label: null, names: all }] : out
 }
 
 export function skillsPrompt(ctx: Pick<WriteContext, 'brief' | 'strategy'>, skills: readonly CapabilityEvidence[], tools: readonly CapabilityEvidence[]): string {
@@ -96,7 +106,7 @@ export function skillsPrompt(ctx: Pick<WriteContext, 'brief' | 'strategy'>, skil
     data('skills', list(skills)),
     '# Tools (most relevant first; copy names exactly)',
     data('tools', list(tools)),
-    `# Limits\n\nAt most ${MAX_SKILL_GROUPS} groups per list, each label at most ${GROUP_LABEL_MAX_WORDS} words. Use only the names above. Labels are plain text: no Markdown, links, HTML or ":::". Code builds the lists from your groups.`,
+    `# Limits\n\nAt most ${MAX_SKILL_GROUPS} groups per list, and only for a list of at least ${MIN_NAMES_TO_GROUP} names (a shorter list is ONE group with an empty label). Never a group of fewer than ${MIN_GROUP_SIZE} names. Each label at most ${GROUP_LABEL_MAX_WORDS} words. Use only the names above. Labels are plain text: no Markdown, links, HTML or ":::". Code builds the lists from your groups.`,
     'Return the ordered groups as one JSON object matching the schema, in a ```json code block.',
   ].join('\n\n')
 }

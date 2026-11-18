@@ -23,7 +23,7 @@ import { CV_GENERATION_FEATURES, MAX_OUTPUT_TOKENS, TEMPERATURE, TIME_BUDGET_MS 
 import { COMPETENCY_LABEL_MAX_WORDS, COMPETENCY_LABEL_MIN_WORDS, COMPETENCY_MAX_LABELS, HEADLINE_MAX_WORDS, PROFILE_MAX_FIGURES, PROFILE_MAX_WORDS } from './limits'
 import { claimedHits, competencyLabelProblem, credentialProblems, distinctNotableFigures, headlineTitleProblem, introducedNames, labelGroundedIn, labelReflectsCompetency, sharedFigures, unsupportedFigures, wordCount } from './checks'
 import { evidenceTexts, figureIgnoredNames, type CapabilityEvidence } from './evidence'
-import { plainFeedback, plainLine, plainReasons } from './plain'
+import { plainFeedback, plainLine, plainReasons, shortenToWords } from './plain'
 import { briefText, data, requirementsBlock } from './prompt'
 import { renderNameGroups } from './render'
 import type { CheckNote, WriteContext, WriterOutcome } from './types'
@@ -122,8 +122,7 @@ export function analyseProfile(
     if (f) problem(f, plainReasons(text, ownText).join(', '))
   }
   if (!profile) hard.push('the profile is empty; write the paragraph')
-  else if (wordCount(profile) > PROFILE_MAX_WORDS) problem(`the profile is ${wordCount(profile)} words; it must be at most ${PROFILE_MAX_WORDS}`, `profile over ${PROFILE_MAX_WORDS} words`)
-  if (wordCount(headline) > HEADLINE_MAX_WORDS) problem(`the headline is ${wordCount(headline)} words; it must be at most ${HEADLINE_MAX_WORDS}`, `headline over ${HEADLINE_MAX_WORDS} words`)
+  // Over the word cap (profile or headline) is NOT a retry reason (a retry doubles the call's cost): writeProfile shortens it in code.
   const headlineProblem = headline ? headlineTitleProblem(headline, ctx.evidence.profileTitles) : null
   if (headlineProblem) problem(`the headline is not acceptable: ${headlineProblem}`, 'headline reads as a title')
 
@@ -295,7 +294,18 @@ export async function writeProfile(
   const notes = softIssueNotes(call)
   const checks: CheckNote[] = []
 
-  let headline: string | null = a.profile.headline || null
+  // Over the word cap: shortened here, in code, at a clause boundary (a retry would double the cost); else kept and noted.
+  const fit = (text: string, max: number, what: string): string => {
+    const n = wordCount(text)
+    if (n <= max) return text
+    const cut = shortenToWords(text, max)
+    if (cut) { notes.push(`Shortened ${what} from ${n} to ${wordCount(cut)} words at a clause boundary (limit ${max}); no retry was made.`); return cut }
+    notes.push(`${what[0].toUpperCase()}${what.slice(1)} is ${n} words, over the limit of ${max}; kept as written because shortening it would cut its meaning (no retry was made).`)
+    return text
+  }
+  const profileText = fit(a.profile.profile, PROFILE_MAX_WORDS, 'the profile')
+
+  let headline: string | null = a.profile.headline ? fit(a.profile.headline, HEADLINE_MAX_WORDS, 'the headline') : null
   if (headline && (a.headlineProblem || wordCount(headline) > HEADLINE_MAX_WORDS || a.headlineUnsupported.length > 0)) {
     const why = a.headlineProblem ?? (a.headlineUnsupported.length > 0 ? `it has figures the evidence does not support (${a.headlineUnsupported.join(', ')})` : 'it broke a limit')
     notes.push(`The headline was left out: ${why}. A headline that reads as a title, or states an unsupported figure, would be a false claim.`)
@@ -330,7 +340,7 @@ export async function writeProfile(
   return {
     markdown: '',
     headline,
-    profileMarkdown: a.profile.profile,
+    profileMarkdown: profileText,
     competenciesMarkdown: competencyBlock(labels),
     model: call.model,
     usage: call.usage,
