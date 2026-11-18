@@ -94,10 +94,8 @@ describe("jobDocumentLinks", () => {
 })
 
 describe("jobDocumentCreateLinks", () => {
-  it("offers the existing creation flows only for missing assets", () => {
+  it("offers only interview prep: CVs and cover letters are made in the writing desk", () => {
     expect(jobDocumentCreateLinks(none).map((l) => l.href)).toEqual([
-      "/dashboard/cv-builder/new?jobId=job1",
-      "/dashboard/cover-letters/new?jobId=job1",
       "/dashboard/interview-prep/new?jobId=job1",
     ])
     expect(jobDocumentCreateLinks(all)).toEqual([])

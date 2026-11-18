@@ -148,14 +148,12 @@ export function jobDocumentLinks(assets: JobDocumentAssets): JobDocumentLink[] {
 
 /**
  * The legacy editors' creation flows for assets the job doesn't have yet
- * (what the old hub sidebar offered as "Create CV" and friends). Empty when
- * every legacy asset exists.
+ * that are still offered. Only interview prep: CVs and cover letters are made
+ * in the writing desk. Empty when the job has an interview prep session.
  */
 export function jobDocumentCreateLinks(assets: JobDocumentAssets): JobDocumentCreateLink[] {
   const jobId = encodeURIComponent(assets.jobId)
   const links: JobDocumentCreateLink[] = []
-  if (!assets.cvDocumentId) links.push({ kind: "cv", label: "Generate a CV", href: `/dashboard/cv-builder/new?jobId=${jobId}` })
-  if (!assets.coverLetterDocumentId) links.push({ kind: "cover-letter", label: "Create a cover letter", href: `/dashboard/cover-letters/new?jobId=${jobId}` })
   if (!assets.interviewPrepSessionId) links.push({ kind: "interview-prep", label: "Start interview prep", href: `/dashboard/interview-prep/new?jobId=${jobId}` })
   return links
 }

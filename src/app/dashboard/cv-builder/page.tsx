@@ -33,9 +33,9 @@ export default async function CVBuilderPage() {
             Define career vertical
           </Link>
         )}
-        <Link href="/dashboard/cv-builder/new" className={cn(buttonVariants({ size: "sm" }))}>
+        <Link href="/dashboard/job-applications" className={cn(buttonVariants({ size: "sm" }))}>
           <Plus className="mr-1.5 size-4" />
-          New CV
+          Generate from a job
         </Link>
       </div>
 

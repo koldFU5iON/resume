@@ -21,8 +21,8 @@ export default async function CoverLettersPage() {
             </p>
           )}
         </div>
-        <Button size="sm" render={<Link href="/dashboard/cover-letters/new" />}>
-          + New
+        <Button size="sm" render={<Link href="/dashboard/job-applications" />}>
+          Open a job&apos;s writing desk
         </Button>
       </div>
 
@@ -33,10 +33,7 @@ export default async function CoverLettersPage() {
             <Link href="/dashboard/job-applications" className="underline">
               Start from a job application →
             </Link>{' '}
-            or{' '}
-            <Link href="/dashboard/cover-letters/new" className="underline">
-              write a standalone letter
-            </Link>.
+            and write the letter in its writing desk.
           </p>
         </div>
       ) : (

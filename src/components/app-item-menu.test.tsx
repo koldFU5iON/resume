@@ -15,9 +15,9 @@ describe("job menu: the writing desk replaces Generate CV and Create Cover Lette
     ])
   })
 
-  it("no job list or menu file links to the old generation routes or takes the generate callbacks", () => {
+  it("no menu, nav or list page links to the old generation routes or takes the generate callbacks", () => {
     const dir = "src/app/dashboard/job-applications/_components/"
-    for (const f of ["src/components/app-item-menu.tsx", `${dir}job-row.tsx`, `${dir}job-row-card.tsx`, `${dir}job-group.tsx`, `${dir}job-list.tsx`]) {
+    for (const f of ["src/components/app-item-menu.tsx", `${dir}job-row.tsx`, `${dir}job-row-card.tsx`, `${dir}job-group.tsx`, `${dir}job-list.tsx`, "src/modules/jobs/workspace-nav.ts", "src/app/dashboard/cv-builder/page.tsx", "src/app/dashboard/cover-letters/page.tsx"]) {
       const src = readFileSync(f, "utf8")
       expect(src, f).not.toMatch(/cv-builder\/new|cover-letters\/new|onGenerateCV|onCreateCoverLetter|Generating CV/)
     }
