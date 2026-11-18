@@ -6,10 +6,12 @@ import { getJobAssets } from "@/modules/jobs/queries"
 import { getLatestCvGeneration, type CvGenerationView } from "@/modules/cv-generation/queries"
 import { AssessmentPoller } from "@/app/dashboard/job-applications/_components/assessment-poller"
 import {
+  COMPLETE_HEADING,
   CV_GENERATION_STAGE_INFO,
   CV_GENERATION_STATUS_LABEL,
-  PREVIEW_NOTICE,
   buildStageRows,
+  concernRows,
+  draftHref,
   cvGenerationSignature,
   formatRunCost,
   formatTokens,
@@ -23,7 +25,8 @@ import { AssembledCvPanel } from "./_components/assembled-cv"
 import { BriefPanel, SelectionPanel } from "./_components/brief-and-selection"
 import { CopyLogButton } from "./_components/copy-log-button"
 import { GenerationLog, StageStepper } from "./_components/generation-log"
-import { RunPreviewButton } from "./_components/run-preview-button"
+import { ConcernsPanel } from "./_components/concerns-panel"
+import { GenerateCvButton } from "./_components/generate-cv-button"
 
 export default async function CvGenerationPage({ params }: { params: Promise<{ id: string }> }) {
   const [{ id }, { profile }] = await Promise.all([params, requireProfile()])
@@ -65,8 +68,8 @@ function EmptyState({ jobId }: { jobId: string }) {
         what it cost, which evidence was kept or dropped, and any claim the review could not support.
       </p>
       <div className="mt-5 space-y-2">
-        <RunPreviewButton jobId={jobId} />
-        <p className="text-sm text-muted-foreground">{PREVIEW_NOTICE}. A preview runs everything up to the assembled CV (no review, no draft), on your own LLM key.</p>
+        <GenerateCvButton jobId={jobId} />
+        <p className="text-sm text-muted-foreground">Generating runs every stage on your own LLM key and saves the CV as a draft in the writing desk. You accept or discard it there; nothing live is overwritten.</p>
       </div>
       <ol className="mt-8 space-y-4 border-t pt-6">
         {CV_GENERATION_STAGES.map((s, i) => (
@@ -109,6 +112,14 @@ function RunBody({ jobId, view, jobTitle, company }: { jobId: string; view: CvGe
             This CV generation didn&apos;t finish
           </h1>
           <p className="leading-relaxed">{view.failureMessage ?? "The CV generation failed. Try again."}</p>
+          {view.failureKind === "draft_exists" && view.writingDeskDocumentId && (
+            <p className="text-sm text-muted-foreground">
+              <Link href={draftHref(jobId, view.writingDeskDocumentId)} className="underline underline-offset-2 hover:text-foreground">
+                Open the draft that is waiting
+              </Link>
+              {view.assembled ? ". The CV this run generated is kept below." : "."}
+            </p>
+          )}
           {view.failureKind === "no_llm_key" && (
             <Link href="/dashboard/settings/llm" className="inline-block text-sm underline underline-offset-2 hover:text-foreground">
               Add an LLM API key
@@ -127,13 +138,13 @@ function RunBody({ jobId, view, jobTitle, company }: { jobId: string; view: CvGe
         <div className="space-y-3">
           <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-[-0.02em]">
             <Check className="size-5 text-emerald-700 dark:text-emerald-400" aria-hidden="true" />
-            CV generated
+            {COMPLETE_HEADING}
           </h1>
           {view.writingDeskDocumentId ? (
             <p className="text-sm text-muted-foreground">
               The draft is waiting in the writing desk.{" "}
               <Link
-                href={`/dashboard/job-applications/view/${jobId}/writing/${view.writingDeskDocumentId}`}
+                href={draftHref(jobId, view.writingDeskDocumentId)}
                 className="underline underline-offset-2 hover:text-foreground"
               >
                 Review the draft
@@ -153,11 +164,17 @@ function RunBody({ jobId, view, jobTitle, company }: { jobId: string; view: CvGe
         <p className="text-sm text-muted-foreground">The whole run, as readable text.</p>
         <CopyLogButton text={logText} />
       </div>
+      {concernRows(view.review).length > 0 && <ConcernsPanel concerns={concernRows(view.review)} />}
       {view.assembled && <AssembledCvPanel assembled={view.assembled} />}
       {view.brief && <BriefPanel brief={view.brief} />}
       {view.selection && <SelectionPanel selection={view.selection} />}
       <GenerationLog rows={rows} assembled={view.assembled} />
-      {!active && <RunPreviewButton jobId={jobId} label="Run preview again" />}
+      {!active && (
+        <div className="flex flex-wrap items-center gap-2">
+          <GenerateCvButton jobId={jobId} label="Generate again" />
+          <GenerateCvButton jobId={jobId} label="Generate again with a fresh brief and selection" fresh />
+        </div>
+      )}
     </div>
   )
 }

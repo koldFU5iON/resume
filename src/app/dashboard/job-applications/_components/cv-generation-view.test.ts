@@ -27,6 +27,11 @@ import {
   startResponseMessage,
   stageMeta,
   runLogMarkdown,
+  COMPLETE_HEADING,
+  concernRows,
+  draftHref,
+  reviewMarkdown,
+  reviewSummary,
   PROVENANCE_SUMMARY,
   bulletSourceLines,
   provenanceBySection,
@@ -159,7 +164,7 @@ describe("preview runs (stages 0-2 only)", () => {
   })
 
   it("labels the preview so it never reads as a finished CV", () => {
-    expect(PREVIEW_NOTICE).toBe("Preview run: review and draft stages are not built yet. The assembled CV is below.")
+    expect(PREVIEW_NOTICE).toBe("Preview run (made before drafts existed): no review, no draft. The assembled CV is below.")
     expect(PREVIEW_DETAIL).toMatch(/no draft was created/)
   })
 
@@ -193,6 +198,7 @@ describe("startResponseMessage", () => {
   it("explains each refusal", () => {
     expect(startResponseMessage(401).message).toMatch(/Sign in/)
     expect(startResponseMessage(404).message).toMatch(/not found/)
+    expect(startResponseMessage(409).message).toMatch(/draft waiting/)
     expect(startResponseMessage(429).message).toMatch(/already running/)
     expect(startResponseMessage(500)).toMatchObject({ ok: false })
     expect(startResponseMessage(0).message).toMatch(/Couldn't start/)
@@ -475,7 +481,7 @@ describe("runLogMarkdown (the Copy log text)", () => {
     expect(md.startsWith("# CV generation log: Senior Product Marketing Manager at Canonical\n")).toBe(true)
     expect(md).toContain("- Run: run-abc")
     expect(md).toContain("- Date: 2026-11-18T10:00:00.000Z")
-    expect(md).toContain("- Status: Complete (preview run: no review, no draft)")
+    expect(md).toContain("- Status: Complete (preview run made before drafts existed: no review, no draft)")
     expect(md).toContain("- Cost (estimate): $0.32")
     expect(md).toContain("- Calls: 7 (1 failed)")
     expect(md).toContain("- Tokens: 33.0k in · 6.0k out")
@@ -621,5 +627,91 @@ describe("per-bullet provenance on the log (Phase 3d)", () => {
 
   it("adds no contact detail", () => {
     expect(md).not.toMatch(/@|\+\d{6,}|https?:\/\//)
+  })
+})
+
+describe("Review, Land and reuse on the log (phase 4a)", () => {
+  const review = {
+    skipped: false, skipReason: null, model: "claude-opus-5-5", tokens: { input: 4000, output: 600 }, costUsd: 0.21,
+    applied: [{ sectionId: "experience:unity", bulletId: "b2", action: "replace" as const, before: "Ran 14,000 voters", after: "Ran voter campaigns", reason: "figure not in the evidence" }],
+    discarded: [{ sectionId: "header", bulletId: null, action: "remove" as const, proposed: null, why: "that section is rendered by code from your profile and is read-only", reason: "x" }],
+    concerns: [
+      { kind: "metric_conflict" as const, title: "Two figures for asset collection", why: "4 weeks to 1 week vs 3 weeks to under an hour.", question: "Which figure describes the Unity Awards work?", refs: [{ label: "S1", snippet: "Cut asset collection from 4 weeks to 1 week" }] },
+      { kind: "evidence_gap" as const, title: "No migration evidence", why: "The brief leads with it.", question: "Have you led a platform migration?", refs: [] },
+    ],
+  }
+  const base = { id: "run-1", status: "complete" as const, createdAt: "2026-11-18T10:00:00Z", stageTimings: {}, log: [entry({ stage: "gather" })] }
+
+  it("labels the complete heading and links the draft", () => {
+    expect(COMPLETE_HEADING).toBe("CV drafted: review it in the writing desk")
+    expect(draftHref("job-1", "doc-1")).toBe("/dashboard/job-applications/view/job-1/writing/doc-1")
+  })
+
+  it("summarises a review, a skipped review and a missing one", () => {
+    expect(reviewSummary(review)).toBe("Applied 1 edit, discarded 1, 2 concerns for the coach")
+    expect(reviewSummary({ ...review, skipped: true, skipReason: "The review timed out, so the CV landed unreviewed." })).toBe("Review skipped: The review timed out, so the CV landed unreviewed.")
+    expect(reviewSummary(null)).toBeNull()
+    expect(reviewSummary({ ...review, skipped: true, skipReason: null })).toMatch(/no reason recorded/)
+  })
+
+  it("lists the concerns with a kind badge, title, why, the question and the evidence snippets", () => {
+    const rows = concernRows(review)
+    expect(rows).toHaveLength(2)
+    expect(rows[0]).toEqual({
+      kind: "metric_conflict", badge: "Conflicting figures", title: "Two figures for asset collection",
+      why: "4 weeks to 1 week vs 3 weeks to under an hour.", question: "Which figure describes the Unity Awards work?", refs: ["Cut asset collection from 4 weeks to 1 week"],
+    })
+    expect(rows[1].badge).toBe("Evidence gap")
+    expect(concernRows(null)).toEqual([])
+    expect(concernRows({ concerns: [] })).toEqual([])
+  })
+
+  it("Copy log carries the applied edits, the discarded edits with why, and the concerns with their questions", () => {
+    const md = runLogMarkdown({ jobTitle: "J", company: null, run: { ...base, review } })
+    expect(md).toContain("## Review")
+    expect(md).toContain("Applied 1 edit, discarded 1, 2 concerns for the coach")
+    expect(md).toContain("- replace experience:unity b2: “Ran 14,000 voters” → “Ran voter campaigns” (figure not in the evidence)")
+    expect(md).toContain("- remove header: that section is rendered by code from your profile and is read-only")
+    expect(md).toContain("- **Two figures for asset collection** (Conflicting figures): 4 weeks to 1 week vs 3 weeks to under an hour.")
+    expect(md).toContain("  - Question: Which figure describes the Unity Awards work?")
+    expect(md).toContain("  - Evidence: Cut asset collection from 4 weeks to 1 week")
+  })
+
+  it("Copy log says why a review was skipped, names the reuse source and the draft, and never says preview for a new run", () => {
+    const md = runLogMarkdown({
+      jobTitle: "J", company: null,
+      run: { ...base, review: { ...review, skipped: true, skipReason: "The review was turned off for this run, so the CV lands unreviewed.", applied: [], discarded: [], concerns: [] }, selectionReusedFromRunId: "run-0", writingDeskDocumentId: "doc-1", partial: false },
+    })
+    expect(md).toContain("Review skipped: The review was turned off for this run")
+    expect(md).toContain("- Brief and selection: reused from run run-0 (nothing changed since)")
+    expect(md).toContain("- Draft: writing desk document doc-1")
+    expect(md).not.toMatch(/preview/i)
+  })
+
+  it("Copy log has no Review section for a run stored before Phase 4a, and does not crash", () => {
+    const md = runLogMarkdown({ jobTitle: "J", company: null, run: base })
+    expect(md).not.toContain("## Review")
+    expect(reviewMarkdown(undefined)).toEqual([])
+  })
+
+  it("shows the Review and Land rows: a skipped review, the reuse note on Brief and Select, a complete run's stepper all done", () => {
+    const rows = buildStageRows({
+      status: "complete", stageTimings: {},
+      log: [
+        entry({ stage: "brief", status: "skipped", notes: ["Reused the brief and selection from the run of 10 Nov 2026 (nothing changed since)"] }),
+        entry({ stage: "review", status: "skipped", notes: ["The review was turned off for this run, so the CV lands unreviewed."] }),
+        entry({ stage: "land", status: "ok", notes: ["Created a new CV document and saved the CV as a draft in it"] }),
+      ],
+    })
+    expect(rows.map((r) => `${r.stage}:${r.state}`)).toEqual(["gather:done", "brief:skipped", "select:done", "write:done", "assemble:done", "review:skipped", "land:done"])
+  })
+
+  it("a run that failed in Land shows Land failed and the earlier stages done", () => {
+    const rows = buildStageRows({
+      status: "failed", stageTimings: {},
+      log: ["gather", "brief", "select", "write", "assemble", "review"].map((stage) => entry({ stage: stage as never })).concat(entry({ stage: "land", status: "failed", notes: ["A draft appeared"] })),
+    })
+    expect(rows.at(-1)!.state).toBe("failed")
+    expect(rows.slice(0, 6).every((r) => r.state === "done")).toBe(true)
   })
 })

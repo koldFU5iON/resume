@@ -3,6 +3,8 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { buildStageRows } from "@/app/dashboard/job-applications/_components/cv-generation-view"
 import { StageLogEntrySchema, parseAssembled } from "@/modules/cv-generation/schema"
 import { GenerationLog } from "./generation-log"
+import { ConcernsPanel } from "./concerns-panel"
+import { concernRows } from "@/app/dashboard/job-applications/_components/cv-generation-view"
 
 const write = StageLogEntrySchema.parse({
   stage: "write",
@@ -44,5 +46,33 @@ describe("GenerationLog: where each bullet came from", () => {
     const old = renderToStaticMarkup(<GenerationLog rows={rows} assembled={parseAssembled({ markdown: "# x", sections: [{ id: "experience:unity", kind: "experience", markdown: "m" }] })} />)
     expect(old).not.toContain("Where each bullet came from")
     expect(renderToStaticMarkup(<GenerationLog rows={rows} />)).not.toContain("Where each bullet came from")
+  })
+})
+
+describe("ConcernsPanel (phase 4a)", () => {
+  const html = renderToStaticMarkup(
+    <ConcernsPanel concerns={concernRows({ concerns: [
+      { kind: "metric_conflict", title: "Two figures", why: "They differ.", question: "Which is right?", refs: [{ label: "S1", snippet: "Cut asset collection from 4 weeks to 1 week" }] },
+      { kind: "claimed_in_bullet", title: "Tableau in a bullet", why: "Listed without evidence.", question: "Have you used it?", refs: [] },
+    ] })} />,
+  )
+
+  it("shows each concern as a kind badge, a title, why and the question, under a heading that counts them", () => {
+    expect(html).toContain("2 concerns to discuss with the coach")
+    expect(html).toContain("Conflicting figures")
+    expect(html).toContain("Unevidenced tool in a bullet")
+    expect(html).toContain("Two figures")
+    expect(html).toContain("They differ.")
+    expect(html).toContain("Which is right?")
+    expect(html).toContain("Cut asset collection from 4 weeks to 1 week")
+  })
+
+  it("says the draft does not wait on them (it is never a gate)", () => {
+    expect(html).toContain("does not wait on them")
+  })
+
+  it("is singular for one concern", () => {
+    const one = renderToStaticMarkup(<ConcernsPanel concerns={concernRows({ concerns: [{ kind: "other", title: "T", why: "", question: "Q?", refs: [] }] })} />)
+    expect(one).toContain("1 concern to discuss")
   })
 })
