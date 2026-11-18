@@ -1,11 +1,11 @@
-// Job/CV attribution for LlmUsageLog rows.
+// Job/CV/desk-document attribution for LlmUsageLog rows.
 //
 // Callers that run a model on behalf of a job application (job fit, CV
 // generation, assessment, cover letters, …) pass an explicit `attribution`
 // through complete()/completeStructured()/askJev(). It is validated here
-// against the profile before it is written: a job or CV that doesn't belong to
-// the profile, or a CV that belongs to a different job, is dropped rather than
-// recorded. Attribution is never inferred from timestamps, and profile-only
+// against the profile before it is written: a job, CV or writing desk document
+// that doesn't belong to the profile, or a CV/document that belongs to a
+// different job, is dropped rather than recorded. Attribution is never inferred from timestamps, and profile-only
 // operations simply pass none.
 
 import { randomUUID } from 'node:crypto'
@@ -16,6 +16,11 @@ export type LlmAttribution = {
   jobApplicationId?: string | null
   /** CVDocument the call generated, reviewed or refined. Implies its job when jobApplicationId is omitted. */
   cvDocumentId?: string | null
+  /**
+   * WritingDeskDocument the call wrote, reviewed or refined (CV generation).
+   * Implies its job when no job is otherwise known.
+   */
+  writingDeskDocumentId?: string | null
   /** Groups every call of one multi-call operation; see newRunId(). */
   runId?: string | null
 }
@@ -23,12 +28,14 @@ export type LlmAttribution = {
 export type ResolvedAttribution = {
   jobApplicationId: string | null
   cvDocumentId: string | null
+  writingDeskDocumentId: string | null
   runId: string | null
 }
 
 export const NO_ATTRIBUTION: ResolvedAttribution = Object.freeze({
   jobApplicationId: null,
   cvDocumentId: null,
+  writingDeskDocumentId: null,
   runId: null,
 })
 
@@ -44,6 +51,10 @@ export type AttributionDb = {
   jobApplication: { findFirst(args: { where: { id: string; profileId: string }; select: { id: true } }): Promise<{ id: string } | null> }
   cVDocument: {
     findFirst(args: { where: { id: string; profileId: string }; select: { jobApplicationId: true } }): Promise<{ jobApplicationId: string | null } | null>
+  }
+  /** Only queried when a writingDeskDocumentId is given. */
+  writingDeskDocument: {
+    findFirst(args: { where: { id: string; profileId: string }; select: { jobApplicationId: true } }): Promise<{ jobApplicationId: string } | null>
   }
 }
 
@@ -61,6 +72,7 @@ export async function resolveAttribution(
   if (!attribution) return NO_ATTRIBUTION
   const jobId = attribution.jobApplicationId?.trim() || null
   const cvId = attribution.cvDocumentId?.trim() || null
+  const deskId = attribution.writingDeskDocumentId?.trim() || null
   const rawRunId = attribution.runId?.trim() || null
 
   let runId: string | null = null
@@ -68,11 +80,12 @@ export async function resolveAttribution(
     if (RUN_ID_PATTERN.test(rawRunId)) runId = rawRunId
     else console.warn('[llm-usage] dropped malformed runId')
   }
-  if (!jobId && !cvId) return { jobApplicationId: null, cvDocumentId: null, runId }
+  if (!jobId && !cvId && !deskId) return { ...NO_ATTRIBUTION, runId }
 
-  const [job, cv] = await Promise.all([
+  const [job, cv, desk] = await Promise.all([
     jobId ? db.jobApplication.findFirst({ where: { id: jobId, profileId }, select: { id: true } }) : null,
     cvId ? db.cVDocument.findFirst({ where: { id: cvId, profileId }, select: { jobApplicationId: true } }) : null,
+    deskId ? db.writingDeskDocument.findFirst({ where: { id: deskId, profileId }, select: { jobApplicationId: true } }) : null,
   ])
 
   let jobApplicationId: string | null = null
@@ -94,5 +107,20 @@ export async function resolveAttribution(
     }
   }
 
-  return { jobApplicationId, cvDocumentId, runId }
+  let writingDeskDocumentId: string | null = null
+  if (deskId) {
+    // The job it must belong to: the one given, else the one the CV implied.
+    const expectedJob = jobId ?? jobApplicationId
+    if (!desk) {
+      console.warn('[llm-usage] dropped desk document attribution: not found for this profile', { writingDeskDocumentId: deskId })
+    } else if (expectedJob && desk.jobApplicationId !== expectedJob) {
+      console.warn('[llm-usage] dropped desk document attribution: document belongs to a different job', { writingDeskDocumentId: deskId, jobApplicationId: expectedJob })
+    } else {
+      writingDeskDocumentId = deskId
+      // The document's own job link is an explicit association, not an inference.
+      if (!jobApplicationId) jobApplicationId = desk.jobApplicationId
+    }
+  }
+
+  return { jobApplicationId, cvDocumentId, writingDeskDocumentId, runId }
 }

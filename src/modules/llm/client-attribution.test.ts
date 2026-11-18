@@ -6,6 +6,7 @@ vi.mock('@/lib/db', () => ({
     llmUsageLog: { create: vi.fn() },
     jobApplication: { findFirst: vi.fn() },
     cVDocument: { findFirst: vi.fn() },
+    writingDeskDocument: { findFirst: vi.fn() },
   },
 }))
 vi.mock('@/lib/encryption', () => ({ decrypt: vi.fn().mockReturnValue('sk-test') }))
@@ -27,7 +28,11 @@ import { completeJSON } from './complete-json'
 
 const mockGenerate = vi.mocked(generateText)
 const mockCreate = vi.mocked(prisma.llmUsageLog.create)
-const owned = { jobs: new Set(['job-a', 'job-b']), cvs: new Map([['cv-a1', 'job-a'], ['cv-a2', 'job-a'], ['cv-b1', 'job-b']]) }
+const owned = {
+  jobs: new Set(['job-a', 'job-b']),
+  cvs: new Map([['cv-a1', 'job-a'], ['cv-a2', 'job-a'], ['cv-b1', 'job-b']]),
+  desks: new Map([['desk-a1', 'job-a'], ['desk-b1', 'job-b']]),
+}
 
 const textResult = (text = '{}', extra: Record<string, unknown> = {}) => ({
   text,
@@ -48,6 +53,8 @@ beforeEach(() => {
     where.profileId === 'p1' && owned.jobs.has(where.id) ? { id: where.id } : null) as never)
   vi.mocked(prisma.cVDocument.findFirst).mockImplementation((async ({ where }: { where: { id: string; profileId: string } }) =>
     where.profileId === 'p1' && owned.cvs.has(where.id) ? { jobApplicationId: owned.cvs.get(where.id) } : null) as never)
+  vi.mocked(prisma.writingDeskDocument.findFirst).mockImplementation((async ({ where }: { where: { id: string; profileId: string } }) =>
+    where.profileId === 'p1' && owned.desks.has(where.id) ? { jobApplicationId: owned.desks.get(where.id) } : null) as never)
   mockGenerate.mockResolvedValue(textResult() as never)
 })
 
@@ -67,6 +74,14 @@ describe('usage attribution in the BYOK client', () => {
       cacheReadTokens: 60, cacheWriteTokens: 10, serverToolCalls: 2, usageKnown: true,
       jobApplicationId: 'job-a', cvDocumentId: 'cv-a1', runId: 'run-1',
     })
+  })
+
+  it('records the writing desk document a call was for, and drops one from another job', async () => {
+    await complete('p1', 'hi', { feature: 'cv-gen-write', attribution: { jobApplicationId: 'job-a', writingDeskDocumentId: 'desk-a1', runId: 'run-1' } })
+    await complete('p1', 'hi', { feature: 'cv-gen-write', attribution: { jobApplicationId: 'job-a', writingDeskDocumentId: 'desk-b1' } })
+    await vi.waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(2))
+    expect(rows()[0]).toMatchObject({ jobApplicationId: 'job-a', writingDeskDocumentId: 'desk-a1', runId: 'run-1' })
+    expect(rows()[1]).toMatchObject({ jobApplicationId: 'job-a', writingDeskDocumentId: null })
   })
 
   it('leaves profile-only calls unattributed', async () => {
@@ -142,6 +157,15 @@ describe('failed calls', () => {
       promptTokens: 0, completionTokens: 0, serverToolCalls: null,
       feature: 'cv-generate', jobApplicationId: 'job-a', cvDocumentId: 'cv-a1', runId: 'run-9',
     })
+  })
+
+  it('keeps the writing desk document attribution on a failed call', async () => {
+    mockGenerate.mockRejectedValueOnce(new APICallError({
+      message: 'overloaded', url: 'https://x', requestBodyValues: {}, statusCode: 529,
+    }))
+    await expect(complete('p1', 'hi', { feature: 'cv-gen-write', attribution: { writingDeskDocumentId: 'desk-b1', runId: 'run-w' } })).rejects.toThrow()
+    await vi.waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1))
+    expect(rows()[0]).toMatchObject({ status: 'error', jobApplicationId: 'job-b', writingDeskDocumentId: 'desk-b1', runId: 'run-w' })
   })
 
   it('keeps the usage of output that failed validation (it was billed)', async () => {

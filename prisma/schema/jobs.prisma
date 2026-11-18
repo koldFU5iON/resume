@@ -43,6 +43,7 @@ model JobApplication {
   interviewPrepSessions InterviewPrepSession[]
   assessments           JobAssessment[]
   deepDives             JobDeepDive[]
+  cvGenerations         CvGeneration[]
   llmUsageLogs          LlmUsageLog[]
 
   @@index([profileId])

@@ -25,6 +25,8 @@ model WritingDeskDocument {
   jobApplication JobApplication          @relation(fields: [jobApplicationId], references: [id], onDelete: Cascade)
   sourceCv       CVDocument?             @relation("WritingDeskSourceCV", fields: [sourceCvDocumentId], references: [id], onDelete: SetNull)
   draftEvents    WritingDeskDraftEvent[]
+  cvGenerations  CvGeneration[]
+  llmUsageLogs   LlmUsageLog[]
 
   @@index([profileId])
   @@index([jobApplicationId, createdAt])

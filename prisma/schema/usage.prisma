@@ -37,15 +37,20 @@ model LlmUsageLog {
   // history when a job or CV is deleted.
   jobApplicationId String?
   cvDocumentId     String?
+  // The writing desk document a call wrote, reviewed or refined (CV generation).
+  // SetNull, like cvDocumentId: billing history survives deleting the document.
+  writingDeskDocumentId String?
   // Groups every call of one multi-call operation (a CV generation, an assessment run).
   runId            String?
 
   profile        Profile         @relation(fields: [profileId], references: [id], onDelete: Cascade)
   jobApplication JobApplication? @relation(fields: [jobApplicationId], references: [id], onDelete: SetNull)
   cvDocument     CVDocument?     @relation(fields: [cvDocumentId], references: [id], onDelete: SetNull)
+  writingDeskDocument WritingDeskDocument? @relation(fields: [writingDeskDocumentId], references: [id], onDelete: SetNull)
 
   @@index([profileId, createdAt])
   @@index([jobApplicationId])
   @@index([cvDocumentId])
+  @@index([writingDeskDocumentId])
   @@index([runId])
 }

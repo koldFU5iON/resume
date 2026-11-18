@@ -1,0 +1,42 @@
+// ------------------------------------------------------------
+// CV GENERATION — staged pipeline that writes a job's CV into the writing desk
+// Plan and implementation record: docs/cv-generation.md
+// ------------------------------------------------------------
+
+/// One row per CV generation run, modelled on JobDeepDive. Never updated after
+/// it reaches `complete` or `failed`; the newest row per job is the current
+/// run. The row id is the `runId` on every LLM usage row of the run.
+model CvGeneration {
+  id                    String    @id @default(cuid())
+  profileId             String
+  jobApplicationId      String
+  /// The desk document the draft lands in; known once the Land stage picks or creates it
+  writingDeskDocumentId String?
+  /// The complete deep dive whose strategy the run used (null: jobAnalysis fallback)
+  deepDiveId            String?
+  /// queued | gathering | briefing | selecting | writing | assembling | reviewing | landing | complete | failed
+  status                String
+  /// no_llm_key | no_description | timeout | rate_limited | overloaded | refusal | invalid_output | draft_exists | error
+  failureKind           String?
+  failureMessage        String?
+  /// sha256 of the gathered inputs (profile, job, strategy source); set by the gather stage
+  inputsHash            String?
+  startedAt             DateTime?
+  completedAt           DateTime?
+  /// { gather, brief, select, write, assemble, review, land } in ms
+  stageTimings          Json?
+  /// Per-stage transparency log (CvGenerationLog, src/modules/cv-generation/schema.ts)
+  log                   Json?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  profile             Profile              @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  jobApplication      JobApplication       @relation(fields: [jobApplicationId], references: [id], onDelete: Cascade)
+  writingDeskDocument WritingDeskDocument? @relation(fields: [writingDeskDocumentId], references: [id], onDelete: SetNull)
+  deepDive            JobDeepDive?         @relation(fields: [deepDiveId], references: [id], onDelete: SetNull)
+
+  @@index([profileId, jobApplicationId, createdAt])
+  @@index([profileId, status])
+  @@index([writingDeskDocumentId])
+  @@index([deepDiveId])
+}
