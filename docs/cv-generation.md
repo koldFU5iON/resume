@@ -1,243 +1,116 @@
-# CV Generation — How It Works
+# CV generation (writing desk)
 
-The CV builder uses a **multi-pass AI pipeline** to produce a targeted, evidence-driven CV. Each pass has a distinct job; they feed into each other in sequence.
+Status: **plan agreed; phase 1 (run record, attribution, generation log) shipped.** The Implementation record at the end is filled in as each PR lands, so this file ends up as the implementation record. The pipeline of the code being replaced is kept in [`cv-generation-legacy.md`](./cv-generation-legacy.md) until phase 5 removes it.
 
----
+Replaces the legacy cv-builder generation (`createAndGenerateCV` in `src/modules/cv/actions.ts`, `src/modules/cv/generate.ts`). The result is a **writing desk document** (Markdown with `:::` blocks), landed as a reviewable draft.
 
-## Overview
+## Why replace it
 
-A CV generation run does four things in order:
+Findings from the audit of the legacy pipeline:
 
-1. **Gather** — collect all inputs from the database (no LLM)
-2. **Analyse** — understand what the job actually needs (LLM, job-targeted only)
-3. **Score** — pick the best evidence from the candidate's history (LLM, job-targeted only)
-4. **Write** — produce the CV sections from the filtered evidence (LLM, always)
+- **One call writes the whole CV** (pass 4, `completeJSON`, 8000 max tokens). Quality and length are controlled only by prose in `src/lib/prompts/cv-generate.md`.
+- **Over-production.** Only activities are capped (5/4/3 per role). Experiences, skills, tools, projects, certs and competencies are sent whole. The schema has no `.max`. The master CV narrative is injected *on top of* the full profile, and its prompt says to reuse all master outcomes. The pass-2 "must-include" tiers never reach the writing call.
+- **No progress.** One blocking server action, a spinner and a static "15-30 seconds". `CVDocument.status = 'generating'` exists but nothing reads it.
+- **Master CV saved nothing.** It adds tokens rather than replacing any.
+- **Output is the legacy `CVDocumentContent` JSON**, not a desk document.
 
-A fifth step, **Scan**, runs fire-and-forget after writing as a quality check.
+Attribution was already in place (`LlmUsageLog.jobApplicationId/cvDocumentId/runId`, `docs/llm-usage-tracking.md`). The gap is that `cvDocumentId` points at the legacy `CVDocument`, not a desk document.
 
-Generic CVs (no job target) skip passes 2 and 3 and apply a deterministic budget instead.
+## Decisions
 
----
+1. **Master CV is dropped from job CV generation.** Evidence is curated per job from the profile. The master-CV generator (`career-vertical/master-cv.ts`) stays, and is kept for more generic recruiter handoffs.
+2. **Deep dive is not required.** Strategy comes from the newest *complete* deep dive when one exists. Otherwise the Brief stage falls back to `JobApplication.jobAnalysis` (written from the early Jev assessment), and runs `analyseJob` only if that is also missing.
+3. **Switch immediately.** "Generate CV" points at the new flow as soon as it ships; the old routes are then deprecated and removed in a follow-up.
 
-## Triggering Generation
+## Pipeline
 
-There are two entry points:
+The model tiers below are recommendations. Feature code only names a `role` (`fast` | `default` | `analysis`); `ROLE_RECOMMENDATIONS` in `src/modules/llm/roles.ts` and the user's "Models by task" settings choose the model. No feature module names a model id.
 
-- **New CV** — user visits `/dashboard/cv-builder/new?jobId=<optional>`. The page mounts and immediately calls the `createAndGenerateCV` server action. The CV row is created with `status: generating`, then the pipeline runs. When done, status becomes `draft` and the user is redirected to the editor.
-- **Regenerate** — inside the editor, user confirms the regenerate dialog. This calls `regenerateCVContent`, which resets the same CV row to `generating` and re-runs the pipeline on the existing CV document.
+| # | Stage | Role (model) | Purpose |
+|---|---|---|---|
+| 0 | Gather | none (code) | Profile snapshot, newest complete deep dive (`cvStrategy`, gaps, strengths) or `jobAnalysis` fallback, structure guide, block contract. |
+| 1 | Brief | `analysis` (Opus) | The hidden question: what problem is this role hired to solve? Plus lead-with, emphasise, play down, per-section budget. Small JSON. |
+| 2 | Select | `fast` (Haiku) | Chooses evidence per section (activities, skills, tools, certs). **Hard caps are enforced in code**, so over-production stops here. |
+| 3a | Write, wave 1 (parallel) | default (Sonnet) | Experience (one call per role: achievements, outcomes, business impact), skills and tools, education and certs. Each sees only its selected evidence, the brief and that section's block syntax. |
+| 3b | Write, wave 2 | default (Sonnet) | Professional profile and competencies, written after wave 1 so they cannot claim what the experience section does not support. |
+| 4 | Assemble | none (code) | Order by structure guide, fill `{{contact}}`, `validateDraftMarkdown`, `fact-check.ts`, per-section word/bullet limits with one retry. |
+| 5 | Review | `analysis` (Opus) | Cohesion against the brief. Lists every factual claim as supported / uncertain / unsupported against profile evidence. Unsupported claims are removed. |
+| 6 | Land | none (code) | `createDraft` into the desk. The owner accepts or discards in the existing `DraftReview`. Nothing overwrites a live document. |
 
-Both paths call `generateCVContent` in `src/modules/cv/generate.ts`.
+### Claim verification and the coach
 
----
+Uncertain claims are listed in the run log with a "verify with coach" action. **Not built yet:** the coach cannot write to the profile. `propose_profile_update` (`src/modules/chat/tools.ts`) is generic, with no target experience or achievement, and `docs/chat-assistant.md` notes the write-on-accept was not wired. The handoff needs its own piece of work (see Phase 4).
 
-## Pass 0 — Gather Inputs
+## Run record and transparency log
 
-**File:** `src/modules/cv/generate.ts`
+A `CvGeneration` row per run, copied from the `JobDeepDive` pattern (`deep-dive/run.ts`): status per stage, `failureKind`, `failureMessage`, `startedAt`, `completedAt`, `stageTimings`, `inputsHash`, plus a `log` Json column.
 
-Everything needed is loaded in parallel before any LLM call:
+The "Generation log" panel shows, per stage:
 
-| What | How |
-|------|-----|
-| Full profile data | `buildProfileSnapshot(profileId)` reads all DB tables and returns a `ProfileSnapshot` struct |
-| Writing context | `loadWritingContext()` reads the user's writing brief from `UserSettings` + loads `writing-rules.md` from disk |
-| CV prompt | `loadCVPrompt()` reads `cv-generate.md` from disk |
-| Job details | If a `jobApplicationId` was provided, fetches `title`, `company`, `jobDescription`, and any cached `jobAnalysis` |
+- model used, duration, tokens and cost (summed by `runId` as `getRunUsage` does for deep dives)
+- what Select kept and dropped
+- validation retries
+- review edits and flagged claims
 
-The `ProfileSnapshot` is the single source of truth for all candidate data. Every subsequent pass receives it directly; it is never re-fetched.
+Progress uses the existing pattern: the run executes in `after()` and `AssessmentPoller` refreshes the page while a stage is active.
 
----
+## Usage attribution
 
-## Pass 1 — Job Analysis (LLM)
+Every call passes `attribution: { jobApplicationId, runId: row.id }`. Changes needed:
 
-**File:** `src/modules/cv/analyse-job.ts`  
-**Prompt:** `src/lib/prompts/cv-job-analysis.md`  
-**Skipped if:** no job target, no job description, or `jobAnalysis` already cached on the `JobApplication` row
+- add `writingDeskDocumentId` to `LlmUsageLog` (migration), set once the draft target is known
+- new feature tags `cv-gen-brief`, `cv-gen-select`, `cv-gen-write-*`, `cv-gen-review`, each with a label in `src/app/dashboard/settings/usage/_components/feature-labels.ts`
+- refresh the stale feature table in `docs/llm-usage-tracking.md`
+- unrelated gap noted in the audit: `scout-triage` has a job in scope but passes no attribution
 
-The model reads the job description and the candidate's profile summary, then produces a structured analysis:
+## Reused components
 
-```
-{
-  mustHave: string[]         // non-negotiable requirements
-  niceToHave: string[]       // preferred qualifications
-  risks: [{                  // hiring concerns
-    risk: string
-    severity: "low" | "medium" | "high"
-    recommendation: string   // how to address it in the CV
-  }]
-  positioningStrategy: string // 1–2 sentence directive: what story to lead with
-}
-```
+- `buildWritingContract` (`src/modules/mcp/contract.ts`), generated from the block registry so it cannot drift
+- `buildStructureGuide` (`src/modules/writing-desk/structure-guide.ts`)
+- `validateDraftMarkdown`, `createDraft`, `DraftReview`, `{{contact}}` substitution
+- `fact-check.ts` (warnings only; becomes an input to Review)
+- `deep-dive/run.ts` status machine, advisory locks and stale-run handling
+- `completeJSON` with Zod (large schemas hit the provider grammar limit, see `docs/deep-dive.md`)
+- `AssessmentPoller`
 
-The result is persisted back to `JobApplication.jobAnalysis` so re-runs and other features (job fit assessment) can reuse it without an extra LLM call.
+## Known constraints
 
-**Settings:** max 800 tokens, temperature 0.2 (low — we want precise extraction, not creativity)
+- `createDraft` refuses if a draft already exists, and accepts only `cv` or untyped documents. The Land stage must handle "draft exists" (ask to discard or open it).
+- A job holds at most 10 desk documents (`src/modules/writing-desk/schema.ts`).
+- The desk stores Markdown, not the legacy JSON, so nothing from `CVDocumentContent` carries over.
 
----
+## Delivery plan
 
-## Pass 2 — Evidence Scoring (LLM)
+Each phase is its own PR, cut from `origin/main`.
 
-**File:** `src/modules/cv/score-evidence.ts`  
-**Prompt:** `src/lib/prompts/cv-evidence-score.md`  
-**Skipped if:** no job target
+1. **Schema, run row, log panel.** `CvGeneration`, `LlmUsageLog.writingDeskDocumentId`, the poller and the empty log UI.
+2. **Gather, Brief, Select.** Prompts, schemas, caps, deep-dive and `jobAnalysis` fallback.
+3. **Section writers and Assemble.** Wave 1 and wave 2, validation and retry.
+4. **Review, Land and coach handoff.** Claim table, draft creation, coach write path.
+5. **Switch the entry point.** "Generate CV" in `src/components/app-item-menu.tsx`, then deprecate `cv-builder/new` and `createAndGenerateCV`.
 
-Every activity in the candidate's experience history is sent to the LLM with coordinates `[roleIndex.activityIndex]`. The model returns a score (1–10) and a tier for each:
+## Implementation record
 
-- `must-include` — directly proves a must-have requirement
-- `useful-context` — relevant but not critical
-- `cut` — not relevant to this role
+_Filled in per phase: what shipped, file locations, schema and migration names, prompt locations, caps and limits chosen, usage tags, and deviations from this plan._
 
-`applyScores()` then rebuilds the profile snapshot keeping only non-`cut` activities, ranked by score, capped by **role budgets**:
-
-| Role position | Max activities shown |
-|---------------|---------------------|
-| Current / most recent | 5 |
-| Previous role | 4 |
-| Older roles | 3 |
-
-**Fallback:** if the LLM call fails, `applyRoleBudgets()` applies the same budget deterministically (takes the first N activities, no scoring). Generic CVs always use this fallback path.
-
-**Settings:** max 1200 tokens, temperature 0.1 (very low — scoring needs consistency)
-
----
-
-## Pass 3 — CV Draft Generation (LLM)
-
-**File:** `src/modules/cv/generate.ts` (main pass)  
-**Prompt:** `src/lib/prompts/cv-generate.md`
-
-This is the main generation call. The user message is assembled from four blocks:
-
-```
-== JOB TARGET ==
-[role title, company, full job description]
-
-== JOB INTELLIGENCE ==
-[must-haves, nice-to-haves, risks with recommendations, positioning strategy from Pass 1]
-
-== CANDIDATE PROFILE ==
-[Markdown serialization of the filtered/scored ProfileSnapshot from Pass 2]
-
-== OUTPUT SCHEMA ==
-[description of all section types the LLM must produce]
-```
-
-For a generic (no-job) CV, the first two blocks are replaced with `== MODE: GENERIC CV ==`.
-
-The system prompt is assembled from three parts joined by `---` separators:
-
-1. `writing-rules.md` — universal style rules (voice, accuracy, formatting)
-2. User's personal writing brief (from `UserSettings.writingBrief`)
-3. `cv-generate.md` — CV-specific instructions (section budgets, blacklisted phrases, output contract)
-
-The LLM returns a `CVDocumentContent` JSON blob. The code strips any markdown fences and validates it against `CVDocumentContentSchema`. On validation failure it falls back to `parseCVContent()` which retries leniently, or returns an empty document.
-
-**Settings:** max 4000 tokens, temperature 0.3
-
----
-
-## Pass 4 — Recruiter Scan (fire-and-forget)
-
-**File:** `src/modules/cv/scan-cv.ts`  
-**Prompt:** `src/lib/prompts/cv-recruiter-scan.md`
-
-After Pass 3 completes and the CV is saved, this runs asynchronously — it does not block the user. It simulates a 15-second recruiter skim and returns:
-
-```
-{
-  takeaways: string[]       // what the recruiter walks away remembering
-  positioningMatch: string  // does the CV lead with the right story?
-  gaps: string[]            // what's missing or unclear
-}
-```
-
-Currently this is logged to the console only and not surfaced in the UI. It is used for internal generation quality monitoring.
-
-**Settings:** max 400 tokens, temperature 0.2
-
----
-
-## Data Shapes
-
-### CVDocumentContent (stored in `CVDocument.generatedContent` as JSON)
-
-```ts
-{
-  version: 1,
-  sections: CVSection[]
-}
-```
-
-### CVSection (discriminated union on `type`)
-
-Every section has: `id`, `type`, `visible: boolean`, `data`.
-
-| type | key fields in `data` |
-|------|--------------------|
-| `header` | `name`, `headline`, `subHeadline?`, `contact: { email?, phone?, linkedin?, website? }` |
-| `profile` | `content` (prose) |
-| `competencies` | `items: string[]` |
-| `capabilities` | `items: string[]` |
-| `experience` | `company`, `titles[]`, `location`, `duration`, `description`, `outcomes[]` |
-| `education` | `institution`, `qualification`, `field?`, `duration`, `grade?` |
-| `certification` | `name`, `issuer?`, `date?`, `url?` |
-| `skills` | `items: string[]` |
-| `tools` | `items: string[]` |
-| `languages` | `items: [{ name, proficiency }]` |
-
-### CVDocument status lifecycle
-
-```
-creating → generating → draft
-                      ↘ failed
-```
-
----
-
-## Key Files at a Glance
-
-```
-src/modules/cv/
-  generate.ts          — pipeline orchestrator (the entry point)
-  actions.ts           — server actions: create, regenerate, update section, toggle visibility, delete
-  analyse-job.ts       — Pass 1: job analysis LLM call
-  score-evidence.ts    — Pass 2: activity scoring + deterministic fallback
-  scan-cv.ts           — Pass 4: recruiter scan quality check
-  schema.ts            — Zod schemas for all section types + parseCVContent() fallback
-  export.ts            — toMarkdown(), toText() for export/copy
-  queries.ts           — getCV(), listCVs()
-
-src/modules/profile/
-  snapshot.ts          — buildProfileSnapshot() (DB read) + serializeProfileForLLM()
-
-src/modules/llm/
-  client.ts            — complete() and completeStructured() — the only LLM import point
-  prompt-context.ts    — loads .md files from disk, loadWritingContext(), composeSystem()
-
-src/lib/prompts/
-  writing-rules.md     — universal style rules (included in every generation call)
-  cv-generate.md       — main CV generation system prompt
-  cv-job-analysis.md   — Pass 1 system prompt
-  cv-evidence-score.md — Pass 2 system prompt
-  cv-recruiter-scan.md — Pass 4 system prompt
-
-src/app/dashboard/cv-builder/
-  new/page.tsx         — triggers createAndGenerateCV on mount
-  [id]/page.tsx        — loads CV, renders CvEditor
-  [id]/_components/    — CvEditor, CvBlock, SectionRail, per-section block components
-```
-
----
-
-## Design Principles
-
-**One DB read, many formats.** `buildProfileSnapshot()` is called once per generation run. `serializeProfileForLLM()` converts it to Markdown for the LLM. All passes share the same snapshot object — it is never re-fetched.
-
-**Each pass has one job.** Analysis asks "what does the role need?" Scoring asks "which activities prove it?" Writing asks "what should the CV say?" Keeping these separate makes the prompts smaller, the outputs easier to validate, and failures easier to diagnose.
-
-**Scores gate budgets.** The role budget (5/4/3 activities) is always enforced. For job-targeted CVs the LLM scores decide which activities fill those budget slots. For generic CVs or on failure, the first N activities fill them. The budget itself never changes.
-
-**Prompts are files, not strings.** All system prompts live in `src/lib/prompts/` as `.md` files. They are loaded from disk at request time. This makes them editable without touching TypeScript and reviewable in the same way as code.
-
-**All LLM calls go through one façade.** `client.ts` is the single import point. It handles provider routing, API key decryption, usage logging, and error normalization. Product features never import from the AI SDK directly.
-
-**Structured output everywhere.** Every LLM call that returns data (not prose) uses `completeStructured()` with a Zod schema. If the model returns malformed output the Zod parse fails, not silent bad data.
+- Phase 1: **shipped.** The run row, usage attribution and an empty-but-working generation log. No prompts, no LLM calls, no stages, and "Generate CV" still points at the old flow.
+  - **Migration** `20261118085231_cv_generation_run`: new `CvGeneration` table, and `LlmUsageLog.writingDeskDocumentId` (nullable, indexed, FK to `WritingDeskDocument`, `ON DELETE SET NULL`).
+  - **Schema**: `prisma/schema/cv-generation.prisma`. Columns: `id`, `profileId`, `jobApplicationId`, `writingDeskDocumentId?`, `deepDiveId?`, `status`, `failureKind?`, `failureMessage?`, `inputsHash?`, `startedAt?`, `completedAt?`, `stageTimings Json?`, `log Json?`, `createdAt`, `updatedAt`. Indexes `(profileId, jobApplicationId, createdAt)`, `(profileId, status)`, `writingDeskDocumentId`, `deepDiveId`. Relations: profile and job cascade on delete; desk document and deep dive `SetNull`.
+  - **Attribution**: `writingDeskDocumentId` on `LlmAttribution` and `resolveAttribution` (`src/modules/llm/attribution.ts`). It must belong to the profile, and to the given job (or the job a CV implied); otherwise it is dropped with a warning. Without a job it supplies the document's job. The BYOK client's `writeUsageLog` (success and failed-call paths) and the Jev reservation both store the resolved value. `docs/llm-usage-tracking.md` documents the field and its feature table is refreshed to the current tags.
+  - **Module** `src/modules/cv-generation/`:
+    - `schema.ts`: `CV_GENERATION_STATUSES`, `ACTIVE_STATUSES`, `CV_GENERATION_STAGES` and `STAGE_STATUS`, `FAILURE_KINDS`, `CV_GENERATION_STALE_MS` (15 min), `CV_GENERATION_CONCURRENCY_PER_PROFILE` (2), the Zod log schema (`StageLogEntrySchema`, `CvGenerationLogSchema`) and the tolerant `parseCvGenerationLog` / `parseStageTimings`.
+    - `queries.ts`: `getLatestCvGeneration(profileId, jobId)`, `getCvGeneration(profileId, runId)`, `getRunUsage` (total plus per-feature `UsageBucket`s, built on `summarizeRows` from `llm/job-cost.ts`), `isStaleRun`, `effectiveStatus`.
+    - `run.ts`: `createCvGenerationRun` (advisory-lock admission: one live run per job, two per profile; inserts the `queued` row and starts nothing), `setStatus` (forward-only guarded transition via `allowedFrom`), `updateActive`, `failRun`, `FAILURE_MESSAGES`.
+  - **UI**: `src/app/dashboard/job-applications/view/[id]/cv-generation/page.tsx` with `_components/generation-log.tsx` (`StageStepper`, `GenerationLog`), and the pure helpers in `src/app/dashboard/job-applications/_components/cv-generation-view.ts` (stage rows, formatters, poller signature). It renders the empty state ("No CV generation has run for this job yet"), the active stepper (mounting the unchanged `AssessmentPoller`), the failed state, and the complete state with a link to the draft. The side panel shows run time, status, estimated cost and call/token totals. Each stage row shows model, duration, tokens, cost, retries, notes, kept/dropped (collapsed) and flagged claims from the stored log.
+  - **Tests**: `schema.test.ts`, `run.test.ts`, `queries.test.ts` in the module; `cv-generation-view.test.ts`; the attribution tests (`attribution.test.ts`, `client-attribution.test.ts`) cover `writingDeskDocumentId`.
+  - **Deviations from the plan**:
+    - `status` is a `String` with a Zod/TypeScript union, not a Postgres enum, like `JobDeepDive`, so a later phase can add or rename a status without a migration.
+    - A `landing` status was added for stage 6 (Land) so every stage has one; the plan's statuses are in stage order, so `assembling` precedes `reviewing`.
+    - `CvGeneration` also carries `updatedAt` and `deepDiveId` (the source deep dive).
+    - `docs/cv-generation.md` already existed on `main` and described the legacy pipeline. It moved to `docs/cv-generation-legacy.md`; this plan took its place.
+    - The generation log page is reachable only by URL (`/dashboard/job-applications/view/<id>/cv-generation`). The job workspace nav (`job-document-nav.tsx`) is built from fixed document kinds plus a hard-coded Deep Dive entry, with no obvious slot for a new tab, so no link was added; phase 5 (the entry-point switch) adds it.
+    - No feature labels were added; no feature emits yet.
+- Phase 2: _pending_
+- Phase 3: _pending_
+- Phase 4: _pending_
+- Phase 5: _pending_
