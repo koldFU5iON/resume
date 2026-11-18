@@ -12,6 +12,8 @@ export const FEATURE_LABELS: Record<string, string> = {
   'cv-evidence-score': 'Evidence scoring',
   'cv-recruiter-scan': 'Recruiter scan',
   'cv-generate': 'CV generation',
+  'cv-gen-brief': 'CV generation — brief',
+  'cv-gen-select': 'CV generation — select evidence',
   'cover-letter-analyse':      'Cover letter — analyse role',
   'cover-letter-architect':    'Cover letter — build message',
   'cover-letter-draft':        'Cover letter — write draft',

@@ -68,6 +68,7 @@ Use a short kebab-case string. The values in use today (the authoritative displa
 | Jobs | `job-extract` (LLM fallback for extracting a job from a URL), `salary-estimate` |
 | Profile | `cv-import` (parsing a pasted CV into profile data), `profile-summary`, `profile-extract` (suggestions from an experience or project; also writes project evidence), `profile-evidence-links` |
 | Legacy CV builder | `cv-generate`, `cv-job-analysis`, `cv-evidence-score`, `cv-recruiter-scan` |
+| CV generation (writing desk) | `cv-gen-brief` (role `analysis`), `cv-gen-select` (role `fast`); every call passes `attribution: { jobApplicationId, runId }` with the `CvGeneration` row id as `runId` (`CV_GENERATION_FEATURES`, `src/modules/cv-generation/schema.ts`). When neither a deep dive nor `jobAnalysis` exists, Gather also calls `analyseJob`, logged as `cv-job-analysis` under the same `runId`. |
 | ATS check | `ats-keyword-expand`, `ats-interpret`, `ats-context` |
 | Cover letters (writing guide) | `cover-letter-analyse`, `cover-letter-architect`, `cover-letter-draft`, `cover-letter-review-pass`, `cover-letter-finalise`, `cover-letter-build`, `cover-letter-review` |
 | Interview prep | `interview-prep-doc-analysis`, `interview-prep-interviewer-analysis` |
@@ -80,7 +81,7 @@ Use a short kebab-case string. The values in use today (the authoritative displa
 
 Retired tags still have labels because old usage rows carry them: `job-fit` (JobFit was retired), `project-extract`, `job-hunt-fit`, `interview-prep-bulk-analysis`, `interview-prep-qa-generation`.
 
-Planned for CV generation into the writing desk (`docs/cv-generation.md`; labels are added with the stage that emits them): `cv-gen-brief`, `cv-gen-select`, `cv-gen-write-*`, `cv-gen-review`.
+CV generation into the writing desk (`docs/cv-generation.md`) emits `cv-gen-brief` and `cv-gen-select` so far (no `writingDeskDocumentId` yet: no document exists until the Land stage). Planned, labelled with the stage that emits them: `cv-gen-write-*`, `cv-gen-review`. A run's per-stage tokens and cost on the generation log page are the sums of the usage rows with that `runId` and feature.
 
 When you add a new LLM-powered feature, choose a value from the pattern above and add it to `FEATURE_LABELS` in `src/app/dashboard/settings/usage/_components/feature-labels.ts` so it displays a human-readable label in the usage UI rather than the raw key.
 

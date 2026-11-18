@@ -4,12 +4,17 @@
  * components can use it and it is easy to test.
  */
 
+import { FLAT_SECTIONS } from "@/modules/cv-generation/caps"
 import {
   ACTIVE_STATUSES,
+  CV_GENERATION_CONCURRENCY_PER_PROFILE,
   CV_GENERATION_STAGES,
+  DROP_REASON_LABEL,
   stageForStatus,
+  type CvBrief,
   type CvGenerationStage,
   type CvGenerationStatus,
+  type CvSelection,
   type StageLogEntry,
 } from "@/modules/cv-generation/schema"
 
@@ -80,6 +85,8 @@ export type StageRow = {
  */
 export function buildStageRows(run: {
   status: CvGenerationStatus
+  /** A preview run that stopped early: stages with no log entry never ran (shown "not run yet", not "done"). */
+  partial?: boolean
   log: readonly StageLogEntry[]
   stageTimings: Partial<Record<CvGenerationStage, number>>
 }): StageRow[] {
@@ -97,7 +104,7 @@ export function buildStageRows(run: {
     let state: StageState
     if (entry?.status === "failed") state = "failed"
     else if (entry?.status === "skipped") state = "skipped"
-    else if (run.status === "complete") state = "done"
+    else if (run.status === "complete") state = run.partial && !entry ? "waiting" : "done"
     else if (run.status === "failed") state = failedAt >= 0 && i === failedAt ? "failed" : i < failedAt || failedAt < 0 ? "done" : "waiting"
     else state = i < current ? "done" : i === current ? "active" : "waiting"
     return {
@@ -138,4 +145,101 @@ export function stageMeta(row: Pick<StageRow, "entry" | "durationMs">): string[]
   if (e?.costUsd != null) out.push(formatCost(e.costUsd))
   if (e && e.retries > 0) out.push(`${e.retries} ${e.retries === 1 ? "retry" : "retries"}`)
   return out
+}
+
+// ── Preview run (stages 0-2 only) ───────────────────────────────────────────
+
+/** Shown on a complete run that stopped after Select (log.partial). */
+export const PREVIEW_NOTICE = "Preview run: writing, review and draft stages are not built yet"
+export const PREVIEW_DETAIL =
+  "This run gathered your evidence, wrote the brief and chose what to show. No CV was written and no draft was created."
+
+/** What the run-preview button tells the user for each response of POST /api/jobs/[id]/cv-generation. */
+export function startResponseMessage(status: number): { ok: boolean; message: string | null } {
+  if (status === 200 || status === 202) return { ok: true, message: null }
+  if (status === 401) return { ok: false, message: "Sign in again to run a preview." }
+  if (status === 404) return { ok: false, message: "Job not found." }
+  if (status === 429) return { ok: false, message: `${CV_GENERATION_CONCURRENCY_PER_PROFILE} CV generations are already running. Try again when one finishes.` }
+  return { ok: false, message: "Couldn't start the preview. Check your connection and try again." }
+}
+
+export type BriefRow = { label: string; text?: string; items?: string[] }
+
+/** The Brief as labelled rows for reading (not raw JSON); empty lists are left out. */
+export function briefRows(brief: CvBrief): BriefRow[] {
+  const b = brief.budgets
+  const rows: BriefRow[] = [
+    { label: "The hidden question", text: brief.hiddenQuestion },
+    { label: "Lead with", items: brief.leadWith },
+    { label: "Emphasise", items: brief.emphasise.map((e) => `${e.item}: ${e.why}`) },
+    { label: "Play down", items: brief.playDown },
+    { label: "Positioning", text: brief.positioning },
+    { label: "Tone", text: brief.tone },
+    {
+      label: "Budget",
+      text: `Roles ${b.experiences} · skills ${b.skills} · tools ${b.tools} · competencies ${b.competencies} · certifications ${b.certifications} · education ${b.education} · projects ${b.projects}`,
+    },
+  ]
+  return rows.filter((r) => (r.text !== undefined ? r.text.trim() !== "" : (r.items?.length ?? 0) > 0))
+}
+
+export type SelectionGroup = {
+  key: string
+  title: string
+  kept: Array<{ label: string; reason: string }>
+  /** Left out, with why: cut by a limit, not in the profile, or simply not chosen. */
+  dropped: Array<{ label: string; why: string }>
+}
+
+const FLAT_TITLE: Record<(typeof FLAT_SECTIONS)[number], string> = {
+  skills: "Skills", tools: "Tools", competencies: "Competencies",
+  certifications: "Certifications", education: "Education", projects: "Projects",
+}
+
+/**
+ * The selection grouped for reading: roles, then each kept role's activities,
+ * then the flat sections. Sections with nothing kept and nothing dropped are
+ * left out.
+ */
+export function selectionGroups(sel: CvSelection): SelectionGroup[] {
+  const dropOf = (section: string, parentId?: string) =>
+    sel.dropped
+      .filter((d) => d.section === section && (parentId === undefined || d.parentId === parentId))
+      .map((d) => ({ label: d.label || d.id, why: DROP_REASON_LABEL[d.why] }))
+  const groups: SelectionGroup[] = [
+    { key: "experiences", title: "Roles with bullets", kept: sel.experiences.map((e) => ({ label: e.label, reason: e.reason })), dropped: dropOf("experiences") },
+  ]
+  for (const e of sel.experiences) {
+    groups.push({
+      key: `activities:${e.id}`,
+      title: `Evidence: ${e.label}`,
+      kept: (sel.activities[e.id] ?? []).map((a) => ({ label: a.label, reason: a.reason })),
+      dropped: dropOf("activities", e.id),
+    })
+  }
+  // Roles that stay visible as a title line only: no evidence is shown for them.
+  groups.push({
+    key: "headerOnly",
+    title: "Listed without bullets",
+    kept: sel.headerOnlyRoles.map((e) => ({ label: e.label, reason: e.reason })),
+    dropped: [],
+  })
+  for (const s of FLAT_SECTIONS) {
+    groups.push({ key: s, title: FLAT_TITLE[s], kept: sel[s].map((i) => ({ label: i.label, reason: i.reason })), dropped: dropOf(s) })
+  }
+  // Activities picked for a role that shows no bullets (header-only, or left out) have no role group to sit in.
+  const orphans = sel.dropped.filter((d) => d.section === "activities" && !sel.experiences.some((e) => e.id === d.parentId))
+  if (orphans.length > 0) {
+    groups.push({ key: "activities:orphans", title: "Picked evidence that was not used (its role has no bullets)", kept: [], dropped: orphans.map((d) => ({ label: d.label || d.id, why: DROP_REASON_LABEL[d.why] })) })
+  }
+  return groups.filter((g) => g.kept.length > 0 || g.dropped.length > 0)
+}
+
+/** "12 kept, 30 left out" for the selection heading. */
+export function selectionSummary(sel: CvSelection): string {
+  const kept = sel.experiences.length
+    + sel.headerOnlyRoles.length
+    + Object.values(sel.activities).reduce((n, l) => n + l.length, 0)
+    + FLAT_SECTIONS.reduce((n, s) => n + sel[s].length, 0)
+  return `${kept} kept, ${sel.droppedTotal} left out${sel.mode === "fallback" ? " (chosen by rules: the model's answer wasn't usable)" : ""}`
 }

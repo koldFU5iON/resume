@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest"
-import { StageLogEntrySchema, type CvGenerationStatus, type StageLogEntry } from "@/modules/cv-generation/schema"
+import { CvBriefSchema, CvSelectionSchema, StageLogEntrySchema, type CvGenerationStatus, type StageLogEntry } from "@/modules/cv-generation/schema"
 import {
+  PREVIEW_DETAIL,
+  PREVIEW_NOTICE,
+  briefRows,
   buildStageRows,
   cvGenerationHref,
   cvGenerationSignature,
@@ -8,7 +11,10 @@ import {
   formatDuration,
   formatTokens,
   isCvGenerationActive,
+  selectionGroups,
+  selectionSummary,
   stageIndex,
+  startResponseMessage,
   stageMeta,
 } from "./cv-generation-view"
 
@@ -117,5 +123,109 @@ describe("stageMeta", () => {
     expect(stageMeta({ entry: entry({ stage: "gather" }), durationMs: 120 })).toEqual(["120 ms"])
     expect(stageMeta({ entry: null, durationMs: null })).toEqual([])
     expect(stageMeta({ entry: entry({ stage: "write", retries: 3 }), durationMs: null })).toEqual(["3 retries"])
+  })
+})
+
+describe("preview runs (stages 0-2 only)", () => {
+  const preview = [
+    entry({ stage: "gather" }),
+    entry({ stage: "brief", model: "m" }),
+    entry({ stage: "select", model: "m" }),
+  ]
+
+  it("shows the stages that never ran as not run yet, not done", () => {
+    expect(states({ ...run("complete", preview), partial: true } as never)).toEqual([
+      "done", "done", "done", "waiting", "waiting", "waiting", "waiting",
+    ])
+  })
+
+  it("still shows every stage done for a finished full run", () => {
+    expect(states(run("complete"))).toEqual(Array(7).fill("done"))
+  })
+
+  it("labels the preview so it never reads as a finished CV", () => {
+    expect(PREVIEW_NOTICE).toBe("Preview run: writing, review and draft stages are not built yet")
+    expect(PREVIEW_DETAIL).toMatch(/No CV was written/)
+  })
+})
+
+describe("startResponseMessage", () => {
+  it("accepts a started or already-running run", () => {
+    expect(startResponseMessage(202)).toEqual({ ok: true, message: null })
+    expect(startResponseMessage(200)).toEqual({ ok: true, message: null })
+  })
+
+  it("explains each refusal", () => {
+    expect(startResponseMessage(401).message).toMatch(/Sign in/)
+    expect(startResponseMessage(404).message).toMatch(/not found/)
+    expect(startResponseMessage(429).message).toMatch(/already running/)
+    expect(startResponseMessage(500)).toMatchObject({ ok: false })
+    expect(startResponseMessage(0).message).toMatch(/Couldn't start/)
+  })
+})
+
+describe("briefRows", () => {
+  const brief = CvBriefSchema.parse({
+    hiddenQuestion: "Can they ship a migration?", leadWith: ["Migration delivery"],
+    emphasise: [{ item: "Release management", why: "core of the role" }], playDown: [],
+    positioning: "A delivery lead.", tone: "plain",
+    budgets: { experiences: 3, skills: 8, tools: 6, competencies: 4, certifications: 2, education: 2, projects: 1 },
+  })
+
+  it("reads as labelled rows, in order, leaving out empty lists", () => {
+    const rows = briefRows(brief)
+    expect(rows.map((r) => r.label)).toEqual(["The hidden question", "Lead with", "Emphasise", "Positioning", "Tone", "Budget"])
+    expect(rows[2].items).toEqual(["Release management: core of the role"])
+    expect(rows[5].text).toBe("Roles 3 · skills 8 · tools 6 · competencies 4 · certifications 2 · education 2 · projects 1")
+  })
+})
+
+describe("selectionGroups", () => {
+  const sel = CvSelectionSchema.parse({
+    mode: "model",
+    experiences: [{ id: "e1", label: "PM — Acme", reason: "most recent" }],
+    activities: { e1: [{ id: "a1", label: "Cut release time", reason: "has a number" }] },
+    skills: [{ id: "s1", label: "Release management", reason: "core" }],
+    dropped: [
+      { section: "experiences", id: "e2", label: "Intern — Old Co", why: "not_selected" },
+      { section: "activities", id: "a2", label: "Ran standups", parentId: "e1", why: "over_cap" },
+      { section: "activities", id: "a9", label: "Elsewhere", parentId: "e2", why: "role_not_kept" },
+      { section: "skills", id: "ghost", label: "", why: "unknown_id" },
+    ],
+    droppedTotal: 4,
+  })
+
+  it("groups roles, each kept role's evidence and the flat sections, with why things were left out", () => {
+    const groups = selectionGroups(sel)
+    expect(groups.map((g) => g.title)).toEqual(["Roles with bullets", "Evidence: PM — Acme", "Skills", "Picked evidence that was not used (its role has no bullets)"])
+    expect(groups[0].kept).toEqual([{ label: "PM — Acme", reason: "most recent" }])
+    expect(groups[0].dropped).toEqual([{ label: "Intern — Old Co", why: "not selected" }])
+    expect(groups[1].dropped).toEqual([{ label: "Ran standups", why: "over the limit" }])
+    expect(groups[2].dropped).toEqual([{ label: "ghost", why: "not in the profile" }])
+    expect(groups[3].dropped).toEqual([{ label: "Elsewhere", why: "its role was not kept" }])
+  })
+
+  it("shows header-only roles as their own group, and reads a stored row from before they existed", () => {
+    expect(sel.headerOnlyRoles).toEqual([]) // an old row parses, with no header-only roles
+    expect(selectionGroups(sel).some((g) => g.key === "headerOnly")).toBe(false)
+    const withHeaders = CvSelectionSchema.parse({
+      ...sel,
+      headerOnlyRoles: [{ id: "e2", label: "Intern — Old Co" }],
+      dropped: [{ section: "activities", id: "a9", label: "Elsewhere", parentId: "e2", why: "role_header_only" }],
+    })
+    const groups = selectionGroups(withHeaders)
+    expect(groups.map((g) => g.title)).toEqual(["Roles with bullets", "Evidence: PM — Acme", "Listed without bullets", "Skills", "Picked evidence that was not used (its role has no bullets)"])
+    expect(groups[2].kept).toEqual([{ label: "Intern — Old Co", reason: "" }])
+    expect(groups[4].dropped).toEqual([{ label: "Elsewhere", why: "its role is listed without bullets" }])
+    expect(selectionSummary(withHeaders)).toBe("4 kept, 4 left out")
+  })
+
+  it("leaves out sections with nothing to say", () => {
+    expect(selectionGroups(sel).some((g) => g.key === "tools")).toBe(false)
+  })
+
+  it("summarises kept and left out, and says when rules chose", () => {
+    expect(selectionSummary(sel)).toBe("3 kept, 4 left out")
+    expect(selectionSummary({ ...sel, mode: "fallback" })).toMatch(/chosen by rules/)
   })
 })

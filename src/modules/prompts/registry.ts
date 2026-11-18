@@ -53,6 +53,20 @@ export const PROMPT_REGISTRY: PromptDef[] = [
     requiredMarkers: ['== JOB INTELLIGENCE =='],
   },
   {
+    key: 'cv-gen-brief',
+    label: 'CV generation (writing desk): brief',
+    description: 'Decides what the CV must achieve for the role: the hidden question, what to lead with, emphasise and play down, and a budget per section.',
+    filename: 'cv-gen-brief.md',
+    group: 'cv',
+  },
+  {
+    key: 'cv-gen-select',
+    label: 'CV generation (writing desk): select evidence',
+    description: 'Picks, by id, the profile evidence worth showing per section. Hard limits are enforced in code afterwards.',
+    filename: 'cv-gen-select.md',
+    group: 'cv',
+  },
+  {
     key: 'cv-recruiter-scan',
     label: 'CV recruiter scan',
     description: 'Simulates a 15-second recruiter skim to check whether the CV surfaces its strongest evidence.',
