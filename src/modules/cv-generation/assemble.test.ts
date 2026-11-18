@@ -3,8 +3,8 @@ import { toProfileSnapshot } from '@/modules/profile/snapshot'
 import { parseWritingDeskMarkdown } from '@/modules/writing-desk/markdown'
 import { DEFAULT_CV_STRUCTURE } from '@/modules/writing-desk/structure-guide'
 import { validateDraftMarkdown } from '@/modules/writing-desk/validate'
-import { OLD_CO, UNITY, BLIZZARD, writeVault, writtenSections } from './__fixtures__/write'
-import { assembleCv, bodyWordCount, lengthNote, renderHeader, type AssembleInput } from './assemble'
+import { UNITY, BLIZZARD, writeVault, writtenSections } from './__fixtures__/write'
+import { assembleCv, bodyWordCount, cvStructure, lengthNote, renderHeader, type AssembleInput } from './assemble'
 import { CV_BODY_WORDS_SOFT_LIMIT } from './write/limits'
 import { parseAssembled } from './schema'
 import type { WrittenSection } from './write/types'
@@ -12,7 +12,7 @@ import type { WrittenSection } from './write/types'
 const sections: WrittenSection[] = writtenSections()
 const input = (over: Partial<AssembleInput> = {}): AssembleInput => ({
   name: 'Robin Placeholder', headline: 'Delivery and operations leader', sections,
-  employerOrder: [UNITY, BLIZZARD, OLD_CO], checkNotes: [], snapshot: toProfileSnapshot(writeVault()), ...over,
+  employerOrder: [UNITY, BLIZZARD], checkNotes: [], snapshot: toProfileSnapshot(writeVault()), ...over,
 })
 
 describe('renderHeader (the headline is model text)', () => {
@@ -29,18 +29,40 @@ describe('assembleCv', () => {
 
   it('orders the sections by the DEFAULT structure, not by the order they were written in', () => {
     const headings = [...md.slice(md.indexOf('\n:::\n') + 5).matchAll(/^## (.+)$/gm)].map((m) => m[1])
-    const expected = DEFAULT_CV_STRUCTURE.filter((s) => s.key !== 'header').map((s) => s.heading)
-    // Every default heading that has content, in default order. The header block comes first.
+    const expected = cvStructure().sections.filter((s) => s.key !== 'header').map((s) => s.heading)
+    // Every heading of the structure that has content, in order. The header block comes first.
     expect(headings).toEqual(expected.filter((h) => headings.includes(h)))
-    expect(headings).toEqual(['Professional Profile', 'Core Competencies', 'Professional Experience', 'Tools', 'Skills', 'Certifications', 'Education', 'Languages'])
+    expect(headings).toEqual(['Professional Profile', 'Core Competencies', 'Professional Experience', 'Earlier Experience', 'Tools', 'Skills', 'Certifications', 'Education', 'Languages'])
     expect(md.startsWith(':::header')).toBe(true)
-    expect(r.assembled.sections.map((s) => s.kind)).toEqual(['header', 'profile', 'competencies', 'experience', 'experience', 'experience', 'tools', 'skills', 'certification', 'education', 'languages'])
+    expect(r.assembled.sections.map((s) => s.kind)).toEqual(['header', 'profile', 'competencies', 'experience', 'experience', 'earlier-experience', 'tools', 'skills', 'certification', 'education', 'languages'])
   })
 
   it('puts the employers in the selection’s order, under one Professional Experience heading', () => {
     expect(md.indexOf('### Unity')).toBeLessThan(md.indexOf('### Blizzard Entertainment'))
-    expect(md.indexOf('### Blizzard Entertainment')).toBeLessThan(md.indexOf('### Old Co'))
     expect(md.match(/## Professional Experience/g)).toHaveLength(1)
+  })
+
+  it('puts Earlier Experience right after Professional Experience as ONE compact list, one clean line per employer, with no per-employer heading, progression or bullets', () => {
+    expect(md).toContain('## Earlier Experience\n\n:::compact-list\n- Old Co — Coordinator, 2010–2014\n:::')
+    expect(md.indexOf('### Blizzard Entertainment')).toBeLessThan(md.indexOf('## Earlier Experience'))
+    expect(md.indexOf('## Earlier Experience')).toBeLessThan(md.indexOf('## Tools'))
+    expect(md).not.toContain('### Old Co')
+    expect(md.match(/## Earlier Experience/g)).toHaveLength(1)
+  })
+
+  it('the Earlier Experience section is valid for the validator and draws no fact-check warning', () => {
+    expect(r.assembled.warnings.filter((w) => /Old Co/.test(w))).toEqual([])
+    expect(validateDraftMarkdown(md, cvStructure()).issues.filter((i) => i.severity !== 'info')).toEqual([])
+  })
+
+  it('omits the Earlier Experience heading entirely when there are no such employers', () => {
+    const res = assembleCv(input({ sections: sections.filter((s) => s.kind !== 'earlier-experience') }))
+    expect(res.ok && res.assembled.markdown).not.toMatch(/Earlier Experience/)
+  })
+
+  it('the shared default structure (the contract external writers read) is untouched', () => {
+    expect(DEFAULT_CV_STRUCTURE.map((s) => s.key)).not.toContain('earlier-experience')
+    expect(cvStructure().sections.map((s) => s.key)).toEqual(['header', 'profile', 'competencies', 'experience', 'earlier-experience', 'tools', 'skills', 'certification', 'education', 'languages'])
   })
 
   it('writes the header with the name, the headline and the literal {{contact}} placeholder, never contact details', () => {
@@ -67,7 +89,27 @@ describe('assembleCv', () => {
     expect(parseAssembled(stored)).toEqual(r.assembled)
     expect(r.assembled.sections.find((s) => s.id === 'skills')).toMatchObject({ model: 'm', tokens: { input: 10, output: 5 } })
     expect(r.assembled.sections.find((s) => s.id === 'header')).toEqual({ id: 'header', kind: 'header', markdown: expect.stringContaining('{{contact}}') })
-    expect(r.assembled.sections.filter((s) => s.kind === 'experience').map((s) => s.employerKey)).toEqual([UNITY, BLIZZARD, OLD_CO])
+    expect(r.assembled.sections.filter((s) => s.kind === 'experience').map((s) => s.employerKey)).toEqual([UNITY, BLIZZARD])
+  })
+
+  it('stores each bullet with the real ids and snippets it came from, and reads old runs (no bullets) and bad entries tolerantly', () => {
+    const withBullets = sections.map((s) => (s.id === `experience:${UNITY}`
+      ? { ...s, bullets: [{ text: 'Cut platform release time by 40% across 8 teams.', sources: [{ id: 'ua1', kind: 'activity' as const, snippet: 'Cut platform release time by 40% across 8 teams' }] }] }
+      : s))
+    const res = assembleCv(input({ sections: withBullets }))
+    if (!res.ok) throw new Error('assemble failed')
+    const unity = res.assembled.sections.find((s) => s.id === `experience:${UNITY}`)
+    expect(unity?.bullets).toEqual([{ text: 'Cut platform release time by 40% across 8 teams.', sources: [{ id: 'ua1', kind: 'activity', snippet: 'Cut platform release time by 40% across 8 teams' }] }])
+    expect(res.assembled.sections.find((s) => s.id === `experience:${BLIZZARD}`)).not.toHaveProperty('bullets')
+    expect(parseAssembled(JSON.parse(JSON.stringify(res.assembled)))?.sections.find((s) => s.id === `experience:${UNITY}`)?.bullets).toEqual(unity?.bullets)
+    // An old row has no bullets; a bad bullet or source inside a section is dropped, never the section.
+    const old = parseAssembled({ markdown: '# x', sections: [{ id: 'experience:a', kind: 'experience', markdown: 'm' }] })
+    expect(old?.sections[0].bullets).toBeUndefined()
+    const messy = parseAssembled({ markdown: '# x', sections: [{ id: 'experience:a', kind: 'experience', markdown: 'm', bullets: [{ text: 'ok', sources: [{ id: 'x', kind: 'activity', snippet: 's' }, 5] }, 7, { nope: 1 }] }] })
+    expect(messy?.sections[0].bullets).toEqual([{ text: 'ok', sources: [{ id: 'x', kind: 'activity', snippet: 's' }] }])
+    const notAList = parseAssembled({ markdown: '# x', sections: [{ id: 'experience:a', kind: 'experience', markdown: 'm', bullets: 'junk' }] })
+    expect(notAList?.sections).toHaveLength(1)
+    expect(notAList?.sections[0].bullets).toBeUndefined()
   })
 
   it('never introduces the word "promoted"', () => {

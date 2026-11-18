@@ -73,12 +73,23 @@ describe('the writer prompts, after the review fixes', () => {
   describe('phase 3b rules', () => {
     it('the experience prompt: merge same-outcome items, each figure once, projects, voice and tense', () => {
       const t = read('cv-gen-write-experience')
-      expect(t).toContain('Merge items that state the same outcome into ONE bullet')
+      expect(t).toContain('Merge items only when they state the same measured result with the same figures')
       expect(t).toContain('Each figure once')
       expect(t).toMatch(/Projects:.*extra evidence/)
       expect(t).toMatch(/never "I", "my", "me" or "we"/)
       expect(t).toMatch(/implied subject/)
       expect(t).toMatch(/a role the candidate has left is in the past tense throughout/)
+    })
+
+    it('phase 3d: related activities with different figures or mechanisms are different facts, and every bullet cites its source labels', () => {
+      const t = read('cv-gen-write-experience')
+      expect(t).toMatch(/Activities that look related but state different figures or different mechanisms are DIFFERENT facts/)
+      expect(t).toMatch(/Never merge them, and never carry a figure from one into the bullet of another/)
+      expect(t).toMatch(/same measured result with the same figures/)
+      expect(t).toMatch(/\{ "text": "...", "sources": \["E1"\] \}/)
+      expect(t).toMatch(/Every bullet MUST cite at least one source/)
+      expect(t).toMatch(/\[E1\]/)
+      expect(t).toMatch(/\[P1\]/)
     })
 
     it('phase 3c: completed achievements and measured results are PAST tense even in the current role; the summary and ongoing duties may be present', () => {

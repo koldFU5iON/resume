@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { CvBriefSchema, CvSelectionSchema, StageLogEntrySchema, type CvGenerationStatus, type StageLogEntry } from "@/modules/cv-generation/schema"
+import { CvBriefSchema, CvSelectionSchema, SectionLogEntrySchema, StageLogEntrySchema, type CvGenerationStatus, type StageLogEntry } from "@/modules/cv-generation/schema"
 import {
   CHECK_NOTE_PREFIX, parseAssembled,
 } from "@/modules/cv-generation/schema"
@@ -27,6 +27,10 @@ import {
   startResponseMessage,
   stageMeta,
   runLogMarkdown,
+  PROVENANCE_SUMMARY,
+  bulletSourceLines,
+  provenanceBySection,
+  sourceLine,
 } from "./cv-generation-view"
 
 const entry = (over: Partial<StageLogEntry> & Pick<StageLogEntry, "stage">): StageLogEntry => StageLogEntrySchema.parse(over)
@@ -553,5 +557,69 @@ describe("runLogMarkdown (the Copy log text)", () => {
     const bare = runLogMarkdown({ jobTitle: "J", company: null, run: { id: "r", status: "queued", createdAt: "not a date", log: null, stageTimings: null } })
     expect(bare).toContain("- Date: unknown")
     expect(bare).not.toContain("## Stages")
+  })
+})
+
+describe("per-bullet provenance on the log (Phase 3d)", () => {
+  const bullets = [
+    { text: "Cut asset collection from 4 weeks to 1 week across 150 customer projects.", sources: [{ id: "a1", kind: "activity" as const, snippet: "Cut asset collection from 4 weeks to 1 week for the Unity Awards" }] },
+    { text: "Ran the Enemies Demo Campaign.", sources: [{ id: "p1", kind: "project" as const, snippet: "Enemies Demo Campaign: ran the demo" }, { id: "a2", kind: "activity" as const, snippet: "Launched the demo" }] },
+    { text: "Kept the release calendar.", sources: [] },
+  ]
+  const assembled = {
+    markdown: ":::header\n# Robin\n{{contact}}\n:::\n",
+    warnings: [], checkNotes: [],
+    sections: [
+      { id: "experience:unity", kind: "experience", employerKey: "unity", markdown: "### Unity", bullets },
+      { id: "earlier-experience", kind: "earlier-experience", markdown: ":::compact-list\n- Old Co — Coordinator, 2010–2014\n:::" },
+    ],
+  }
+
+  it("formats a source as 'from: <snippet> (activity|project)', and says when the writer cited none", () => {
+    expect(sourceLine(bullets[0].sources[0])).toBe("from: Cut asset collection from 4 weeks to 1 week for the Unity Awards (activity)")
+    expect(bulletSourceLines(bullets[1])).toEqual(["from: Enemies Demo Campaign: ran the demo (project)", "from: Launched the demo (activity)"])
+    expect(bulletSourceLines(bullets[2])).toEqual(["from: no source cited"])
+  })
+
+  it("finds the provenance by section id, leaving out sections without bullets and runs stored before provenance", () => {
+    const map = provenanceBySection(assembled)
+    expect([...map.keys()]).toEqual(["experience:unity"])
+    expect(provenanceBySection(null).size).toBe(0)
+    expect(provenanceBySection(parseAssembled({ markdown: "# x", sections: [{ id: "experience:unity", kind: "experience", markdown: "m" }] })).size).toBe(0)
+  })
+
+  const md = runLogMarkdown({
+    jobTitle: "J", company: null,
+    run: {
+      id: "r", status: "complete", createdAt: new Date("2026-11-18T10:00:00Z"), assembled, stageTimings: {},
+      log: [entry({ stage: "write", sections: [
+        SectionLogEntrySchema.parse({ id: "experience:unity", label: "Experience: Snr. Program Manager — Unity", notes: ["Bullet combines figures from 2 activities: A / B"] }),
+        SectionLogEntrySchema.parse({ id: "earlier-experience", label: "Earlier experience", notes: ["1 employer listed without bullets."] }),
+      ] })],
+    },
+  })
+
+  it("Copy log lists, under each experience row, 'Where each bullet came from': the bullet, then its sources", () => {
+    expect(md).toContain(`  - ${PROVENANCE_SUMMARY}:`)
+    expect(md).toContain("    - Cut asset collection from 4 weeks to 1 week across 150 customer projects.\n      - from: Cut asset collection from 4 weeks to 1 week for the Unity Awards (activity)")
+    expect(md).toContain("    - Ran the Enemies Demo Campaign.\n      - from: Enemies Demo Campaign: ran the demo (project)\n      - from: Launched the demo (activity)")
+    expect(md).toContain("    - Kept the release calendar.\n      - from: no source cited")
+    expect(md).toContain("  - Bullet combines figures from 2 activities: A / B") // the mixed-source note is in the row's notes
+  })
+
+  it("puts the provenance under the experience row only, not under the Earlier experience row", () => {
+    const earlier = md.slice(md.indexOf("**Earlier experience**"))
+    expect(earlier).not.toContain(PROVENANCE_SUMMARY)
+    expect(md.match(new RegExp(PROVENANCE_SUMMARY, "g"))).toHaveLength(1)
+  })
+
+  it("a run stored before provenance still produces its log, with no provenance block", () => {
+    const old = runLogMarkdown({ jobTitle: "J", company: null, run: { id: "r", status: "complete", createdAt: "2026-11-01T00:00:00Z", assembled: { markdown: "x\n", warnings: [], checkNotes: [], sections: [{ id: "experience:unity", kind: "experience", markdown: "m" }] }, stageTimings: {}, log: [entry({ stage: "write", sections: [SectionLogEntrySchema.parse({ id: "experience:unity", label: "Unity" })] })] } })
+    expect(old).toContain("**Unity**")
+    expect(old).not.toContain(PROVENANCE_SUMMARY)
+  })
+
+  it("adds no contact detail", () => {
+    expect(md).not.toMatch(/@|\+\d{6,}|https?:\/\//)
   })
 })

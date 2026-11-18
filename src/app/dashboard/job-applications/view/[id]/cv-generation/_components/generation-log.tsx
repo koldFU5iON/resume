@@ -1,6 +1,9 @@
 import { Check, Circle, CircleAlert, Loader2, MinusCircle, TriangleAlert } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
+  PROVENANCE_SUMMARY,
+  bulletSourceLines,
+  provenanceBySection,
   retryReasonLine,
   sectionMeta,
   stageMeta,
@@ -8,7 +11,7 @@ import {
   type StageRow,
   type StageState,
 } from "@/app/dashboard/job-applications/_components/cv-generation-view"
-import type { CvAssembled, FlaggedClaim, SectionLogEntry } from "@/modules/cv-generation/schema"
+import type { BulletProvenance, CvAssembled, FlaggedClaim, SectionLogEntry } from "@/modules/cv-generation/schema"
 
 const STATE_LABEL: Record<StageState, string> = {
   done: "done",
@@ -51,17 +54,18 @@ export function StageStepper({ rows }: { rows: StageRow[] }) {
  * Stages that haven't logged anything show only their purpose.
  */
 export function GenerationLog({ rows, assembled }: { rows: StageRow[]; assembled?: CvAssembled | null }) {
+  const provenance = provenanceBySection(assembled)
   return (
     <section aria-labelledby="generation-log-heading">
       <h2 id="generation-log-heading" className="text-lg font-semibold tracking-[-0.01em]">Generation log</h2>
       <ol className="mt-4 divide-y rounded-lg border">
-        {rows.map((r) => <LogRow key={r.stage} row={r} warnings={r.stage === "assemble" ? assembled?.warnings ?? [] : []} />)}
+        {rows.map((r) => <LogRow key={r.stage} row={r} warnings={r.stage === "assemble" ? assembled?.warnings ?? [] : []} provenance={provenance} />)}
       </ol>
     </section>
   )
 }
 
-function LogRow({ row, warnings }: { row: StageRow; warnings: string[] }) {
+function LogRow({ row, warnings, provenance }: { row: StageRow; warnings: string[]; provenance: Map<string, readonly BulletProvenance[]> }) {
   const meta = stageMeta(row)
   const e = row.entry
   const notes = e ? stageNotes(e) : []
@@ -94,7 +98,7 @@ function LogRow({ row, warnings }: { row: StageRow; warnings: string[] }) {
           </ul>
         )}
 
-        {e && e.sections.length > 0 && <SectionRows sections={e.sections} />}
+        {e && e.sections.length > 0 && <SectionRows sections={e.sections} provenance={provenance} />}
         {warnings.length > 0 && <Warnings warnings={warnings} />}
 
         {e && (e.kept.length > 0 || e.dropped.length > 0) && <KeptDropped kept={e.kept} dropped={e.dropped} />}
@@ -105,7 +109,7 @@ function LogRow({ row, warnings }: { row: StageRow; warnings: string[] }) {
 }
 
 /** One compact row per section under Write: what wrote it, what it cost, what it noted. */
-function SectionRows({ sections }: { sections: SectionLogEntry[] }) {
+function SectionRows({ sections, provenance }: { sections: SectionLogEntry[]; provenance: Map<string, readonly BulletProvenance[]> }) {
   return (
     <ul className="divide-y rounded-md border text-sm" aria-label="Sections">
       {sections.map((s) => {
@@ -126,10 +130,28 @@ function SectionRows({ sections }: { sections: SectionLogEntry[] }) {
                 {s.notes.map((n, i) => <li key={i}>{n}</li>)}
               </ul>
             )}
+            {provenance.has(s.id) && <BulletSources bullets={provenance.get(s.id) ?? []} />}
           </li>
         )
       })}
     </ul>
+  )
+}
+
+/** Under an experience row: each bullet with the evidence it was written from, so a bullet that mixed two activities is easy to spot. */
+function BulletSources({ bullets }: { bullets: readonly BulletProvenance[] }) {
+  return (
+    <details className="text-xs">
+      <summary className="cursor-pointer text-muted-foreground hover:text-foreground">{PROVENANCE_SUMMARY}</summary>
+      <ol className="mt-1.5 space-y-2">
+        {bullets.map((b, i) => (
+          <li key={i}>
+            <p className="break-words text-sm">{b.text}</p>
+            {bulletSourceLines(b).map((l, j) => <p key={j} className="break-words text-muted-foreground">{l}</p>)}
+          </li>
+        ))}
+      </ol>
+    </details>
   )
 }
 
