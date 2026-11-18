@@ -129,3 +129,25 @@ export function plainFeedback(label: string, text: string, evidence = ''): strin
 export function plainReasons(text: string, evidence = ''): string[] {
   return plainProblems(text, evidence).map((p) => (p.startsWith('first person') ? 'first person' : p))
 }
+
+/**
+ * `text` cut at its last sentence or clause boundary (a period, semicolon,
+ * colon, comma or dash followed by a space) so it has at most `max` words, or
+ * null when no boundary leaves at least half of `max` words (cutting there
+ * would drop the meaning, so the caller keeps the text as written). Pure.
+ */
+export function shortenToWords(text: string, max: number): string | null {
+  const words = (t: string) => t.trim().split(/\s+/).filter(Boolean).length
+  const t = text.trim()
+  if (words(t) <= max) return t
+  let best: string | null = null
+  const boundary = /[.;:,]\s+|\s[—–-]\s+/g
+  for (let m = boundary.exec(t); m; m = boundary.exec(t)) {
+    const head = t.slice(0, m.index + (/^[.;:,]/.test(m[0]) ? 1 : 0)).trim()
+    const n = words(head)
+    if (n <= max && n * 2 >= max) best = head
+  }
+  if (!best) return null
+  const stem = best.replace(/[\s,;:—–-]+$/, '')
+  return /[.!?]$/.test(stem) ? stem : /[.!?]$/.test(t) ? `${stem}.` : stem
+}

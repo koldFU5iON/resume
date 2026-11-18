@@ -36,7 +36,7 @@ import { runWrite, WriteStageError } from './write/run-write'
 import { enforceSelection } from './select'
 import { bigCandidates } from './__fixtures__/candidates'
 import { buildBriefFor, gathered } from './__fixtures__/gathered'
-import { writeVault, writtenResult, writtenSections } from './__fixtures__/write'
+import { projectRow, writeSelection, writeVault, writtenResult, writtenSections } from './__fixtures__/write'
 import { CV_BODY_WORDS_SOFT_LIMIT } from './write/limits'
 
 const db = vi.mocked(prisma, { deep: true })
@@ -366,6 +366,35 @@ describe('runCvGenerationStages: write and assemble (phase 3)', () => {
     expect(mockWrite).not.toHaveBeenCalled()
     expect(mockFail).not.toHaveBeenCalled()
     expect(mockUpdate).not.toHaveBeenCalled()
+  })
+})
+
+describe('runCvGenerationStages: a thin lead-with project (title only)', () => {
+  const NAME = 'Enemies Demo Campaign'
+  const arrange = (text: string) => {
+    const v = writeVault([projectRow('pa', NAME, text, { experienceId: 'e-u2' })])
+    mockVault.mockResolvedValue(v)
+    mockSelect.mockResolvedValue({ selection: writeSelection(v, { projects: [{ id: 'pa', reason: '' }] }), model: 'm-fast', retries: 0, notes: [] })
+    mockBrief.mockResolvedValue({ value: buildBriefFor({ leadWith: [`The ${NAME}: launch and GTM decision`] }), model: 'm-analysis', retries: 0, usage: NO_USAGE })
+  }
+  const stored = () => mockUpdate.mock.calls.at(-1)![2].review as { concerns: Array<{ kind: string; title: string }> }
+
+  it('adds a weak_proof coach concern in code when the reviewer raised nothing', async () => {
+    arrange(`${NAME}:`)
+    await runCvGenerationStages('run-1', 'p1')
+    expect(stored().concerns).toMatchObject([{ kind: 'weak_proof', title: `${NAME} has too little detail to write from` }])
+  })
+
+  it('adds it when the review is turned off too', async () => {
+    arrange('')
+    await runCvGenerationStages('run-1', 'p1', { review: false })
+    expect(stored().concerns).toMatchObject([{ kind: 'weak_proof' }])
+  })
+
+  it('adds none when the project has real text', async () => {
+    arrange('Ran the demo campaign for the new title: a go-to-market and launch-timing decision, reaching 14,000+ players at launch.')
+    await runCvGenerationStages('run-1', 'p1')
+    expect(stored().concerns).toEqual([])
   })
 })
 

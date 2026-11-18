@@ -54,6 +54,7 @@ import {
 import { runSelect, selectionLogLines } from './select'
 import { countOf } from './text'
 import { evidenceFromVault } from './write/evidence'
+import { withThinProjectConcerns } from './write/thin'
 import { shortened } from './write/bullets'
 import { runReview } from './write/review'
 import { runWrite, WriteStageError } from './write/run-write'
@@ -310,25 +311,27 @@ export async function runCvGenerationStages(runId: string, profileId: string, op
     begin('review')
     let finalCv = cv
     let review: CvReview
+    const reviewEvidence = evidenceFromVault(vault, selection)
     if (!wantReview) {
       const reason = 'The review was turned off for this run, so the CV lands unreviewed.'
-      review = { skipped: true, skipReason: reason, model: null, tokens: { input: 0, output: 0 }, costUsd: null, applied: [], discarded: [], concerns: [] }
+      review = withThinProjectConcerns({ skipped: true, skipReason: reason, model: null, tokens: { input: 0, output: 0 }, costUsd: null, applied: [], discarded: [], concerns: [] }, reviewEvidence, briefValue)
       end({ status: 'skipped', model: null, ...noUsage, notes: [reason], kept: [], dropped: [], retries: 0, retryReasons: [], flaggedClaims: [], sections: [] })
     } else {
       const outcome = await runReview(
         {
-          assembled: cv, selection, brief: briefValue, strategy: g.strategy, evidence: evidenceFromVault(vault, selection),
+          assembled: cv, selection, brief: briefValue, strategy: g.strategy, evidence: reviewEvidence,
           validate: (markdown) => recheckMarkdown(markdown, snapshot).errors,
         },
         { profileId, jobApplicationId: jobId, runId, writingDeskDocumentId, deadline: deadline - LAND_RESERVE_MS },
       )
-      review = outcome.review
+      // A lead-with project with no text gets a coach concern in code, whether or not the reviewer raised it (or ran at all).
+      review = withThinProjectConcerns(outcome.review, reviewEvidence, briefValue)
       if (outcome.assembled !== cv) {
         // Edits were applied: the warnings are those of the edited text.
         const checked = recheckMarkdown(outcome.assembled.markdown, snapshot)
         finalCv = { ...outcome.assembled, warnings: checked.warnings }
       }
-      const r = outcome.review
+      const r = review
       end({
         status: r.skipped ? 'skipped' : 'ok', model: r.model, tokens: r.tokens, costUsd: r.costUsd,
         notes: r.skipped

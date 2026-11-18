@@ -17,11 +17,13 @@
 import type { CvBrief } from '../schema'
 import { contentStems, figuresIn, normalised, phraseIndex, projectNameKey } from './checks'
 import type { EmployerEvidence } from './evidence'
+import { isThinProject } from './limits'
 
 /** A bullet beyond the allocation that a lead-with project is allowed to need (one per such project). */
 export const LEAD_WITH_PROJECT_EXTRA_BULLETS = 1
 
-type ProjectRef = { id?: string; name: string }
+/** `text` is the project's evidence text; when given, a thin project (limits.ts) is recognised by it. */
+type ProjectRef = { id?: string; name: string; text?: string }
 
 /** A selected project the Brief names in `leadWith`, with the line that frames it. */
 export type LeadWithProject = { name: string; key: string; line: string }
@@ -32,8 +34,22 @@ export type LeadWithProject = { name: string; key: string; line: string }
  * lead-with line that names it. In the order of `projects`.
  */
 export function leadWithProjects(projects: readonly ProjectRef[], leadWith: readonly string[]): LeadWithProject[] {
+  return matchLeads(projects, leadWith, false)
+}
+
+/**
+ * The lead-with projects that have too little text to write from (limits.ts
+ * isThinProject): the Brief names them, but there is no evidence behind the
+ * framing line, so they get no own bullet and no check asks for one.
+ */
+export function thinLeadWithProjects(projects: readonly ProjectRef[], leadWith: readonly string[]): LeadWithProject[] {
+  return matchLeads(projects, leadWith, true)
+}
+
+function matchLeads(projects: readonly ProjectRef[], leadWith: readonly string[], thin: boolean): LeadWithProject[] {
   const out: LeadWithProject[] = []
   for (const p of projects) {
+    if ((p.text !== undefined && isThinProject({ name: p.name, text: p.text })) !== thin) continue
     const key = projectNameKey(p.name)
     if (!key) continue
     const line = leadWith.find((l) => phraseIndex(l, key) >= 0)

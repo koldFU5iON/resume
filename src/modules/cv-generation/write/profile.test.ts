@@ -265,6 +265,11 @@ describe('profilePrompt and helpers', () => {
     expect(p).toMatch(/up to 6 labels.*2 to 5 words/)
   })
 
+  it('forbids claiming an outcome or framing for a brief theme the experience section has no bullet about', () => {
+    const p = profilePrompt(ctx(), digest, [], 6)
+    expect(p).toMatch(/lead-with and emphasise lines are direction, not evidence\. Claim no outcome, programme, result or framing for a project or theme the experience section has no bullet about/)
+  })
+
   it('numbers the employers without naming them', () => {
     expect(digest).toContain('Employer 1 (most recent):\nRan release and planning')
     expect(digest).toContain('Employer 2:\n- Launched')

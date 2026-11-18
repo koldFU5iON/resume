@@ -109,11 +109,46 @@ describe('writeExperience', () => {
     expect(r.checkNotes).toEqual([expect.stringMatching(/Unity: "45%" could not be matched to the profile text/)])
   })
 
-  it('retries when a bullet or the summary is over its word limit', async () => {
-    const long = { summary: good.summary, bullets: [Array.from({ length: 30 }, (_, i) => `w${i}`).join(' ')] }
-    const { s, result } = run([long, good])
-    await result
-    expect(s.calls[1].prompt).toMatch(/bullet 1 is 30 words; each must be at most 25/)
+  describe('word caps are trimmed in code, never retried (a retry doubles the call cost)', () => {
+    const clause = 'Cut platform release time by 40% across 8 teams, saving 2 weeks per release'
+    const tail = Array.from({ length: 22 }, (_, i) => `extra${i}`).join(' ')
+    const long = { summary: good.summary, bullets: [`${clause}, ${tail}.`, good.bullets[1]] }
+
+    it('an over-long bullet is shortened at a clause boundary, with ONE call and a log note', async () => {
+      const { s, result } = run([long])
+      const r = await result
+      expect(s.calls).toHaveLength(1)
+      expect(r.retries).toBe(0)
+      expect(r.bullets[0]).toBe(`${clause}.`)
+      expect(r.notes.join(' ')).toMatch(/Shortened bullet 1 from \d+ to 14 words at a clause boundary \(limit 25\); no retry was made/)
+      expect(r.provenance[0].text).toBe(`${clause}.`)
+    })
+
+    it('an over-long summary is shortened the same way', async () => {
+      const head = 'Ran release and planning for the platform org across every studio and region, from roadmap through launch, for the whole portfolio'
+      const { s, result } = run([{ summary: `${head}, ${tail}.`, bullets: good.bullets }])
+      const r = await result
+      expect(s.calls).toHaveLength(1)
+      expect(r.summary).toBe(`${head}.`)
+      expect(r.notes.join(' ')).toMatch(/Shortened the summary from \d+ to 21 words/)
+    })
+
+    it('with no clause boundary to cut at, the text is kept as written, noted, and still not retried', async () => {
+      const noBreak = { summary: good.summary, bullets: [Array.from({ length: 30 }, (_, i) => `w${i}`).join(' ')] }
+      const { s, result } = run([noBreak])
+      const r = await result
+      expect(s.calls).toHaveLength(1)
+      expect(r.bullets[0].split(' ')).toHaveLength(30)
+      expect(r.notes.join(' ')).toMatch(/Bullet 1 is 30 words, over the limit of 25; kept as written because shortening it would cut its meaning \(no retry was made\)/)
+    })
+
+    it('the correctness checks still retry (a figure not in the evidence) even when a bullet is also over-long', async () => {
+      const { s, result } = run([{ summary: good.summary, bullets: [`Cut release time by 45% across 8 teams, ${tail}.`, good.bullets[1]] }, good])
+      await result
+      expect(s.calls).toHaveLength(2)
+      expect(s.calls[1].prompt).toContain('45%')
+      expect(s.calls[1].prompt).not.toMatch(/words; each must be at most/)
+    })
   })
 
   it('retries when there are more bullets than selected evidence', async () => {
@@ -488,6 +523,61 @@ describe('Phase 3b: repetition, voice, projects, retry reasons', () => {
       expect(fb.notes).toEqual(['Project "Enemies Demo Campaign" is not on the CV: this entry was made without a model call, from your activity text only.'])
       expect(fallbackExperience(unity).notes).toEqual([])
     })
+  })
+})
+
+describe('thin lead-with project (title only): nothing is invented from the brief', () => {
+  const NAME = 'Enemies Demo Campaign'
+  const FRAMING = 'The Enemies Demo Campaign: launch and GTM decision: timing, positioning narrative and measured first-day result'
+  const thinVault = (text: string) => writeVault([projectRow('pa', NAME, text, { experienceId: 'e-u2' })])
+  const build = (text: string) => {
+    const v = thinVault(text)
+    const ev = evidenceFromVault(v, writeSelection(v, { projects: [{ id: 'pa', reason: '' }] }))
+    const brief = buildBriefFor({ leadWith: [FRAMING], emphasise: [] })
+    return { ev, brief, emp: ev.employers.find((e) => e.employer.key === UNITY)!, c: ctx({ evidence: ev, brief }) }
+  }
+  const invented = `${NAME}: set the timing and positioning narrative, and tracked the first-day result.`
+
+  it('the prompt carries no framing line, no LEAD WITH and no extra bullet for it, and says there is no evidence', () => {
+    for (const text of ['', `${NAME}:`]) {
+      const { emp, c } = build(text)
+      const p = experiencePrompt(c, emp)
+      expect(p).not.toContain('LEAD WITH: the brief names')
+      expect(p).not.toContain('positioning narrative and measured first-day result"')
+      expect(p).toMatch(/\[P1\] project "Enemies Demo Campaign": NO EVIDENCE/)
+      expect(p).toMatch(/at most 3 bullets in total/)
+      expect(p).not.toMatch(/own bullet for the LEAD WITH/)
+    }
+  })
+
+  it('a project with real text is still LEAD WITH (unchanged)', () => {
+    const { emp, c } = build('Ran the demo campaign for the new title: a go-to-market and launch-timing decision, reaching 14,000+ players at launch.')
+    expect(experiencePrompt(c, emp)).toContain('LEAD WITH: the brief names this project')
+  })
+
+  it('the lead-with own-bullet check skips it: no retry is asked for', () => {
+    const { emp, c } = build('')
+    const a = analyse(sourced({ summary: good.summary, bullets: good.bullets }), c, emp)
+    expect(a.leadWithNotOwn).toEqual([])
+    expect(a.projectsMissed).toEqual([])
+    expect(a.soft).toEqual([])
+  })
+
+  it('a bullet written only from the thin project is dropped, the log says the project was left out, and no retry is made', async () => {
+    const { emp, c } = build('')
+    const { s, result } = run([{ summary: good.summary, bullets: [...good.bullets.slice(0, 2).map((t) => ({ text: t, sources: ['E1'] })), { text: invented, sources: ['P1'] }] }], emp, c)
+    const r = await result
+    expect(s.calls).toHaveLength(1)
+    expect(r.bullets.join(' ')).not.toMatch(/positioning narrative|first-day/)
+    expect(r.markdown).not.toContain('first-day')
+    expect(r.notes).toContain(`${NAME} has too little text to write from: left out; add detail to the project in your profile.`)
+    expect(r.notes.join(' ')).toMatch(/Dropped a bullet that was written from a project with no text/)
+  })
+
+  it('a bullet that cites an evidence item as well is kept', async () => {
+    const { emp, c } = build('')
+    const { result } = run([{ summary: good.summary, bullets: [{ text: `Ran the quarterly planning cycle, incl. ${NAME}.`, sources: ['E2', 'P1'] }] }], emp, c)
+    expect((await result).bullets).toHaveLength(1)
   })
 })
 

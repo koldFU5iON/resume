@@ -36,6 +36,7 @@ import {
   type DiscardedEdit, type ReviewOutput,
 } from '../schema'
 import type { Strategy } from '../strategy'
+import { isThin } from './thin'
 import { leadWithProjects, leadWithStanding, playDownBullets, shortened, wrongTenseLines } from './bullets'
 import {
   claimedHits, credentialProblems, distinctNotableFigures, figuresIn, introducedNames, projectReflected, repeatedFigures, sharedFigures,
@@ -318,6 +319,7 @@ export function entryRuleProblem(
   }
   const all = (e: { summary: string; bullets: readonly string[] }) => [e.summary, ...e.bullets].join('\n')
   for (const p of emp.projects) {
+    if (isThin(p)) continue // a project with no text may always go: it has no evidence to protect
     if (projectReflected(all(before), p) && !projectReflected(all(after), p)) return `it leaves the selected project "${p.name}" out of the entry`
   }
   return null

@@ -2,13 +2,14 @@ import { describe, expect, it } from 'vitest'
 import { buildBriefFor } from '../__fixtures__/gathered'
 import {
   LEAD_WITH_PROJECT_EXTRA_BULLETS, bulletAllowance, leadWithProjects, leadWithStanding, opensInPresentTense, playDownBullets, reflectsItem, shortened,
-  trimBullets, wrongTenseLines,
+  thinLeadWithProjects, trimBullets, wrongTenseLines,
 } from './bullets'
 
 const brief = (over: Parameters<typeof buildBriefFor>[0] = {}) => buildBriefFor(over)
-const emp = (activities: number, projects: Array<{ name: string }>) => ({
+const SOLID = 'Ran the launch campaign for the new title, set the release window and measured the first-day result against plan.'
+const emp = (activities: number, projects: Array<{ name: string; text?: string }>) => ({
   activities: Array.from({ length: activities }, (_, i) => ({ id: `a${i}` })) as never,
-  projects: projects.map((p, i) => ({ id: `p${i}`, name: p.name, text: '' })),
+  projects: projects.map((p, i) => ({ id: `p${i}`, name: p.name, text: p.text ?? SOLID })),
 })
 
 describe('leadWithProjects', () => {
@@ -30,6 +31,11 @@ describe('bulletAllowance', () => {
   it('allows one more bullet for a lead-with project', () => {
     expect(LEAD_WITH_PROJECT_EXTRA_BULLETS).toBe(1)
     expect(bulletAllowance(emp(3, [{ name: 'Enemies Demo Campaign' }]), brief({ leadWith: ['Enemies Demo Campaign launch timing'] }))).toBe(4)
+  })
+  it('a thin lead-with project (title only) adds no bullet: there is no evidence to write it from', () => {
+    expect(bulletAllowance(emp(3, [{ name: 'Enemies Demo Campaign', text: 'Enemies Demo Campaign:' }]), brief({ leadWith: ['Enemies Demo Campaign launch timing'] }))).toBe(3)
+    expect(leadWithProjects(emp(3, [{ name: 'Enemies Demo Campaign', text: '' }]).projects, ['Enemies Demo Campaign launch timing'])).toEqual([])
+    expect(thinLeadWithProjects(emp(3, [{ name: 'Enemies Demo Campaign', text: '' }]).projects, ['Enemies Demo Campaign launch timing'])).toMatchObject([{ name: 'Enemies Demo Campaign' }])
   })
   it('allows one bullet for an employer that has only project evidence, and none for an empty one', () => {
     expect(bulletAllowance(emp(0, [{ name: 'Side Gig' }]), brief())).toBe(1)

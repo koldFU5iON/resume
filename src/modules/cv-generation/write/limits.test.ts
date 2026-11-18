@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { EXPERIENCE_TOKENS, PROJECT_EVIDENCE_MAX_CHARS, capProjectText, experienceTokenCaps } from './limits'
+import { EXPERIENCE_TOKENS, PROJECT_EVIDENCE_MAX_CHARS, THIN_PROJECT_MIN_CHARS, capProjectText, experienceTokenCaps, isThinProject } from './limits'
 
 describe('experienceTokenCaps', () => {
   it('scales with the bullet allowance and the retry is larger', () => {
@@ -35,5 +35,22 @@ describe('capProjectText', () => {
     expect(out.length).toBeLessThanOrEqual(PROJECT_EVIDENCE_MAX_CHARS + 1)
     expect(out.endsWith('…')).toBe(true)
     expect(out.slice(0, -1).split(' ').every((w) => /^word\d+$/.test(w))).toBe(true)
+  })
+})
+
+describe('isThinProject', () => {
+  const N = 'Enemies Demo Campaign'
+  it('a title-only project is thin: empty text, the name alone, the name with punctuation', () => {
+    for (const text of ['', N, `${N}:`, `  ${N} - `, `${N.toUpperCase()}.`]) expect(isThinProject({ name: N, text })).toBe(true)
+  })
+  it('the name repeated in the text does not count as detail', () => {
+    expect(isThinProject({ name: N, text: `${N}. ${N}: ${N}` })).toBe(true)
+  })
+  it('a project with a real description is not thin', () => {
+    expect(isThinProject({ name: N, text: 'Ran the demo campaign for the new title: a go-to-market and launch-timing decision, reaching 14,000+ players.' })).toBe(false)
+  })
+  it('the threshold is on the characters beyond the name', () => {
+    expect(isThinProject({ name: N, text: 'x'.repeat(THIN_PROJECT_MIN_CHARS - 1) })).toBe(true)
+    expect(isThinProject({ name: N, text: 'x'.repeat(THIN_PROJECT_MIN_CHARS) })).toBe(false)
   })
 })
