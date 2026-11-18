@@ -11,11 +11,16 @@ import {
   asFailureKind,
   asStatus,
   isActiveStatus,
+  isPartialLog,
+  parseBrief,
   parseCvGenerationLog,
+  parseSelection,
   parseStageTimings,
+  type CvBrief,
   type CvGenerationFailureKind,
   type CvGenerationStage,
   type CvGenerationStatus,
+  type CvSelection,
   type StageLogEntry,
 } from './schema'
 
@@ -38,6 +43,12 @@ export type CvGenerationView = {
   /** The stage log, in pipeline order; empty when none has been written yet. */
   log: StageLogEntry[]
   stageTimings: Partial<Record<CvGenerationStage, number>>
+  /** The run stopped after Select because the later stages are not built yet (a preview run). */
+  partial: boolean
+  /** The Brief stage's output; null until that stage ends, or when the stored value is unreadable. */
+  brief: CvBrief | null
+  /** The Select stage's output (kept ids and labels, what was dropped); null likewise. */
+  selection: CvSelection | null
   /** Usage of this run's LLM calls (rows with runId = id); an estimate, billed to the user's own key. */
   usage: CvGenerationUsage
   createdAt: Date
@@ -55,6 +66,8 @@ type Row = {
   failureMessage: string | null
   stageTimings: unknown
   log: unknown
+  brief: unknown
+  selection: unknown
   createdAt: Date
   startedAt: Date | null
   completedAt: Date | null
@@ -98,6 +111,9 @@ export function toCvGenerationView(row: Row, usage: CvGenerationUsage, now: Date
     deepDiveId: row.deepDiveId,
     log: parseCvGenerationLog(row.log),
     stageTimings: parseStageTimings(row.stageTimings),
+    partial: isPartialLog(row.log),
+    brief: parseBrief(row.brief),
+    selection: parseSelection(row.selection),
     usage,
     createdAt: row.createdAt,
     startedAt: row.startedAt,
@@ -108,7 +124,7 @@ export function toCvGenerationView(row: Row, usage: CvGenerationUsage, now: Date
 const ROW_SELECT = {
   id: true, jobApplicationId: true, writingDeskDocumentId: true, deepDiveId: true,
   status: true, failureKind: true, failureMessage: true,
-  stageTimings: true, log: true, createdAt: true, startedAt: true, completedAt: true,
+  stageTimings: true, log: true, brief: true, selection: true, createdAt: true, startedAt: true, completedAt: true,
 } as const
 
 /** Usage of one run: its LLM rows, grouped by runId. */

@@ -15,7 +15,7 @@ const db = vi.mocked(prisma, { deep: true })
 const NOW = new Date('2026-11-18T12:00:00.000Z')
 const row = (over: Record<string, unknown> = {}) => ({
   id: 'run-1', jobApplicationId: 'job-1', writingDeskDocumentId: null, deepDiveId: null,
-  status: 'writing', failureKind: null, failureMessage: null, stageTimings: null, log: null,
+  status: 'writing', failureKind: null, failureMessage: null, stageTimings: null, log: null, brief: null, selection: null,
   createdAt: new Date(NOW.getTime() - 60_000), startedAt: null, completedAt: null,
   ...over,
 })
@@ -58,6 +58,22 @@ describe('toCvGenerationView', () => {
     expect(view.log.map((e) => e.stage)).toEqual(['brief'])
     expect(view.stageTimings).toEqual({ gather: 10 })
     expect(view.failureKind).toBeNull()
+  })
+
+  it('exposes the stored brief, selection and the preview flag, tolerating bad JSON', () => {
+    const brief = {
+      hiddenQuestion: 'Q', leadWith: ['a'], emphasise: [{ item: 'x', why: 'y' }], playDown: [], positioning: 'p', tone: 't',
+      budgets: { experiences: 3, skills: 8, tools: 6, competencies: 4, certifications: 2, education: 2, projects: 1 },
+    }
+    const selection = { mode: 'model', experiences: [{ id: 'e1', label: 'PM — Acme', reason: 'recent' }] }
+    const view = toCvGenerationView(row({ status: 'complete', brief, selection, log: { entries: [], partial: true } }), summarizeRunUsage([]), NOW)
+    expect(view.partial).toBe(true)
+    expect(view.brief?.hiddenQuestion).toBe('Q')
+    expect(view.selection?.experiences[0]).toMatchObject({ id: 'e1', label: 'PM — Acme' })
+    expect(view.selection?.skills).toEqual([])
+
+    const bad = toCvGenerationView(row({ brief: 'nope', selection: { mode: 'x' }, log: [] }), summarizeRunUsage([]), NOW)
+    expect(bad).toMatchObject({ partial: false, brief: null, selection: null })
   })
 
   it('treats an unknown stored status as failed', () => {

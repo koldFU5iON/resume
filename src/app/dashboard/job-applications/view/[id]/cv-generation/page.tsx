@@ -8,6 +8,8 @@ import { AssessmentPoller } from "@/app/dashboard/job-applications/_components/a
 import {
   CV_GENERATION_STAGE_INFO,
   CV_GENERATION_STATUS_LABEL,
+  PREVIEW_DETAIL,
+  PREVIEW_NOTICE,
   buildStageRows,
   cvGenerationSignature,
   formatRunCost,
@@ -16,7 +18,9 @@ import {
 } from "@/app/dashboard/job-applications/_components/cv-generation-view"
 import { CV_GENERATION_STAGES } from "@/modules/cv-generation/schema"
 import { Elapsed, LocalDateTime } from "../deep-dive/_components/run-controls"
+import { BriefPanel, SelectionPanel } from "./_components/brief-and-selection"
 import { GenerationLog, StageStepper } from "./_components/generation-log"
+import { RunPreviewButton } from "./_components/run-preview-button"
 
 export default async function CvGenerationPage({ params }: { params: Promise<{ id: string }> }) {
   const [{ id }, { profile }] = await Promise.all([params, requireProfile()])
@@ -36,7 +40,7 @@ export default async function CvGenerationPage({ params }: { params: Promise<{ i
             CV generation · <span className="text-foreground">{assets.title}</span>
             {assets.company && <> at <span className="text-foreground">{assets.company}</span></>}
           </p>
-          {view ? <RunBody jobId={id} view={view} /> : <EmptyState />}
+          {view ? <RunBody jobId={id} view={view} /> : <EmptyState jobId={id} />}
         </main>
 
         {view && (
@@ -49,7 +53,7 @@ export default async function CvGenerationPage({ params }: { params: Promise<{ i
   )
 }
 
-function EmptyState() {
+function EmptyState({ jobId }: { jobId: string }) {
   return (
     <div className="max-w-[68ch]">
       <h1 className="text-3xl font-semibold tracking-[-0.02em]">No CV generation has run for this job yet</h1>
@@ -57,6 +61,10 @@ function EmptyState() {
         When a CV is generated for this job, each stage shows up here as it runs: the model it used, how long it took,
         what it cost, which evidence was kept or dropped, and any claim the review could not support.
       </p>
+      <div className="mt-5 space-y-2">
+        <RunPreviewButton jobId={jobId} active={false} />
+        <p className="text-sm text-muted-foreground">{PREVIEW_NOTICE}. A preview runs the first three stages only, on your own LLM key.</p>
+      </div>
       <ol className="mt-8 space-y-4 border-t pt-6">
         {CV_GENERATION_STAGES.map((s, i) => (
           <li key={s} className="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-x-2">
@@ -73,7 +81,7 @@ function EmptyState() {
 }
 
 function RunBody({ jobId, view }: { jobId: string; view: CvGenerationView }) {
-  const rows = buildStageRows(view)
+  const rows = buildStageRows(view) // view carries status, log, stageTimings and partial
   const active = isCvGenerationActive(view.status)
 
   return (
@@ -102,6 +110,14 @@ function RunBody({ jobId, view }: { jobId: string; view: CvGenerationView }) {
             </Link>
           )}
         </div>
+      ) : view.partial ? (
+        <div className="space-y-2">
+          <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-[-0.02em]">
+            <Check className="size-5 text-emerald-700 dark:text-emerald-400" aria-hidden="true" />
+            {PREVIEW_NOTICE}
+          </h1>
+          <p className="text-sm leading-relaxed text-muted-foreground">{PREVIEW_DETAIL}</p>
+        </div>
       ) : (
         <div className="space-y-3">
           <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-[-0.02em]">
@@ -128,7 +144,10 @@ function RunBody({ jobId, view }: { jobId: string; view: CvGenerationView }) {
       )}
 
       <StageStepper rows={rows} />
+      {view.brief && <BriefPanel brief={view.brief} />}
+      {view.selection && <SelectionPanel selection={view.selection} />}
       <GenerationLog rows={rows} />
+      {!active && <RunPreviewButton jobId={jobId} active={false} label="Run preview again" />}
     </div>
   )
 }

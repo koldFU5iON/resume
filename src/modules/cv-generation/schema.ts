@@ -9,6 +9,7 @@
  */
 
 import * as z from 'zod'
+import { BUDGET_CAPS, FLAT_SECTIONS, type BudgetSection } from './caps'
 
 // ── Run lifecycle ───────────────────────────────────────────────────────────
 
@@ -78,6 +79,36 @@ export const CV_GENERATION_STALE_MS = 15 * 60_000
 /** Hard limit on concurrent runs per profile (admitted under an advisory lock, run.ts). */
 export const CV_GENERATION_CONCURRENCY_PER_PROFILE = 2
 
+/** maxDuration (s) of every route segment that starts a run: the pipeline executes in after(). */
+export const CV_GENERATION_ROUTE_MAX_DURATION_S = 300
+
+/** Time budgets. `run` ends a run on its row (failed / timeout) before the platform kills it. */
+export const TIME_BUDGET_MS = {
+  brief: 90_000,
+  select: 60_000,
+  run: (CV_GENERATION_ROUTE_MAX_DURATION_S - 20) * 1_000,
+} as const
+
+/** Usage tags (also labelled in src/app/dashboard/settings/usage/_components/feature-labels.ts). */
+export const CV_GENERATION_FEATURES = {
+  brief: 'cv-gen-brief',
+  select: 'cv-gen-select',
+  /** analyseJob, when neither a deep dive nor jobAnalysis exists; keeps its own tag. */
+  analyse: 'cv-job-analysis',
+} as const
+
+/** Output caps (tokens): small JSON, but generous enough that a cut-off is not the usual failure. */
+export const MAX_OUTPUT_TOKENS = {
+  brief: 2_000,
+  briefRetry: 4_000,
+  select: 4_000,
+  selectRetry: 8_000,
+} as const
+
+/** Where the Brief's strategy input came from (gather stage). `none`: analyseJob also failed, so the Brief reads the job description alone. */
+export const STRATEGY_SOURCES = ['deep-dive', 'job-analysis', 'analysed', 'none'] as const
+export type StrategySource = typeof STRATEGY_SOURCES[number]
+
 // ── Run log ─────────────────────────────────────────────────────────────────
 
 export const FLAGGED_CLAIM_VERDICTS = ['uncertain', 'unsupported'] as const
@@ -125,8 +156,19 @@ export type StageLogEntry = z.infer<typeof StageLogEntrySchema>
 /** What is stored in `CvGeneration.log`. */
 export const CvGenerationLogSchema = z.object({
   entries: z.array(StageLogEntrySchema),
+  /**
+   * True when the run stopped after Select because the later stages are not
+   * built yet (a preview run); the page labels it so it never reads as a
+   * finished CV.
+   */
+  partial: z.boolean().default(false),
 })
 export type CvGenerationLog = z.infer<typeof CvGenerationLogSchema>
+
+/** Whether a stored log says its run was a preview that stopped early. Tolerates any value. */
+export function isPartialLog(value: unknown): boolean {
+  return !!value && typeof value === 'object' && !Array.isArray(value) && (value as { partial?: unknown }).partial === true
+}
 
 /**
  * The entries of a stored log, tolerating null, a non-object, a missing list
@@ -167,4 +209,116 @@ export function asStatus(value: unknown): CvGenerationStatus {
 /** A stored failure kind, or null when absent or unknown. */
 export function asFailureKind(value: unknown): CvGenerationFailureKind | null {
   return (FAILURE_KINDS as readonly unknown[]).includes(value) ? (value as CvGenerationFailureKind) : null
+}
+
+// ── Brief and Selection (stages 1 and 2) ────────────────────────────────────
+
+/** Trimmed string cut to `max` chars instead of failing. */
+function cutText(max: number, description: string) {
+  return z.string().describe(`${description} (at most ${max} characters)`).transform((v) => v.trim().slice(0, max).trim())
+}
+
+/** Array cut to `max` items instead of failing. */
+function capped<T extends z.ZodType>(item: T, max: number, description: string) {
+  return z.array(item).describe(`${description} (at most ${max})`).transform((a) => a.slice(0, max))
+}
+
+/** A count clamped into 0..cap (1..cap for roles: the CV always has one) instead of failing. */
+function budget(section: BudgetSection, description: string) {
+  const cap = BUDGET_CAPS[section]
+  const min = section === 'experiences' ? 1 : 0
+  return z.number().describe(`${description} (an integer from ${min} to ${cap})`)
+    .transform((v) => Math.min(cap, Math.max(min, Math.round(v))))
+}
+
+/**
+ * Stage 1 output. Strategy fields mirror the deep dive's `cvStrategy`
+ * (`leadWith`, `emphasise`, `playDown`, `positioning`) so either source feeds
+ * the same shape. The budgets are the model's request; select.ts clamps them
+ * again against caps.ts, so a stored brief can never ask for more than a cap.
+ */
+export const CvBriefSchema = z.object({
+  hiddenQuestion: cutText(400, 'The problem this role is hired to solve, in 1–2 sentences'),
+  leadWith: capped(cutText(160, 'Item'), 4, 'What the CV should open with'),
+  emphasise: capped(z.object({ item: cutText(160, 'Item'), why: cutText(200, 'Why it matters for this role') }), 6, 'What to emphasise'),
+  playDown: capped(cutText(160, 'Item'), 4, 'What to play down or leave out'),
+  positioning: cutText(400, '1–2 sentences on the story the CV tells'),
+  tone: cutText(160, 'Voice for the writing, e.g. "plain and specific, senior but not grand"'),
+  budgets: z.object({
+    experiences: budget('experiences', 'Roles to show'),
+    skills: budget('skills', 'Skills to show'),
+    tools: budget('tools', 'Tools to show'),
+    competencies: budget('competencies', 'Competencies to show'),
+    certifications: budget('certifications', 'Certifications to show'),
+    education: budget('education', 'Education entries to show'),
+    projects: budget('projects', 'Projects to show'),
+  }),
+})
+export type CvBrief = z.infer<typeof CvBriefSchema>
+
+/** A stored brief, or null when absent or unreadable (never throws). */
+export function parseBrief(value: unknown): CvBrief | null {
+  const parsed = CvBriefSchema.safeParse(value)
+  return parsed.success ? parsed.data : null
+}
+
+export const SelectedItemSchema = z.object({
+  id: z.string(),
+  /** What the item is, for display (the profile may change after the run). */
+  label: z.string(),
+  /** Why the model kept it; empty for fallback picks that carry none. */
+  reason: z.string().default(''),
+})
+export type SelectedItem = z.infer<typeof SelectedItemSchema>
+
+export const DROP_REASONS = ['not_selected', 'over_cap', 'unknown_id', 'duplicate', 'role_not_kept'] as const
+export type DropReason = typeof DROP_REASONS[number]
+
+export const DROP_REASON_LABEL: Record<DropReason, string> = {
+  not_selected: 'not selected',
+  over_cap: 'over the limit',
+  unknown_id: 'not in the profile',
+  duplicate: 'picked twice',
+  role_not_kept: 'its role was not kept',
+}
+
+export const DroppedItemSchema = z.object({
+  section: z.string(),
+  id: z.string(),
+  label: z.string().default(''),
+  /** Activities: the role (experience id) they belong to. */
+  parentId: z.string().optional(),
+  why: z.enum(DROP_REASONS),
+})
+export type DroppedItem = z.infer<typeof DroppedItemSchema>
+
+const SelectedList = z.array(SelectedItemSchema).default([])
+
+/**
+ * Stage 2 output as stored: ids that exist in the profile, each with a
+ * display label and the model's reason, and what code dropped and why.
+ * `activities` is keyed by experience id and only has kept roles.
+ */
+export const CvSelectionSchema = z.object({
+  /** model: the fast model's picks, capped by code; fallback: chosen by rules after the call failed or returned junk. */
+  mode: z.enum(['model', 'fallback']),
+  experiences: SelectedList,
+  activities: z.record(z.string(), SelectedList).default({}),
+  skills: SelectedList,
+  tools: SelectedList,
+  competencies: SelectedList,
+  certifications: SelectedList,
+  education: SelectedList,
+  projects: SelectedList,
+  dropped: z.array(DroppedItemSchema).default([]),
+  /** Candidates dropped in all; `dropped` lists at most MAX_RECORDED_DROPPED of them. */
+  droppedTotal: z.number().int().nonnegative().default(0),
+})
+export type CvSelection = z.infer<typeof CvSelectionSchema>
+export type FlatSelectionKey = typeof FLAT_SECTIONS[number]
+
+/** A stored selection, or null when absent or unreadable (never throws). */
+export function parseSelection(value: unknown): CvSelection | null {
+  const parsed = CvSelectionSchema.safeParse(value)
+  return parsed.success ? parsed.data : null
 }

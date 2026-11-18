@@ -36,6 +36,14 @@ export async function loadCareerVerticalPrompt(profileId: string): Promise<strin
   return loadPromptText(profileId, 'career-vertical')
 }
 
+export async function loadCVBriefPrompt(profileId: string): Promise<string> {
+  return loadPromptText(profileId, 'cv-gen-brief')
+}
+
+export async function loadCVSelectPrompt(profileId: string): Promise<string> {
+  return loadPromptText(profileId, 'cv-gen-select')
+}
+
 export async function loadWritingContext(profileId: string): Promise<WritingContext> {
   const [rules, settings] = await Promise.all([
     loadWritingRules(profileId).catch(() => ''),
