@@ -13,7 +13,9 @@ You get the brief, the job's requirements, the experience section as written, th
 ## Rules
 
 - **Facts come only from the experience section and the evidence shown.** No new employer, title, date, tool, team size or result.
-- **Numbers verbatim.** A number may appear only if it appears in the experience section or the evidence exactly as written.
+- **Numbers verbatim.** A number may appear only if it appears in the experience section or the evidence exactly as written. Figures written as words ("five", "a dozen", "doubled", "forty percent") follow the same rule as digits.
+- **Certifications and education.** Do not name a certification, qualification or school unless the experience section does: code lists them, and one still in progress is never described as held.
+- **Plain text only.** No Markdown, links, HTML or ":::" in any string; code builds the lists.
 - **Years of experience.** Do not state a number of years of experience unless that figure is in the evidence.
 - Do not name a tool or skill unless the experience section names it.
 - Plain, specific language, no filler. The tone in the brief and the candidate's writing rules apply.

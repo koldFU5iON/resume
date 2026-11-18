@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/modules/llm/complete-json', () => ({ completeJSON: vi.fn() }))
 vi.mock('@/modules/llm/prompt-context', () => ({
@@ -17,7 +17,9 @@ import { vaultSource } from '@/modules/profile-map/__fixtures__/source'
 import { buildCandidates } from '../candidates'
 import { buildBriefFor } from '../__fixtures__/gathered'
 import { BLIZZARD, OLD_CO, UNITY, llmReply, writeSelection, writeVault, writeVaultSource } from '../__fixtures__/write'
+import { LLMError } from '@/modules/llm/errors'
 import { WRITE_CONCURRENCY } from '../schema'
+import { ASSEMBLE_RESERVE_MS, WAVE2_RESERVE_MS } from './limits'
 import { enforceSelection } from '../select'
 import { runWrite, WriteStageError } from './run-write'
 
@@ -25,18 +27,22 @@ const mockJSON = vi.mocked(completeJSON)
 const strategy = { mustHave: ['Delivery'], niceToHave: [] as string[] }
 const ctx = (over: Partial<{ deadline: number }> = {}) => ({ profileId: 'p1', jobApplicationId: 'job-1', runId: 'run-1', deadline: Date.now() + 250_000, ...over })
 
-type Seen = { feature: string; prompt: string; system: string; at: number }
+type Seen = { feature: string; prompt: string; system: string; at: number; deadline: number }
 let seen: Seen[] = []
 let active = 0
 let peak = 0
 let experienceOverride: ((prompt: string) => object | 'junk') | null = null
+/** Extra milliseconds a call takes, by its prompt (real time). */
+let delayFor: ((prompt: string, feature: string) => number) | null = null
+/** Runs inside a call, before it answers (to move a faked clock, or to fail it). */
+let onCall: ((feature: string, prompt: string) => void) | null = null
 
 const unityAnswer = {
   summary: 'Ran release and planning for the platform org.',
-  block: ':::compact-list\n- Cut platform release time by 40% across 8 teams, saving 2 weeks per release.\n- Ran the quarterly planning cycle for the platform org.\n- Shipped 12 titles on schedule.\n:::',
+  bullets: ['Cut platform release time by 40% across 8 teams, saving 2 weeks per release.', 'Ran the quarterly planning cycle for the platform org.', 'Shipped 12 titles on schedule.'],
 }
-const blizzardAnswer = { summary: 'Launched a live-service title.', block: ':::compact-list\n- Launched a live-service title for 2M players.\n:::' }
-const genericAnswer = { summary: 'Did the work.', block: ':::compact-list\n- Did the work well.\n:::' }
+const blizzardAnswer = { summary: 'Launched a live-service title.', bullets: ['Launched a live-service title for 2M players.'] }
+const genericAnswer = { summary: 'Did the work.', bullets: ['Did the work well.'] }
 const skillsAnswer = {
   skills: [{ label: 'Delivery', names: ['Release management', 'Roadmapping', 'Dependency mapping'] }, { label: 'Governance', names: ['Stakeholder management', 'Risk management', 'Budgeting'] }],
   tools: [{ label: '', names: ['Jira', 'Tableau'] }],
@@ -54,15 +60,18 @@ beforeEach(() => {
   active = 0
   peak = 0
   experienceOverride = null
+  delayFor = null
+  onCall = null
   vi.mocked(loadWritingContext).mockResolvedValue({ rules: 'USER WRITING RULES', brief: 'USER WRITING BRIEF', searchProfileSummary: null })
   vi.mocked(loadCVWriteExperiencePrompt).mockResolvedValue('EXPERIENCE PROMPT')
   vi.mocked(loadCVWriteSkillsPrompt).mockResolvedValue('SKILLS PROMPT')
   vi.mocked(loadCVWriteProfilePrompt).mockResolvedValue('PROFILE PROMPT')
-  mockJSON.mockImplementation((async (_p: string, prompt: string, schema: never, opts: { feature: string; system: string }) => {
-    seen.push({ feature: opts.feature, prompt, system: opts.system, at: Date.now() })
+  mockJSON.mockImplementation((async (_p: string, prompt: string, schema: never, opts: { feature: string; system: string; deadline: number }) => {
+    seen.push({ feature: opts.feature, prompt, system: opts.system, at: Date.now(), deadline: opts.deadline })
+    onCall?.(opts.feature, prompt)
     active++
     peak = Math.max(peak, active)
-    await new Promise((r) => setTimeout(r, 15))
+    await new Promise((r) => setTimeout(r, 15 + (delayFor?.(prompt, opts.feature) ?? 0)))
     active--
     let reply: object | 'junk'
     if (opts.feature === 'cv-gen-write-skills') reply = skillsAnswer
@@ -125,6 +134,91 @@ describe('runWrite', () => {
     expect(edu.log.notes.join(' ')).toMatch(/no end date/)
   })
 
+  it('starts the cheap skills call first', async () => {
+    const vault = writeVault()
+    await runWrite(vault, buildBriefFor(), writeSelection(vault), strategy, ctx())
+    expect(seen[0].feature).toBe('cv-gen-write-skills')
+  })
+
+  it('gives wave 1 its own deadline, the wave-2 reserve before the write stage deadline', async () => {
+    const vault = writeVault()
+    const run = ctx({ deadline: Date.now() + 250_000 })
+    await runWrite(vault, buildBriefFor(), writeSelection(vault), strategy, run)
+    const wave1 = seen.filter((s) => s.feature !== 'cv-gen-write-profile')
+    const wave2 = seen.find((s) => s.feature === 'cv-gen-write-profile')!
+    expect(wave2.deadline).toBe(run.deadline - ASSEMBLE_RESERVE_MS)
+    for (const c of wave1) expect(c.deadline).toBe(wave2.deadline - WAVE2_RESERVE_MS)
+  })
+
+  describe('when time runs short (never lose the wave-1 work)', () => {
+    afterEach(() => vi.useRealTimers())
+
+    /** Every wave-1 call "takes" `ms` on a faked clock. */
+    const slowWave1 = (ms: number) => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(new Date('2026-01-01T00:00:00Z'))
+      onCall = (feature) => { if (feature !== 'cv-gen-write-profile') vi.setSystemTime(Date.now() + ms) }
+    }
+
+    it('renders a deterministic profile and competencies, with a log note, instead of starting wave 2 with only seconds left', async () => {
+      slowWave1(20_000)
+      const vault = writeVault()
+      // 30 s for the stage: wave 1 uses 20 s, leaving 10 s, under the minimum to start the profile call.
+      const r = await runWrite(vault, buildBriefFor(), writeSelection(vault), strategy, ctx({ deadline: Date.now() + 30_000 + ASSEMBLE_RESERVE_MS }))
+      expect(seen.some((s) => s.feature === 'cv-gen-write-profile')).toBe(false)
+      const profile = r.sections.find((s) => s.id === 'profile')!
+      expect(profile.markdown).toBe(buildBriefFor().positioning)
+      expect(profile.log.notes.join(' ')).toMatch(/not enough time left for the profile call.*made by code from the brief and the selection/)
+      expect(r.sections.find((s) => s.id === 'competencies')!.markdown).toBe(':::compact-list\n- Cross-functional leadership\n:::')
+      expect(r.headline).toBeNull()
+      // The wave-1 work is all there.
+      expect(r.sections.find((s) => s.id === `experience:${UNITY}`)!.markdown).toContain('Cut platform release time by 40%')
+      expect(r.sections.find((s) => s.id === 'skills')).toBeDefined()
+    })
+
+    it('falls back, rather than fails the run as a timeout, when the profile call itself times out', async () => {
+      mockJSON.mockImplementation((async (_p: string, prompt: string, schema: never, opts: { feature: string }) => {
+        seen.push({ feature: opts.feature, prompt, system: '', at: Date.now(), deadline: 0 })
+        if (opts.feature === 'cv-gen-write-profile') throw Object.assign(new LLMError('slow', 'timeout'), { usage: { input: 0, output: 0, costUsd: 0, calls: 0 } })
+        const reply = opts.feature === 'cv-gen-write-skills' ? skillsAnswer : prompt.includes('[ua1]') ? unityAnswer : prompt.includes('[ba1]') ? blizzardAnswer : genericAnswer
+        return llmReply(extractJSON(`\`\`\`json\n${JSON.stringify(reply)}\n\`\`\``, schema))
+      }) as never)
+      const vault = writeVault()
+      const r = await runWrite(vault, buildBriefFor(), writeSelection(vault), strategy, ctx())
+      expect(r.sections.find((s) => s.id === 'profile')!.log.notes.join(' ')).toMatch(/ran out of time.*made by code/)
+      expect(r.headline).toBeNull()
+    })
+
+    it('lists an employer with its own activity text, and keeps going, when its call times out', async () => {
+      mockJSON.mockImplementation((async (_p: string, prompt: string, schema: never, opts: { feature: string }) => {
+        seen.push({ feature: opts.feature, prompt, system: '', at: Date.now(), deadline: 0 })
+        if (opts.feature === 'cv-gen-write-experience' && prompt.includes('[ba1]')) throw new LLMError('slow', 'timeout')
+        const reply = opts.feature === 'cv-gen-write-skills' ? skillsAnswer : opts.feature === 'cv-gen-write-profile' ? profileAnswer : unityAnswer
+        return llmReply(extractJSON(`\`\`\`json\n${JSON.stringify(reply)}\n\`\`\``, schema))
+      }) as never)
+      const vault = writeVault()
+      const r = await runWrite(vault, buildBriefFor(), writeSelection(vault), strategy, ctx())
+      const blizzard = r.sections.find((s) => s.id === `experience:${BLIZZARD}`)!
+      expect(blizzard.markdown).toContain('- Launched a live-service title for 2M players')
+      expect(blizzard.log.notes.join(' ')).toMatch(/ran out of time for this entry/)
+      expect(r.sections.find((s) => s.id === `experience:${UNITY}`)!.markdown).toContain('Cut platform release time by 40%')
+      expect(r.sections.find((s) => s.id === 'profile')).toBeDefined()
+    })
+
+    it('still fails other errors (an invalid wave-2 answer is not a time problem)', async () => {
+      mockJSON.mockImplementation((async (_p: string, prompt: string, schema: never, opts: { feature: string }) => {
+        const reply = opts.feature === 'cv-gen-write-skills' ? skillsAnswer : opts.feature === 'cv-gen-write-profile' ? 'junk' : prompt.includes('[ba1]') ? blizzardAnswer : unityAnswer
+        const text = reply === 'junk' ? 'no json' : `\`\`\`json\n${JSON.stringify(reply)}\n\`\`\``
+        return llmReply(extractJSON(text, schema))
+      }) as never)
+      const vault = writeVault()
+      const err = await runWrite(vault, buildBriefFor(), writeSelection(vault), strategy, ctx()).catch((e) => e)
+      expect(err).toBeInstanceOf(WriteStageError)
+      expect(err.original).toMatchObject({ kind: 'invalid_output' })
+      expect(err.sectionLogs.find((r: { id: string }) => r.id === 'profile')).toMatchObject({ status: 'failed', tokens: { input: 2000, output: 400 } })
+    })
+  })
+
   it('applies the user’s writing rules and brief to EVERY writer', async () => {
     const vault = writeVault()
     await runWrite(vault, buildBriefFor(), writeSelection(vault), strategy, ctx())
@@ -180,7 +274,7 @@ describe('runWrite', () => {
 
   it('collects at most three "worth a quick check" notes, however many employers have one', async () => {
     // Every employer's bullet has a figure that is not in its evidence, and stays wrong after the retry: four candidate notes.
-    experienceOverride = () => ({ summary: 'Did the work.', block: ':::compact-list\n- Grew revenue 91%.\n:::' })
+    experienceOverride = () => ({ summary: 'Did the work.', bullets: ['Grew revenue 91%.'] })
     const { vault, sel } = fourEmployers()
     const r = await runWrite(vault, buildBriefFor(), sel, strategy, ctx())
     expect(r.checkNotes).toHaveLength(3)
@@ -199,6 +293,78 @@ describe('runWrite', () => {
     expect(seen.some((s) => s.feature === 'cv-gen-write-profile')).toBe(false)
     // Each writer made at most two calls: Blizzard's junk was retried once.
     expect(seen.filter((s) => s.prompt.includes('[ba1]'))).toHaveLength(2)
+  })
+
+  it('orders the "worth a quick check" notes by priority (figures, claimed tools, education dates) and employer, not by completion order', async () => {
+    const src = writeVaultSource()
+    ;(src.educations as Array<{ id: string; startDate: Date }>).find((e) => e.id === 'we2')!.startDate = new Date('2005-09-01T00:00:00Z') // no end date, long ago
+    const vault = buildVault(src)
+    // Unity names a claimed tool the job asks for; Blizzard has a figure nothing supports. Unity answers LAST.
+    experienceOverride = (prompt) => (prompt.includes('[ua1]')
+      ? { summary: 'Ran releases.', bullets: ['Built Tableau dashboards for 8 teams.'] }
+      : { summary: 'Launched a title.', bullets: ['Launched a live-service title for 3M players.'] })
+    delayFor = (prompt, feature) => (feature === 'cv-gen-write-experience' && prompt.includes('[ua1]') ? 60 : 0)
+    const r = await runWrite(vault, buildBriefFor(), writeSelection(vault), { mustHave: ['Tableau'], niceToHave: [] }, ctx())
+    expect(r.checkNotes).toHaveLength(3)
+    expect(r.checkNotes[0]).toMatch(/^Blizzard Entertainment: "3M" could not be matched/)
+    expect(r.checkNotes[1]).toMatch(/^Unity: "Tableau" is listed in your profile without evidence/)
+    expect(r.checkNotes[2]).toMatch(/^Education: "MBA" has no end date/)
+  })
+
+  it('cuts the education date note first when there are more than three, then everything else by priority', async () => {
+    const src = writeVaultSource()
+    ;(src.educations as Array<{ id: string; startDate: Date }>).find((e) => e.id === 'we2')!.startDate = new Date('2005-09-01T00:00:00Z')
+    const vault = buildVault(src)
+    experienceOverride = (prompt) => ({ summary: 'Did the work.', bullets: [prompt.includes('[ua1]') ? 'Built Tableau dashboards, grew revenue 91%.' : 'Grew revenue 91%.'] })
+    const r = await runWrite(vault, buildBriefFor(), writeSelection(vault), { mustHave: ['Tableau'], niceToHave: [] }, ctx())
+    expect(r.checkNotes).toHaveLength(3)
+    expect(r.checkNotes.every((n) => !n.startsWith('Education:'))).toBe(true)
+  })
+
+  it('cleans markup out of an experience answer so Assemble never sees a stray ":::" (the run does not fail)', async () => {
+    experienceOverride = () => ({ summary: ':::compact-list Did the work.', bullets: ['Did the work ::: well.', '{{contact}}'] })
+    const vault = writeVault()
+    const r = await runWrite(vault, buildBriefFor(), writeSelection(vault), strategy, ctx())
+    const md = r.sections.filter((s) => s.kind === 'experience').map((s) => s.markdown).join('\n')
+    expect(md).not.toMatch(/:::[^c\n]|[^\n]:::/)
+    expect(md).not.toContain('{{')
+  })
+
+  it('records the tokens of a failed run: the calls that answered, on the error and on the failed row', async () => {
+    experienceOverride = (prompt) => (prompt.includes('[ba1]') ? 'junk' : unityAnswer)
+    const vault = writeVault()
+    const err = await runWrite(vault, buildBriefFor(), writeSelection(vault), strategy, ctx()).catch((e) => e)
+    expect(err).toBeInstanceOf(WriteStageError)
+    expect(err.usage.calls).toBeGreaterThanOrEqual(2)
+    expect(err.usage.input).toBeGreaterThanOrEqual(2000)
+    const failed = err.sectionLogs.find((r: { id: string }) => r.id === `experience:${BLIZZARD}`)
+    expect(failed).toMatchObject({ status: 'failed', tokens: { input: 2000, output: 400 } })
+    expect(failed.costUsd).toBeGreaterThan(0)
+  })
+
+  it('counts the tokens of a failed skills grouping in the stage total and on its rows', async () => {
+    const skillsRows = new Set(['cv-gen-write-skills'])
+    mockJSON.mockImplementation((async (_p: string, prompt: string, schema: never, opts: { feature: string }) => {
+      const reply = skillsRows.has(opts.feature) ? 'junk' : opts.feature === 'cv-gen-write-profile' ? profileAnswer : prompt.includes('[ba1]') ? blizzardAnswer : unityAnswer
+      const text = reply === 'junk' ? 'no json' : `\`\`\`json\n${JSON.stringify(reply)}\n\`\`\``
+      return llmReply(extractJSON(text, schema))
+    }) as never)
+    const vault = writeVault()
+    const r = await runWrite(vault, buildBriefFor(), writeSelection(vault), strategy, ctx())
+    const tools = r.sections.find((s) => s.id === 'tools')!
+    expect(tools.log.tokens).toEqual({ input: 2000, output: 400 })
+    expect(r.usage.input).toBe(2000 + 3000) // two junk skills calls, then experience x2 and the profile
+  })
+
+  it('leaves a certification with an expired date off the CV and says so in its log note', async () => {
+    const src = writeVaultSource()
+    ;(src.certifications as unknown[]).push({ id: 'wc3', profileId: 'p1', name: 'ITIL 3', issuer: 'Axelos', issueDate: new Date('2018-01-01T00:00:00Z'), expiryDate: new Date('2021-01-01T00:00:00Z'), credentialUrl: null, tags: '[]', createdAt: new Date(0), updatedAt: new Date(0), skills: [] })
+    const vault = buildVault(src)
+    const sel = writeSelection(vault, { certifications: ['wc1', 'wc2', 'wc3'].map((id) => ({ id, reason: '' })) })
+    const r = await runWrite(vault, buildBriefFor(), sel, strategy, ctx())
+    const cert = r.sections.find((s) => s.id === 'certification')!
+    expect(cert.markdown).not.toContain('ITIL')
+    expect(cert.log.notes.join(' ')).toContain('"ITIL 3" expired in 2021 and was left out.')
   })
 
   it('fails as a timeout when the run has no time left, before any call', async () => {

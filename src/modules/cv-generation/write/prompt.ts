@@ -1,31 +1,13 @@
 /**
  * Prompt pieces the section writers share. Pure.
  *
- * Block syntax comes from the writing desk's block registry (the same
- * descriptions and examples buildWritingContract gives external agents), never
- * copied into a prompt by hand, so it cannot drift from what the desk renders.
- * No contact details and no name reach a prompt: evidence text is scrubbed
- * (candidates.ts) and the header is code-rendered.
+ * No block syntax reaches a prompt: the writers return plain strings and code
+ * builds every `:::` block. No contact details and no name reach a prompt:
+ * evidence text is scrubbed (candidates.ts) and the header is code-rendered.
  */
 
-import { CONTACT_PLACEHOLDER } from '@/modules/profile-map/contact'
-import { getBlockDefinition } from '@/modules/writing-desk/markdown'
-import type { BlockId } from '@/modules/writing-desk/markdown'
 import type { CvBrief } from '../schema'
 import type { Strategy } from '../strategy'
-
-/** The registry's description and example for each block a writer may use. */
-export function blockSyntax(ids: readonly BlockId[]): string {
-  return ids
-    .flatMap((id) => {
-      const b = getBlockDefinition(id)
-      return b ? [`### ${b.id} (${b.label})\n${b.description}\nExample:\n${b.example}`] : []
-    })
-    .join('\n\n')
-}
-
-/** What the writers are told about the contact line: they never write one. */
-export const CONTACT_RULE = `Never write contact details. Code puts ${CONTACT_PLACEHOLDER} in the header.`
 
 /** Text that goes inside a delimited data block: the block's own tags are removed so it cannot be closed early. */
 export function inBlock(text: string, tag: string): string {

@@ -14,6 +14,7 @@ import { notesOf } from '@/modules/profile-map/build'
 import type { Vault } from '@/modules/profile-map/types'
 import { buildCandidates, type CandidateActivity } from '../candidates'
 import type { CvSelection, SelectedEmployer } from '../schema'
+import { certificationStatus, educationStatus, isClaimedCapability } from './status'
 
 export type EmployerEvidence = {
   employer: SelectedEmployer
@@ -63,6 +64,13 @@ export type Evidence = {
   profileCompanies: string[]
   /** Capabilities the profile lists without evidence, by name (all of them, not only the selected). */
   claimedNames: string[]
+  /** Every certification and qualification name in the profile, with whether it is still in progress: what a writer must not present as held. */
+  credentials: Array<{ name: string; inProgress: boolean }>
+}
+
+/** Names whose digits are part of the name ("ISO 27001", "GA4"), not figures: selected skills, tools, competencies and certifications. */
+export function figureIgnoredNames(e: Pick<Evidence, 'skills' | 'tools' | 'competencies' | 'certifications'>): string[] {
+  return [...e.skills, ...e.tools, ...e.competencies, ...e.certifications].map((c) => c.name)
 }
 
 /** The text a writer's figures and names may be checked against: the activities' text and impact. */
@@ -70,7 +78,7 @@ export function evidenceTexts(e: EmployerEvidence): string[] {
   return e.activities.flatMap((a) => [a.text, a.impact ?? ''])
 }
 
-export function evidenceFromVault(vault: Vault, selection: CvSelection): Evidence {
+export function evidenceFromVault(vault: Vault, selection: CvSelection, now: Date = new Date()): Evidence {
   const byActivity = new Map<string, CandidateActivity>()
   for (const emp of buildCandidates(vault).employers) for (const a of emp.activities) byActivity.set(a.id, a)
 
@@ -90,7 +98,7 @@ export function evidenceFromVault(vault: Vault, selection: CvSelection): Evidenc
     ids.flatMap(({ id }) => {
       const n = vault.notes.get(id)
       return n?.type === 'capability'
-        ? [{ id, name: n.props.name, category: n.props.category, level: n.props.level, claimed: n.props.status === 'claimed' }]
+        ? [{ id, name: n.props.name, category: n.props.category, level: n.props.level, claimed: isClaimedCapability(vault, n, now) }]
         : []
     })
 
@@ -118,6 +126,10 @@ export function evidenceFromVault(vault: Vault, selection: CvSelection): Evidenc
     languages: notesOf(vault, 'language').map((l) => ({ name: l.props.name, proficiency: l.props.proficiency })),
     profileTitles: [...new Set(experiences.map((e) => e.props.role.trim()).filter(Boolean))],
     profileCompanies: [...new Set(experiences.map((e) => e.props.company.trim()).filter(Boolean))],
-    claimedNames: notesOf(vault, 'capability').filter((c) => c.props.status === 'claimed').map((c) => c.props.name),
+    credentials: [
+      ...notesOf(vault, 'certification').map((c) => ({ name: c.props.name, inProgress: certificationStatus(c.props, now) === 'in_progress' })),
+      ...notesOf(vault, 'education').flatMap((e) => [e.props.qualification, e.props.institution].map((name) => ({ name, inProgress: educationStatus(e.props, now) === 'in_progress' }))),
+    ].filter((c) => c.name.trim().length >= 2),
+    claimedNames: notesOf(vault, 'capability').filter((c) => isClaimedCapability(vault, c, now)).map((c) => c.props.name),
   }
 }

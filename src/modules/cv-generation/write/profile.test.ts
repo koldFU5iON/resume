@@ -8,7 +8,7 @@ import { extractJSON } from '@/modules/llm/extract-json'
 import { scripted, writeSelection, writeVault } from '../__fixtures__/write'
 import { buildBriefFor } from '../__fixtures__/gathered'
 import { evidenceFromVault } from './evidence'
-import { analyseProfile, experienceDigest, profilePrompt, writableCompetencies, writeProfile } from './profile'
+import { analyseProfile, experienceDigest, fallbackProfile, profilePrompt, writableCompetencies, writeProfile } from './profile'
 import { requirementText } from './prompt'
 import type { WriteContext } from './types'
 
@@ -116,6 +116,129 @@ describe('writeProfile', () => {
     const r2 = await asked.result
     expect(asked.s.calls).toHaveLength(1)
     expect(r2.checkNotes).toEqual([expect.stringMatching(/Profile: "Tableau".*the job asks for it/)])
+  })
+
+  describe('headline: dropped only for an UNSUPPORTED figure', () => {
+    it.each(['B2B SaaS product leader', 'Web3 delivery and platform operator', '24/7 operations and incident leader', 'GA4 and Q3 planning specialist'])('keeps "%s"', async (headline) => {
+      const { s, result } = run([{ ...good, headline }])
+      const r = await result
+      expect(s.calls).toHaveLength(1)
+      expect(r.headline).toBe(headline)
+    })
+
+    it('drops a headline whose figure the evidence does not support, after one retry', async () => {
+      const bad = { ...good, headline: '15 years of delivery leadership' }
+      const { s, result } = run([bad, bad])
+      const r = await result
+      expect(s.calls).toHaveLength(2)
+      expect(s.calls[1].prompt).toMatch(/not in the experience section.*15/)
+      expect(r.headline).toBeNull()
+      expect(r.notes.join(' ')).toMatch(/headline was left out: it has figures the evidence does not support \(15\)/)
+    })
+
+    it('keeps a headline figure the evidence supports', async () => {
+      const { result } = run([{ ...good, headline: 'Shipped 12 titles at scale' }])
+      expect((await result).headline).toBe('Shipped 12 titles at scale')
+    })
+
+    it('drops a number word headline the evidence does not support', () => {
+      const a = analyseProfile({ ...good, headline: 'Opened five markets' }, ctx(), { digest, competencies: [] })
+      expect(a.headlineUnsupported).toEqual(['five'])
+    })
+  })
+
+  describe('plain text (nothing markup-like reaches Assemble)', () => {
+    it('retries with feedback, then cleans the profile, headline and competency lines', async () => {
+      const dirty = {
+        profile: '# Delivery leader ![x](http://evil.test/i.png)who ships :::, see [my site](http://x.test) {{contact}}',
+        headline: '> **Delivery** leader',
+        competencies: [{ name: 'Cross-functional leadership', line: '- Cross-functional leadership: shipped 12 titles <i>on schedule</i>' }],
+      }
+      const { s, result } = run([dirty, dirty])
+      const r = await result
+      expect(s.calls).toHaveLength(2)
+      expect(s.calls[1].prompt).toMatch(/the profile contains links or images, HTML tags|the profile contains/)
+      expect(s.calls[1].prompt).toContain('"{{"')
+      expect(r.profileMarkdown).toBe('Delivery leader who ships , see my site contact')
+      expect(r.headline).toBe('Delivery leader')
+      expect(r.competenciesMarkdown).toBe(':::compact-list\n- Cross-functional leadership: shipped 12 titles on schedule\n:::')
+      expect(`${r.profileMarkdown}${r.headline}${r.competenciesMarkdown}`).not.toMatch(/\{\{|http|<i>|!\[/)
+    })
+  })
+
+  describe('numbers by value and words', () => {
+    it('flags number words and multipliers the experience text does not support', () => {
+      const a = analyseProfile({ ...good, profile: 'Leader who opened five markets and doubled revenue.' }, ctx(), { digest, competencies: [] })
+      expect(a.unsupported).toEqual(['five', 'doubled'])
+    })
+
+    it('accepts forty percent for 40% and 12 for twelve', () => {
+      const a = analyseProfile({ ...good, profile: 'Leader who cut release time by forty percent across eight teams.' }, ctx(), { digest, competencies: [] })
+      expect(a.unsupported).toEqual([])
+    })
+  })
+
+  describe('certifications and education', () => {
+    const named = (credentials: Array<{ name: string; inProgress: boolean }>) => ctx({ evidence: { ...evidence, credentials } })
+
+    it('fails "PMP-certified" while the PMP is in progress: retried once with feedback, then accepted with a "worth a quick check" note', async () => {
+      const bad = { ...good, profile: 'PMP-certified delivery leader who cut release time by 40% across 8 teams.' }
+      const { s, result } = run([bad, bad], named([{ name: 'PMP', inProgress: true }]))
+      const r = await result
+      expect(s.calls).toHaveLength(2)
+      expect(s.calls[1].prompt).toMatch(/"PMP" is not finished yet/)
+      expect(r.profileMarkdown).toContain('PMP-certified') // nothing is stripped silently
+      expect(r.checkNotes).toEqual([expect.stringMatching(/Profile: "PMP" is still in progress.*Worth a quick check/)])
+    })
+
+    it('accepts the in-progress wording', () => {
+      const a = analyseProfile({ ...good, profile: 'Delivery leader, currently studying for the PMP.' }, named([{ name: 'PMP', inProgress: true }]), { digest, competencies: [] })
+      expect(a.soft).toEqual([])
+    })
+
+    it('flags a certification the evidence text does not mention', () => {
+      const a = analyseProfile({ ...good, profile: 'CISM-certified delivery leader.' }, named([{ name: 'CISM', inProgress: false }]), { digest, competencies: [] })
+      expect(a.soft.join(' ')).toMatch(/"CISM" is a certification or qualification the evidence does not mention/)
+    })
+  })
+
+  it('flags title-like phrases that are not the candidate\'s titles ("As Head of Delivery...")', async () => {
+    const { s, result } = run([{ ...good, profile: 'As Head of Delivery I turned programmes into predictable releases.' }, good])
+    await result
+    expect(s.calls[1].prompt).toMatch(/do not write job titles.*Head of Delivery/)
+  })
+
+  it('does not call a short claimed name in "go-to-market" or "C-suite"', () => {
+    const claimedGo = ctx({ evidence: { ...evidence, claimedNames: [...evidence.claimedNames, 'Go', 'C'] } })
+    const a = analyseProfile({ ...good, profile: 'Leader of go-to-market launches who briefs the C-suite.' }, claimedGo, { digest, competencies: [] })
+    expect(a.claimed).toEqual([])
+  })
+
+  describe('fallbackProfile (no model call)', () => {
+    const base = ctx()
+
+    it('uses the brief\'s positioning as the profile, the evidenced competency names as lines, and no headline', () => {
+      const f = fallbackProfile(base, digest, 'No time.')
+      expect(f.model).toBeNull()
+      expect(f.usage.calls).toBe(0)
+      expect(f.headline).toBeNull()
+      expect(f.profileMarkdown).toBe(base.brief.positioning)
+      expect(f.competenciesMarkdown).toBe(':::compact-list\n- Cross-functional leadership\n:::')
+      expect(f.notes[0]).toMatch(/No time\. The profile section was made by code/)
+    })
+
+    it('drops a positioning that claims something the evidence does not support', () => {
+      const f = fallbackProfile({ ...base, brief: { ...base.brief, positioning: 'Led 400 people and doubled revenue, PMP-certified.' }, evidence: { ...base.evidence, credentials: [{ name: 'PMP', inProgress: true }] } }, digest, 'No time.')
+      expect(f.profileMarkdown).toBe('')
+      expect(f.notes.join(' ')).toMatch(/positioning was not used/)
+    })
+
+    it('cuts a long positioning to the word limit and cleans it', () => {
+      const long = `# ${Array.from({ length: 120 }, () => 'word').join(' ')} :::`
+      const f = fallbackProfile({ ...base, brief: { ...base.brief, positioning: long } }, digest, 'No time.')
+      expect(f.profileMarkdown.split(' ')).toHaveLength(80)
+      expect(f.profileMarkdown).not.toMatch(/#|:::/)
+    })
   })
 
   it('fails with invalid_output on an empty profile twice', async () => {

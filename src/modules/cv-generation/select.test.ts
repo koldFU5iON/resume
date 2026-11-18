@@ -564,6 +564,19 @@ describe('runSelect', () => {
     expect(r.selection.employers.length).toBeGreaterThan(0)
   })
 
+  it('keeps the usage of a call that answered even when the rules end up choosing (no racy re-read of the usage rows)', async () => {
+    const used = { input: 5000, output: 300, costUsd: 0.004, calls: 2 }
+    call.mockResolvedValue({ value: { ...empty, skills: pick('x1'), employers: epick(['zzz', 3]) }, model: 'm-fast', retries: 1, usage: used })
+    const r = await runSelect(g, buildBriefFor(), ctx)
+    expect(r.selection.mode).toBe('fallback')
+    expect(r.usage).toEqual(used)
+  })
+
+  it('has no usage when the call itself failed', async () => {
+    call.mockRejectedValue(new LLMError('slow', 'timeout'))
+    expect((await runSelect(g, buildBriefFor(), ctx)).usage).toBeUndefined()
+  })
+
   it('falls back when the answer names nothing real', async () => {
     call.mockResolvedValue({ value: { ...empty, skills: pick('x1', 'x2'), employers: epick(['zzz', 3]) }, model: 'm-fast', retries: 1, usage: NO_USAGE })
     const r = await runSelect(g, buildBriefFor(), ctx)

@@ -9,6 +9,8 @@
 import { employerPeriod } from '../employers'
 import type { SelectedEmployer } from '../schema'
 import type { CertificationEvidence, EducationEvidence } from './evidence'
+import { plainLine } from './plain'
+import { ALREADY_MARKED, certificationStatus, educationStatus } from './status'
 
 const oneLine = (s: string) => s.replace(/\s+/g, ' ').trim()
 
@@ -29,9 +31,9 @@ export function renderHeaderOnlyEmployer(e: SelectedEmployer): string {
 export function renderEmployerEntry(e: SelectedEmployer, summary: string, bullets: readonly string[]): string {
   return [
     renderEmployerHeader(e),
-    ...(summary.trim() ? ['', oneLine(summary)] : []),
+    ...(plainLine(summary) ? ['', plainLine(summary)] : []),
     '',
-    `:::compact-list\n${bullets.map((b) => `- ${oneLine(b)}`).join('\n')}\n:::`,
+    `:::compact-list\n${bullets.map(plainLine).filter(Boolean).map((b) => `- ${b}`).join('\n')}\n:::`,
   ].join('\n')
 }
 
@@ -43,60 +45,83 @@ export type NameGroup = { label: string | null; names: string[] }
 export function renderNameGroups(groups: readonly NameGroup[], block: 'skills' | 'inline-list'): string {
   return groups
     .filter((g) => g.names.length > 0)
-    .map((g) => `${g.label ? `**${oneLine(g.label)}**\n\n` : ''}:::${block}\n${g.names.map((n) => `- ${oneLine(n)}`).join('\n')}\n:::`)
+    .map((g) => `${g.label && plainLine(g.label) ? `**${plainLine(g.label)}**\n\n` : ''}:::${block}\n${g.names.map((n) => `- ${oneLine(n)}`).join('\n')}\n:::`)
     .join('\n\n')
 }
 
 // ── Certifications, education, languages ────────────────────────────────────
 
-const IN_PROGRESS_WORDING = /\b(in[\s-]?progress|ongoing|expected|studying|working towards|pursuing)\b/i
-const ALREADY_MARKED = /in[\s-]?progress/i
-
 const year = (d: Date) => String(d.getUTCFullYear())
 
-export type Rendered = { markdown: string; notes: string[] }
-
-/**
- * Certifications in relevance order (the selection's order), from the profile
- * as stored. The profile has no status field, so "in progress" is read from the
- * data: an issue date in the future, or wording in the name. Such an entry is
- * written "(in progress)" and never presented as held. An undated certification
- * is shown without a date.
- */
-export function renderCertifications(certs: readonly CertificationEvidence[], now: Date = new Date()): Rendered {
-  const notes: string[] = []
-  const lines = certs.map((c) => {
-    const inProgress = (c.issueDate !== null && c.issueDate.getTime() > now.getTime()) || IN_PROGRESS_WORDING.test(c.name)
-    const dates = [c.issueDate ? year(c.issueDate) : null, c.expiryDate ? `expires ${year(c.expiryDate)}` : null].filter(Boolean).join(', ')
-    const mark = inProgress && !ALREADY_MARKED.test(c.name) ? 'in progress' : null
-    if (inProgress) notes.push(`"${c.name}" is shown as in progress.`)
-    const detail = [dates, mark].filter(Boolean).join(', ')
-    return `- **${oneLine(c.name)}**${c.issuer ? ` — ${oneLine(c.issuer)}` : ''}${detail ? ` (${detail})` : ''}`
-  })
-  return { markdown: lines.join('\n'), notes }
+export type Rendered = {
+  markdown: string
+  /** Log notes for the section row. */
+  notes: string[]
+  /** "Worth a quick check" notes (at most one per section). */
+  checkNotes: string[]
 }
 
 /**
- * Education in relevance order, from the profile as stored. An entry with no
- * end date, an end date in the future, or in-progress wording is written
- * "(in progress)": it is never presented as completed. The grade is shown only
- * for a completed entry.
+ * Certifications in relevance order (the selection's order), from the profile
+ * as stored. The profile has no status field (status.ts reads it from the
+ * data): one still in progress is written "(in progress)" and never presented
+ * as held; one whose expiry date has passed is left off the CV with a log
+ * note; a future expiry date is a held certification. An undated one is shown
+ * without a date.
+ */
+export function renderCertifications(certs: readonly CertificationEvidence[], now: Date = new Date()): Rendered {
+  const notes: string[] = []
+  const lines: string[] = []
+  for (const c of certs) {
+    const status = certificationStatus(c, now)
+    if (status === 'expired') {
+      notes.push(`"${c.name}" expired in ${year(c.expiryDate as Date)} and was left out.`)
+      continue
+    }
+    const dates = [c.issueDate ? year(c.issueDate) : null, c.expiryDate ? `expires ${year(c.expiryDate)}` : null].filter(Boolean).join(', ')
+    const mark = status === 'in_progress' && !ALREADY_MARKED.test(c.name) ? 'in progress' : null
+    if (status === 'in_progress') notes.push(`"${c.name}" is shown as in progress.`)
+    const detail = [dates, mark].filter(Boolean).join(', ')
+    lines.push(`- **${oneLine(c.name)}**${c.issuer ? ` — ${oneLine(c.issuer)}` : ''}${detail ? ` (${detail})` : ''}`)
+  }
+  return { markdown: lines.join('\n'), notes, checkNotes: [] }
+}
+
+/**
+ * Education in relevance order, from the profile as stored (status.ts):
+ * - completed (a past end date): the span and the grade;
+ * - in progress (an end date in the future, in-progress wording, or no end
+ *   date and a start within the last few years): "from <year>, in progress",
+ *   never a grade;
+ * - no end date and an older start: no span and no status, because the CV
+ *   claims neither completion nor progress. One check note asks the owner to
+ *   add the end date.
  */
 export function renderEducation(items: readonly EducationEvidence[], now: Date = new Date()): Rendered {
   const notes: string[] = []
+  const undated: string[] = []
   const lines = items.map((e) => {
-    const wording = [e.qualification, e.field ?? '', e.grade ?? ''].some((t) => IN_PROGRESS_WORDING.test(t))
-    const inProgress = e.endDate === null || e.endDate.getTime() > now.getTime() || wording
+    const status = educationStatus(e, now)
     const what = `${oneLine(e.qualification)}${e.field ? ` in ${oneLine(e.field)}` : ''}`
-    const span = e.endDate && !(e.endDate.getTime() > now.getTime())
-      ? (year(e.startDate) === year(e.endDate) ? year(e.startDate) : `${year(e.startDate)} – ${year(e.endDate)}`)
-      : `from ${year(e.startDate)}`
-    const mark = inProgress && !ALREADY_MARKED.test(what) ? 'in progress' : null
-    if (inProgress) notes.push(`"${what}" is shown as in progress${e.endDate === null ? ' because the profile has no end date for it' : ''}.`)
-    const detail = [span, !inProgress && e.grade ? oneLine(e.grade) : null, mark].filter(Boolean).join(', ')
+    let detail: string
+    if (status === 'completed') {
+      const end = e.endDate as Date
+      const span = year(e.startDate) === year(end) ? year(e.startDate) : `${year(e.startDate)} – ${year(end)}`
+      detail = [span, e.grade ? oneLine(e.grade) : null].filter(Boolean).join(', ')
+    } else if (status === 'in_progress') {
+      detail = [`from ${year(e.startDate)}`, ALREADY_MARKED.test(what) ? null : 'in progress'].filter(Boolean).join(', ')
+      notes.push(`"${what}" is shown as in progress${e.endDate === null ? ' because it has no end date and started recently' : ''}.`)
+    } else {
+      detail = ''
+      undated.push(what)
+      notes.push(`"${what}" has no end date and started long ago, so it is shown without dates or status.`)
+    }
     return `- **${what}** — ${oneLine(e.institution)}${detail ? ` (${detail})` : ''}`
   })
-  return { markdown: lines.join('\n'), notes }
+  const checkNotes = undated.length > 0
+    ? [`Education: ${undated.map((u) => `"${u}"`).join(', ')} ${undated.length === 1 ? 'has' : 'have'} no end date in your profile, so ${undated.length === 1 ? 'it is' : 'they are'} shown without dates. Add the end date to show when you finished.`]
+    : []
+  return { markdown: lines.join('\n'), notes, checkNotes }
 }
 
 export function renderLanguages(languages: ReadonlyArray<{ name: string; proficiency: string | null }>): string {

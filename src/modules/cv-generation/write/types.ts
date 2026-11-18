@@ -17,6 +17,16 @@ export type WriteContext = {
   requirementText: string
 }
 
+/**
+ * What a "worth a quick check" note is about. Notes are cut to MAX_CHECK_NOTES
+ * in this priority order: invented figures first, then claimed tools, then a
+ * certification or education that may be shown as finished, then a missing
+ * education end date.
+ */
+export type CheckKind = 'figure' | 'claimed' | 'credential' | 'education'
+export const CHECK_KIND_RANK: Record<CheckKind, number> = { figure: 0, claimed: 1, credential: 2, education: 3 }
+export type CheckNote = { kind: CheckKind; text: string }
+
 /** The result of one writer: its markdown and what to log. */
 export type WriterOutcome = {
   markdown: string
@@ -26,6 +36,8 @@ export type WriterOutcome = {
   /** Notes for this section's log row. */
   notes: string[]
   /** Genuinely risky items, for "worth a quick check". Rare by design. */
+  checks: CheckNote[]
+  /** The same notes as plain text. */
   checkNotes: string[]
 }
 

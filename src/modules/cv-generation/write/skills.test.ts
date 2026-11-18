@@ -127,7 +127,44 @@ describe('writeSkills', () => {
     expect(r.skillsMarkdown + r.toolsMarkdown).toBe('')
   })
 
+  it('records the tokens of the calls that answered when the grouping fails (a stage row must not show 0)', async () => {
+    const s = scripted((t, sch) => extractJSON(t, sch as never), ['junk', 'junk'])
+    mockJSON.mockImplementation(s.impl as never)
+    const r = await writeSkills(ctx(), instructions)
+    expect(s.calls).toHaveLength(2)
+    expect(r.model).toBeNull()
+    expect(r.usage).toMatchObject({ input: 2000, output: 400, calls: 2 })
+    expect(r.usage.costUsd).toBeGreaterThan(0)
+    expect(r.notes[0]).toMatch(/invalid_output/)
+  })
+
+  it('cleans group labels: markup, links and ":::" never reach the skills blocks', async () => {
+    const s = scripted((t, sch) => extractJSON(t, sch as never), [{
+      skills: [{ label: '## **Delivery** ::: [x](http://evil.test)', names: ['Release management', 'Roadmapping', 'Dependency mapping'] }, { label: '<b>Governance</b>', names: ['Stakeholder management', 'Risk management', 'Budgeting'] }],
+      tools: [],
+    }])
+    mockJSON.mockImplementation(s.impl as never)
+    const r = await writeSkills(ctx(), instructions)
+    expect(r.skillsMarkdown).toContain('**Delivery x**\n\n:::skills')
+    expect(r.skillsMarkdown).toContain('**Governance**\n\n:::skills')
+    expect(r.skillsMarkdown).not.toMatch(/http|<b>|##/)
+  })
+
+  it('makes no call when there is not enough time left, and orders by code', async () => {
+    const r = await writeSkills(ctx({ deadline: Date.now() + 1_000 }), instructions)
+    expect(mockJSON).not.toHaveBeenCalled()
+    expect(r.notes[0]).toMatch(/Not enough time/)
+    expect(r.skillsMarkdown).toContain('- Release management')
+  })
+
   it('shows claimed names in the prompt like any other (they are allowed in these lists)', () => {
     expect(skillsPrompt(ctx(), evidence.skills, evidence.tools)).toContain('- Tableau')
+  })
+
+  it('gives the model no block syntax (code builds the blocks) and asks for plain labels', () => {
+    const p = skillsPrompt(ctx(), evidence.skills, evidence.tools)
+    expect(p).not.toContain(':::skills')
+    expect(p).not.toContain('inline-list')
+    expect(p).toMatch(/plain text/)
   })
 })

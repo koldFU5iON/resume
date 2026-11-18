@@ -14,6 +14,13 @@ const input = (over: Partial<AssembleInput> = {}): AssembleInput => ({
   employerOrder: [UNITY, BLIZZARD, OLD_CO], checkNotes: [], snapshot: toProfileSnapshot(writeVault()), ...over,
 })
 
+describe('renderHeader (the headline is model text)', () => {
+  it('cleans markup out of the headline, so ":::" or {{contact}} cannot break or double the header', () => {
+    expect(renderHeader('Robin Placeholder', '## **Delivery** ::: leader {{contact}}')).toBe(':::header\n# Robin Placeholder\n## Delivery leader contact\n{{contact}}\n:::')
+    expect(renderHeader('Robin Placeholder', ':::')).toBe(':::header\n# Robin Placeholder\n{{contact}}\n:::')
+  })
+})
+
 describe('assembleCv', () => {
   const r = assembleCv(input())
   if (!r.ok) throw new Error(r.issues.join('; '))

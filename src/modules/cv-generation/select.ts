@@ -552,7 +552,7 @@ export type SelectResult = {
   model: string | null
   retries: number
   notes: string[]
-  /** Tokens and cost of the model calls, from the call results; absent when the fallback chose after a failed call. */
+  /** Tokens and cost of the model calls, from the call results (kept when the rules chose after an answer that named nothing real); absent when the call itself failed. */
   usage?: CallUsage
 }
 
@@ -564,6 +564,8 @@ export async function runSelect(
 ): Promise<SelectResult> {
   let failure: string
   let retries = 0
+  // What the model call used, kept even when the rules end up choosing (the usage rows are written after the call returns, so reading them back races).
+  let used: CallUsage | undefined
   try {
     const instructions = await loadCVSelectPrompt(ctx.profileId)
     const call = await completeValidated(ctx.profileId, selectPrompt(brief, g.candidates, g.strategy), SelectOutputSchema, {
@@ -579,6 +581,7 @@ export async function runSelect(
       label: 'selection',
     })
     retries = call.retries
+    used = call.usage
     const enforced = enforceSelection(call.value, g.candidates, brief, 'model', { requirementTerms: requirementTerms(g.strategy) })
     if (enforced.recognised > 0) {
       return { selection: enforced.selection, model: call.model, retries, notes: enforced.notes, usage: call.usage }
@@ -594,6 +597,7 @@ export async function runSelect(
     model: null,
     retries,
     notes: [`Chose by rules instead: ${failure}.`, ...fb.notes],
+    ...(used ? { usage: used } : {}),
   }
 }
 

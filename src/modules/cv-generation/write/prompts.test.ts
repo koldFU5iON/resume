@@ -38,3 +38,35 @@ describe('the writer prompt files', () => {
     expect(t).toContain('Numbers verbatim')
   })
 })
+
+describe('the writer prompts, after the review fixes', () => {
+  it.each(files)('%s says plain text only: no Markdown, links, HTML or ":::"', (name) => {
+    expect(read(name)).toMatch(/Plain text only[^\n]*no Markdown, links, HTML or ":::"/i)
+  })
+
+  it.each(['cv-gen-write-experience', 'cv-gen-write-profile', 'cv-gen-write-skills'])('%s says figures written as words follow the same rule as digits', (name) => {
+    expect(read(name)).toMatch(/Figures written as words|figures written as words/i)
+  })
+
+  it('the skills prompt carries no block syntax: code builds the lists', () => {
+    const t = read('cv-gen-write-skills')
+    expect(t).not.toMatch(/inline-list|"skills" block|syntax of the blocks/)
+  })
+
+  it('the experience prompt: no block syntax, and a claimed tool only when the job requirements name it (owner decision 5)', () => {
+    const t = read('cv-gen-write-experience')
+    expect(t).not.toMatch(/syntax of the block|compact-list/)
+    expect(t).toMatch(/only when the job's requirements name it/)
+    expect(t).toMatch(/never name such a tool otherwise/)
+  })
+
+  it('the experience and profile prompts keep certifications and education to code', () => {
+    expect(read('cv-gen-write-experience')).toMatch(/Do not name a certification, qualification or school/)
+    expect(read('cv-gen-write-profile')).toMatch(/one still in progress is never described as held/)
+  })
+
+  it('the select prompt explains "(in progress)"', () => {
+    const t = readFileSync('src/lib/prompts/cv-gen-select.md', 'utf8')
+    expect(t).toMatch(/\(in progress\)/)
+  })
+})

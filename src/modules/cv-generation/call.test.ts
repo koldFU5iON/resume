@@ -1,10 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/modules/llm/complete-json', () => ({ completeJSON: vi.fn() }))
 
 import { z } from 'zod'
+import { LLMError } from '@/modules/llm/errors'
 import { completeJSON } from '@/modules/llm/complete-json'
-import { addUsage, completeChecked, completeValidated, NO_USAGE, usageOf } from './call'
+import { addUsage, completeChecked, completeValidated, NO_USAGE, softIssueNotes, usageOf, usageOfError } from './call'
 import { MAX_OUTPUT_TOKENS } from './schema'
 
 const mockJSON = vi.mocked(completeJSON)
@@ -174,5 +175,80 @@ describe('completeChecked', () => {
     mockJSON.mockResolvedValue(good)
     await completeChecked('p1', 'prompt', schema, copts(() => chk([], ['soft'])))
     for (const c of mockJSON.mock.calls) expect(c[3]).toMatchObject({ minRetryMs: Number.POSITIVE_INFINITY })
+  })
+})
+
+describe('completeChecked: time for later stages', () => {
+  const chk = (hard: string[] = [], soft: string[] = []) => ({ hard, soft })
+  const copts = (check: (v: { a: string }) => { hard: string[]; soft: string[] }, over: Record<string, unknown> = {}) => ({
+    ...opts({ maxOutputTokens: 1_500, retryMaxOutputTokens: 3_000, label: 'experience section' }), check, ...over,
+  })
+  const withSlowFirstCall = (firstMs: number, replies: unknown[]) => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-01-01T00:00:00Z'))
+    let n = 0
+    mockJSON.mockImplementation((async () => {
+      const reply = replies[Math.min(n, replies.length - 1)]
+      if (n++ === 0) vi.setSystemTime(Date.now() + firstMs)
+      return reply
+    }) as never)
+  }
+  afterEach(() => vi.useRealTimers())
+
+  it('skips the retry for a SOFT problem when the time left is under twice the first call, and says so', async () => {
+    withSlowFirstCall(20_000, [good])
+    // 45 s allowed, 20 s used: 25 s left, under 2 x 20 s.
+    const r = await completeChecked('p1', 'prompt', schema, copts(() => chk([], ['figure 45%']), { deadline: Date.now() + 45_000 }))
+    expect(mockJSON).toHaveBeenCalledTimes(1)
+    expect(r).toMatchObject({ softIssues: ['figure 45%'], retrySkipped: true, retries: 0 })
+    expect(softIssueNotes(r)[0]).toMatch(/not enough time for a retry/)
+  })
+
+  it('still retries a soft problem when there is plenty of time', async () => {
+    withSlowFirstCall(5_000, [good])
+    let n = 0
+    await completeChecked('p1', 'prompt', schema, copts(() => (n++ === 0 ? chk([], ['figure 45%']) : chk()), { deadline: Date.now() + 45_000 }))
+    expect(mockJSON).toHaveBeenCalledTimes(2)
+  })
+
+  it('still retries a HARD failure when time is short (the answer is unusable without it)', async () => {
+    withSlowFirstCall(20_000, [bad('stop'), good])
+    const r = await completeChecked('p1', 'prompt', schema, copts(() => chk(), { deadline: Date.now() + 45_000 }))
+    expect(mockJSON).toHaveBeenCalledTimes(2)
+    expect(r.value).toEqual({ a: 'x' })
+  })
+})
+
+describe('usage on failure (tokens of the calls that did answer)', () => {
+  const usage = { inputTokens: 100, outputTokens: 20, cacheReadTokens: null, cacheWriteTokens: null }
+  const answered = (over: object = {}) => ({ ...good, provider: 'anthropic', model: 'claude-sonnet-5-5', usage, ...over })
+
+  it('completeChecked: a hard failure after two answered calls carries their usage', async () => {
+    mockJSON.mockResolvedValue(answered())
+    const err = await completeChecked('p1', 'prompt', schema, {
+      ...opts({ maxOutputTokens: 1_500, retryMaxOutputTokens: 3_000, label: 'x' }), check: () => ({ hard: ['bad'], soft: [] }),
+    }).catch((e) => e)
+    expect(err).toMatchObject({ kind: 'invalid_output' })
+    expect(usageOfError(err)).toMatchObject({ input: 200, output: 40, calls: 2 })
+  })
+
+  it('completeChecked: a retry that throws after an unusable first answer carries the first answer\'s usage', async () => {
+    mockJSON.mockResolvedValueOnce(answered({ ...bad('stop'), provider: 'anthropic', usage })).mockRejectedValueOnce(new LLMError('down', 'timeout'))
+    const err = await completeChecked('p1', 'prompt', schema, {
+      ...opts({ maxOutputTokens: 1_500, retryMaxOutputTokens: 3_000, label: 'x' }), check: () => ({ hard: [], soft: [] }),
+    }).catch((e) => e)
+    expect(err).toMatchObject({ kind: 'timeout' })
+    expect(usageOfError(err)).toMatchObject({ input: 100, output: 20, calls: 1 })
+  })
+
+  it('completeValidated: the same, for a final invalid_output', async () => {
+    mockJSON.mockResolvedValue(answered({ ...bad('stop'), provider: 'anthropic', usage }))
+    const err = await completeValidated('p1', 'prompt', schema, opts()).catch((e) => e)
+    expect(usageOfError(err)).toMatchObject({ input: 200, output: 40, calls: 2 })
+  })
+
+  it('has no usage to report for an error that came from nowhere', () => {
+    expect(usageOfError(new Error('x'))).toEqual(NO_USAGE)
+    expect(usageOfError(null)).toEqual(NO_USAGE)
   })
 })

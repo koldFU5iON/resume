@@ -1,15 +1,48 @@
 import { describe, expect, it } from 'vitest'
 import {
-  claimedHits, containsPhrase, figuresIn, headlineTitleProblem, introducedNames, parseListBlock, unsupportedFigures, wordCount,
+  claimedHits, containsPhrase, credentialProblems, figuresIn, headlineTitleProblem, introducedNames, mentionsName, titleLikePhrases,
+  unsupportedFigures, wordCount,
 } from './checks'
 
+const keys = (text: string, opts?: Parameters<typeof figuresIn>[1]) => figuresIn(text, opts).map((f) => f.key)
+
 describe('figuresIn', () => {
-  it('normalises percentages, currency, separators and magnitudes', () => {
-    expect(figuresIn('Cut cost by 40% and 40 percent, saved $2.5M, £1,200 and 3x')).toEqual(['40%', '40%', '2.5m', '1200', '3x'])
+  it('reads figures by value: percentages, currency, separators and magnitudes', () => {
+    expect(keys('Cut cost by 40% and 40 percent, saved $2.5M, £1,200 and 3x')).toEqual(['40%', '40%', '2500000', '1200', '3x'])
   })
 
   it('does not read "3 months" as a magnitude', () => {
-    expect(figuresIn('in 3 months')).toEqual(['3'])
+    expect(keys('in 3 months')).toEqual(['3'])
+  })
+
+  it('expands k, m, bn and the words, and ignores trailing zeros and thousands separators', () => {
+    expect(keys('14k')).toEqual(keys('14,000'))
+    expect(keys('£500k')).toEqual(keys('£500,000'))
+    expect(keys('1,000,000')).toEqual(keys('1m'))
+    expect(keys('1.5m')).toEqual(keys('1.50m'))
+    expect(keys('2 million')).toEqual(keys('2m'))
+    expect(keys('3bn')).toEqual(keys('3 billion'))
+    expect(keys('forty percent')).toEqual(keys('40%'))
+  })
+
+  it('ignores digit runs that touch a letter, and digits joined by a slash', () => {
+    expect(keys('B2B SaaS on Web3 with GA4, Q3 goals and the 1st release, 24/7 cover')).toEqual([])
+  })
+
+  it('ignores digits inside the names of selected skills and tools', () => {
+    expect(keys('Led ISO 27001 certification', { names: ['ISO 27001'] })).toEqual([])
+    expect(keys('Led ISO 27001 certification')).toEqual(['27001'])
+  })
+
+  it('reads spelled-out numbers, compounds, scales and "a dozen"', () => {
+    expect(keys('five markets, twenty-five teams, two hundred and five users, a hundred leads, a dozen titles, two dozen')).toEqual(['5', '25', '205', '100', '12', '24'])
+    expect(keys('a million users and three thousand sites')).toEqual(['1000000', '3000'])
+  })
+
+  it('reads multipliers and counts a lone "one" only when asked', () => {
+    expect(keys('doubled revenue, tripled reach, twice the speed')).toEqual(['2x', '3x', '2x'])
+    expect(keys('one team')).toEqual([])
+    expect(keys('one team', { bareOne: true })).toEqual(['1'])
   })
 })
 
@@ -37,6 +70,52 @@ describe('unsupportedFigures (numbers verbatim)', () => {
   })
 })
 
+describe('unsupportedFigures by value, number words and multipliers', () => {
+  it.each([
+    ['Grew sales 14k units', 'Sold 14,000 units'],
+    ['Saved £500k', 'Saved £500,000 a year'],
+    ['Reached 1,000,000 users', 'Reached 1m users'],
+    ['Reached 1.5m users', 'Reached 1.50m users'],
+    ['Cut churn by 40%', 'Cut churn by forty percent'],
+    ['Cut churn by forty percent', 'Cut churn by 40%'],
+    ['Opened 5 markets', 'Opened five markets'],
+    ['Opened five markets', 'Opened 5 markets'],
+    ['Doubled revenue', 'Revenue doubled'],
+    ['Revenue up 2x', 'Doubled revenue'],
+  ])('accepts "%s" when the evidence says "%s"', (output, evidence) => {
+    expect(unsupportedFigures(output, [evidence])).toEqual([])
+  })
+
+  it.each([
+    ['Grew sales 15k units', 'Sold 14,000 units'],
+    ['Opened five new markets', 'Opened markets in the region'],
+    ['Opened a dozen markets', 'Opened 10 markets'],
+    ['Doubled revenue', 'Grew revenue'],
+    ['Tripled revenue', 'Doubled revenue'],
+    ['Reached a hundred clients', 'Reached 10 clients'],
+    ['Cut churn by 40%', 'Cut churn by 40 points'],
+  ])('flags "%s" when the evidence says "%s"', (output, evidence) => {
+    expect(unsupportedFigures(output, [evidence]).length).toBeGreaterThan(0)
+  })
+
+  it('reports number words and multipliers as written', () => {
+    expect(unsupportedFigures('Opened five new markets and doubled revenue', ['Ran launches'])).toEqual(['five', 'doubled'])
+  })
+
+  it('does not flag letters-and-digits names, ordinals or 24/7', () => {
+    expect(unsupportedFigures('B2B SaaS, GA4, Web3, Q3, 1st place, 24/7 operations', ['Ran launches'])).toEqual([])
+  })
+
+  it('does not flag digits inside a selected name, and still flags the same digits elsewhere', () => {
+    expect(unsupportedFigures('Led ISO 27001 work', ['Ran audits'], ['ISO 27001'])).toEqual([])
+    expect(unsupportedFigures('Led 27001 work', ['Ran audits'], ['ISO 27001'])).toEqual(['27001'])
+  })
+
+  it('does not treat a bare "one" in prose as a figure', () => {
+    expect(unsupportedFigures('Built one platform for the group', ['Ran launches'])).toEqual([])
+  })
+})
+
 describe('claimedHits', () => {
   const opts = { evidenceText: 'Built dashboards in Looker', requirementText: 'Must have Tableau experience\nSQL' }
 
@@ -53,6 +132,84 @@ describe('claimedHits', () => {
 
   it('matches whole words only and ignores case', () => {
     expect(claimedHits('Used tableaux and java', ['Tableau', 'Java'], opts)).toEqual([{ name: 'Java', requested: false }])
+  })
+})
+
+describe('short claimed names', () => {
+  const opts = { evidenceText: 'Ran launches', requirementText: 'Experience of go-to-market and R&D' }
+
+  it('does not read "C" in "C-suite", "R" in "R&D" or "Go" in "go-to-market"', () => {
+    expect(claimedHits('Briefed the C-suite on R&D and go-to-market plans', ['C', 'R', 'Go'], opts)).toEqual([])
+    expect(containsPhrase('Briefed the C-suite', 'C')).toBe(false)
+    expect(containsPhrase('Worked on R&D', 'R')).toBe(false)
+    expect(containsPhrase("the C's", 'C')).toBe(false)
+    expect(containsPhrase('Go-to-market', 'Go')).toBe(false)
+  })
+
+  it('still finds a short name used as itself, case-sensitively', () => {
+    expect(containsPhrase('Wrote services in Go and R.', 'Go')).toBe(true)
+    expect(containsPhrase('Wrote services in Go and R.', 'R')).toBe(true)
+    expect(containsPhrase('go for it', 'Go')).toBe(false)
+    expect(claimedHits('Wrote services in Go', ['Go'], opts)).toEqual([{ name: 'Go', requested: false }])
+  })
+
+  it('does not mark "Go" as requested because the requirements say go-to-market', () => {
+    expect(claimedHits('Wrote services in Go', ['Go'], { ...opts, requirementText: 'go-to-market experience' })).toEqual([{ name: 'Go', requested: false }])
+    expect(claimedHits('Wrote services in Go', ['Go'], { ...opts, requirementText: 'Strong Go or Rust' })).toEqual([{ name: 'Go', requested: true }])
+  })
+})
+
+describe('aliases (best effort)', () => {
+  it('treats GA4 and Google Analytics as the same name, both ways', () => {
+    expect(mentionsName('Set up Google Analytics', 'GA4')).toBe(true)
+    expect(mentionsName('Set up GA4', 'Google Analytics')).toBe(true)
+    expect(claimedHits('Set up Google Analytics', ['GA4'], { evidenceText: '', requirementText: 'GA4 reporting' })).toEqual([{ name: 'GA4', requested: true }])
+    expect(claimedHits('Set up Google Analytics', ['GA4'], { evidenceText: 'Built GA4 reports', requirementText: '' })).toEqual([])
+  })
+
+  it('does not know aliases outside the small map (a known gap)', () => {
+    expect(mentionsName('Used Tableau Desktop', 'Tableau Server')).toBe(false)
+  })
+})
+
+describe('title-like phrases', () => {
+  it('flags a capitalised title phrase that is not one of the candidate titles', () => {
+    expect(titleLikePhrases('As Head of Delivery I ran releases', ['Program Manager'], '')).toEqual(['Head of Delivery'])
+    expect(titleLikePhrases('Worked as a Senior Product Manager on launches', ['Program Manager'], '')).toEqual(['Senior Product Manager'])
+    expect(titleLikePhrases('A Chief Operating Officer sponsored it', [], '')).toEqual(['Chief Operating Officer'])
+  })
+
+  it('lets through the candidate\'s own titles, titles in the evidence, and lower-case prose', () => {
+    expect(titleLikePhrases('Head of Delivery at the group', ['Head of Delivery'], '')).toEqual([])
+    expect(titleLikePhrases('Reported to the Head of Delivery', [], 'Reported to the Head of Delivery')).toEqual([])
+    expect(titleLikePhrases('led delivery as head of operations', [], '')).toEqual([])
+  })
+
+  it('introducedNames reports them with the titles', () => {
+    expect(introducedNames('As Head of Delivery I ran it', { titles: ['Program Manager'], companies: [] }, '').titles).toEqual(['Head of Delivery'])
+  })
+})
+
+describe('credentialProblems', () => {
+  const creds = [{ name: 'PMP', inProgress: true }, { name: 'CISM', inProgress: false }, { name: 'MBA', inProgress: true }]
+
+  it('flags a held certification the evidence does not mention', () => {
+    expect(credentialProblems('CISM-certified leader', creds, 'Ran audits')[0]).toMatchObject({ name: 'CISM', inProgress: false })
+    expect(credentialProblems('CISM-certified leader', creds, 'Passed the CISM exam')).toEqual([])
+  })
+
+  it('fails "PMP-certified" for an in-progress PMP, and passes it with in-progress wording', () => {
+    expect(credentialProblems('PMP-certified delivery leader', creds, '')[0]).toMatchObject({ name: 'PMP', inProgress: true })
+    expect(credentialProblems('Delivery leader, currently studying for the PMP', creds, '')).toEqual([])
+    expect(credentialProblems('Delivery leader (PMP in progress)', creds, '')).toEqual([])
+  })
+
+  it('requires the wording next to EVERY mention of an in-progress item', () => {
+    expect(credentialProblems('Studying for the MBA. MBA-trained operator.', creds, '')).toHaveLength(1)
+  })
+
+  it('says nothing when no credential is named', () => {
+    expect(credentialProblems('Delivery leader', creds, '')).toEqual([])
   })
 })
 
@@ -79,23 +236,6 @@ describe('headlineTitleProblem', () => {
 
   it('accepts a descriptor', () => {
     expect(headlineTitleProblem('Delivery and operations leader | systems thinker', titles)).toBeNull()
-  })
-})
-
-describe('parseListBlock', () => {
-  it('returns the bullets of a valid block', () => {
-    expect(parseListBlock(':::compact-list\n- one\n- two\n:::', 'compact-list')).toEqual({ ok: true, bullets: ['one', 'two'] })
-  })
-
-  it.each([
-    ['no closing fence', ':::compact-list\n- one\n'],
-    ['wrong block', ':::skills\n- one\n:::'],
-    ['text outside the list', ':::compact-list\nHello\n- one\n:::'],
-    ['a bullet over two lines', ':::compact-list\n- one\n  continued\n:::'],
-    ['an empty block', ':::compact-list\n:::'],
-    ['a nested list', ':::compact-list\n- one\n  - nested\n:::'],
-  ])('rejects %s', (_name, block) => {
-    expect(parseListBlock(block, 'compact-list').ok).toBe(false)
   })
 })
 

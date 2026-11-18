@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { buildVault } from '@/modules/profile-map/build'
 import { vaultSource } from '@/modules/profile-map/__fixtures__/source'
 import { buildCandidates, candidatesToPrompt, labelIndex, profileOutline } from './candidates'
+import { writeVault, writeVaultSource } from './__fixtures__/write'
 
 const vault = buildVault(vaultSource())
 
@@ -114,5 +115,46 @@ describe('prompt text', () => {
     expect(out).toContain('2 activities, 1 achievement')
     expect(out).toContain('Skills:')
     expect(out).not.toContain('Cut release time')
+  })
+})
+
+describe('in-progress certifications and education are marked for Brief and Select', () => {
+  const now = new Date('2026-11-18T00:00:00Z')
+  const c = buildCandidates(writeVault(), now)
+
+  it('marks them "(in progress)" in the candidate labels, the Select prompt and the Brief outline', () => {
+    expect(c.certifications.map((i) => i.label)).toEqual(['PMP', 'SAFe Program Consultant (in progress)'])
+    expect(c.education.map((i) => i.label)).toEqual(['MSc in Supply chain — Example University', 'MBA — Open College (in progress)'])
+    const prompt = candidatesToPrompt(c)
+    expect(prompt).toContain('SAFe Program Consultant (in progress)')
+    expect(prompt).toContain('MBA — Open College (in progress)')
+    expect(prompt).not.toContain('PMP (in progress)')
+    const outline = profileOutline(null, c)
+    expect(outline).toContain('SAFe Program Consultant (in progress)')
+    expect(outline).toContain('MBA — Open College (in progress)')
+  })
+
+  it('does not double a marker the profile already wrote', () => {
+    const src = writeVaultSource()
+    ;(src.certifications as Array<{ id: string; name: string }>).find((x) => x.id === 'wc2')!.name = 'CISSP (in progress)'
+    const labels = buildCandidates(buildVault(src), now).certifications.map((i) => i.label)
+    expect(labels).toContain('CISSP (in progress)')
+    expect(labels.join()).not.toMatch(/in progress\) \(in progress/)
+  })
+
+  it('an education with no end date and an old start is not marked in progress', () => {
+    const src = writeVaultSource()
+    ;(src.educations as Array<{ id: string; startDate: Date }>).find((x) => x.id === 'we2')!.startDate = new Date('2005-09-01T00:00:00Z')
+    expect(buildCandidates(buildVault(src), now).education.map((i) => i.label).join()).not.toContain('in progress')
+  })
+
+  it('flags a skill backed only by an in-progress certification as claimed only', () => {
+    const src = writeVaultSource()
+    const cap = { id: 'skc', profileId: 'p1', name: 'Programme governance', kind: 'skill', category: null, level: null, order: 0, origin: null, yearsOfExperience: null, tags: '[]', notes: null, createdAt: new Date(0), updatedAt: new Date(0) }
+    src.skills = [...(src.skills as never[]), cap] as never
+    ;(src.certifications as Array<{ id: string; skills: unknown[] }>).find((x) => x.id === 'wc2')!.skills = [{ skillId: 'skc', status: 'confirmed' }]
+    const cands = buildCandidates(buildVault(src), now)
+    expect(cands.skills.find((i) => i.label === 'Programme governance')!.proven).toBe(false)
+    expect(candidatesToPrompt(cands)).toContain('Programme governance [claimed only]')
   })
 })

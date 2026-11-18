@@ -11,11 +11,16 @@
  * languages are rendered by code from the profile. Every call carries the
  * run's attribution; nothing here names a model (roles choose it).
  *
+ * Time: wave 1 has its own deadline, WAVE2_RESERVE_MS before the write
+ * stage's, so wave 2 is never left with seconds; the cheap skills task starts
+ * first. A call that times out (or a wave 2 that has no time to start) never
+ * loses the wave-1 work: an employer falls back to its own activity text and
+ * the profile section to a deterministic one (fallbackProfile), both logged.
+ *
  * A writer that cannot produce usable output after its one retry fails the run
- * (LLMError invalid_output); a call that times out fails it as `timeout`. The
- * only best-effort fallback is the skills grouping (code ordering). A failure
- * is thrown as WriteStageError so the runner can still log the sections that
- * were written.
+ * (LLMError invalid_output). The skills grouping falls back to code ordering.
+ * A failure is thrown as WriteStageError, carrying the section rows and the
+ * usage so far, so the runner can still log them.
  */
 
 import { LLMError } from '@/modules/llm/errors'
@@ -23,25 +28,25 @@ import {
   loadCVWriteExperiencePrompt, loadCVWriteProfilePrompt, loadCVWriteSkillsPrompt, loadWritingContext,
 } from '@/modules/llm/prompt-context'
 import type { Vault } from '@/modules/profile-map/types'
-import { addUsage, NO_USAGE, type CallUsage } from '../call'
+import { addUsage, NO_USAGE, usageOfError, type CallUsage } from '../call'
 import { MAX_CHECK_NOTES, WRITE_CONCURRENCY, type CvBrief, type CvSelection, type SectionLogEntry } from '../schema'
 import type { Strategy } from '../strategy'
 import { evidenceFromVault, type EmployerEvidence } from './evidence'
-import { writeExperience } from './experience'
-import { ASSEMBLE_RESERVE_MS } from './limits'
+import { fallbackExperience, writeExperience } from './experience'
+import { ASSEMBLE_RESERVE_MS, MIN_CALL_MS, WAVE2_MIN_START_MS, WAVE2_RESERVE_MS } from './limits'
 import { runPool } from './pool'
-import { experienceDigest, writeProfile } from './profile'
+import { experienceDigest, fallbackProfile, writeProfile } from './profile'
 import { requirementText } from './prompt'
 import { renderCertifications, renderEducation, renderEmployerHeader, renderLanguages } from './render'
 import { writeSkills } from './skills'
-import type { WriteContext, WrittenSection } from './types'
+import { CHECK_KIND_RANK, type CheckNote, type WriteContext, type WrittenSection } from './types'
 
 export type WriteResult = {
   /** Every section written, in the order they finished (assemble.ts orders them). */
   sections: WrittenSection[]
   /** The headline for the header; null when none was written or it was dropped. */
   headline: string | null
-  /** At most MAX_CHECK_NOTES "worth a quick check" notes, in the order found. */
+  /** At most MAX_CHECK_NOTES "worth a quick check" notes, by priority (invented figures, claimed tools, credentials, education dates) then employer order. */
   checkNotes: string[]
   /** Stage-level notes (not tied to one section). */
   notes: string[]
@@ -52,7 +57,7 @@ export type WriteResult = {
 
 /** A write failure, carrying the section rows logged so far so the run log can show them. */
 export class WriteStageError extends Error {
-  constructor(readonly original: unknown, readonly sectionLogs: SectionLogEntry[]) {
+  constructor(readonly original: unknown, readonly sectionLogs: SectionLogEntry[], readonly usage: CallUsage = NO_USAGE) {
     super(original instanceof Error ? original.message : 'The write stage failed.')
     this.name = 'WriteStageError'
   }
@@ -72,10 +77,15 @@ async function timed<T>(fn: () => Promise<T>): Promise<{ value: T; ms: number }>
 
 /** Throws a timeout when there is no time left to start another call. */
 function ensureTime(deadline: number): void {
-  if (deadline - Date.now() < 5_000) throw new LLMError('The run ran out of time before every section was written.', 'timeout')
+  if (deadline - Date.now() < MIN_CALL_MS) throw new LLMError('The run ran out of time before every section was written.', 'timeout')
 }
 
 const experienceLabel = (e: EmployerEvidence['employer']) => `Experience: ${e.latestTitle} — ${e.company}`
+
+/** A "worth a quick check" note with where it came from, for a stable order. */
+type RankedCheck = CheckNote & { order: number }
+
+const isTimeout = (err: unknown) => err instanceof LLMError && err.kind === 'timeout'
 
 export async function runWrite(
   vault: Vault,
@@ -85,17 +95,21 @@ export async function runWrite(
   ctx: { profileId: string; jobApplicationId: string; runId: string; deadline: number },
 ): Promise<WriteResult> {
   const evidence = evidenceFromVault(vault, selection)
+  const writeDeadline = ctx.deadline - ASSEMBLE_RESERVE_MS
+  const startedAt = Date.now()
   const w: WriteContext = {
     ...ctx,
-    deadline: ctx.deadline - ASSEMBLE_RESERVE_MS,
+    deadline: writeDeadline,
     brief,
     strategy,
     evidence,
     requirementText: requirementText(strategy),
   }
+  // Wave 1 stops early enough to leave wave 2 its time (but never gets less than half of what there is).
+  const w1: WriteContext = { ...w, deadline: Math.max(writeDeadline - WAVE2_RESERVE_MS, startedAt + (writeDeadline - startedAt) / 2) }
   const sections: WrittenSection[] = []
   const failedLogs: SectionLogEntry[] = []
-  const checkNotes: string[] = []
+  const checks: RankedCheck[] = []
   const notes: string[] = []
   const models = new Set<string>()
   let usage: CallUsage = NO_USAGE
@@ -104,8 +118,18 @@ export async function runWrite(
     if (s.model) models.add(s.model)
   }
   const addCost = (u: CallUsage) => { usage = addUsage(usage, u) }
+  const employerIndex = new Map(evidence.employers.map((e, i) => [e.employer.key, i]))
+  const note = (c: CheckNote, order: number) => checks.push({ ...c, order })
+  /** The tokens of a failed section: whatever calls did answer before the failure. */
+  const spent = (err: unknown) => {
+    const u = usageOfError(err)
+    addCost(u)
+    return u
+  }
 
   try {
+    // Nothing written yet, so nothing to keep: a run with no time at all fails as a timeout.
+    ensureTime(writeDeadline)
     const [writing, expPrompt, skillsPrompt, profilePrompt] = await Promise.all([
       loadWritingContext(ctx.profileId),
       loadCVWriteExperiencePrompt(ctx.profileId),
@@ -130,24 +154,39 @@ export async function runWrite(
 
     const digests = new Map<string, { summary: string; bullets: string[] }>()
     type Task = { kind: 'experience'; emp: EmployerEvidence } | { kind: 'skills' }
-    const tasks: Task[] = [...withBullets.map((emp): Task => ({ kind: 'experience', emp })), { kind: 'skills' }]
+    // The cheap skills call first, so the employers (the long calls) start right after it.
+    const tasks: Task[] = [{ kind: 'skills' }, ...withBullets.map((emp): Task => ({ kind: 'experience', emp }))]
     const results = await runPool(tasks, WRITE_CONCURRENCY, async (task) => {
       const id = task.kind === 'experience' ? `experience:${task.emp.employer.key}` : 'skills'
       const label = task.kind === 'experience' ? experienceLabel(task.emp.employer) : 'Skills and tools'
+      const t0 = Date.now()
       try {
-        ensureTime(w.deadline)
         if (task.kind === 'experience') {
-          const { value: out, ms } = await timed(() => writeExperience(w, task.emp, { ...rules, prompt: expPrompt }))
-          digests.set(task.emp.employer.key, { summary: out.summary, bullets: out.bullets })
-          addCost(out.usage)
-          checkNotes.push(...out.checkNotes)
-          keep({
-            id, kind: 'experience', employerKey: task.emp.employer.key, markdown: out.markdown, model: out.model ?? undefined, tokens: tokensOf(out.usage),
-            log: logOf(id, label, { model: out.model, durationMs: ms, tokens: tokensOf(out.usage), costUsd: out.usage.costUsd, retries: out.retries, notes: out.notes }),
-          })
+          const key = task.emp.employer.key
+          try {
+            ensureTime(w1.deadline)
+            const { value: out, ms } = await timed(() => writeExperience(w1, task.emp, { ...rules, prompt: expPrompt }))
+            digests.set(key, { summary: out.summary, bullets: out.bullets })
+            addCost(out.usage)
+            out.checks.forEach((c) => note(c, employerIndex.get(key) ?? 0))
+            keep({
+              id, kind: 'experience', employerKey: key, markdown: out.markdown, model: out.model ?? undefined, tokens: tokensOf(out.usage),
+              log: logOf(id, label, { model: out.model, durationMs: ms, tokens: tokensOf(out.usage), costUsd: out.usage.costUsd, retries: out.retries, notes: out.notes }),
+            })
+          } catch (err) {
+            if (!isTimeout(err)) throw err
+            // Out of time: the employer is listed with its own activity text instead of failing the run.
+            const u = spent(err)
+            const fb = fallbackExperience(task.emp)
+            digests.set(key, { summary: fb.summary, bullets: fb.bullets })
+            keep({
+              id, kind: 'experience', employerKey: key, markdown: fb.markdown, tokens: tokensOf(u),
+              log: logOf(id, label, { durationMs: Date.now() - t0, tokens: tokensOf(u), costUsd: u.calls > 0 ? u.costUsd : null, notes: ['The run ran out of time for this entry, so its bullets are your own activity text from the profile, with no summary.'] }),
+            })
+          }
           return
         }
-        const { value: s, ms } = await timed(() => writeSkills(w, { ...rules, prompt: skillsPrompt }))
+        const { value: s, ms } = await timed(() => writeSkills(w1, { ...rules, prompt: skillsPrompt }))
         addCost(s.usage)
         // One call wrote both lists: its cost is on the first row that exists.
         const rows: Array<{ id: string; label: string; kind: string; markdown: string }> = [
@@ -157,12 +196,13 @@ export async function runWrite(
         rows.forEach((r, i) => keep({
           id: r.id, kind: r.kind, markdown: r.markdown, model: s.model ?? undefined, tokens: tokensOf(i === 0 ? s.usage : NO_USAGE),
           log: logOf(r.id, r.label, {
-            model: s.model, durationMs: i === 0 ? ms : 0, tokens: tokensOf(i === 0 ? s.usage : NO_USAGE), costUsd: s.model ? (i === 0 ? s.usage.costUsd : 0) : null,
+            model: s.model, durationMs: i === 0 ? ms : 0, tokens: tokensOf(i === 0 ? s.usage : NO_USAGE), costUsd: s.usage.calls > 0 ? (i === 0 ? s.usage.costUsd : 0) : null,
             retries: i === 0 ? s.retries : 0, notes: i === 0 ? s.notes : ['Written by the same call as the other list.'],
           }),
         }))
       } catch (err) {
-        failedLogs.push(logOf(id, label, { status: 'failed', notes: [err instanceof LLMError ? `${err.kind}: ${err.message}` : 'This section failed.'] }))
+        const u = spent(err)
+        failedLogs.push(logOf(id, label, { status: 'failed', durationMs: Date.now() - t0, tokens: tokensOf(u), costUsd: u.calls > 0 ? u.costUsd : null, notes: [err instanceof LLMError ? `${err.kind}: ${err.message}` : 'This section failed.'] }))
         throw err
       }
     })
@@ -171,38 +211,54 @@ export async function runWrite(
 
     // Wave 2: sees the wave-1 text, in employer order.
     let headline: string | null = null
-    try {
-      ensureTime(w.deadline)
-      const digest = experienceDigest(evidence.employers.flatMap((e) => digests.get(e.employer.key) ?? []))
-      const { value: p, ms } = await timed(() => writeProfile(w, digest, { ...rules, prompt: profilePrompt }))
-      addCost(p.usage)
-      checkNotes.push(...p.checkNotes)
-      keep({
-        id: 'profile', kind: 'profile', markdown: p.profileMarkdown, model: p.model ?? undefined, tokens: tokensOf(p.usage),
-        log: logOf('profile', 'Profile, headline and competencies', { model: p.model, durationMs: ms, tokens: tokensOf(p.usage), costUsd: p.usage.costUsd, retries: p.retries, notes: p.notes }),
-      })
-      if (p.competenciesMarkdown) {
-        keep({ id: 'competencies', kind: 'competencies', markdown: p.competenciesMarkdown, log: logOf('competencies', 'Core competencies', { notes: ['Written by the profile call.'] }) })
+    const digest = experienceDigest(evidence.employers.flatMap((e) => digests.get(e.employer.key) ?? []))
+    const t2 = Date.now()
+    let profileOutcome: Awaited<ReturnType<typeof writeProfile>>
+    if (w.deadline - Date.now() < WAVE2_MIN_START_MS) {
+      profileOutcome = fallbackProfile(w, digest, 'There was not enough time left for the profile call.')
+    } else {
+      try {
+        profileOutcome = await writeProfile(w, digest, { ...rules, prompt: profilePrompt })
+      } catch (err) {
+        if (!isTimeout(err)) {
+          const u = spent(err)
+          failedLogs.push(logOf('profile', 'Profile, headline and competencies', { status: 'failed', durationMs: Date.now() - t2, tokens: tokensOf(u), costUsd: u.calls > 0 ? u.costUsd : null, notes: [err instanceof LLMError ? `${err.kind}: ${err.message}` : 'This section failed.'] }))
+          throw err
+        }
+        profileOutcome = { ...fallbackProfile(w, digest, 'The profile call ran out of time.'), usage: usageOfError(err) }
       }
-      headline = p.headline
-    } catch (err) {
-      failedLogs.push(logOf('profile', 'Profile, headline and competencies', { status: 'failed', notes: [err instanceof LLMError ? `${err.kind}: ${err.message}` : 'This section failed.'] }))
-      throw err
     }
+    const p = profileOutcome
+    addCost(p.usage)
+    p.checks.forEach((c) => note(c, evidence.employers.length))
+    keep({
+      id: 'profile', kind: 'profile', markdown: p.profileMarkdown, model: p.model ?? undefined, tokens: tokensOf(p.usage),
+      log: logOf('profile', 'Profile, headline and competencies', { model: p.model, durationMs: Date.now() - t2, tokens: tokensOf(p.usage), costUsd: p.usage.calls > 0 ? p.usage.costUsd : null, retries: p.retries, notes: p.notes }),
+    })
+    if (p.competenciesMarkdown) {
+      keep({ id: 'competencies', kind: 'competencies', markdown: p.competenciesMarkdown, log: logOf('competencies', 'Core competencies', { notes: [p.model ? 'Written by the profile call.' : 'Made by code from the selected competencies.'] }) })
+    }
+    headline = p.headline
 
     // Rendered by code, from the profile as stored.
     const certs = renderCertifications(evidence.certifications)
     if (certs.markdown) keep({ id: 'certification', kind: 'certification', markdown: certs.markdown, log: logOf('certification', 'Certifications', { notes: ['Rendered by code from your profile, in relevance order, no model call.', ...certs.notes] }) })
+    else if (certs.notes.length > 0) notes.push(...certs.notes)
     const edu = renderEducation(evidence.education)
     if (edu.markdown) keep({ id: 'education', kind: 'education', markdown: edu.markdown, log: logOf('education', 'Education', { notes: ['Rendered by code from your profile, in relevance order, no model call.', ...edu.notes] }) })
+    edu.checkNotes.forEach((text) => note({ kind: 'education', text }, evidence.employers.length + 1))
     const langs = renderLanguages(evidence.languages)
     if (langs) keep({ id: 'languages', kind: 'languages', markdown: langs, log: logOf('languages', 'Languages', { notes: ['Rendered by code from your profile, no model call.'] }) })
 
     if (selection.projects.length > 0) {
       notes.push(`${selection.projects.length === 1 ? '1 selected project is' : `${selection.projects.length} selected projects are`} not on the CV: the default CV structure has no projects section.`)
     }
-    return { sections, headline, checkNotes: checkNotes.slice(0, MAX_CHECK_NOTES), notes, usage, models: [...models] }
+    const checkNotes = [...checks]
+      .sort((a, b) => CHECK_KIND_RANK[a.kind] - CHECK_KIND_RANK[b.kind] || a.order - b.order)
+      .map((c) => c.text)
+      .slice(0, MAX_CHECK_NOTES)
+    return { sections, headline, checkNotes, notes, usage, models: [...models] }
   } catch (err) {
-    throw new WriteStageError(err, [...sections.map((s) => s.log), ...failedLogs])
+    throw new WriteStageError(err, [...sections.map((s) => s.log), ...failedLogs], usage)
   }
 }

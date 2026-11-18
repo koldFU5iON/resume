@@ -13,12 +13,13 @@
 
 import * as z from 'zod'
 import { composeSystem } from '@/modules/llm/prompt-context'
-import { completeValidated, type CallUsage, NO_USAGE } from '../call'
+import { completeValidated, type CallUsage, NO_USAGE, usageOfError } from '../call'
 import { CV_GENERATION_FEATURES, MAX_OUTPUT_TOKENS, TIME_BUDGET_MS } from '../schema'
-import { GROUP_LABEL_MAX_WORDS, MAX_SKILL_GROUPS, MIN_NAMES_TO_GROUP } from './limits'
+import { GROUP_LABEL_MAX_WORDS, MAX_SKILL_GROUPS, MIN_CALL_MS, MIN_NAMES_TO_GROUP } from './limits'
 import { wordCount } from './checks'
 import type { CapabilityEvidence } from './evidence'
-import { blockSyntax, briefText, data, requirementsBlock } from './prompt'
+import { plainLine } from './plain'
+import { briefText, data, requirementsBlock } from './prompt'
 import { renderNameGroups, type NameGroup } from './render'
 import type { WriteContext } from './types'
 
@@ -47,7 +48,7 @@ export function codeOrder(items: readonly CapabilityEvidence[]): NameGroup[] {
 }
 
 const cleanLabel = (label: string): string | null => {
-  const l = label.replace(/\s+/g, ' ').trim().replace(/[:\-–—]+$/, '').trim()
+  const l = plainLine(label).replace(/[:\-–—]+$/, '').trim()
   if (!l || wordCount(l) > GROUP_LABEL_MAX_WORDS || l.length > 40) return null
   return l
 }
@@ -95,8 +96,7 @@ export function skillsPrompt(ctx: Pick<WriteContext, 'brief' | 'strategy'>, skil
     data('skills', list(skills)),
     '# Tools (most relevant first; copy names exactly)',
     data('tools', list(tools)),
-    `# Limits\n\nAt most ${MAX_SKILL_GROUPS} groups per list, each label at most ${GROUP_LABEL_MAX_WORDS} words. Use only the names above.`,
-    `# Block syntax\n\nSkills go in a "skills" block and tools in an "inline-list" block; code builds them from your groups.\n\n${blockSyntax(['skills', 'inline-list'])}`,
+    `# Limits\n\nAt most ${MAX_SKILL_GROUPS} groups per list, each label at most ${GROUP_LABEL_MAX_WORDS} words. Use only the names above. Labels are plain text: no Markdown, links, HTML or ":::". Code builds the lists from your groups.`,
     'Return the ordered groups as one JSON object matching the schema, in a ```json code block.',
   ].join('\n\n')
 }
@@ -123,15 +123,16 @@ export async function writeSkills(
   instructions: { rules: string; brief: string | null; prompt: string },
 ): Promise<SkillsOutcome> {
   const { skills, tools } = ctx.evidence
-  const byCode = (notes: string[]): SkillsOutcome => {
+  const byCode = (notes: string[], usage: CallUsage = NO_USAGE): SkillsOutcome => {
     const s = codeOrder(skills)
     const t = codeOrder(tools)
-    return { skills: s, tools: t, ...render(s, t), model: null, usage: NO_USAGE, retries: 0, notes }
+    return { skills: s, tools: t, ...render(s, t), model: null, usage, retries: 0, notes }
   }
   if (skills.length === 0 && tools.length === 0) return byCode(['Nothing selected.'])
   if (skills.length < MIN_NAMES_TO_GROUP && tools.length < MIN_NAMES_TO_GROUP) {
     return byCode([`Too few names to group (under ${MIN_NAMES_TO_GROUP} in each list), so ordered by code: evidence-backed first, then the selection's order. No model call.`])
   }
+  if (ctx.deadline - Date.now() < MIN_CALL_MS) return byCode(['Not enough time left for the grouping call, so the names are ordered by code: evidence-backed first, then the selection\'s order.'])
   try {
     const call = await completeValidated(ctx.profileId, skillsPrompt(ctx, skills, tools), SkillsOutputSchema, {
       role: 'fast',
@@ -160,7 +161,7 @@ export async function writeSkills(
     return { skills: s, tools: t, ...render(s, t), model: call.model, usage: call.usage, retries: call.retries, notes }
   } catch (err) {
     const why = (err as { kind?: string })?.kind ? ` (${(err as { kind: string }).kind})` : ''
-    const out = byCode([`The grouping call failed${why}, so the names are ordered by code: evidence-backed first, then the selection's order.`])
-    return out
+    // The calls that did answer (a failed retry, say) were still paid for.
+    return byCode([`The grouping call failed${why}, so the names are ordered by code: evidence-backed first, then the selection's order.`], usageOfError(err))
   }
 }

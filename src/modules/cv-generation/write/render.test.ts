@@ -61,6 +61,25 @@ describe('renderCertifications', () => {
     expect(renderCertifications([cert({ name: 'CISSP, studying', issueDate: null })], now).markdown).toBe('- **CISSP, studying** — PMI (in progress)')
   })
 
+  it('leaves a certification with a PAST expiry date off the CV, with a log note', () => {
+    const r = renderCertifications([cert({ name: 'ITIL 3', issueDate: new Date('2018-05-01T00:00:00Z'), expiryDate: new Date('2021-05-01T00:00:00Z') }), cert({})], now)
+    expect(r.markdown).toBe('- **PMP** — PMI (2018)')
+    expect(r.markdown).not.toMatch(/expires 2021|ITIL/)
+    expect(r.notes).toEqual(['"ITIL 3" expired in 2021 and was left out.'])
+  })
+
+  it('renders nothing when every selected certification has expired', () => {
+    const r = renderCertifications([cert({ expiryDate: new Date('2020-01-01T00:00:00Z') })], now)
+    expect(r.markdown).toBe('')
+    expect(r.notes[0]).toMatch(/expired in 2020 and was left out/)
+  })
+
+  it('a FUTURE expiry date is a held certification (not in progress)', () => {
+    const r = renderCertifications([cert({ expiryDate: new Date('2030-05-01T00:00:00Z') })], now)
+    expect(r.markdown).toBe('- **PMP** — PMI (2018, expires 2030)')
+    expect(r.notes).toEqual([])
+  })
+
   it('shows an undated certification without a date', () => {
     expect(renderCertifications([cert({ issueDate: null, issuer: null })], now).markdown).toBe('- **PMP**')
   })
@@ -74,10 +93,35 @@ describe('renderEducation', () => {
     expect(renderEducation([edu({ grade: 'Distinction' })], now).markdown).toBe('- **MSc in Supply chain** — Example University (2012 – 2014, Distinction)')
   })
 
-  it('writes an entry with no end date as (in progress) and says why, never completed', () => {
+  it('writes a recent entry with no end date as (in progress) and says why, never completed', () => {
     const r = renderEducation([edu({ endDate: null, field: null, qualification: 'MBA', institution: 'Open College', startDate: new Date('2025-09-01T00:00:00Z'), grade: 'First' })], now)
     expect(r.markdown).toBe('- **MBA** — Open College (from 2025, in progress)')
-    expect(r.notes[0]).toMatch(/in progress because the profile has no end date/)
+    expect(r.notes[0]).toMatch(/in progress because it has no end date and started recently/)
+    expect(r.checkNotes).toEqual([])
+  })
+
+  it('an old entry with no end date has NO span and NO status, and asks the owner for the end date', () => {
+    const r = renderEducation([edu({ endDate: null, qualification: 'BA', field: 'History', institution: 'Old Uni', startDate: new Date('2005-09-01T00:00:00Z'), grade: 'First' })], now)
+    expect(r.markdown).toBe('- **BA in History** — Old Uni')
+    expect(r.markdown).not.toMatch(/in progress|2005|First|\(/)
+    expect(r.checkNotes).toEqual([expect.stringMatching(/Education: "BA in History" has no end date in your profile.*Add the end date/)])
+  })
+
+  it('makes ONE check note for several entries without an end date', () => {
+    const old = { endDate: null, startDate: new Date('2005-09-01T00:00:00Z') }
+    const r = renderEducation([edu({ ...old, qualification: 'BA' }), edu({ ...old, qualification: 'MA' })], now)
+    expect(r.checkNotes).toHaveLength(1)
+    expect(r.checkNotes[0]).toMatch(/"BA in Supply chain", "MA in Supply chain" have no end date/)
+  })
+
+  it('the 6-year window is measured from now', () => {
+    const start = (iso: string) => renderEducation([edu({ endDate: null, startDate: new Date(iso) })], now).markdown
+    expect(start('2021-01-01T00:00:00Z')).toContain('in progress')
+    expect(start('2020-06-01T00:00:00Z')).not.toContain('in progress')
+  })
+
+  it('wording in the qualification means in progress even for an old start', () => {
+    expect(renderEducation([edu({ endDate: null, startDate: new Date('2005-09-01T00:00:00Z'), qualification: 'MBA (in progress)' })], now).markdown).toContain('from 2005')
   })
 
   it('writes a future end date as in progress too', () => {
@@ -86,6 +130,12 @@ describe('renderEducation', () => {
 })
 
 describe('lists', () => {
+  it('model text is cleaned wherever it is rendered: summary, bullets and group labels', () => {
+    const md = renderEmployerEntry(employer({ progression: null }), '# Ran ::: [it](http://x.test)', ['- ![i](http://x.test/i.png)Cut cost.', '', '<b>Shipped</b> 12.'])
+    expect(md).toContain('\n\nRan it\n\n:::compact-list\n- Cut cost.\n- Shipped 12.\n:::')
+    expect(renderNameGroups([{ label: '**Delivery** ::: [x](http://y.test)', names: ['A'] }], 'skills')).toBe('**Delivery x**\n\n:::skills\n- A\n:::')
+  })
+
   it('renders languages as an inline list', () => {
     expect(renderLanguages([{ name: 'French', proficiency: 'Native' }, { name: 'English', proficiency: null }])).toBe(':::inline-list\n- French (Native)\n- English\n:::')
     expect(renderLanguages([])).toBe('')

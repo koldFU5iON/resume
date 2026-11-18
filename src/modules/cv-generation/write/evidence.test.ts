@@ -57,4 +57,41 @@ describe('evidenceFromVault', () => {
     const unity = evidenceFromVault(buildVault(src), selection).employers.find((x) => x.employer.key === UNITY)!
     expect(unity.activities[0].text).not.toContain('robin@example.test')
   })
+
+  describe('in-progress certifications (the CV view of "certified")', () => {
+    const now = new Date('2026-11-18T00:00:00Z')
+    const withCertifiedSkill = (certId: string) => {
+      const src = writeVaultSource()
+      const cap = { id: 'skc', profileId: 'p1', name: 'Programme governance', kind: 'skill', category: null, level: null, order: 0, origin: null, yearsOfExperience: null, tags: '[]', notes: null, createdAt: new Date(0), updatedAt: new Date(0) }
+      src.skills = [...(src.skills as never[]), cap] as never
+      ;(src.certifications as Array<{ id: string; skills: unknown[] }>).find((c) => c.id === certId)!.skills = [{ skillId: 'skc', status: 'confirmed' }]
+      const vault = buildVault(src)
+      return { vault, sel: writeSelection(vault, { skills: [...['sk1', 'sk2', 'sk3', 'sk4', 'sk5', 'sk6', 'skc'].map((id) => ({ id, reason: '' }))] }) }
+    }
+
+    it('a skill backed only by an in-progress certification is claimed (and in claimedNames), whatever profile-map calls it', () => {
+      const { vault, sel } = withCertifiedSkill('wc2') // SAFe: issue date in 2099
+      const e = evidenceFromVault(vault, sel, now)
+      expect(e.skills.find((s) => s.name === 'Programme governance')!.claimed).toBe(true)
+      expect(e.claimedNames).toContain('Programme governance')
+      expect(e.claimedNames).not.toContain('Release management')
+    })
+
+    it('a skill backed by a held certification is not claimed', () => {
+      const { vault, sel } = withCertifiedSkill('wc1') // PMP, issued 2018
+      const e = evidenceFromVault(vault, sel, now)
+      expect(e.skills.find((s) => s.name === 'Programme governance')!.claimed).toBe(false)
+      expect(e.claimedNames).not.toContain('Programme governance')
+    })
+
+    it('lists every certification and qualification with whether it is in progress', () => {
+      const e = evidenceFromVault(vault, writeSelection(vault), now)
+      expect(e.credentials).toEqual(expect.arrayContaining([
+        { name: 'PMP', inProgress: false },
+        { name: 'SAFe Program Consultant', inProgress: true },
+        { name: 'MBA', inProgress: true },
+        { name: 'MSc', inProgress: false },
+      ]))
+    })
+  })
 })

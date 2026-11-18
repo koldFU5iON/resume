@@ -132,11 +132,12 @@ export async function runCvGenerationStages(runId: string, profileId: string, op
     timings[stage] = durationMs
     entries.push({ stage, startedAt: new Date(stageStart).toISOString(), durationMs, ...entry })
   }
-  const fail = async (kind: CvGenerationFailureKind, notes: string[] = [], sections: StageLogEntry['sections'] = []) => {
+  const fail = async (kind: CvGenerationFailureKind, notes: string[] = [], sections: StageLogEntry['sections'] = [], spent?: CallUsage) => {
     timings[stage] = Date.now() - stageStart
     entries.push({
       stage, status: 'failed', model: null, startedAt: new Date(stageStart).toISOString(), durationMs: timings[stage] ?? null,
-      tokens: { input: 0, output: 0 }, costUsd: null, notes: [FAILURE_MESSAGES[kind], ...notes], kept: [], dropped: [], retries: 0, flaggedClaims: [], sections,
+      tokens: { input: spent?.input ?? 0, output: spent?.output ?? 0 }, costUsd: spent && spent.calls > 0 ? spent.costUsd : null,
+      notes: [FAILURE_MESSAGES[kind], ...notes], kept: [], dropped: [], retries: 0, flaggedClaims: [], sections,
     })
     await failRun(profileId, runId, kind, null, { stageTimings: timings, log: log() })
   }
@@ -264,15 +265,17 @@ export async function runCvGenerationStages(runId: string, profileId: string, op
   } catch (err) {
     let cause = err
     let sections: StageLogEntry['sections'] = []
+    let spent: CallUsage | undefined
     if (err instanceof WriteStageError) {
       cause = err.original
       sections = err.sectionLogs
+      spent = err.usage
     }
     const kind = failureKindFor(cause)
     if (kind === 'error') console.error('[cv-generation] run failed', { runId, err: cause })
     const notes: string[] = []
     if (cause instanceof LLMError && kind === 'invalid_output') notes.push(cause.message)
     if (kind === 'timeout') notes.push(`Timed out in the ${stage} stage after ${seconds(Date.now() - stageStart)}; the whole run had taken ${seconds(Date.now() - runStart)} of its ${seconds(TIME_BUDGET_MS.run)} budget.`)
-    await fail(kind, notes, sections)
+    await fail(kind, notes, sections, spent)
   }
 }

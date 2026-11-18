@@ -17,6 +17,7 @@ import { checkFacts } from '@/modules/writing-desk/fact-check'
 import { buildStructureGuide } from '@/modules/writing-desk/structure-guide'
 import { validateDraftMarkdown } from '@/modules/writing-desk/validate'
 import { MAX_CHECK_NOTES, type AssembledSection, type CvAssembled, type CvSelection } from './schema'
+import { plainLine } from './write/plain'
 import type { WrittenSection } from './write/types'
 
 export type AssembleInput = {
@@ -40,7 +41,7 @@ const oneLine = (s: string) => s.replace(/\s+/g, ' ').trim()
 
 /** The header block: name, headline, contact placeholder. */
 export function renderHeader(name: string, headline: string | null): string {
-  return [':::header', `# ${oneLine(name) || 'Curriculum Vitae'}`, ...(headline ? [`## ${oneLine(headline)}`] : []), CONTACT_PLACEHOLDER, ':::'].join('\n')
+  return [':::header', `# ${oneLine(name) || 'Curriculum Vitae'}`, ...(headline && plainLine(headline) ? [`## ${plainLine(headline)}`] : []), CONTACT_PLACEHOLDER, ':::'].join('\n')
 }
 
 export function assembleCv(input: AssembleInput): AssembleResult {
