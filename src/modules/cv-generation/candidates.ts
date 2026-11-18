@@ -35,7 +35,7 @@ export type CandidateActivity = {
 export type CandidateEmployer = EmployerGroup & {
   /** "Latest title — Company". */
   label: string
-  /** "Jan 2019 – present". */
+  /** "Jan 2015 – Dec 2017, Jan 2019 – present": the stints, never one overall span. */
   period: string | null
   activities: CandidateActivity[]
 }
@@ -86,7 +86,7 @@ export function buildCandidates(vault: Vault): Candidates {
   ).map((g): CandidateEmployer => ({
     ...g,
     label: `${g.latestTitle} — ${g.company}`,
-    period: employerPeriod(g.start, g.end),
+    period: employerPeriod(g),
     // The newest role's activities first, each role's in profile order.
     activities: [...g.roles].reverse().flatMap((r) => activitiesByRole.get(r.experienceId) ?? []),
   }))

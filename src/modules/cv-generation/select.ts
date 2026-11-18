@@ -6,8 +6,9 @@
  * truncated in the model's rank order.
  *
  * Employers: one whose activities were picked counts as picked, the employer
- * budget is filled by recency, and the most recent employer is always among
- * those that show bullets. Every other employer stays visible as a header-only
+ * budget is filled by recency, and a current employer is always among those
+ * that show bullets (any one of them when there are several; else the one with
+ * the most activities). Every other employer stays visible as a header-only
  * entry (up to MAX_HEADER_ONLY_EMPLOYERS) so the work history has no gaps.
  * Bullets: a total budget (TOTAL_ACTIVITY_BUDGET) is split across the bullet
  * employers by relevance (allocateBullets), not by recency, with a minimum and
@@ -35,11 +36,13 @@ import {
   MAX_RELEVANCE,
   MIN_ACTIVITIES_PER_EMPLOYER,
   MIN_RELEVANCE,
+  NEUTRAL_RELEVANCE,
   TOTAL_ACTIVITY_BUDGET,
   allocateBullets,
   type FlatSection,
 } from './caps'
-import { candidatesToPrompt, labelIndex, type Candidates, type CandidateActivity } from './candidates'
+import { candidatesToPrompt, labelIndex, type Candidates, type CandidateActivity, type CandidateEmployer } from './candidates'
+import { relatedEmployerNotes } from './employers'
 import type { GatherResult } from './gather'
 import type { Strategy } from './strategy'
 import {
@@ -54,6 +57,7 @@ import {
   type SelectedActivity,
   type SelectedEmployer,
   type SelectedItem,
+  employersWithBullets,
 } from './schema'
 import { countOf } from './text'
 
@@ -105,7 +109,7 @@ function inBlock(text: string): string {
 export function selectPrompt(brief: CvBrief, cands: Candidates, strategy?: Pick<Strategy, 'mustHave' | 'niceToHave'>): string {
   const l = (items: readonly string[]) => (items.length > 0 ? items.map((i) => `- ${inBlock(i)}`).join('\n') : '(none)')
   const b = brief.budgets
-  const newest = cands.employers[0]
+  const required = requiredEmployers(cands)
   const terms = strategy ? requirementTerms(strategy).slice(0, 40) : []
   const sections = [
     '# Brief',
@@ -124,14 +128,30 @@ export function selectPrompt(brief: CvBrief, cands: Candidates, strategy?: Pick<
     )
   }
   sections.push(
-    `# Budgets (hard limits; extra picks are discarded)\n\nEmployers with bullets ${b.experiences}, skills ${b.skills}, tools ${b.tools}, competencies ${b.competencies}, certifications ${b.certifications}, education ${b.education}, projects ${b.projects}. Employers you do not pick are still listed on the CV as a title line with no bullets (up to ${MAX_HEADER_ONLY_EMPLOYERS}), so do not spend a pick on an employer only to keep it visible.`,
-    `# Bullets\n\n${TOTAL_ACTIVITY_BUDGET} activities in all across the employers with bullets, split in proportion to the relevance score (${MIN_RELEVANCE}-${MAX_RELEVANCE}) you give each employer, with at least ${MIN_ACTIVITIES_PER_EMPLOYER} and at most ${MAX_ACTIVITIES_PER_EMPLOYER} for each. Code applies the split after you answer. Give every employer you pick a relevance score, and list up to ${MAX_ACTIVITIES_PER_EMPLOYER} activities for it, best first: the first ones are kept if the split gives the employer fewer. Recency does not set the split: an older employer that answers the brief better gets more bullets than a recent one that does not.`,
+    `# Budgets (hard limits; extra picks are discarded)\n\nEmployers with bullets ${employersWithBullets(brief)}, skills ${b.skills}, tools ${b.tools}, competencies ${b.competencies}, certifications ${b.certifications}, education ${b.education}, projects ${b.projects}. Employers you do not pick are still listed on the CV as a title line with no bullets (up to ${MAX_HEADER_ONLY_EMPLOYERS}), so do not spend a pick on an employer only to keep it visible.`,
+    `# Bullets\n\n${TOTAL_ACTIVITY_BUDGET} activities in all across the employers with bullets, split in proportion to the relevance score (${MIN_RELEVANCE}-${MAX_RELEVANCE}) you give each employer, with at least ${MIN_ACTIVITIES_PER_EMPLOYER} and at most ${MAX_ACTIVITIES_PER_EMPLOYER} for each. Code applies the split after you answer. Give every employer you pick a relevance score (${MAX_RELEVANCE} = central to the role, 3 = supports the story but not central, ${MIN_RELEVANCE} = barely relevant), and list up to ${MAX_ACTIVITIES_PER_EMPLOYER} activities for it, best first: the first ones are kept if the split gives the employer fewer. Recency does not set the split: an older employer that answers the brief better gets more bullets than a recent one that does not.`,
   )
-  if (newest) {
-    sections.push(`# Current employer\n\n[${newest.key}] ${newest.label}. It must be included in \`employers\` (list it first) and counts toward the employer budget.`)
+  if (required.length === 1) {
+    sections.push(`# Current employer\n\n[${required[0].key}] ${required[0].label}. It must be included in \`employers\` (list it first) and counts toward the employer budget.`)
+  } else if (required.length > 1) {
+    sections.push(`# Current employers\n\nThe candidate currently works at more than one employer:\n${required.map((e) => `- [${e.key}] ${e.label}`).join('\n')}\nAt least one of them must be included in \`employers\` (list it first); it counts toward the employer budget. Any others are only picked if they answer the brief.`)
   }
   sections.push('# Candidates', candidatesToPrompt(cands), 'Return your picks as one JSON object matching the schema, in a ```json code block.')
   return sections.join('\n\n')
+}
+
+/**
+ * The employers one of which must show bullets: every current employer (end
+ * null), or, when none is current, the most recent one. Newest first. Pure.
+ */
+export function requiredEmployers(cands: Pick<Candidates, 'employers'>): CandidateEmployer[] {
+  const current = cands.employers.filter((e) => e.end === null)
+  return current.length > 0 ? current : cands.employers.slice(0, 1)
+}
+
+/** Of several required employers, the one to force in: most activities, then the earliest start. */
+function forcedEmployer(required: readonly CandidateEmployer[]): CandidateEmployer {
+  return [...required].sort((a, b) => b.activities.length - a.activities.length || a.start.localeCompare(b.start))[0]
 }
 
 // ── Enforcement (code owns the caps) ────────────────────────────────────────
@@ -229,7 +249,7 @@ export function enforceSelection(
     keyOfId.set(e.key, e.key)
     for (const r of e.roles) keyOfId.set(r.experienceId, e.key)
   }
-  const employerLimit = Math.max(1, clampBudget(brief.budgets.experiences, MAX_EMPLOYERS))
+  const employerLimit = Math.max(1, clampBudget(employersWithBullets(brief), MAX_EMPLOYERS))
   const parentOf = new Map<string, string>()
   const experienceOf = new Map<string, string>()
   for (const e of cands.employers) for (const a of e.activities) {
@@ -244,34 +264,44 @@ export function enforceSelection(
     if (!pickedEmployers.some((p) => p.id === parent)) pickedEmployers.push({ id: parent, reason: '' })
   }
   const pickOf = new Map(pickedEmployers.map((p) => [p.id, p]))
-  const newest = cands.employers[0]
+  const required = requiredEmployers(cands)
   let keptPicks = pickedEmployers.slice(0, employerLimit)
   const filled = cands.employers.filter((e) => !pickOf.has(e.key)).slice(0, Math.max(0, employerLimit - keptPicks.length))
   if (filled.length > 0) {
     keptPicks = [...keptPicks, ...filled.map((e) => ({ id: e.key, reason: '' }))]
     notes.push(`The model picked ${pickedEmployers.length} of ${employerLimit} employers; added the ${filled.length === 1 ? 'most recent other employer' : `${filled.length} most recent other employers`} to fill the budget.`)
   }
-  if (newest && !keptPicks.some((p) => p.id === newest.key)) {
-    keptPicks = [...keptPicks.slice(0, -1), { id: newest.key, reason: '' }]
-    notes.push('Kept the current employer with bullets, which is always on the CV.')
+  if (required.length > 0 && !keptPicks.some((p) => required.some((e) => e.key === p.id))) {
+    const forced = forcedEmployer(required)
+    keptPicks = [...keptPicks.slice(0, -1), { id: forced.key, reason: '' }]
+    notes.push(`Kept ${required.length > 1 ? 'the current employer with the most activities' : 'the current employer'} with bullets, which is always on the CV.`)
   }
   const bulletKeys = new Set(keptPicks.map((p) => p.id))
   const bulletEmployers = cands.employers.filter((e) => bulletKeys.has(e.key))
   const others = cands.employers.filter((e) => !bulletKeys.has(e.key))
   const headerEmployers = others.slice(0, MAX_HEADER_ONLY_EMPLOYERS)
   const headerKeys = new Set(headerEmployers.map((e) => e.key))
-  for (const e of others.slice(MAX_HEADER_ONLY_EMPLOYERS)) dropReason.set(e.key, 'over_cap')
+  const beyondCap = others.slice(MAX_HEADER_ONLY_EMPLOYERS)
+  for (const e of beyondCap) dropReason.set(e.key, 'over_cap')
   if (headerEmployers.length > 0) {
     notes.push(`${countOf(headerEmployers.length, 'employer is', 'employers are')} listed without bullets so the work history has no gaps.`)
   }
+  if (beyondCap.length > 0) {
+    notes.push(`The profile has ${cands.employers.length} employers and the CV lists at most ${bulletEmployers.length + headerEmployers.length}, so the ${beyondCap.length === 1 ? 'oldest one is' : `${beyondCap.length} oldest are`} left out: the work history has a gap. The no-gaps promise only holds up to ${MAX_EMPLOYERS + MAX_HEADER_ONLY_EMPLOYERS} employers.`)
+  }
+  notes.push(...relatedEmployerNotes(cands.employers.map((e) => e.company)))
 
-  // Relevance: the model's score, else derived from term matches.
+  // Relevance (employers with bullets only; a header-only entry is never
+  // scored). The model's score; when it gave none in a model run, the lowest
+  // (the relative derived score is not comparable with the model's scale); in a
+  // rules run, derived from term matches.
   const terms = [...new Set([...briefTerms({ leadWith: brief.leadWith ?? [], emphasise: brief.emphasise ?? [] }), ...(opts.requirementTerms ?? [])])]
   const derived = deriveRelevance(cands, terms)
-  const relevanceOf = (key: string) => pickOf.get(key)?.relevance ?? derived.get(key) ?? Math.round((MIN_RELEVANCE + MAX_RELEVANCE) / 2)
+  const relevanceOf = (key: string) =>
+    pickOf.get(key)?.relevance ?? (mode === 'model' ? MIN_RELEVANCE : derived.get(key) ?? NEUTRAL_RELEVANCE)
   if (mode === 'model') {
-    const guessed = [...bulletEmployers, ...headerEmployers].filter((e) => pickOf.get(e.key)?.relevance === undefined).length
-    if (guessed > 0) notes.push(`The model gave no relevance score for ${countOf(guessed, 'employer')}; scored from the brief's key words in code.`)
+    const unscored = bulletEmployers.filter((e) => pickOf.get(e.key)?.relevance === undefined).length
+    if (unscored > 0) notes.push(`The model gave no relevance score for ${countOf(unscored, 'employer')}; scored ${unscored === 1 ? 'it' : 'them'} ${MIN_RELEVANCE} (the lowest).`)
   }
 
   // Activities of employers that show no bullets cannot be used.
@@ -330,8 +360,9 @@ export function enforceSelection(
       end: e.end,
       roles: e.roles,
       progression: e.progression,
-      relevance: relevanceOf(e.key),
-      reason: pickOf.get(e.key)?.reason || (e.key === newest?.key ? 'Current employer' : ''),
+      stints: e.stints,
+      ...(headerOnly ? {} : { relevance: relevanceOf(e.key) }),
+      reason: pickOf.get(e.key)?.reason || (e.end === null ? 'Current employer' : ''),
       headerOnly,
       bullets: headerOnly ? [] : bullets.get(e.key) ?? [],
     }]
@@ -392,7 +423,8 @@ export function enforceSelection(
   const dropped = [...cut, ...left].slice(0, MAX_RECORDED_DROPPED)
 
   if (unknown > 0) notes.push(`Dropped ${unknown === 1 ? '1 id that is' : `${unknown} ids that are`} not in the profile.`)
-  const overCap = [...dropReason.values()].filter((w) => w === 'over_cap').length
+  // Picks cut by a limit: not employers the model never picked that fell past the header-only cap (those are counted in the gap note).
+  const overCap = [...dropReason].filter(([id, w]) => w === 'over_cap' && (!employerKeys.has(id) || pickOf.has(id))).length
   if (overCap > 0) notes.push(`Cut ${countOf(overCap, 'pick')} over the limits.`)
 
   return {
@@ -456,7 +488,8 @@ export function fallbackPicks(
 
   // Employers that will show bullets: the best matches, and always the current one.
   const withBullets = new Set(employers.slice(0, employerLimit).map(({ e }) => e.key))
-  if (cands.employers[0]) withBullets.add(cands.employers[0].key)
+  const required = requiredEmployers(cands)
+  if (required.length > 0 && !required.some((e) => withBullets.has(e.key))) withBullets.add(forcedEmployer(required).key)
 
   return {
     employers: employers.map(({ e, m }) => ({ id: e.key, relevance: undefined, reason: matchReason(m, 'Recent employer') })),
@@ -481,7 +514,7 @@ export function fallbackPicks(
 /** The fallback selection: rule picks run through the same caps. */
 export function fallbackSelection(brief: CvBrief, cands: Candidates, strategy?: Pick<Strategy, 'mustHave' | 'niceToHave'>): EnforceResult {
   const reqTerms = strategy ? requirementTerms(strategy) : []
-  const picks = fallbackPicks(brief, cands, { employerLimit: brief.budgets.experiences, requirementTerms: reqTerms })
+  const picks = fallbackPicks(brief, cands, { employerLimit: employersWithBullets(brief), requirementTerms: reqTerms })
   return enforceSelection(picks, cands, brief, 'fallback', { requirementTerms: reqTerms })
 }
 
@@ -547,7 +580,7 @@ export function selectionLogLines(sel: CvSelection): { kept: string[]; dropped: 
   for (const e of sel.employers) {
     kept.push(e.headerOnly
       ? `${SECTION_NAME.employers} (no bullets): ${e.latestTitle} — ${e.company}`
-      : `${SECTION_NAME.employers}: ${e.latestTitle} — ${e.company} (relevance ${e.relevance}, ${countOf(e.bullets.length, 'bullet')})`)
+      : `${SECTION_NAME.employers}: ${e.latestTitle} — ${e.company} (${e.relevance === undefined ? '' : `relevance ${e.relevance}, `}${countOf(e.bullets.length, 'bullet')})`)
     for (const a of e.bullets) kept.push(`${SECTION_NAME.activities}: ${a.label} (${e.company})`)
   }
   for (const s of FLAT_SECTIONS) for (const i of sel[s]) kept.push(`${SECTION_NAME[s]}: ${i.label}`)

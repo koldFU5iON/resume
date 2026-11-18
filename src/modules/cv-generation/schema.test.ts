@@ -6,6 +6,7 @@ import {
   STAGE_STATUS,
   CvSelectionSchema,
   StageLogEntrySchema,
+  employersWithBullets,
   asFailureKind,
   asStatus,
   isActiveStatus,
@@ -158,11 +159,35 @@ describe('CvSelectionSchema', () => {
     expect(e.headerOnly).toBe(false)
     expect(e.reason).toBe('')
     expect(e.roles[1].end).toBeNull()
+    expect(e.stints).toBeUndefined() // rows stored before stints still parse
     expect(e.bullets[0]).toEqual({ id: 'a1', label: 'Cut release time', reason: '', experienceId: 'u1' })
     // Relevance is on the 1-5 scale; a bullet must say which role it came from.
-    expect(CvSelectionSchema.safeParse({ ...row, employers: [{ ...row.employers[0], relevance: 7 }] }).success).toBe(false)
     expect(CvSelectionSchema.safeParse({ ...row, employers: [{ ...row.employers[0], bullets: [{ id: 'a1', label: 'x' }] }] }).success).toBe(false)
     // An unreadable row reads as null, never throws.
     expect(parseSelection({ mode: 'model', employers: [{ key: 'x' }] })).toBeNull()
+  })
+
+  it('reads a bad relevance as a score instead of hiding the whole selection', () => {
+    const base = { key: 'unity', company: 'Unity', latestTitle: 'PM', bullets: [] }
+    const sel = (relevance: unknown) => CvSelectionSchema.parse({ mode: 'model', employers: [{ ...base, relevance }, { ...base, key: 'blizzard', relevance: 5 }] })
+    expect(sel('high').employers.map((e) => e.relevance)).toEqual([3, 5]) // not a number: the middle score
+    expect(sel(null).employers[0].relevance).toBe(3)
+    expect(sel(7).employers[0].relevance).toBe(5) // clamped
+    expect(sel(0).employers[0].relevance).toBe(1)
+    expect(sel(3.6).employers[0].relevance).toBe(4) // rounded
+    expect(parseSelection({ mode: 'model', employers: [{ ...base, relevance: 'high' }] })).not.toBeNull()
+  })
+
+  it('a header-only employer needs no relevance, and stints are kept', () => {
+    const e = CvSelectionSchema.parse({
+      mode: 'model',
+      employers: [{ key: 'acme', company: 'Acme', latestTitle: 'Dev', headerOnly: true, stints: [{ start: '2015-01-01', end: '2017-01-01' }, { start: '2019-01-01' }] }],
+    }).employers[0]
+    expect(e.relevance).toBeUndefined()
+    expect(e.stints).toEqual([{ start: '2015-01-01', end: '2017-01-01' }, { start: '2019-01-01', end: null }])
+  })
+
+  it('exposes the employers-with-bullets budget under its true name', () => {
+    expect(employersWithBullets({ budgets: { experiences: 3, skills: 1, tools: 1, competencies: 1, certifications: 1, education: 1, projects: 1 } })).toBe(3)
   })
 })

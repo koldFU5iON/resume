@@ -21,6 +21,7 @@ export function bigCandidates(employers = 6, acts = 8, flat = 15): Candidates {
         period: null,
         start,
         end,
+        stints: [{ start, end }],
         roles: [role],
         progression: null,
         activities: Array.from({ length: acts }, (_, a) => ({

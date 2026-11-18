@@ -178,7 +178,9 @@ describe("briefRows", () => {
     expect(rows.map((r) => r.label)).toEqual(["The hidden question", "Lead with", "Emphasise", "Positioning", "Tone", "Budget"])
     expect(rows[1].items).toEqual([{ text: "Migration delivery" }])
     // The item and its reason are separate, so the page can bold one and mute the other: no "X: Y: Z".
-    expect(rows[2].items).toEqual([{ text: "Release management", note: "core of the role" }])
+    // Only the Emphasise items are bold; Lead with is plain.
+    expect(rows[2].items).toEqual([{ text: "Release management", strong: true, note: "core of the role" }])
+    expect(rows[1].items?.some((i) => i.strong)).toBe(false)
     expect(JSON.stringify(rows[2].items)).not.toContain("Release management: core")
     expect(rows[5].text).toBe("Employers with bullets 3 · skills 8 · tools 6 · competencies 4 · certifications 2 · education 2 · projects 1")
   })
@@ -264,7 +266,7 @@ describe("employers (the stored shape from phase 2b)", () => {
       {
         key: "acme", company: "Acme", latestTitle: "Coordinator", start: "2010-01-01", end: "2013-12-31",
         roles: [{ experienceId: "c1", title: "Coordinator", start: "2010-01-01", end: "2013-12-31" }],
-        progression: null, relevance: 1, headerOnly: true, bullets: [],
+        progression: null, headerOnly: true, bullets: [],
       },
     ],
     skills: [{ id: "s1", label: "Agile", reason: "" }],
@@ -289,6 +291,24 @@ describe("employers (the stored shape from phase 2b)", () => {
     expect(unity.dropped).toEqual([{ label: "Ran standups", why: "over the limit" }])
     expect(w.withBullets[1].progression).toBeNull()
     expect(w.withBullets[1].period).toBe("Jan 2014 – Dec 2018")
+  })
+
+  it("shows a returnee's stints, not one overall span", () => {
+    const returnee = CvSelectionSchema.parse({
+      mode: "model",
+      employers: [{
+        key: "unity", company: "Unity", latestTitle: "Snr. PM", start: "2015-01-01", end: null,
+        stints: [{ start: "2015-01-01", end: "2017-01-01" }, { start: "2019-02-01", end: null }],
+        roles: [], progression: null, relevance: 3, headerOnly: false, bullets: [],
+      }],
+    })
+    expect(employerBlocks(returnee).withBullets[0].period).toBe("Jan 2015 – Jan 2017, Feb 2019 – present")
+  })
+
+  it("a header-only employer has no relevance to show", () => {
+    expect(employerBlocks(sel).headerOnly[0].relevance).toBeUndefined()
+    const noScore = CvSelectionSchema.parse({ mode: "model", employers: [{ key: "a", company: "A", latestTitle: "T", headerOnly: true }] })
+    expect(employerBlocks(noScore).headerOnly[0].relevance).toBeUndefined()
   })
 
   it("lists header-only employers as their own group, and dropped employers", () => {

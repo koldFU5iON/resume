@@ -23,7 +23,7 @@ export function BriefPanel({ brief }: { brief: CvBrief }) {
                   <ul className="list-disc space-y-1 pl-4">
                     {r.items?.map((it, i) => (
                       <li key={i}>
-                        <strong className="font-semibold">{it.text}</strong>
+                        {it.strong ? <strong className="font-semibold">{it.text}</strong> : it.text}
                         {it.note && <span className="block text-xs text-muted-foreground">{it.note}</span>}
                       </li>
                     ))}
@@ -59,7 +59,7 @@ function EmployerCard({ e }: { e: EmployerBlock }) {
         {e.progression && <p className="text-xs text-muted-foreground">{e.progression}</p>}
         {!e.headerOnly && (
           <p className="text-xs text-muted-foreground">
-            Relevance {e.relevance}/5, {e.kept.length} {e.kept.length === 1 ? "bullet" : "bullets"}{e.reason ? ` · ${e.reason}` : ""}
+            {e.relevance !== undefined && `Relevance ${e.relevance}/5, `}{e.kept.length} {e.kept.length === 1 ? "bullet" : "bullets"}{e.reason ? ` · ${e.reason}` : ""}
           </p>
         )}
       </div>

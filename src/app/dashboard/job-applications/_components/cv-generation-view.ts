@@ -11,6 +11,7 @@ import {
   CV_GENERATION_CONCURRENCY_PER_PROFILE,
   CV_GENERATION_STAGES,
   DROP_REASON_LABEL,
+  employersWithBullets,
   stageForStatus,
   type CvBrief,
   type CvGenerationStage,
@@ -164,8 +165,8 @@ export function startResponseMessage(status: number): { ok: boolean; message: st
   return { ok: false, message: "Couldn't start the preview. Check your connection and try again." }
 }
 
-/** A list item: `text` in the emphasis style, `note` (why) in muted text under or after it. */
-export type BriefItem = { text: string; note?: string }
+/** A list item: `text`, bold only when `strong` (the Emphasise items), and `note` (why) in muted text under it. */
+export type BriefItem = { text: string; strong?: boolean; note?: string }
 
 export type BriefRow = { label: string; text?: string; items?: BriefItem[] }
 
@@ -175,13 +176,13 @@ export function briefRows(brief: CvBrief): BriefRow[] {
   const rows: BriefRow[] = [
     { label: "The hidden question", text: brief.hiddenQuestion },
     { label: "Lead with", items: brief.leadWith.map((text) => ({ text })) },
-    { label: "Emphasise", items: brief.emphasise.map((e) => ({ text: e.item, ...(e.why.trim() ? { note: e.why } : {}) })) },
+    { label: "Emphasise", items: brief.emphasise.map((e) => ({ text: e.item, strong: true, ...(e.why.trim() ? { note: e.why } : {}) })) },
     { label: "Play down (framing only; titles and employers stay)", items: brief.playDown.map((text) => ({ text })) },
     { label: "Positioning", text: brief.positioning },
     { label: "Tone", text: brief.tone },
     {
       label: "Budget",
-      text: `Employers with bullets ${b.experiences} · skills ${b.skills} · tools ${b.tools} · competencies ${b.competencies} · certifications ${b.certifications} · education ${b.education} · projects ${b.projects}`,
+      text: `Employers with bullets ${employersWithBullets(brief)} · skills ${b.skills} · tools ${b.tools} · competencies ${b.competencies} · certifications ${b.certifications} · education ${b.education} · projects ${b.projects}`,
     },
   ]
   return rows.filter((r) => (r.text !== undefined ? r.text.trim() !== "" : (r.items?.length ?? 0) > 0))
@@ -205,7 +206,8 @@ export type EmployerBlock = {
   period: string | null
   /** The code-built progression sub-line; null with a single role. */
   progression: string | null
-  relevance: number
+  /** Employers with bullets only; undefined for a header-only entry. */
+  relevance: number | undefined
   reason: string
   headerOnly: boolean
   kept: Array<{ label: string; reason: string }>
@@ -230,7 +232,7 @@ export function employerBlocks(sel: CvSelection): { withBullets: EmployerBlock[]
     key: e.key,
     company: e.company,
     title: e.latestTitle,
-    period: employerPeriod(e.start, e.end),
+    period: employerPeriod(e),
     progression: e.progression,
     relevance: e.relevance,
     reason: e.reason,

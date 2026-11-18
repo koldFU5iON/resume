@@ -9,7 +9,7 @@
  */
 
 import * as z from 'zod'
-import { BUDGET_CAPS, FLAT_SECTIONS, MAX_RELEVANCE, MIN_RELEVANCE, type BudgetSection } from './caps'
+import { BUDGET_CAPS, FLAT_SECTIONS, MAX_RELEVANCE, MIN_RELEVANCE, NEUTRAL_RELEVANCE, type BudgetSection } from './caps'
 
 // ── Run lifecycle ───────────────────────────────────────────────────────────
 
@@ -262,6 +262,11 @@ export const CvBriefSchema = z.object({
 })
 export type CvBrief = z.infer<typeof CvBriefSchema>
 
+/** Employers that show bullets: the Brief's `budgets.experiences` (the key predates employers and is kept so stored briefs parse). Use this, not the raw key. */
+export function employersWithBullets(brief: Pick<CvBrief, 'budgets'>): number {
+  return brief.budgets.experiences
+}
+
 /** A stored brief, or null when absent or unreadable (never throws). */
 export function parseBrief(value: unknown): CvBrief | null {
   const parsed = CvBriefSchema.safeParse(value)
@@ -315,6 +320,12 @@ export const EmployerRoleSchema = z.object({
   end: z.string().nullable().default(null),
 })
 
+/** One continuous stretch at an employer (employers.ts). ISO calendar dates; `end` null = present. */
+export const StintSchema = z.object({
+  start: z.string(),
+  end: z.string().nullable().default(null),
+})
+
 /**
  * One employer on the CV: the profile's roles at one company, grouped
  * (employers.ts). Heading = `company` + `latestTitle`; `progression` is the
@@ -326,15 +337,26 @@ export const SelectedEmployerSchema = z.object({
   company: z.string(),
   /** Title of the most recent role, as in the profile. The CV's heading for this employer. */
   latestTitle: z.string(),
-  /** Overall span; `end` null = present. ISO calendar dates. */
+  /** Bounds only (earliest start; `end` null = any role current). NOT for display: a returnee has gaps. Show `stints`. */
   start: z.string().nullable().default(null),
   end: z.string().nullable().default(null),
+  /**
+   * The employer's dates, oldest first: its roles' ranges merged where they
+   * touch, overlap or sit within ~3 months. The writer renders these, never one
+   * overall span. Absent on rows stored before stints (read `start`/`end` as one).
+   */
+  stints: z.array(StintSchema).optional(),
   /** The roles held here, oldest first. */
   roles: z.array(EmployerRoleSchema).default([]),
   /** Plain-text progression sub-line built in code (oldest title first); null with a single role. */
   progression: z.string().nullable().default(null),
-  /** 1-5: the model's score (or, when it gave none, derived in code from brief term matches). */
-  relevance: z.number().int().min(MIN_RELEVANCE).max(MAX_RELEVANCE),
+  /**
+   * 1-5, employers with bullets only (absent on a header-only entry: it is never
+   * scored). The model's score; the lowest when it gave none; derived from term
+   * matches in a rules run. A bad value reads as the middle score instead of
+   * hiding the whole selection.
+   */
+  relevance: z.number().transform((v) => Math.min(MAX_RELEVANCE, Math.max(MIN_RELEVANCE, Math.round(v)))).catch(NEUTRAL_RELEVANCE).optional(),
   /** Why the model picked the employer; empty when code did. */
   reason: z.string().default(''),
   /** True: listed as company, title, dates and progression only, with no bullets. */

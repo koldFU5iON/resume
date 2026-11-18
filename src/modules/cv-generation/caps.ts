@@ -40,6 +40,8 @@ export const MAX_ACTIVITIES_PER_EMPLOYER = 6
 /** The 1-5 scale of the Select model's per-employer relevance score. */
 export const MIN_RELEVANCE = 1
 export const MAX_RELEVANCE = 5
+/** The middle of the scale: what an unreadable stored score reads as, and what derivation gives when nothing matches anywhere. */
+export const NEUTRAL_RELEVANCE = Math.round((MIN_RELEVANCE + MAX_RELEVANCE) / 2)
 
 export const MAX_SKILLS = 12
 export const MAX_TOOLS = 10

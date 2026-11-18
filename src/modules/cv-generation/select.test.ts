@@ -93,6 +93,18 @@ describe('enforceSelection', () => {
       // Beyond the header-only cap an employer is dropped, with the reason.
       expect(s.dropped.filter((d) => d.section === 'employers').map((d) => [d.id, d.why])).toEqual([['co-8', 'over_cap'], ['co-9', 'over_cap']])
       expect(notes.join(' ')).toContain('4 employers are listed without bullets')
+      // co-8 and co-9 were never picked: they are dropped past the header-only cap, but that is not a pick "cut over the limits".
+      expect(notes.join(' ')).not.toContain('Cut ')
+      expect(notes.join(' ')).toContain('The profile has 10 employers and the CV lists at most 8, so the 2 oldest are left out')
+      expect(notes.join(' ')).toContain('only holds up to 8 employers')
+    })
+
+    it('counts an employer the model did pick, dropped past the caps, as one cut pick; says nothing about gaps up to 8', () => {
+      const many = bigCandidates(10)
+      const r = enforceSelection({ ...empty, employers: epick(['co-0', 3], ['co-1', 3], ['co-2', 3], ['co-3', 3], ['co-9', 3]) }, many, brief)
+      expect(r.notes).toContain('Cut 1 pick over the limits.') // co-9 only; co-8 was never picked
+      const eight = enforceSelection(empty, bigCandidates(8), brief)
+      expect(eight.notes.join(' ')).not.toContain('no-gaps promise')
     })
 
     it('shows every employer when there are no more than bullets + header-only', () => {
@@ -128,6 +140,55 @@ describe('enforceSelection', () => {
       expect(notes.join(' ')).toContain('The model picked 1 of 4 employers; added the 3 most recent other employers')
       const small = enforceSelection({ ...empty, employers: epick(['co-2', 4]) }, cands, { budgets: { ...brief.budgets, experiences: 2 } })
       expect(small.selection.employers.filter((e) => !e.headerOnly).map((e) => e.key)).toEqual(['co-0', 'co-2'])
+    })
+
+    describe('several current employers', () => {
+      /** 6 employers; co-0 and co-2 are both current (co-2 started earlier). */
+      const twoCurrent = () => {
+        const c = bigCandidates(6, 8)
+        c.employers[2].end = null
+        c.employers[2].stints = [{ start: c.employers[2].start, end: null }]
+        return c
+      }
+      const bulletKeys = (s: { employers: Array<{ key: string; headerOnly: boolean }> }) => s.employers.filter((e) => !e.headerOnly).map((e) => e.key)
+
+      it('is met when any current employer is picked: the other is not forced in over a stronger pick', () => {
+        const c = twoCurrent()
+        const r = enforceSelection({ ...empty, employers: epick(['co-2', 5], ['co-3', 4], ['co-1', 3], ['co-4', 2]) }, c, brief)
+        expect(bulletKeys(r.selection)).toEqual(['co-1', 'co-2', 'co-3', 'co-4'])
+        expect(r.notes.join(' ')).not.toContain('current employer')
+      })
+
+      it('forces the current employer with the most activities when none is picked', () => {
+        const c = twoCurrent()
+        c.employers[2].activities = c.employers[2].activities.slice(0, 3) // co-0 has 8, co-2 has 3
+        const r = enforceSelection({ ...empty, employers: epick(['co-1', 5], ['co-3', 4], ['co-4', 3], ['co-5', 2]) }, c, brief)
+        expect(bulletKeys(r.selection)).toEqual(['co-0', 'co-1', 'co-3', 'co-4'])
+        expect(r.notes.join(' ')).toContain('the current employer with the most activities')
+      })
+
+      it('breaks an activity tie by the earliest start', () => {
+        const c = twoCurrent() // 8 activities each; co-2 started in 2020, co-0 in 2024
+        const r = enforceSelection({ ...empty, employers: epick(['co-1', 5], ['co-3', 4], ['co-4', 3], ['co-5', 2]) }, c, brief)
+        expect(bulletKeys(r.selection)).toEqual(['co-1', 'co-2', 'co-3', 'co-4'])
+      })
+
+      it('tells the model that at least one current employer must be included', () => {
+        const text = selectPrompt(buildBriefFor(), twoCurrent())
+        expect(text).toContain('# Current employers')
+        expect(text).toContain('- [co-0] Role 0 — Co 0')
+        expect(text).toContain('- [co-2] Role 2 — Co 2')
+        expect(text).toContain('At least one of them must be included')
+      })
+
+      it('the rules fallback also keeps one of them with bullets', () => {
+        const c = twoCurrent()
+        c.employers[0].end = '2020-01-01' // only co-2 is current now
+        c.employers[0].stints = [{ start: c.employers[0].start, end: '2020-01-01' }]
+        c.employers[2].activities[0].text = 'platform migration'
+        const r = fallbackSelection({ ...brief, leadWith: [], emphasise: [], budgets: { ...brief.budgets, experiences: 1 } } as never, c)
+        expect(r.selection.employers.filter((e) => !e.headerOnly).map((e) => e.key)).toEqual(['co-2'])
+      })
     })
 
     it('always keeps the current employer, replacing the weakest pick when the budget is full', () => {
@@ -246,15 +307,38 @@ describe('enforceSelection', () => {
       expect(notes.join(' ')).toContain('Split 12 bullets by relevance: Co 0 6 (relevance 5), Co 1 6 (relevance 5).')
     })
 
-    it('derives a missing relevance from brief term matches, and says so', () => {
+    it('scores an employer the model left unscored as the lowest in a model run, not by the relative derived score', () => {
       const c = bigCandidates(3, 4)
       c.employers[2].activities[0].text = 'Led the platform migration end to end'
       const b = { budgets: brief.budgets, leadWith: ['Platform migration'], emphasise: [] }
       const { selection: s, notes } = enforceSelection({ ...empty, employers: epick(['co-0', undefined], ['co-1', 4], ['co-2', undefined]) }, c, b)
-      expect(s.employers.find((e) => e.key === 'co-2')!.relevance).toBe(5) // the only employer that matches
+      // co-2 is the only term match (derived 5) but the model scored co-1 on its own scale: the unscored one must not outrank it.
+      expect(s.employers.find((e) => e.key === 'co-2')!.relevance).toBe(1)
       expect(s.employers.find((e) => e.key === 'co-0')!.relevance).toBe(1)
       expect(s.employers.find((e) => e.key === 'co-1')!.relevance).toBe(4) // the model's score stands
-      expect(notes.join(' ')).toContain('no relevance score for 2 employers')
+      expect(notes.join(' ')).toContain('no relevance score for 2 employers; scored them 1 (the lowest)')
+    })
+
+    it('derives relevance from brief term matches in a rules run', () => {
+      const c = bigCandidates(3, 4)
+      c.employers[2].activities[0].text = 'Led the platform migration end to end'
+      const b = { budgets: brief.budgets, leadWith: ['Platform migration'], emphasise: [] }
+      const { selection: s, notes } = enforceSelection({ ...empty, employers: epick(['co-0', undefined], ['co-1', undefined], ['co-2', undefined]) }, c, b, 'fallback')
+      expect(s.employers.find((e) => e.key === 'co-2')!.relevance).toBe(5)
+      expect(s.employers.find((e) => e.key === 'co-0')!.relevance).toBe(1)
+      expect(notes.join(' ')).not.toContain('no relevance score')
+    })
+
+    it('stores no relevance on a header-only employer and does not count it in the "no relevance score" note', () => {
+      const c = bigCandidates(6, 4)
+      const { selection: s, notes } = enforceSelection({ ...empty, employers: epick(['co-0', 4], ['co-1', undefined], ['co-2', 3], ['co-3', 3]) }, c, brief)
+      const header = s.employers.filter((e) => e.headerOnly)
+      expect(header.map((e) => e.key)).toEqual(['co-4', 'co-5'])
+      for (const h of header) expect('relevance' in h && h.relevance !== undefined).toBe(false)
+      expect(s.employers.filter((e) => !e.headerOnly).every((e) => typeof e.relevance === 'number')).toBe(true)
+      // Only co-1 (with bullets) lacks a score; the two header-only employers are not counted.
+      expect(notes.join(' ')).toContain('no relevance score for 1 employer; scored it 1 (the lowest)')
+      expect(selectionLogLines(s).kept.find((l) => l.includes('Co 4'))).not.toContain('relevance')
     })
 
     it('uses the middle score when nothing matches anywhere', () => {
@@ -285,6 +369,18 @@ describe('enforceSelection', () => {
     expect(one.notes).toContain('Cut 1 pick over the limits.')
     const two = enforceSelection({ ...empty, skills: pick(...cands.skills.slice(0, 14).map((s) => s.id)) }, cands, brief)
     expect(two.notes).toContain('Cut 2 picks over the limits.')
+  })
+
+  it('stores each employer’s stints for the writer, and notes related names that were kept apart', () => {
+    const c = bigCandidates(3, 3)
+    c.employers[0].company = 'Unity'
+    c.employers[0].stints = [{ start: '2015-01-01', end: '2017-01-01' }, { start: '2019-02-01', end: null }]
+    c.employers[1].company = 'Unity Technologies'
+    const { selection: s, notes } = enforceSelection({ ...empty, employers: epick(['co-0', 4], ['co-1', 3]) }, c, brief)
+    expect(s.employers[0].stints).toEqual([{ start: '2015-01-01', end: '2017-01-01' }, { start: '2019-02-01', end: null }])
+    expect(s.employers[1].stints).toEqual(c.employers[1].stints)
+    expect(notes).toContain("'Unity' and 'Unity Technologies' were kept apart; give them the same company name in your profile to merge them.")
+    expect(CvSelectionSchema.parse(JSON.parse(JSON.stringify(s))).employers[0].stints).toEqual(s.employers[0].stints)
   })
 
   it('does not accept an id from another section', () => {
@@ -550,6 +646,13 @@ describe('selectPrompt', () => {
     expect(text).toContain('[co-0] Role 0 — Co 0')
     expect(text).toContain('counts toward the employer budget')
     expect(text).toContain('Employers with bullets 4')
+  })
+
+  it('reads the employers-with-bullets budget through the accessor, wherever it is used', () => {
+    const b = { ...buildBriefFor(), budgets: { ...buildBriefFor().budgets, experiences: 2 } }
+    expect(selectPrompt(b, bigCandidates(4, 2))).toContain('Employers with bullets 2,')
+    const r = fallbackSelection(b, bigCandidates(6, 6))
+    expect(r.selection.employers.filter((e) => !e.headerOnly)).toHaveLength(2)
   })
 
   it('explains the bullet allocation rule: a total, a minimum and maximum, split by relevance and not by recency', () => {

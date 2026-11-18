@@ -174,6 +174,20 @@ describe('the select prompt file', () => {
     expect(text).toContain('Role titles are facts')
   })
 
+  it('points at the section that holds the bullet total, and tells the model to score honestly with anchors', () => {
+    expect(text).toContain('the number is under "# Bullets"')
+    expect(text).not.toContain('the number is in the budgets')
+    expect(text).not.toContain('same number')
+    expect(text).toContain('score honestly')
+    expect(text).toContain('5 = central')
+    expect(text).toContain('3 = supports the story but is not central')
+    expect(text).toContain('1 = barely relevant')
+  })
+
+  it('says one of several current employers must be included', () => {
+    expect(text).toContain('at least one of them must be included')
+  })
+
   it('never names a model', () => {
     expect(text).not.toMatch(/claude|opus|sonnet|haiku|gpt|gemini/i)
   })
