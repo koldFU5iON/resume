@@ -29,13 +29,13 @@ beforeEach(() => {
 })
 
 describe('validateGroups (the output may only be a subset of the selected names)', () => {
-  const selected = ['Planning', 'Governance', 'Roadmapping', 'Budgeting'].map((n) => cap(n))
+  const selected = ['Planning', 'Governance', 'Roadmapping', 'Budgeting', 'Hiring', 'Forecasting'].map((n) => cap(n))
 
   it('drops unknown names and repeats, and maps case to the selected spelling', () => {
-    const groups = validateGroups([{ label: 'Delivery', names: ['planning', 'Invented skill', 'Governance', 'Planning'] }, { label: 'Money', names: ['BUDGETING'] }], selected)
+    const groups = validateGroups([{ label: 'Delivery', names: ['planning', 'Invented skill', 'Governance', 'Planning', 'Hiring'] }, { label: 'Money', names: ['BUDGETING', 'forecasting'] }], selected)
     expect(groups).toEqual([
-      { label: 'Delivery', names: ['Planning', 'Governance'] },
-      { label: 'Money', names: ['Budgeting', 'Roadmapping'] }, // the name the model left out is put back at the end
+      { label: 'Delivery', names: ['Planning', 'Governance', 'Hiring'] },
+      { label: 'Money', names: ['Budgeting', 'Forecasting', 'Roadmapping'] }, // the name the model left out is put back at the end
     ])
     const all = groups!.flatMap((g) => g.names)
     expect(all.every((n) => selected.some((s) => s.name === n))).toBe(true)
@@ -48,17 +48,39 @@ describe('validateGroups (the output may only be a subset of the selected names)
   })
 
   it('merges groups beyond three into the last one, and drops a label that is too long', () => {
+    const names = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']
     const groups = validateGroups(
-      ['a', 'b', 'c', 'd', 'e'].map((n, i) => ({ label: i === 1 ? 'a label that is far too long to use' : `G${i}`, names: [n] })),
-      ['a', 'b', 'c', 'd', 'e'].map((n) => cap(n)),
+      [{ label: 'G0', names: ['a', 'b'] }, { label: 'a label that is far too long to use', names: ['c', 'd'] }, { label: 'G2', names: ['e', 'f'] }, { label: 'G3', names: ['g', 'h'] }],
+      names.map((n) => cap(n)),
     )
     expect(groups).toHaveLength(3)
-    expect(groups![2].names).toEqual(['c', 'd', 'e'])
+    expect(groups![2].names).toEqual(['e', 'f', 'g', 'h'])
     expect(groups![1].label).toBeNull()
   })
 
   it('gives a single group no label', () => {
-    expect(validateGroups([{ label: 'Everything', names: ['Planning'] }], selected)).toEqual([{ label: null, names: ['Planning', 'Governance', 'Roadmapping', 'Budgeting'] }])
+    expect(validateGroups([{ label: 'Everything', names: ['Planning'] }], selected)).toEqual([{ label: null, names: ['Planning', 'Governance', 'Roadmapping', 'Budgeting', 'Hiring', 'Forecasting'] }])
+  })
+
+  it('never groups a list of fewer than 6 names: 4 tools in three groups come back as one ungrouped list', () => {
+    const tools = ['Brandfolder', 'Workato', 'Jira', 'Figma'].map((n) => cap(n))
+    const groups = validateGroups([{ label: 'Asset management', names: ['Brandfolder'] }, { label: 'Automation', names: ['Workato', 'Jira'] }, { label: 'Design', names: ['Figma'] }], tools)
+    expect(groups).toEqual([{ label: null, names: ['Brandfolder', 'Workato', 'Jira', 'Figma'] }])
+  })
+
+  it('never emits a group of one name: it is merged into the previous group (the first into the next)', () => {
+    const eight = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map((n) => cap(n))
+    expect(validateGroups([{ label: 'One', names: ['a', 'b', 'c', 'd', 'e'] }, { label: 'Two', names: ['f'] }, { label: 'Three', names: ['g', 'h'] }], eight)).toEqual([
+      { label: 'One', names: ['a', 'b', 'c', 'd', 'e', 'f'] },
+      { label: 'Three', names: ['g', 'h'] },
+    ])
+    expect(validateGroups([{ label: 'Solo', names: ['a'] }, { label: 'Rest', names: ['b', 'c', 'd', 'e', 'f', 'g', 'h'] }], eight)).toEqual([{ label: null, names: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'] }])
+  })
+
+  it('keeps groups of 2-3 when a list has 8-10 names', () => {
+    const ten = Array.from({ length: 10 }, (_, i) => cap(`s${i}`))
+    const groups = validateGroups([{ label: 'A', names: ['s0', 's1', 's2'] }, { label: 'B', names: ['s3', 's4', 's5'] }, { label: 'C', names: ['s6', 's7', 's8', 's9'] }], ten)
+    expect(groups!.map((g) => g.names.length)).toEqual([3, 3, 4])
   })
 })
 

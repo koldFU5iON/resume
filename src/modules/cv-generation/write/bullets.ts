@@ -132,6 +132,19 @@ export function trimBullets(
 }
 
 /** A bullet shortened for a log note. */
+/**
+ * Whether a bullet is a near-verbatim copy of the summary sentence: it has at
+ * least 3 content words and at least 85% of them (stems, so tense and plural do not
+ * hide it) occur in the summary. Such a bullet is a title-like responsibility
+ * that repeats the summary and adds no outcome, scope or figure. Pure.
+ */
+export function repeatsSummary(bullet: string, summary: string): boolean {
+  const b = [...contentStems(bullet)]
+  if (b.length < 3 || /\d/.test(bullet)) return false // a figure is something the summary does not say
+  const s = contentStems(summary)
+  return b.filter((w) => s.has(w)).length / b.length >= 0.85
+}
+
 export function shortened(text: string, max = 80): string {
   const t = text.replace(/\s+/g, ' ').trim()
   return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t
