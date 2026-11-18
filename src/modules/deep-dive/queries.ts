@@ -28,6 +28,7 @@ export type DeepDiveView = {
   status: DeepDiveStatus
   failureKind: DeepDiveFailureKind | null
   failureMessage: string | null
+  failureDetail: string | null
   verdict: string | null
   worthTailoredCv: boolean | null
   /** Present when complete. */
@@ -52,6 +53,7 @@ type Row = {
   status: string
   failureKind: string | null
   failureMessage: string | null
+  failureDetail: string | null
   verdict: string | null
   worthTailoredCv: boolean | null
   report: unknown
@@ -106,6 +108,7 @@ export function toDeepDiveView(row: Row, usage: UsageBucket, currentHash: string
     status,
     failureKind: stale ? 'timeout' : (row.failureKind as DeepDiveFailureKind | null),
     failureMessage: stale ? STALE_RUN_MESSAGE : row.failureMessage,
+    failureDetail: row.failureDetail,
     verdict: row.verdict,
     worthTailoredCv: row.worthTailoredCv,
     report: status === 'complete' ? parseReport(row.report) : null,
@@ -125,7 +128,7 @@ export function toDeepDiveView(row: Row, usage: UsageBucket, currentHash: string
 }
 
 const ROW_SELECT = {
-  id: true, jobApplicationId: true, status: true, failureKind: true, failureMessage: true,
+  id: true, jobApplicationId: true, status: true, failureKind: true, failureMessage: true, failureDetail: true,
   verdict: true, worthTailoredCv: true, report: true, research: true,
   researchModel: true, synthesisModel: true, sourceAssessmentId: true, inputsHash: true,
   stageTimings: true, createdAt: true, startedAt: true, completedAt: true,

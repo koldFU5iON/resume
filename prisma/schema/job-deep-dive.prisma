@@ -17,6 +17,8 @@ model JobDeepDive {
   /// no_llm_key | no_description | timeout | rate_limited | overloaded | refusal | error
   failureKind        String?
   failureMessage     String?
+  /// Technical cause of a failure (error kind plus a short, value-free reason); shown collapsed on the report page
+  failureDetail      String?
   /// sha256 of (profile, search profile, job description, salaryBand, sourceAssessmentId); set by the gather stage
   inputsHash         String?
   researchModel      String?

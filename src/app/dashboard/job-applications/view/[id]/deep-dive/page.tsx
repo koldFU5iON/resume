@@ -7,6 +7,7 @@ import { getJobAssets, type JobAssets } from "@/modules/jobs/queries"
 import { getDeepDiveAccess, type DeepDiveAccess } from "@/modules/deep-dive/access"
 import { getDeepDive, listDeepDiveRuns, type DeepDiveRunItem, type DeepDiveView } from "@/modules/deep-dive/queries"
 import { RESEARCHERS } from "@/modules/deep-dive/schema"
+import { FailureDetails } from "./_components/failure-details"
 import { AssessmentPoller } from "@/app/dashboard/job-applications/_components/assessment-poller"
 import { VerdictChip } from "@/app/dashboard/job-applications/_components/deep-dive-button"
 import {
@@ -100,6 +101,7 @@ function RunBody({ jobId, view, latest, runs, access }: {
           This deep dive didn&apos;t finish
         </h1>
         <p className="leading-relaxed">{view.failureMessage ?? 'The deep dive failed. Try again.'}</p>
+        {view.failureDetail && <FailureDetails detail={view.failureDetail} runId={view.id} jobId={jobId} />}
         {view.failureKind === 'no_llm_key' && (
           <Link href="/dashboard/settings/llm" className="inline-block text-sm underline underline-offset-2 hover:text-foreground">
             Add an LLM API key
