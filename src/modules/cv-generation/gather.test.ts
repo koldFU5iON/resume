@@ -121,7 +121,7 @@ describe('gatherCvInputs', () => {
     db.jobApplication.findFirst.mockResolvedValue(job({ jobAnalysis: analysis }) as never)
     const a = await gatherCvInputs('p1', 'job-1', { runId: 'r1' })
     const a2 = await gatherCvInputs('p1', 'job-1', { runId: 'r2' })
-    expect(a.ok && a.candidates.experiences[0].id).toBe('e1')
+    expect(a.ok && a.candidates.employers[0].roles[0].experienceId).toBe('e1')
     expect(a.ok && a.inputsHash).toMatch(/^[0-9a-f]{64}$/)
     expect(a.ok && a2.ok && a.inputsHash === a2.inputsHash).toBe(true)
 

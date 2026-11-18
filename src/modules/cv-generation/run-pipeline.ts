@@ -36,6 +36,7 @@ import {
   type StageLogEntry,
 } from './schema'
 import { runSelect, selectionLogLines } from './select'
+import { countOf } from './text'
 
 /** How far a run goes. Only the Select stage exists so far; later phases widen this. */
 export type StopAfter = 'selecting'
@@ -135,7 +136,8 @@ export async function runCvGenerationStages(runId: string, profileId: string, op
     const g = await gatherCvInputs(profileId, jobId, { runId })
     if (!g.ok) return await fail(g.kind === 'no_description' ? 'no_description' : 'error', g.kind === 'not_found' ? [g.message] : [])
     const c = g.candidates
-    const activityCount = c.experiences.reduce((n, e) => n + e.activities.length, 0)
+    const activityCount = c.employers.reduce((n, e) => n + e.activities.length, 0)
+    const roleCount = c.employers.reduce((n, e) => n + e.roles.length, 0)
     const analysisUsage = g.strategy.source === 'analysed' || g.strategy.source === 'none'
       ? await featureUsage(profileId, runId, CV_GENERATION_FEATURES.analyse)
       : { tokens: { input: 0, output: 0 }, costUsd: null }
@@ -143,7 +145,7 @@ export async function runCvGenerationStages(runId: string, profileId: string, op
       status: 'ok', model: null, ...analysisUsage,
       notes: [
         ...g.notes,
-        `Profile: ${c.experiences.length} roles with ${activityCount} activities, ${c.skills.length} skills, ${c.tools.length} tools, ${c.competencies.length} competencies, ${c.certifications.length} certifications, ${c.education.length} education, ${c.projects.length} projects.`,
+        `Profile: ${countOf(roleCount, 'role')} at ${countOf(c.employers.length, 'employer')} with ${countOf(activityCount, 'activity', 'activities')}; ${countOf(c.skills.length, 'skill')}, ${countOf(c.tools.length, 'tool')}, ${countOf(c.competencies.length, 'competency', 'competencies')}, ${countOf(c.certifications.length, 'certification')}, ${c.education.length} education, ${countOf(c.projects.length, 'project')}.`,
       ],
       kept: [], dropped: [], retries: 0, flaggedClaims: [],
     })
@@ -170,7 +172,7 @@ export async function runCvGenerationStages(runId: string, profileId: string, op
       status: 'ok', model: picked.model, ...(await featureUsage(profileId, runId, CV_GENERATION_FEATURES.select)),
       notes: [
         ...picked.notes,
-        ...(lines.notSelected > 0 ? [`${lines.notSelected} other profile items were not selected.`] : []),
+        ...(lines.notSelected > 0 ? [`${lines.notSelected === 1 ? '1 other profile item was' : `${lines.notSelected} other profile items were`} not selected.`] : []),
       ],
       kept: lines.kept, dropped: lines.dropped, retries: picked.retries, flaggedClaims: [],
     })

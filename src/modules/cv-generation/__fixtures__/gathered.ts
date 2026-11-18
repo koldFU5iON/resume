@@ -8,7 +8,7 @@ export function gathered(over: Partial<Extract<GatherResult, { ok: true }>> = {}
     ok: true,
     job: { id: 'job-1', title: 'Head of Delivery', company: 'Acme', description: 'Run our delivery org.' },
     candidates: bigCandidates(),
-    outline: 'Headline: Program manager\nRoles (most recent first):\n- Role 0 — Co 0',
+    outline: 'Headline: Program manager\nEmployers (most recent first):\n- Role 0 — Co 0',
     strategy: { ...emptyStrategy('job-analysis'), positioning: 'Delivery lead at scale.', mustHave: ['Delivery'] },
     deepDiveId: null,
     inputsHash: 'h'.repeat(64),

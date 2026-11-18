@@ -5,11 +5,13 @@
  */
 
 import { FLAT_SECTIONS } from "@/modules/cv-generation/caps"
+import { employerPeriod } from "@/modules/cv-generation/employers"
 import {
   ACTIVE_STATUSES,
   CV_GENERATION_CONCURRENCY_PER_PROFILE,
   CV_GENERATION_STAGES,
   DROP_REASON_LABEL,
+  employersWithBullets,
   stageForStatus,
   type CvBrief,
   type CvGenerationStage,
@@ -163,21 +165,24 @@ export function startResponseMessage(status: number): { ok: boolean; message: st
   return { ok: false, message: "Couldn't start the preview. Check your connection and try again." }
 }
 
-export type BriefRow = { label: string; text?: string; items?: string[] }
+/** A list item: `text`, bold only when `strong` (the Emphasise items), and `note` (why) in muted text under it. */
+export type BriefItem = { text: string; strong?: boolean; note?: string }
+
+export type BriefRow = { label: string; text?: string; items?: BriefItem[] }
 
 /** The Brief as labelled rows for reading (not raw JSON); empty lists are left out. */
 export function briefRows(brief: CvBrief): BriefRow[] {
   const b = brief.budgets
   const rows: BriefRow[] = [
     { label: "The hidden question", text: brief.hiddenQuestion },
-    { label: "Lead with", items: brief.leadWith },
-    { label: "Emphasise", items: brief.emphasise.map((e) => `${e.item}: ${e.why}`) },
-    { label: "Play down", items: brief.playDown },
+    { label: "Lead with", items: brief.leadWith.map((text) => ({ text })) },
+    { label: "Emphasise", items: brief.emphasise.map((e) => ({ text: e.item, strong: true, ...(e.why.trim() ? { note: e.why } : {}) })) },
+    { label: "Play down (framing only; titles and employers stay)", items: brief.playDown.map((text) => ({ text })) },
     { label: "Positioning", text: brief.positioning },
     { label: "Tone", text: brief.tone },
     {
       label: "Budget",
-      text: `Roles ${b.experiences} · skills ${b.skills} · tools ${b.tools} · competencies ${b.competencies} · certifications ${b.certifications} · education ${b.education} · projects ${b.projects}`,
+      text: `Employers with bullets ${employersWithBullets(brief)} · skills ${b.skills} · tools ${b.tools} · competencies ${b.competencies} · certifications ${b.certifications} · education ${b.education} · projects ${b.projects}`,
     },
   ]
   return rows.filter((r) => (r.text !== undefined ? r.text.trim() !== "" : (r.items?.length ?? 0) > 0))
@@ -191,53 +196,106 @@ export type SelectionGroup = {
   dropped: Array<{ label: string; why: string }>
 }
 
+/** One employer of the selection, ready to show. */
+export type EmployerBlock = {
+  key: string
+  company: string
+  /** The latest title, as in the profile. */
+  title: string
+  /** "Jan 2019 – present". */
+  period: string | null
+  /** The code-built progression sub-line; null with a single role. */
+  progression: string | null
+  /** Employers with bullets only; undefined for a header-only entry. */
+  relevance: number | undefined
+  reason: string
+  headerOnly: boolean
+  kept: Array<{ label: string; reason: string }>
+  dropped: Array<{ label: string; why: string }>
+}
+
 const FLAT_TITLE: Record<(typeof FLAT_SECTIONS)[number], string> = {
   skills: "Skills", tools: "Tools", competencies: "Competencies",
   certifications: "Certifications", education: "Education", projects: "Projects",
 }
 
+const dropText = (d: { label: string; id: string; why: keyof typeof DROP_REASON_LABEL }) => ({ label: d.label || d.id, why: DROP_REASON_LABEL[d.why] })
+
 /**
- * The selection grouped for reading: roles, then each kept role's activities,
- * then the flat sections. Sections with nothing kept and nothing dropped are
- * left out.
+ * The work history of a selection stored with employers: the employers that
+ * show bullets (each with its kept bullets and what was left out), the
+ * header-only employers, and the employers dropped by a limit. Empty for rows
+ * stored before employers existed (they read through `selectionGroups`).
+ */
+export function employerBlocks(sel: CvSelection): { withBullets: EmployerBlock[]; headerOnly: EmployerBlock[]; dropped: Array<{ label: string; why: string }> } {
+  const block = (e: CvSelection["employers"][number]): EmployerBlock => ({
+    key: e.key,
+    company: e.company,
+    title: e.latestTitle,
+    period: employerPeriod(e),
+    progression: e.progression,
+    relevance: e.relevance,
+    reason: e.reason,
+    headerOnly: e.headerOnly,
+    kept: e.bullets.map((a) => ({ label: a.label, reason: a.reason })),
+    dropped: sel.dropped.filter((d) => d.section === "activities" && d.parentId === e.key).map(dropText),
+  })
+  return {
+    withBullets: sel.employers.filter((e) => !e.headerOnly).map(block),
+    headerOnly: sel.employers.filter((e) => e.headerOnly).map(block),
+    dropped: sel.dropped.filter((d) => d.section === "employers").map(dropText),
+  }
+}
+
+/**
+ * The selection grouped for reading. A row stored with employers gets the flat
+ * sections plus any picked evidence that could not be used (the work history
+ * itself is `employerBlocks`). A row from before employers existed gets its
+ * roles and each role's evidence as well. Groups with nothing kept and nothing
+ * dropped are left out.
  */
 export function selectionGroups(sel: CvSelection): SelectionGroup[] {
   const dropOf = (section: string, parentId?: string) =>
     sel.dropped
       .filter((d) => d.section === section && (parentId === undefined || d.parentId === parentId))
-      .map((d) => ({ label: d.label || d.id, why: DROP_REASON_LABEL[d.why] }))
-  const groups: SelectionGroup[] = [
-    { key: "experiences", title: "Roles with bullets", kept: sel.experiences.map((e) => ({ label: e.label, reason: e.reason })), dropped: dropOf("experiences") },
-  ]
-  for (const e of sel.experiences) {
+      .map(dropText)
+  const groups: SelectionGroup[] = []
+  const hasEmployers = sel.employers.length > 0
+  if (!hasEmployers) {
+    groups.push({ key: "experiences", title: "Roles with bullets", kept: sel.experiences.map((e) => ({ label: e.label, reason: e.reason })), dropped: dropOf("experiences") })
+    for (const e of sel.experiences) {
+      groups.push({
+        key: `activities:${e.id}`,
+        title: `Evidence: ${e.label}`,
+        kept: (sel.activities[e.id] ?? []).map((a) => ({ label: a.label, reason: a.reason })),
+        dropped: dropOf("activities", e.id),
+      })
+    }
+    // Roles that stay visible as a title line only: no evidence is shown for them.
     groups.push({
-      key: `activities:${e.id}`,
-      title: `Evidence: ${e.label}`,
-      kept: (sel.activities[e.id] ?? []).map((a) => ({ label: a.label, reason: a.reason })),
-      dropped: dropOf("activities", e.id),
+      key: "headerOnly",
+      title: "Listed without bullets",
+      kept: sel.headerOnlyRoles.map((e) => ({ label: e.label, reason: e.reason })),
+      dropped: [],
     })
   }
-  // Roles that stay visible as a title line only: no evidence is shown for them.
-  groups.push({
-    key: "headerOnly",
-    title: "Listed without bullets",
-    kept: sel.headerOnlyRoles.map((e) => ({ label: e.label, reason: e.reason })),
-    dropped: [],
-  })
   for (const s of FLAT_SECTIONS) {
     groups.push({ key: s, title: FLAT_TITLE[s], kept: sel[s].map((i) => ({ label: i.label, reason: i.reason })), dropped: dropOf(s) })
   }
-  // Activities picked for a role that shows no bullets (header-only, or left out) have no role group to sit in.
-  const orphans = sel.dropped.filter((d) => d.section === "activities" && !sel.experiences.some((e) => e.id === d.parentId))
+  // Activities picked for an employer (or role) that has no entry above to hold them.
+  const shown = new Set(hasEmployers ? sel.employers.map((e) => e.key) : sel.experiences.map((e) => e.id))
+  const orphans = sel.dropped.filter((d) => d.section === "activities" && !shown.has(d.parentId ?? ""))
   if (orphans.length > 0) {
-    groups.push({ key: "activities:orphans", title: "Picked evidence that was not used (its role has no bullets)", kept: [], dropped: orphans.map((d) => ({ label: d.label || d.id, why: DROP_REASON_LABEL[d.why] })) })
+    groups.push({ key: "activities:orphans", title: "Picked evidence that was not used (its employer has no bullets)", kept: [], dropped: orphans.map(dropText) })
   }
   return groups.filter((g) => g.kept.length > 0 || g.dropped.length > 0)
 }
 
 /** "12 kept, 30 left out" for the selection heading. */
 export function selectionSummary(sel: CvSelection): string {
-  const kept = sel.experiences.length
+  const kept = sel.employers.length
+    + sel.employers.reduce((n, e) => n + e.bullets.length, 0)
+    + sel.experiences.length
     + sel.headerOnlyRoles.length
     + Object.values(sel.activities).reduce((n, l) => n + l.length, 0)
     + FLAT_SECTIONS.reduce((n, s) => n + sel[s].length, 0)

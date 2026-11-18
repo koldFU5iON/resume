@@ -65,7 +65,7 @@ describe('briefPrompt', () => {
     expect(text).toContain('Run our delivery org.')
     expect(text).toContain('Source: job-analysis')
     expect(text).toContain('Delivery lead at scale.')
-    expect(text).toContain('Roles (most recent first)')
+    expect(text).toContain('Employers (most recent first')
     expect(text).not.toContain('Activity 0 of role 0')
   })
 })
@@ -82,6 +82,17 @@ describe('the brief prompt file', () => {
     expect(text).toMatch(/Lead with\.\*\* .*appears in the candidate outline/)
     expect(text).toContain('Never name a number, a result or a tool that the outline does not show')
     expect(text).toMatch(/Emphasise\.\*\* .*never a number, result or tool the outline does not show/)
+  })
+
+  it('says role titles are facts: play down is about framing, never a title or an employer, and progression is sub-text', () => {
+    expect(text).toContain('Role titles are facts and cannot be changed or hidden')
+    expect(text).toContain('It never changes or hides a role title, and it never removes an employer')
+    expect(text).toContain('progression line')
+    expect(text).toContain('Playing down only changes emphasis and framing')
+  })
+
+  it('never names a model', () => {
+    expect(text).not.toMatch(/claude|opus|sonnet|haiku|gpt|gemini/i)
   })
 
   it('says the brief is direction, not evidence', () => {
@@ -148,5 +159,36 @@ describe('runBrief', () => {
   it('lets a provider error through for the runner to map', async () => {
     mockJSON.mockRejectedValue(new LLMError('slow down', 'rate_limit'))
     await expect(runBrief(gathered(), ctx)).rejects.toMatchObject({ kind: 'rate_limit' })
+  })
+})
+
+describe('the select prompt file', () => {
+  const text = readFileSync('src/lib/prompts/cv-gen-select.md', 'utf8')
+
+  it('selects employers with a relevance score, lists the current employer first, and explains the bullet allocation', () => {
+    expect(text).toContain('You choose employers, not single roles')
+    expect(text).toContain('`relevance` score from 1')
+    expect(text).toContain('list the current employer first')
+    expect(text).toContain('in proportion to their relevance scores')
+    expect(text).toContain('recency does not decide it')
+    expect(text).toContain('Role titles are facts')
+  })
+
+  it('points at the section that holds the bullet total, and tells the model to score honestly with anchors', () => {
+    expect(text).toContain('the number is under "# Bullets"')
+    expect(text).not.toContain('the number is in the budgets')
+    expect(text).not.toContain('same number')
+    expect(text).toContain('score honestly')
+    expect(text).toContain('5 = central')
+    expect(text).toContain('3 = supports the story but is not central')
+    expect(text).toContain('1 = barely relevant')
+  })
+
+  it('says one of several current employers must be included', () => {
+    expect(text).toContain('at least one of them must be included')
+  })
+
+  it('never names a model', () => {
+    expect(text).not.toMatch(/claude|opus|sonnet|haiku|gpt|gemini/i)
   })
 })

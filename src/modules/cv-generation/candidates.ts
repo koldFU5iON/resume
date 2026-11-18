@@ -4,6 +4,10 @@
  * dropped in code, select.ts). Built from the profile vault
  * (src/modules/profile-map), whose note ids are the row ids.
  *
+ * Roles are grouped by employer (employers.ts): Select chooses employers and
+ * activities, never single roles. Every activity keeps the id of the role it
+ * came from.
+ *
  * Contact details are scrubbed from free text like serializeProfileForLLM does
  * with pii off. Pure: no DB, no network.
  */
@@ -14,19 +18,24 @@ import { makeContactScrubber } from '@/modules/profile-map/pii'
 import { stripWikilinks } from '@/modules/profile-map/links'
 import type { Vault } from '@/modules/profile-map/types'
 import { FLAT_SECTIONS, type FlatSection } from './caps'
+import { countOf } from './text'
+import { employerPeriod, groupEmployers, type EmployerGroup } from './employers'
 
 export type CandidateActivity = {
   id: string
+  /** The role (experience id) the activity belongs to: provenance for fact-checking. */
+  experienceId: string
   kind: 'responsibility' | 'achievement'
   text: string
   impact: string | null
   highlighted: boolean
 }
 
-export type CandidateExperience = {
-  id: string
-  /** "Role — Company". */
+/** One employer: the profile's roles at one company, with all their activities (newest role first). */
+export type CandidateEmployer = EmployerGroup & {
+  /** "Latest title — Company". */
   label: string
+  /** "Jan 2015 – Dec 2017, Jan 2019 – present": the stints, never one overall span. */
   period: string | null
   activities: CandidateActivity[]
 }
@@ -40,38 +49,46 @@ export type CandidateItem = {
   proven: boolean
 }
 
-export type Candidates = { experiences: CandidateExperience[] } & Record<FlatSection, CandidateItem[]>
+export type Candidates = { employers: CandidateEmployer[] } & Record<FlatSection, CandidateItem[]>
 
 export function emptyCandidates(): Candidates {
-  return { experiences: [], skills: [], tools: [], competencies: [], certifications: [], education: [], projects: [] }
+  return { employers: [], skills: [], tools: [], competencies: [], certifications: [], education: [], projects: [] }
 }
 
 const LABEL_MAX = 90
 
-/** Candidate list of a vault, newest role first (the vault's display order). */
+/** Candidate list of a vault, newest employer first. */
 export function buildCandidates(vault: Vault): Candidates {
   const c = vault.identity.props.contact
   const scrub = makeContactScrubber(c)
   const text = (s: string) => scrub(stripWikilinks(s)).trim()
 
-  const experiences = notesOf(vault, 'experience').map((e): CandidateExperience => ({
-    id: e.id,
-    label: `${e.props.role} — ${e.props.company}`,
-    period: formatSpan(e.props.startDate, e.props.endDate),
-    activities: e.links
+  const notes = notesOf(vault, 'experience')
+  const activitiesOf = (e: (typeof notes)[number]): CandidateActivity[] =>
+    e.links
       .filter((l) => l.type === 'has')
       .flatMap((l) => {
         const a = vault.notes.get(l.id)
         return a?.type === 'evidence'
           ? [{
               id: a.id,
+              experienceId: e.id,
               kind: a.props.kind,
               text: text(a.props.description),
               impact: a.props.impact ? text(a.props.impact) : null,
               highlighted: a.props.highlighted,
             } satisfies CandidateActivity]
           : []
-      }),
+      })
+  const activitiesByRole = new Map(notes.map((e) => [e.id, activitiesOf(e)]))
+  const employers = groupEmployers(
+    notes.map((e) => ({ experienceId: e.id, company: e.props.company, title: e.props.role, start: e.props.startDate, end: e.props.endDate })),
+  ).map((g): CandidateEmployer => ({
+    ...g,
+    label: `${g.latestTitle} — ${g.company}`,
+    period: employerPeriod(g),
+    // The newest role's activities first, each role's in profile order.
+    activities: [...g.roles].reverse().flatMap((r) => activitiesByRole.get(r.experienceId) ?? []),
   }))
 
   const caps = notesOf(vault, 'capability')
@@ -83,7 +100,7 @@ export function buildCandidates(vault: Vault): Candidates {
   })
 
   return {
-    experiences,
+    employers,
     skills: caps.filter((n) => n.props.kind === 'skill').map(capItem),
     tools: caps.filter((n) => n.props.kind === 'tool').map(capItem),
     competencies: caps.filter((n) => n.props.kind === 'competency').map(capItem),
@@ -118,8 +135,8 @@ export function activityLabel(a: Pick<CandidateActivity, 'text'>): string {
 /** id → display label of every candidate, for logs and drop records. */
 export function labelIndex(cands: Candidates): Map<string, string> {
   const m = new Map<string, string>()
-  for (const e of cands.experiences) {
-    m.set(e.id, e.label)
+  for (const e of cands.employers) {
+    m.set(e.key, e.label)
     for (const a of e.activities) m.set(a.id, activityLabel(a))
   }
   for (const s of FLAT_SECTIONS) for (const i of cands[s]) m.set(i.id, i.label)
@@ -128,12 +145,15 @@ export function labelIndex(cands: Candidates): Map<string, string> {
 
 /** The candidate list as text for the Select prompt: every id in square brackets. */
 export function candidatesToPrompt(cands: Candidates): string {
-  const lines: string[] = ['## Experiences (most recent first)']
-  for (const e of cands.experiences) {
-    lines.push(`[${e.id}] ${e.label}${e.period ? ` (${e.period})` : ''}`)
+  const lines: string[] = ['## Employers (most recent first)']
+  for (const e of cands.employers) {
+    lines.push(`[${e.key}] ${e.company}: latest title ${e.latestTitle}${e.period ? ` (${e.period})` : ''}`)
+    if (e.progression) lines.push(`  ${e.progression}`)
+    const roleTitle = new Map(e.roles.map((r) => [r.experienceId, r.title]))
     for (const a of e.activities) {
       const star = a.highlighted ? '⭐ ' : ''
-      lines.push(`  - [${a.id}] ${star}${a.kind}: ${a.text}${a.impact ? ` — ${a.impact}` : ''}`)
+      const asRole = e.roles.length > 1 ? `(as ${roleTitle.get(a.experienceId) ?? 'a role here'}) ` : ''
+      lines.push(`  - [${a.id}] ${asRole}${star}${a.kind}: ${a.text}${a.impact ? ` — ${a.impact}` : ''}`)
     }
   }
   const flat: Array<[FlatSection, string]> = [
@@ -155,10 +175,11 @@ export function candidatesToPrompt(cands: Candidates): string {
 export function profileOutline(headline: string | null, cands: Candidates): string {
   const lines: string[] = []
   if (headline) lines.push(`Headline: ${headline}`)
-  lines.push('Roles (most recent first):')
-  for (const e of cands.experiences) {
+  lines.push('Employers (most recent first; role titles are facts and cannot be changed):')
+  for (const e of cands.employers) {
     const achievements = e.activities.filter((a) => a.kind === 'achievement').length
-    lines.push(`- ${e.label}${e.period ? ` (${e.period})` : ''}: ${e.activities.length} activities, ${achievements} achievements`)
+    lines.push(`- ${e.label}${e.period ? ` (${e.period})` : ''}: ${countOf(e.activities.length, 'activity', 'activities')}, ${countOf(achievements, 'achievement')}`)
+    if (e.progression) lines.push(`  ${e.progression}`)
   }
   const names = (items: CandidateItem[], max: number) => items.slice(0, max).map((i) => i.label).join(', ') + (items.length > max ? `, … (${items.length} in all)` : '')
   if (cands.skills.length > 0) lines.push(`Skills: ${names(cands.skills, 30)}`)

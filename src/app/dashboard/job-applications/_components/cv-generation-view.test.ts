@@ -13,6 +13,7 @@ import {
   isCvGenerationActive,
   selectionGroups,
   selectionSummary,
+  employerBlocks,
   stageIndex,
   startResponseMessage,
   stageMeta,
@@ -175,8 +176,13 @@ describe("briefRows", () => {
   it("reads as labelled rows, in order, leaving out empty lists", () => {
     const rows = briefRows(brief)
     expect(rows.map((r) => r.label)).toEqual(["The hidden question", "Lead with", "Emphasise", "Positioning", "Tone", "Budget"])
-    expect(rows[2].items).toEqual(["Release management: core of the role"])
-    expect(rows[5].text).toBe("Roles 3 · skills 8 · tools 6 · competencies 4 · certifications 2 · education 2 · projects 1")
+    expect(rows[1].items).toEqual([{ text: "Migration delivery" }])
+    // The item and its reason are separate, so the page can bold one and mute the other: no "X: Y: Z".
+    // Only the Emphasise items are bold; Lead with is plain.
+    expect(rows[2].items).toEqual([{ text: "Release management", strong: true, note: "core of the role" }])
+    expect(rows[1].items?.some((i) => i.strong)).toBe(false)
+    expect(JSON.stringify(rows[2].items)).not.toContain("Release management: core")
+    expect(rows[5].text).toBe("Employers with bullets 3 · skills 8 · tools 6 · competencies 4 · certifications 2 · education 2 · projects 1")
   })
 })
 
@@ -197,12 +203,12 @@ describe("selectionGroups", () => {
 
   it("groups roles, each kept role's evidence and the flat sections, with why things were left out", () => {
     const groups = selectionGroups(sel)
-    expect(groups.map((g) => g.title)).toEqual(["Roles with bullets", "Evidence: PM — Acme", "Skills", "Picked evidence that was not used (its role has no bullets)"])
+    expect(groups.map((g) => g.title)).toEqual(["Roles with bullets", "Evidence: PM — Acme", "Skills", "Picked evidence that was not used (its employer has no bullets)"])
     expect(groups[0].kept).toEqual([{ label: "PM — Acme", reason: "most recent" }])
     expect(groups[0].dropped).toEqual([{ label: "Intern — Old Co", why: "not selected" }])
     expect(groups[1].dropped).toEqual([{ label: "Ran standups", why: "over the limit" }])
     expect(groups[2].dropped).toEqual([{ label: "ghost", why: "not in the profile" }])
-    expect(groups[3].dropped).toEqual([{ label: "Elsewhere", why: "its role was not kept" }])
+    expect(groups[3].dropped).toEqual([{ label: "Elsewhere", why: "its employer was not kept" }])
   })
 
   it("shows header-only roles as their own group, and reads a stored row from before they existed", () => {
@@ -214,10 +220,14 @@ describe("selectionGroups", () => {
       dropped: [{ section: "activities", id: "a9", label: "Elsewhere", parentId: "e2", why: "role_header_only" }],
     })
     const groups = selectionGroups(withHeaders)
-    expect(groups.map((g) => g.title)).toEqual(["Roles with bullets", "Evidence: PM — Acme", "Listed without bullets", "Skills", "Picked evidence that was not used (its role has no bullets)"])
+    expect(groups.map((g) => g.title)).toEqual(["Roles with bullets", "Evidence: PM — Acme", "Listed without bullets", "Skills", "Picked evidence that was not used (its employer has no bullets)"])
     expect(groups[2].kept).toEqual([{ label: "Intern — Old Co", reason: "" }])
-    expect(groups[4].dropped).toEqual([{ label: "Elsewhere", why: "its role is listed without bullets" }])
+    expect(groups[4].dropped).toEqual([{ label: "Elsewhere", why: "its employer is listed without bullets" }])
     expect(selectionSummary(withHeaders)).toBe("4 kept, 4 left out")
+  })
+
+  it("shows a legacy header-only group only for rows stored with roles", () => {
+    expect(selectionGroups(sel).some((g) => g.key === "headerOnly")).toBe(false)
   })
 
   it("leaves out sections with nothing to say", () => {
@@ -227,5 +237,103 @@ describe("selectionGroups", () => {
   it("summarises kept and left out, and says when rules chose", () => {
     expect(selectionSummary(sel)).toBe("3 kept, 4 left out")
     expect(selectionSummary({ ...sel, mode: "fallback" })).toMatch(/chosen by rules/)
+  })
+})
+
+describe("employers (the stored shape from phase 2b)", () => {
+  const roles = [
+    { experienceId: "u1", title: "Program Manager", start: "2019-01-01", end: "2021-06-30" },
+    { experienceId: "u3", title: "Snr. Program Manager", start: "2021-07-01", end: null },
+  ]
+  const sel = CvSelectionSchema.parse({
+    mode: "model",
+    employers: [
+      {
+        key: "unity", company: "Unity", latestTitle: "Snr. Program Manager", start: "2019-01-01", end: null, roles,
+        progression: "Two roles at Unity (2019–present): Program Manager → Snr. Program Manager", relevance: 2, reason: "Current employer",
+        headerOnly: false,
+        bullets: [{ id: "u-a1", label: "Ran the release train", reason: "has a number", experienceId: "u1" }],
+      },
+      {
+        key: "blizzard", company: "Blizzard", latestTitle: "Program Manager", start: "2014-01-01", end: "2018-12-31",
+        roles: [{ experienceId: "b1", title: "Program Manager", start: "2014-01-01", end: "2018-12-31" }],
+        progression: null, relevance: 5, headerOnly: false,
+        bullets: [
+          { id: "b-a1", label: "Shipped a live service", reason: "", experienceId: "b1" },
+          { id: "b-a2", label: "Cut cert time", reason: "", experienceId: "b1" },
+        ],
+      },
+      {
+        key: "acme", company: "Acme", latestTitle: "Coordinator", start: "2010-01-01", end: "2013-12-31",
+        roles: [{ experienceId: "c1", title: "Coordinator", start: "2010-01-01", end: "2013-12-31" }],
+        progression: null, headerOnly: true, bullets: [],
+      },
+    ],
+    skills: [{ id: "s1", label: "Agile", reason: "" }],
+    dropped: [
+      { section: "activities", id: "u-a2", label: "Ran standups", parentId: "unity", why: "over_cap" },
+      { section: "activities", id: "c-a1", label: "Filed things", parentId: "acme", why: "role_header_only" },
+      { section: "activities", id: "z-a1", label: "Gone", parentId: "zeta", why: "role_not_kept" },
+      { section: "employers", id: "zeta", label: "Intern — Zeta", why: "over_cap" },
+    ],
+    droppedTotal: 4,
+  })
+
+  it("groups by employer: company, latest title, dates, progression sub-text, bullets and what was left out", () => {
+    const w = employerBlocks(sel)
+    expect(w.withBullets.map((e) => e.company)).toEqual(["Unity", "Blizzard"])
+    const unity = w.withBullets[0]
+    expect(unity).toMatchObject({
+      title: "Snr. Program Manager", period: "Jan 2019 – present", relevance: 2,
+      progression: "Two roles at Unity (2019–present): Program Manager → Snr. Program Manager",
+    })
+    expect(unity.kept).toEqual([{ label: "Ran the release train", reason: "has a number" }])
+    expect(unity.dropped).toEqual([{ label: "Ran standups", why: "over the limit" }])
+    expect(w.withBullets[1].progression).toBeNull()
+    expect(w.withBullets[1].period).toBe("Jan 2014 – Dec 2018")
+  })
+
+  it("shows a returnee's stints, not one overall span", () => {
+    const returnee = CvSelectionSchema.parse({
+      mode: "model",
+      employers: [{
+        key: "unity", company: "Unity", latestTitle: "Snr. PM", start: "2015-01-01", end: null,
+        stints: [{ start: "2015-01-01", end: "2017-01-01" }, { start: "2019-02-01", end: null }],
+        roles: [], progression: null, relevance: 3, headerOnly: false, bullets: [],
+      }],
+    })
+    expect(employerBlocks(returnee).withBullets[0].period).toBe("Jan 2015 – Jan 2017, Feb 2019 – present")
+  })
+
+  it("a header-only employer has no relevance to show", () => {
+    expect(employerBlocks(sel).headerOnly[0].relevance).toBeUndefined()
+    const noScore = CvSelectionSchema.parse({ mode: "model", employers: [{ key: "a", company: "A", latestTitle: "T", headerOnly: true }] })
+    expect(employerBlocks(noScore).headerOnly[0].relevance).toBeUndefined()
+  })
+
+  it("lists header-only employers as their own group, and dropped employers", () => {
+    const w = employerBlocks(sel)
+    expect(w.headerOnly).toHaveLength(1)
+    expect(w.headerOnly[0]).toMatchObject({ company: "Acme", title: "Coordinator", headerOnly: true, kept: [] })
+    expect(w.headerOnly[0].dropped).toEqual([{ label: "Filed things", why: "its employer is listed without bullets" }])
+    expect(w.dropped).toEqual([{ label: "Intern — Zeta", why: "over the limit" }])
+  })
+
+  it("leaves the work history to the employer blocks and keeps flat sections and unusable picks in the groups", () => {
+    const groups = selectionGroups(sel)
+    expect(groups.map((g) => g.title)).toEqual(["Skills", "Picked evidence that was not used (its employer has no bullets)"])
+    expect(groups[1].dropped).toEqual([{ label: "Gone", why: "its employer was not kept" }])
+  })
+
+  it("counts employers and their bullets in the summary", () => {
+    // 3 employers + 3 bullets + 1 skill
+    expect(selectionSummary(sel)).toBe("7 kept, 4 left out")
+  })
+
+  it("reads a legacy row as no employers", () => {
+    const legacy = CvSelectionSchema.parse({ mode: "model", experiences: [{ id: "e1", label: "PM — Acme" }] })
+    expect(legacy.employers).toEqual([])
+    expect(employerBlocks(legacy)).toEqual({ withBullets: [], headerOnly: [], dropped: [] })
+    expect(selectionGroups(legacy)[0].title).toBe("Roles with bullets")
   })
 })

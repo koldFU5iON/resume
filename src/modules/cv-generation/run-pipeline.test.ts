@@ -40,7 +40,7 @@ const mockAfter = vi.mocked(after)
 
 const bucket = (over: Record<string, unknown> = {}) => ({ requests: 1, inputTokens: 1000, outputTokens: 200, estimatedCostUsd: 0.05, estimateComplete: true, ...over })
 const selection = enforceSelection(
-  { experiences: [{ id: 'e0', reason: 'recent' }], activities: [], skills: [{ id: 's0', reason: 'core' }], tools: [], competencies: [], certifications: [], education: [], projects: [] },
+  { employers: [{ id: 'co-0', relevance: 4, reason: 'recent' }], activities: [], skills: [{ id: 's0', reason: 'core' }], tools: [], competencies: [], certifications: [], education: [], projects: [] },
   bigCandidates(), buildBriefFor(),
 ).selection
 
@@ -119,6 +119,18 @@ describe('runCvGenerationStages', () => {
     expect(log.entries[0].model).toBeNull()
     expect(Object.keys(data.stageTimings as object).sort()).toEqual(['brief', 'gather', 'select'])
     expect(mockFail).not.toHaveBeenCalled()
+  })
+
+  it('words the gather and select counts correctly for one and for many', async () => {
+    mockSelect.mockResolvedValue({ selection: { ...selection, notSelectedTotal: 1 }, model: 'm-fast', retries: 0, notes: [] })
+    await runCvGenerationStages('run-1', 'p1')
+    const one = (mockUpdate.mock.calls[0][2].log as { entries: Array<{ notes: string[] }> }).entries
+    expect(one[2].notes).toContain('1 other profile item was not selected.')
+    expect(one[0].notes.join(' ')).toMatch(/Profile: 6 roles at 6 employers with 48 activities;/)
+    mockUpdate.mockClear()
+    mockSelect.mockResolvedValue({ selection: { ...selection, notSelectedTotal: 5 }, model: 'm-fast', retries: 0, notes: [] })
+    await runCvGenerationStages('run-1', 'p1')
+    expect((mockUpdate.mock.calls[0][2].log as { entries: Array<{ notes: string[] }> }).entries[2].notes).toContain('5 other profile items were not selected.')
   })
 
   it('attributes every call to the job and the run', async () => {
