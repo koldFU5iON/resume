@@ -67,6 +67,27 @@ export const PROMPT_REGISTRY: PromptDef[] = [
     group: 'cv',
   },
   {
+    key: 'cv-gen-write-experience',
+    label: 'CV generation (writing desk): write experience',
+    description: 'Writes one employer’s summary and bullets from only its selected evidence. Titles, companies and dates are rendered by code; limits and figures are checked in code afterwards.',
+    filename: 'cv-gen-write-experience.md',
+    group: 'cv',
+  },
+  {
+    key: 'cv-gen-write-skills',
+    label: 'CV generation (writing desk): order skills and tools',
+    description: 'Orders and groups the already-selected skill and tool names into a few labelled groups. Adds nothing; unknown names are dropped in code.',
+    filename: 'cv-gen-write-skills.md',
+    group: 'cv',
+  },
+  {
+    key: 'cv-gen-write-profile',
+    label: 'CV generation (writing desk): write profile and competencies',
+    description: 'Writes the professional profile, a short headline and the competency lines after the experience section, so it cannot claim more than that section supports.',
+    filename: 'cv-gen-write-profile.md',
+    group: 'cv',
+  },
+  {
     key: 'cv-recruiter-scan',
     label: 'CV recruiter scan',
     description: 'Simulates a 15-second recruiter skim to check whether the CV surfaces its strongest evidence.',
