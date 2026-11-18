@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { Check, ChevronDown, Library, Sparkles, type LucideIcon } from "lucide-react"
+import { Check, ChevronDown, FileCog, Library, Sparkles, type LucideIcon } from "lucide-react"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandSeparator } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { buttonVariants } from "@/components/ui/button"
@@ -18,8 +18,8 @@ function matchesName(_value: string, search: string, keywords?: string[]): numbe
   return (keywords ?? []).some(keyword => keyword.toLocaleLowerCase().includes(query)) ? 1 : 0
 }
 
-/** Where the switcher can take you: the nav's links plus Deep Dive. */
-export type SwitcherEntry = Pick<JobDocumentLink, "key" | "label" | "detail" | "href" | "deprecated"> & { kind: JobDocumentKind | "deep-dive" }
+/** Where the switcher can take you: the nav's links plus Deep Dive and the CV generation log. */
+export type SwitcherEntry = Pick<JobDocumentLink, "key" | "label" | "detail" | "href" | "deprecated"> & { kind: JobDocumentKind | "deep-dive" | "cv-generation" }
 
 const LEGACY_EDITOR: Record<JobDocumentCreateLink["kind"], string> = {
   cv: "CV Builder",
@@ -54,7 +54,7 @@ export function DocumentSwitcher({
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const active = entries.find(entry => entry.key === activeKey) ?? null
-  const documentCount = entries.filter(entry => entry.kind !== "description" && entry.kind !== "deep-dive").length
+  const documentCount = entries.filter(entry => entry.kind !== "description" && entry.kind !== "deep-dive" && entry.kind !== "cv-generation").length
 
   function go(href: string) {
     setOpen(false)
@@ -94,7 +94,7 @@ export function DocumentSwitcher({
             <CommandEmpty>No matching documents.</CommandEmpty>
             <CommandGroup heading="This job">
               {entries.map(entry => {
-                const Icon = entry.kind === "deep-dive" ? Sparkles : icons[entry.kind]
+                const Icon = entry.kind === "deep-dive" ? Sparkles : entry.kind === "cv-generation" ? FileCog : icons[entry.kind]
                 const current = entry.key === activeKey
                 return (
                   <CommandItem

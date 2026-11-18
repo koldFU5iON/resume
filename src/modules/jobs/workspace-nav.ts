@@ -77,6 +77,11 @@ export function jobDeepDiveHref(jobId: string): string {
   return `${jobHubHref(jobId)}/deep-dive`
 }
 
+/** The CV generation log page: how the last generated CV was made (reached from "All documents", like the Deep Dive). */
+export function jobCvGenerationHref(jobId: string): string {
+  return `${jobHubHref(jobId)}/cv-generation`
+}
+
 /**
  * The job-scoped Writing Desk URL. Kept for old links: it opens the job's
  * primary (oldest) document, creating a blank one when there is none.
@@ -181,6 +186,10 @@ export function activeJobDocument(pathname: string, links: readonly JobDocumentL
 
 export function isJobDeepDivePath(pathname: string, jobId: string): boolean {
   return isAt(pathname.replace(/\/+$/, ""), jobDeepDiveHref(jobId))
+}
+
+export function isJobCvGenerationPath(pathname: string, jobId: string): boolean {
+  return isAt(pathname.replace(/\/+$/, ""), jobCvGenerationHref(jobId))
 }
 
 /**

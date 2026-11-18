@@ -1,8 +1,16 @@
 import { describe, expect, it } from "vitest"
 import { CvBriefSchema, CvSelectionSchema, StageLogEntrySchema, type CvGenerationStatus, type StageLogEntry } from "@/modules/cv-generation/schema"
 import {
+  CHECK_NOTE_PREFIX, parseAssembled,
+} from "@/modules/cv-generation/schema"
+import {
   PREVIEW_DETAIL,
   PREVIEW_NOTICE,
+  assembledSummary,
+  previewCopy,
+  sectionMeta,
+  stageNotes,
+  uncoveredLine,
   briefRows,
   buildStageRows,
   cvGenerationHref,
@@ -145,8 +153,28 @@ describe("preview runs (stages 0-2 only)", () => {
   })
 
   it("labels the preview so it never reads as a finished CV", () => {
-    expect(PREVIEW_NOTICE).toBe("Preview run: writing, review and draft stages are not built yet")
-    expect(PREVIEW_DETAIL).toMatch(/No CV was written/)
+    expect(PREVIEW_NOTICE).toBe("Preview run: review and draft stages are not built yet. The assembled CV is below.")
+    expect(PREVIEW_DETAIL).toMatch(/no draft was created/)
+  })
+
+  it("labels a preview stored before the writing stages existed as selection only, never as having a CV below", () => {
+    expect(previewCopy(true).notice).toBe(PREVIEW_NOTICE)
+    expect(previewCopy(false).notice).toBe("Preview run: selection only")
+    expect(previewCopy(false).detail).toMatch(/no assembled CV/)
+    expect(previewCopy(false).notice).not.toMatch(/below/)
+  })
+
+  it("shows write and assemble rows as done for a complete preview run that logged them", () => {
+    const rows = buildStageRows({
+      status: "complete", partial: true, stageTimings: {},
+      log: ["gather", "brief", "select", "write", "assemble"].map((stage) => entry({ stage: stage as StageLogEntry["stage"] })),
+    })
+    expect(rows.map((r) => r.state)).toEqual(["done", "done", "done", "done", "done", "waiting", "waiting"])
+  })
+
+  it("marks the write stage failed when its entry says so, and the later stages as not run", () => {
+    const rows = buildStageRows({ status: "failed", stageTimings: {}, log: [entry({ stage: "gather" }), entry({ stage: "brief" }), entry({ stage: "select" }), entry({ stage: "write", status: "failed" })] })
+    expect(rows.map((r) => r.state)).toEqual(["done", "done", "done", "failed", "waiting", "waiting", "waiting"])
   })
 })
 
@@ -335,5 +363,34 @@ describe("employers (the stored shape from phase 2b)", () => {
     expect(legacy.employers).toEqual([])
     expect(employerBlocks(legacy)).toEqual({ withBullets: [], headerOnly: [], dropped: [] })
     expect(selectionGroups(legacy)[0].title).toBe("Roles with bullets")
+  })
+})
+
+describe("write and assemble rows (phase 3)", () => {
+  it("lists a section's model, time, tokens, cost and retries, and says when code wrote it", () => {
+    const sec = { model: "claude-sonnet-5-5", durationMs: 4200, tokens: { input: 1200, output: 300 }, costUsd: 0.012, retries: 1 }
+    expect(sectionMeta(sec)).toEqual(["claude-sonnet-5-5", "4.2 s", "1.2k in · 300 out", "$0.01", "1 retry"])
+    expect(sectionMeta({ model: null, durationMs: 0, tokens: { input: 0, output: 0 }, costUsd: null, retries: 0 })).toEqual(["by code"])
+  })
+
+  it("never shows more than three \"worth a quick check\" notes on the Assemble row, whatever the stored log holds", () => {
+    const notes = ["Assembled 9 sections.", ...Array.from({ length: 6 }, (_, i) => `${CHECK_NOTE_PREFIX}note ${i}`)]
+    const shown = stageNotes({ stage: "assemble", notes })
+    expect(shown.filter((n) => n.startsWith(CHECK_NOTE_PREFIX))).toHaveLength(3)
+    expect(shown[0]).toBe("Assembled 9 sections.")
+    expect(stageNotes({ stage: "write", notes }).length).toBe(7)
+  })
+
+  it("summarises the assembled CV, and a stored run without one reads as none", () => {
+    const a = parseAssembled({ markdown: "# A\n\nOne two three four.", sections: [{ id: "a", kind: "k", markdown: "m" }], warnings: [], checkNotes: [] })!
+    expect(assembledSummary(a)).toBe("1 section · about 6 words")
+    expect(parseAssembled(null)).toBeNull()
+  })
+
+  it("reports the emphasise items no kept evidence supports, or nothing", () => {
+    const sel = CvSelectionSchema.parse({ mode: "model", uncovered: ["Regulatory compliance", "Vendor management"] })
+    expect(uncoveredLine(sel)).toBe("No kept evidence supports these emphasise items: Regulatory compliance; Vendor management")
+    expect(uncoveredLine({ uncovered: ["X"] })).toBe("No kept evidence supports this emphasise item: X")
+    expect(uncoveredLine(CvSelectionSchema.parse({ mode: "model" }))).toBeNull()
   })
 })

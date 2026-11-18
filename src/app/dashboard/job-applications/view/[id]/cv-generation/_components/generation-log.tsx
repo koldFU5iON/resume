@@ -1,11 +1,13 @@
 import { Check, Circle, CircleAlert, Loader2, MinusCircle, TriangleAlert } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
+  sectionMeta,
   stageMeta,
+  stageNotes,
   type StageRow,
   type StageState,
 } from "@/app/dashboard/job-applications/_components/cv-generation-view"
-import type { FlaggedClaim } from "@/modules/cv-generation/schema"
+import type { CvAssembled, FlaggedClaim, SectionLogEntry } from "@/modules/cv-generation/schema"
 
 const STATE_LABEL: Record<StageState, string> = {
   done: "done",
@@ -47,20 +49,21 @@ export function StageStepper({ rows }: { rows: StageRow[] }) {
  * cost), what Select kept and dropped, retries, and claims Review flagged.
  * Stages that haven't logged anything show only their purpose.
  */
-export function GenerationLog({ rows }: { rows: StageRow[] }) {
+export function GenerationLog({ rows, assembled }: { rows: StageRow[]; assembled?: CvAssembled | null }) {
   return (
     <section aria-labelledby="generation-log-heading">
       <h2 id="generation-log-heading" className="text-lg font-semibold tracking-[-0.01em]">Generation log</h2>
       <ol className="mt-4 divide-y rounded-lg border">
-        {rows.map((r) => <LogRow key={r.stage} row={r} />)}
+        {rows.map((r) => <LogRow key={r.stage} row={r} warnings={r.stage === "assemble" ? assembled?.warnings ?? [] : []} />)}
       </ol>
     </section>
   )
 }
 
-function LogRow({ row }: { row: StageRow }) {
+function LogRow({ row, warnings }: { row: StageRow; warnings: string[] }) {
   const meta = stageMeta(row)
   const e = row.entry
+  const notes = e ? stageNotes(e) : []
   return (
     <li className="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-x-3 px-4 py-3.5">
       <span className="mt-0.5"><StateIcon state={row.state} /></span>
@@ -81,16 +84,60 @@ function LogRow({ row }: { row: StageRow }) {
           </p>
         )}
 
-        {e && e.notes.length > 0 && (
+        {notes.length > 0 && (
           <ul className="list-disc space-y-0.5 pl-4 text-sm text-muted-foreground">
-            {e.notes.map((n, i) => <li key={i}>{n}</li>)}
+            {notes.map((n, i) => <li key={i}>{n}</li>)}
           </ul>
         )}
+
+        {e && e.sections.length > 0 && <SectionRows sections={e.sections} />}
+        {warnings.length > 0 && <Warnings warnings={warnings} />}
 
         {e && (e.kept.length > 0 || e.dropped.length > 0) && <KeptDropped kept={e.kept} dropped={e.dropped} />}
         {e && e.flaggedClaims.length > 0 && <FlaggedClaims claims={e.flaggedClaims} />}
       </div>
     </li>
+  )
+}
+
+/** One compact row per section under Write: what wrote it, what it cost, what it noted. */
+function SectionRows({ sections }: { sections: SectionLogEntry[] }) {
+  return (
+    <ul className="divide-y rounded-md border text-sm" aria-label="Sections">
+      {sections.map((s) => {
+        const meta = sectionMeta(s)
+        return (
+          <li key={s.id} className="space-y-1 px-3 py-2">
+            <p className="flex flex-wrap items-baseline gap-x-2">
+              <span className="font-medium">{s.label}</span>
+              {s.status === "failed" && <span className="text-xs text-destructive">failed</span>}
+            </p>
+            <p className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs tabular-nums text-muted-foreground">
+              {meta.map((m, i) => <span key={i} className={i === 0 && s.model ? "font-mono" : undefined}>{m}</span>)}
+            </p>
+            {s.notes.length > 0 && (
+              <ul className="list-disc space-y-0.5 pl-4 text-xs text-muted-foreground">
+                {s.notes.map((n, i) => <li key={i}>{n}</li>)}
+              </ul>
+            )}
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
+/** Block and fact-check warnings of the assembled CV; they never fail the run. */
+function Warnings({ warnings }: { warnings: string[] }) {
+  return (
+    <details className="text-sm">
+      <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+        {warnings.length} {warnings.length === 1 ? "warning" : "warnings"} from the block and fact checks
+      </summary>
+      <ul className="mt-1.5 list-disc space-y-0.5 pl-4 text-muted-foreground">
+        {warnings.map((w, i) => <li key={i} className="break-words">{w}</li>)}
+      </ul>
+    </details>
   )
 }
 

@@ -4,7 +4,9 @@ import {
   canAddWritingDeskDocument,
   isLegacyDocumentKind,
   unlistedWritingDeskDocument,
+  isJobCvGenerationPath,
   isJobDeepDivePath,
+  jobCvGenerationHref,
   jobDocumentCreateLinks,
   jobDocumentLinks,
   jobWritingDeskHref,
@@ -208,5 +210,19 @@ describe("Writing Desk document URLs", () => {
   it("address documents by id, under their job", () => {
     expect(writingDeskDocumentHref("job1", "deskA")).toBe("/dashboard/job-applications/view/job1/writing/deskA")
     expect(writingDeskPdfHref("job1", "deskA")).toBe("/api/writing-desk/job1/documents/deskA/pdf")
+  })
+})
+
+describe("CV generation log link", () => {
+  it("lives under the job hub, beside the Deep Dive, and its page is recognised only there", () => {
+    expect(jobCvGenerationHref("job1")).toBe("/dashboard/job-applications/view/job1/cv-generation")
+    expect(isJobCvGenerationPath("/dashboard/job-applications/view/job1/cv-generation", "job1")).toBe(true)
+    expect(isJobCvGenerationPath("/dashboard/job-applications/view/job1/cv-generation/", "job1")).toBe(true)
+    expect(isJobCvGenerationPath("/dashboard/job-applications/view/job1/deep-dive", "job1")).toBe(false)
+    expect(isJobCvGenerationPath("/dashboard/job-applications/view/job2/cv-generation", "job1")).toBe(false)
+  })
+
+  it("does not light up any document tab (it is not a document)", () => {
+    expect(activeJobDocument(jobCvGenerationHref("job1"), jobDocumentLinks(all))).toBeNull()
   })
 })

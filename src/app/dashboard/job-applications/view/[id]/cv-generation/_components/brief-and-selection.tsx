@@ -3,6 +3,7 @@ import {
   employerBlocks,
   selectionGroups,
   selectionSummary,
+  uncoveredLine,
   type EmployerBlock,
 } from "@/app/dashboard/job-applications/_components/cv-generation-view"
 import type { CvBrief, CvSelection } from "@/modules/cv-generation/schema"
@@ -90,6 +91,9 @@ export function SelectionPanel({ selection }: { selection: CvSelection }) {
     <section aria-labelledby="selection-heading">
       <h2 id="selection-heading" className="text-lg font-semibold tracking-[-0.01em]">Selection</h2>
       <p className="mt-1 text-sm text-muted-foreground">{selectionSummary(selection)}</p>
+      {uncoveredLine(selection) && (
+        <p className="mt-1 text-sm text-amber-800 dark:text-amber-300">{uncoveredLine(selection)}</p>
+      )}
       <div className="mt-4 divide-y rounded-lg border">
         {work.withBullets.map((e) => <EmployerCard key={e.key} e={e} />)}
         {work.headerOnly.length > 0 && (

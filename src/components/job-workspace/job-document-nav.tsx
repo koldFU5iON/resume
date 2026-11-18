@@ -11,7 +11,9 @@ import type { JobWorkspace } from "@/modules/jobs/queries"
 import {
   activeJobDocument,
   canAddWritingDeskDocument,
+  isJobCvGenerationPath,
   isJobDeepDivePath,
+  jobCvGenerationHref,
   jobDeepDiveHref,
   jobDocumentCreateLinks,
   jobDocumentLinks,
@@ -52,8 +54,14 @@ export function JobDocumentNav({ workspace }: { workspace: JobWorkspace }) {
   const links = jobDocumentLinks(assets)
   const legacyCreateLinks = jobDocumentCreateLinks(assets)
   const deepDiveHref = jobDeepDiveHref(workspace.jobId)
-  const active = activeJobDocument(pathname, links) ?? (isJobDeepDivePath(pathname, workspace.jobId) ? "deep-dive" : null)
-  const entries: SwitcherEntry[] = [...links, { key: "deep-dive", kind: "deep-dive", label: "Deep Dive", href: deepDiveHref }]
+  const cvGenerationHref = jobCvGenerationHref(workspace.jobId)
+  const active = activeJobDocument(pathname, links)
+    ?? (isJobDeepDivePath(pathname, workspace.jobId) ? "deep-dive" : isJobCvGenerationPath(pathname, workspace.jobId) ? "cv-generation" : null)
+  const entries: SwitcherEntry[] = [
+    ...links,
+    { key: "deep-dive", kind: "deep-dive", label: "Deep Dive", href: deepDiveHref },
+    { key: "cv-generation", kind: "cv-generation", label: "CV generation", href: cvGenerationHref },
+  ]
   const canAdd = canAddWritingDeskDocument(assets)
 
   // A document opened before this (client-cached) layout knew about it: the

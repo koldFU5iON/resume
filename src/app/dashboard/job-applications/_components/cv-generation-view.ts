@@ -8,6 +8,8 @@ import { FLAT_SECTIONS } from "@/modules/cv-generation/caps"
 import { employerPeriod } from "@/modules/cv-generation/employers"
 import {
   ACTIVE_STATUSES,
+  CHECK_NOTE_PREFIX,
+  MAX_CHECK_NOTES,
   CV_GENERATION_CONCURRENCY_PER_PROFILE,
   CV_GENERATION_STAGES,
   DROP_REASON_LABEL,
@@ -16,7 +18,9 @@ import {
   type CvBrief,
   type CvGenerationStage,
   type CvGenerationStatus,
+  type CvAssembled,
   type CvSelection,
+  type SectionLogEntry,
   type StageLogEntry,
 } from "@/modules/cv-generation/schema"
 
@@ -151,10 +155,22 @@ export function stageMeta(row: Pick<StageRow, "entry" | "durationMs">): string[]
 
 // ── Preview run (stages 0-2 only) ───────────────────────────────────────────
 
-/** Shown on a complete run that stopped after Select (log.partial). */
-export const PREVIEW_NOTICE = "Preview run: writing, review and draft stages are not built yet"
+/** Shown on a complete run that stopped after Assemble (log.partial). */
+export const PREVIEW_NOTICE = "Preview run: review and draft stages are not built yet. The assembled CV is below."
 export const PREVIEW_DETAIL =
-  "This run gathered your evidence, wrote the brief and chose what to show. No CV was written and no draft was created."
+  "This run gathered your evidence, wrote the brief, chose what to show, wrote each section and assembled the CV. Nothing was reviewed against your profile yet and no draft was created."
+
+/** Shown on a preview run stored before the writing stages existed: it has a selection but no CV. */
+export const PREVIEW_NOTICE_SELECTION_ONLY = "Preview run: selection only"
+export const PREVIEW_DETAIL_SELECTION_ONLY =
+  "This run gathered your evidence, wrote the brief and chose what to show. It was made before the writing stages existed, so there is no assembled CV. Run the preview again to get one."
+
+/** The notice and detail for a preview run: the assembled-CV wording only when there is a CV. */
+export function previewCopy(hasAssembled: boolean): { notice: string; detail: string } {
+  return hasAssembled
+    ? { notice: PREVIEW_NOTICE, detail: PREVIEW_DETAIL }
+    : { notice: PREVIEW_NOTICE_SELECTION_ONLY, detail: PREVIEW_DETAIL_SELECTION_ONLY }
+}
 
 /** What the run-preview button tells the user for each response of POST /api/jobs/[id]/cv-generation. */
 export function startResponseMessage(status: number): { ok: boolean; message: string | null } {
@@ -300,4 +316,43 @@ export function selectionSummary(sel: CvSelection): string {
     + Object.values(sel.activities).reduce((n, l) => n + l.length, 0)
     + FLAT_SECTIONS.reduce((n, s) => n + sel[s].length, 0)
   return `${kept} kept, ${sel.droppedTotal} left out${sel.mode === "fallback" ? " (chosen by rules: the model's answer wasn't usable)" : ""}`
+}
+
+
+// ── Write and Assemble (stages 3-4) ─────────────────────────────────────────
+
+/** The facts of one section row under Write, in order; empty ones left out. */
+export function sectionMeta(s: Pick<SectionLogEntry, "model" | "durationMs" | "tokens" | "costUsd" | "retries">): string[] {
+  const out: string[] = []
+  if (s.model) out.push(s.model)
+  if (s.durationMs !== null && s.durationMs > 0) out.push(formatDuration(s.durationMs))
+  if (s.tokens.input > 0 || s.tokens.output > 0) out.push(`${formatTokens(s.tokens.input)} in · ${formatTokens(s.tokens.output)} out`)
+  if (s.costUsd != null && s.costUsd > 0) out.push(formatCost(s.costUsd))
+  if (s.retries > 0) out.push(`${s.retries} ${s.retries === 1 ? "retry" : "retries"}`)
+  if (!s.model) out.push("by code")
+  return out
+}
+
+/**
+ * The notes of a stage row as shown. On Assemble, "worth a quick check" lines
+ * are cut to MAX_CHECK_NOTES whatever the stored log holds: these flags stay
+ * rare by design.
+ */
+export function stageNotes(entry: Pick<StageLogEntry, "stage" | "notes">): string[] {
+  if (entry.stage !== "assemble") return entry.notes
+  let checks = 0
+  return entry.notes.filter((n) => !n.startsWith(CHECK_NOTE_PREFIX) || ++checks <= MAX_CHECK_NOTES)
+}
+
+/** "2,310 chars · 9 sections" for the assembled CV panel. */
+export function assembledSummary(a: Pick<CvAssembled, "markdown" | "sections">): string {
+  const words = a.markdown.trim().split(/\s+/).filter(Boolean).length
+  return `${a.sections.length} ${a.sections.length === 1 ? "section" : "sections"} · about ${words} words`
+}
+
+/** The Brief's emphasise items that no kept evidence supports, or null when all are covered (or the row has no such field). */
+export function uncoveredLine(sel: Pick<CvSelection, "uncovered">): string | null {
+  return sel.uncovered.length > 0
+    ? `No kept evidence supports ${sel.uncovered.length === 1 ? "this emphasise item" : "these emphasise items"}: ${sel.uncovered.join("; ")}`
+    : null
 }
