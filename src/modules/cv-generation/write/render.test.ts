@@ -80,6 +80,27 @@ describe('renderCertifications', () => {
     expect(r.notes).toEqual([])
   })
 
+  describe('weak certifications (no issuer, no date)', () => {
+    const weak = (name: string, rank: number) => cert({ name, issueDate: null, expiryDate: null, issuer: null, rank })
+
+    it('skips one that Select did not rank first, with a log note', () => {
+      const r = renderCertifications([cert({ rank: 0 }), weak('React Front-End Course', 1)], now)
+      expect(r.markdown).toBe('- **PMP** — PMI (2018)')
+      expect(r.notes).toEqual(['"React Front-End Course" has no issuer and no date, and Select did not rank it first, so it was left out.'])
+    })
+
+    it('keeps one that Select ranked first', () => {
+      expect(renderCertifications([weak('Product Marketing Course', 0), cert({ rank: 1 })], now).markdown).toBe('- **Product Marketing Course**\n- **PMP** — PMI (2018)')
+    })
+
+    it('never skips one that has an issuer or a date', () => {
+      const r = renderCertifications([cert({ rank: 0 }), cert({ name: 'Dated', issuer: null, rank: 2 }), cert({ name: 'Issued', issueDate: null, rank: 3 })], now)
+      expect(r.markdown).toContain('**Dated** (2018)')
+      expect(r.markdown).toContain('**Issued** — PMI')
+      expect(r.notes).toEqual([])
+    })
+  })
+
   it('shows an undated certification without a date', () => {
     expect(renderCertifications([cert({ issueDate: null, issuer: null })], now).markdown).toBe('- **PMP**')
   })

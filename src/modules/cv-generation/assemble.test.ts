@@ -114,3 +114,13 @@ describe('parseAssembled (backwards compatibility and tolerance)', () => {
     expect(a).toEqual({ markdown: '# x', sections: [{ id: 'a', kind: 'k', markdown: 'm' }], warnings: ['w'], checkNotes: [] })
   })
 })
+
+describe('Core Competencies as short labels in a :::skills block (phase 3b)', () => {
+  it('assembles the competency labels as an inline :::skills list that the validator accepts', () => {
+    const r = assembleCv(input())
+    if (!r.ok) throw new Error(r.issues.join('; '))
+    expect(r.assembled.markdown).toMatch(/## [^\n]*[Cc]ompetenc[^\n]*\n\n:::skills\n- Cross-functional leadership\n:::/)
+    const issues = validateDraftMarkdown(r.assembled.markdown).issues.filter((i) => i.severity === 'error')
+    expect(issues).toEqual([])
+  })
+})

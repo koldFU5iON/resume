@@ -18,7 +18,7 @@ import type { Candidates } from './candidates'
 import {
   briefTerms, deriveRelevance, enforceSelection, fallbackSelection, runSelect, selectPrompt, selectionLogLines, SelectOutputSchema, type SelectOutput,
 } from './select'
-import { CvSelectionSchema } from './schema'
+import { CvSelectionSchema, TEMPERATURE } from './schema'
 import { bigCandidates, brief } from './__fixtures__/candidates'
 import { buildBriefFor, gathered } from './__fixtures__/gathered'
 
@@ -543,6 +543,19 @@ describe('runSelect', () => {
   const ctx = { profileId: 'p1', jobApplicationId: 'job-1', runId: 'run-1', deadline: Date.now() + 60_000 }
   beforeEach(() => vi.clearAllMocks())
 
+  it('samples at temperature 0 (the named constant) so two runs of one job pick alike', async () => {
+    call.mockResolvedValue({ value: { ...empty, employers: epick(['co-0', 4]), skills: pick('s0') }, model: 'm-fast', retries: 0, usage: NO_USAGE })
+    await runSelect(g, buildBriefFor(), ctx)
+    expect(TEMPERATURE.select).toBe(0)
+    expect(call).toHaveBeenCalledWith('p1', expect.any(String), SelectOutputSchema, expect.objectContaining({ temperature: 0 }))
+  })
+
+  it('carries the reasons of a retry through to the stage result', async () => {
+    call.mockResolvedValue({ value: { ...empty, employers: epick(['co-0', 4]) }, model: 'm', retries: 1, usage: NO_USAGE, retryReasons: ['the answer was cut off'] })
+    const r = await runSelect(g, buildBriefFor(), ctx)
+    expect(r).toMatchObject({ retries: 1, retryReasons: ['the answer was cut off'] })
+  })
+
   it('calls the fast role with the select tag and the run attribution', async () => {
     call.mockResolvedValue({ value: { ...empty, employers: epick(['co-0', 4]), skills: pick('s0') }, model: 'm-fast', retries: 0, usage: NO_USAGE })
     const r = await runSelect(g, buildBriefFor(), ctx)
@@ -792,5 +805,16 @@ describe('the select prompt file (phase 3 additions)', () => {
     expect(text).toContain('Emphasise items')
     expect(text).toContain('`emphasise`')
     expect(text).toContain('"uncovered"')
+  })
+})
+
+describe('the select prompt file (phase 3b additions)', () => {
+  const text = readFileSync('src/lib/prompts/cv-gen-select.md', 'utf8')
+
+  it('leaves out a certification with no clear relevance, with the front-end React course example', () => {
+    expect(text).toContain('A certification with no clear relevance to the role is left out')
+    expect(text).toContain('front-end React course for a product marketing role')
+    expect(text).toMatch(/no issuer, no date\) is left out even when the budget has room/)
+    expect(text).toContain('the first one is treated as the most relevant')
   })
 })

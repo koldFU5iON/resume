@@ -138,6 +138,82 @@ export function unsupportedFigures(output: string, evidence: readonly string[], 
   return bad
 }
 
+// ── Repeated figures ────────────────────────────────────────────────────────
+
+/**
+ * A figure worth guarding against repetition: a percentage, a multiplier, or a
+ * number of 100 or more (14,000+, £500k, "doubled"). Small bare numbers ("3
+ * markets", "8 teams") and years are not: two different facts often share them,
+ * and a retry for that would cost more than the repetition does.
+ */
+export function isNotableFigure(f: Figure): boolean {
+  if (/[%x]$/.test(f.key)) return true
+  if (/^(?:19|20)\d{2}$/.test(f.raw.replace(/^[£$€]/, '').trim())) return false
+  return Number(f.key) >= 100
+}
+
+const notableIn = (text: string, names: readonly string[]) => figuresIn(text, { names }).filter(isNotableFigure)
+
+/** Notable figures (by value) that appear more than once across `parts`, as first written. */
+export function repeatedFigures(parts: readonly string[], names: readonly string[] = []): string[] {
+  const seen = new Map<string, { raw: string; n: number }>()
+  for (const part of parts) {
+    for (const f of notableIn(part, names)) {
+      const e = seen.get(f.key)
+      if (e) e.n++
+      else seen.set(f.key, { raw: f.raw, n: 1 })
+    }
+  }
+  return [...seen.values()].filter((e) => e.n > 1).map((e) => e.raw)
+}
+
+/** Notable figures of `text` (by value) that also appear in any of `others`, as written in `text`. */
+export function sharedFigures(text: string, others: readonly string[], names: readonly string[] = []): string[] {
+  const taken = new Set(others.flatMap((o) => notableIn(o, names).map((f) => f.key)))
+  const out: string[] = []
+  for (const f of notableIn(text, names)) if (taken.has(f.key) && !out.includes(f.raw)) out.push(f.raw)
+  return out
+}
+
+/** The distinct notable figures in `text`, as first written. */
+export function distinctNotableFigures(text: string, names: readonly string[] = []): string[] {
+  const seen = new Map<string, string>()
+  for (const f of notableIn(text, names)) if (!seen.has(f.key)) seen.set(f.key, f.raw)
+  return [...seen.values()]
+}
+
+// ── Projects ────────────────────────────────────────────────────────────────
+
+const distinctiveWords = (text: string) => new Set(text.toLowerCase().split(/[^\p{L}\p{N}+#]+/u).filter((w) => w.length >= 5))
+
+/**
+ * Whether `output` reflects a selected project: it names the project, or it
+ * uses at least two of the project's own distinctive words (5+ letters; all of
+ * them when the project has fewer). Best effort: a paraphrase with no shared
+ * word is a false negative, which costs one retry and a log note, never a
+ * failed run.
+ */
+export function projectReflected(output: string, project: { name: string; text: string }): boolean {
+  if (containsPhrase(output, project.name)) return true
+  const mine = [...distinctiveWords(`${project.name} ${project.text}`)]
+  if (mine.length === 0) return true
+  const theirs = distinctiveWords(output)
+  return mine.filter((w) => theirs.has(w)).length >= Math.min(2, mine.length)
+}
+
+// ── Competency labels ───────────────────────────────────────────────────────
+
+/** Why a Core Competencies label is not a short noun phrase (2-5 words, no numbers, no sentence), or null when it is fine. */
+export function competencyLabelProblem(label: string, bounds: { min: number; max: number }): string | null {
+  const l = label.trim()
+  const n = wordCount(l)
+  if (n < bounds.min) return `"${l}" is ${n === 0 ? 'empty' : 'one word'}; use ${bounds.min} to ${bounds.max} words`
+  if (n > bounds.max) return `"${l}" is ${n} words; use ${bounds.min} to ${bounds.max}`
+  if (figuresIn(l, { bareOne: true }).length > 0 || /\d/.test(l)) return `"${l}" has a number; labels carry no numbers`
+  if (/[.;:!?]/.test(l)) return `"${l}" reads as a sentence; use a plain noun phrase`
+  return null
+}
+
 // ── Names ───────────────────────────────────────────────────────────────────
 
 const SHORT_NAME_MAX = 2

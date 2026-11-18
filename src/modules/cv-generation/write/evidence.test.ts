@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildVault } from '@/modules/profile-map/build'
 import { vaultSource } from '@/modules/profile-map/__fixtures__/source'
-import { BLIZZARD, OLD_CO, UNITY, writeSelection, writeVault, writeVaultSource } from '../__fixtures__/write'
+import { BLIZZARD, OLD_CO, UNITY, projectRow, writeSelection, writeVault, writeVaultSource } from '../__fixtures__/write'
 import { evidenceFromVault, evidenceTexts } from './evidence'
 
 describe('evidenceFromVault', () => {
@@ -93,5 +93,69 @@ describe('evidenceFromVault', () => {
         { name: 'MSc', inProgress: false },
       ]))
     })
+  })
+})
+
+describe('projects ride along as evidence for the employer they belong to', () => {
+  const d = (ym: string) => new Date(`${ym}-01T00:00:00Z`)
+  const pick = (...ids: string[]) => ids.map((id) => ({ id, reason: '' }))
+  const evidenceWith = (projects: object[], ids: string[]) => {
+    const vault = writeVault(projects)
+    return evidenceFromVault(vault, writeSelection(vault, { projects: pick(...ids) }))
+  }
+  const projectsOf = (ev: ReturnType<typeof evidenceFromVault>, key: string) => ev.employers.find((e) => e.employer.key === key)!.projects.map((p) => p.id)
+
+  it('routes a project by its own role (experienceId), whichever role of the employer it names', () => {
+    const ev = evidenceWith([projectRow('pa', 'Enemies Demo Campaign', 'Ran the demo campaign. 14,000+ players.', { experienceId: 'e-u1' })], ['pa'])
+    expect(projectsOf(ev, UNITY)).toEqual(['pa'])
+    expect(ev.unroutedProjects).toEqual([])
+    expect(ev.employers.find((e) => e.employer.key === UNITY)!.projects[0]).toMatchObject({ name: 'Enemies Demo Campaign', text: 'Ran the demo campaign. 14,000+ players.' })
+  })
+
+  it('with no role, routes by the employer whose stint contains the project date', () => {
+    const ev = evidenceWith([projectRow('pb', 'Launch', 'Launch work.', { startDate: d('2016-06') })], ['pb'])
+    expect(projectsOf(ev, BLIZZARD)).toEqual(['pb'])
+    // The last month of a stint still counts (Blizzard's role ends Dec 2018, stored as the 1st).
+    const lastMonth = evidenceWith([projectRow('pl', 'Wrap-up', 'Wrap-up work.', { startDate: new Date('2018-12-20T00:00:00Z') })], ['pl'])
+    expect(projectsOf(lastMonth, BLIZZARD)).toEqual(['pl'])
+    // The end date is used when there is no start.
+    const byEnd = evidenceWith([projectRow('pc', 'Launch', 'Launch work.', { endDate: d('2021-02') })], ['pc'])
+    expect(projectsOf(byEnd, UNITY)).toEqual(['pc'])
+  })
+
+  it('reports a project nothing can carry, with the reason, instead of dropping it silently', () => {
+    const rows = [
+      projectRow('p1', 'Side project', 'On its own.'),
+      projectRow('p2', 'Ancient project', 'Long ago.', { startDate: d('2004-01') }),
+      projectRow('p3', 'Old Co project', 'At Old Co.', { experienceId: 'e-o1' }),
+      projectRow('p4', 'Orphaned project', 'Role is gone.', { experienceId: 'e-unknown' }),
+    ]
+    // Select keeps at most two projects, so look at them two at a time.
+    const first = evidenceWith(rows, ['p1', 'p2'])
+    const second = evidenceWith(rows, ['p3', 'p4'])
+    expect([...first.employers, ...second.employers].flatMap((e) => e.projects)).toEqual([])
+    expect(first.unroutedProjects.map((p) => p.name)).toEqual(['Side project', 'Ancient project'])
+    expect(first.unroutedProjects[0].why).toMatch(/no role and no date/)
+    expect(first.unroutedProjects[1].why).toMatch(/outside every employer/)
+    expect(second.unroutedProjects.map((p) => p.name)).toEqual(['Old Co project', 'Orphaned project'])
+    expect(second.unroutedProjects[0].why).toMatch(/listed without bullets/)
+    expect(second.unroutedProjects[1].why).toMatch(/role it belongs to is not on the CV/)
+  })
+
+  it('counts a project text as evidence (for the numbers check), highlights included, contact details scrubbed', () => {
+    const ev = evidenceWith([projectRow('pa', 'Enemies Demo Campaign', 'Demo for the new title, ask robin@example.test.', { experienceId: 'e-u2', highlights: '["Reached 14,000+ players"]' })], ['pa'])
+    const unity = ev.employers.find((e) => e.employer.key === UNITY)!
+    const texts = evidenceTexts(unity).join('\n')
+    expect(texts).toContain('Enemies Demo Campaign')
+    expect(texts).toContain('Reached 14,000+ players')
+    expect(texts).not.toContain('robin@example.test')
+  })
+
+  it('names a selected item that is no longer in the profile (it is never invented)', () => {
+    const vault = writeVault([projectRow('pa', 'Gone', 'x', { experienceId: 'e-u1' })])
+    const ev = evidenceFromVault(vault, writeSelection(vault, { projects: pick('pa') }))
+    const without = evidenceFromVault(writeVault(), { ...writeSelection(vault, { projects: pick('pa') }) })
+    expect(ev.unresolved).toEqual([])
+    expect(without.unresolved).toEqual([{ section: 'projects', id: 'pa' }])
   })
 })

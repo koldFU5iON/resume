@@ -49,6 +49,7 @@ import {
   CV_GENERATION_FEATURES,
   DROP_REASON_LABEL,
   MAX_OUTPUT_TOKENS,
+  TEMPERATURE,
   TIME_BUDGET_MS,
   type CvBrief,
   type CvSelection,
@@ -551,6 +552,8 @@ export type SelectResult = {
   /** The model that answered; null when the fallback chose. */
   model: string | null
   retries: number
+  /** Why the model call was retried (short phrases); empty with no retry. */
+  retryReasons?: string[]
   notes: string[]
   /** Tokens and cost of the model calls, from the call results (kept when the rules chose after an answer that named nothing real); absent when the call itself failed. */
   usage?: CallUsage
@@ -564,6 +567,7 @@ export async function runSelect(
 ): Promise<SelectResult> {
   let failure: string
   let retries = 0
+  let retryReasons: string[] = []
   // What the model call used, kept even when the rules end up choosing (the usage rows are written after the call returns, so reading them back races).
   let used: CallUsage | undefined
   try {
@@ -573,7 +577,7 @@ export async function runSelect(
       system: composeSystem(instructions, OUTPUT_FORMAT),
       maxOutputTokens: MAX_OUTPUT_TOKENS.select,
       retryMaxOutputTokens: MAX_OUTPUT_TOKENS.selectRetry,
-      temperature: 0.1,
+      temperature: TEMPERATURE.select,
       timeoutMs: TIME_BUDGET_MS.select,
       deadline: ctx.deadline,
       feature: CV_GENERATION_FEATURES.select,
@@ -581,10 +585,11 @@ export async function runSelect(
       label: 'selection',
     })
     retries = call.retries
+    retryReasons = call.retryReasons ?? []
     used = call.usage
     const enforced = enforceSelection(call.value, g.candidates, brief, 'model', { requirementTerms: requirementTerms(g.strategy) })
     if (enforced.recognised > 0) {
-      return { selection: enforced.selection, model: call.model, retries, notes: enforced.notes, usage: call.usage }
+      return { selection: enforced.selection, model: call.model, retries, retryReasons, notes: enforced.notes, usage: call.usage }
     }
     failure = 'the answer named no item that is in the profile'
   } catch (err) {
@@ -596,6 +601,7 @@ export async function runSelect(
     selection: fb.selection,
     model: null,
     retries,
+    retryReasons,
     notes: [`Chose by rules instead: ${failure}.`, ...fb.notes],
     ...(used ? { usage: used } : {}),
   }

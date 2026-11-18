@@ -1,6 +1,7 @@
 import { Check, Circle, CircleAlert, Loader2, MinusCircle, TriangleAlert } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
+  retryReasonLine,
   sectionMeta,
   stageMeta,
   stageNotes,
@@ -84,6 +85,8 @@ function LogRow({ row, warnings }: { row: StageRow; warnings: string[] }) {
           </p>
         )}
 
+        {e && retryReasonLine(e) && <p className="text-sm text-muted-foreground">{retryReasonLine(e)}</p>}
+
         {notes.length > 0 && (
           <ul className="list-disc space-y-0.5 pl-4 text-sm text-muted-foreground">
             {notes.map((n, i) => <li key={i}>{n}</li>)}
@@ -115,6 +118,7 @@ function SectionRows({ sections }: { sections: SectionLogEntry[] }) {
             <p className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs tabular-nums text-muted-foreground">
               {meta.map((m, i) => <span key={i} className={i === 0 && s.model ? "font-mono" : undefined}>{m}</span>)}
             </p>
+            {retryReasonLine(s) && <p className="text-xs text-muted-foreground">{retryReasonLine(s)}</p>}
             {s.notes.length > 0 && (
               <ul className="list-disc space-y-0.5 pl-4 text-xs text-muted-foreground">
                 {s.notes.map((n, i) => <li key={i}>{n}</li>)}

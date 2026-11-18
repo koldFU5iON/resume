@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { plainFeedback, plainLine, plainProblems } from './plain'
+import { hasFirstPerson, plainFeedback, plainLine, plainProblems, plainReasons } from './plain'
 
 describe('plainLine', () => {
   it('strips images, keeps link text, and removes HTML tags', () => {
@@ -52,5 +52,49 @@ describe('plainProblems / plainFeedback', () => {
   it('builds the retry feedback line', () => {
     expect(plainFeedback('bullet 2', 'ok')).toBeNull()
     expect(plainFeedback('bullet 2', '[a](http://b.test)')).toMatch(/bullet 2 contains links or images; write plain text only/)
+  })
+})
+
+describe('first person (the voice is an implied subject)', () => {
+  it.each([
+    'I led the migration.',
+    'Led my team of five.',
+    "I've shipped twelve titles.",
+    'We cut release time by half.',
+    'Our team launched it.',
+    'The role gave me ownership.',
+    'Built it myself.',
+    'Delivered it. I also coached two juniors.',
+  ])('flags "%s"', (text) => {
+    expect(hasFirstPerson(text)).toBe(true)
+    expect(plainProblems(text).join(' ')).toMatch(/first person/)
+    expect(plainReasons(text)).toEqual(['first person'])
+  })
+
+  it.each([
+    'Led the migration of 8 teams.',
+    'Cut release time by 40%.',
+    'Works with the US team.',
+    'Owns the I/O layer.',
+    'Medicine and metrics for ME markets.',
+    'Mentored the team at Mercury.',
+    'Raised our-of-pocket costs.'.replace('our-of', 'out-of'),
+    'Weekly rhythm and wellness programmes.',
+    'Go-to-market for the Meta ads platform.',
+  ])('does not flag "%s"', (text) => {
+    expect(hasFirstPerson(text)).toBe(false)
+    expect(plainProblems(text)).toEqual([])
+  })
+
+  it('is repeatable (no regex state leaks between calls)', () => {
+    for (let i = 0; i < 3; i++) expect(hasFirstPerson('I led it')).toBe(true)
+  })
+
+  it('names the voice in the retry feedback', () => {
+    expect(plainFeedback('bullet 1', 'We shipped it')).toMatch(/bullet 1 contains first person.*write plain text only.*no "I", "my", "we"/)
+  })
+
+  it('cannot be fixed by the cleaner: the text is kept and the problem is reported (retry, then accept with a note)', () => {
+    expect(plainLine('Led my team')).toBe('Led my team')
   })
 })

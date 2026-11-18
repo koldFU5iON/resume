@@ -12,8 +12,16 @@ export const BULLET_MAX_WORDS = 25
 export const PROFILE_MAX_WORDS = 80
 /** The headline under the name: a descriptor, never a title. */
 export const HEADLINE_MAX_WORDS = 12
-/** One competency line. */
-export const COMPETENCY_MAX_WORDS = 15
+/**
+ * Core Competencies are short noun-phrase labels, not sentences: 2 to 5 words,
+ * no numbers, at most COMPETENCY_MAX_LABELS of them (5-6 reads well and cannot
+ * restate the experience's figures).
+ */
+export const COMPETENCY_LABEL_MIN_WORDS = 2
+export const COMPETENCY_LABEL_MAX_WORDS = 5
+export const COMPETENCY_MAX_LABELS = 6
+/** The professional profile uses at most this many figures (and none already used in an experience bullet). */
+export const PROFILE_MAX_FIGURES = 1
 /** Group labels in Skills and Tools (per list). */
 export const MAX_SKILL_GROUPS = 3
 export const GROUP_LABEL_MAX_WORDS = 4

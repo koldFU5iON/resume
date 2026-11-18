@@ -21,6 +21,22 @@ const BRACES = /\{\{|\}\}/g
 /** Emphasis and code marks: removed silently (not worth a retry). */
 const EMPHASIS = /\*\*|__|`/g
 
+/**
+ * First person ("I led", "my team", "we shipped"): a CV is written with an
+ * implied subject. Capital "I" on its own (not "I/O", "I." or inside a word; a
+ * roman numeral like "Phase I" is a rare false positive, and the check is soft),
+ * and my / me / mine / myself / we / our / ours / ourselves in lower or
+ * title case, with the common contractions. "us" is not matched ("US" is a
+ * country), nor all-caps "ME" / "WE".
+ */
+const FIRST_PERSON = new RegExp(
+  [
+    "(?<![\\p{L}\\p{N}'’./-])I(?:['’](?:m|ve|ll|d))?(?![\\p{L}\\p{N}./-])",
+    "(?<![\\p{L}\\p{N}'’-])(?:[Mm]y|[Mm]e|[Mm]ine|[Mm]yself|[Ww]e|[Oo]ur|[Oo]urs|[Oo]urselves)(?:['’](?:re|ve|ll|d))?(?![\\p{L}\\p{N}'’-])",
+  ].join('|'),
+  'gu',
+)
+
 const has = (re: RegExp, text: string): boolean => {
   re.lastIndex = 0
   const found = re.test(text)
@@ -36,7 +52,13 @@ export function plainProblems(text: string): string[] {
   if (text.split(/\r?\n/).some((l) => LEADING_MARKER.test(l))) out.push('a heading, quote or list marker')
   if (text.includes(':::')) out.push('":::"')
   if (text.includes('{{') || text.includes('}}')) out.push('"{{"')
+  if (hasFirstPerson(text)) out.push('first person ("I", "my", "we"): use an implied subject, with no pronouns')
   return out
+}
+
+/** Whether the text uses first-person pronouns. */
+export function hasFirstPerson(text: string): boolean {
+  return has(FIRST_PERSON, text)
 }
 
 /** Plain, single-line text: images and links reduced to their text, tags, markers, ":::" and "{{" removed, whitespace collapsed. */
@@ -60,5 +82,10 @@ export function plainLine(text: string): string {
 /** The retry feedback for a field that is not plain, or null. */
 export function plainFeedback(label: string, text: string): string | null {
   const p = plainProblems(text)
-  return p.length > 0 ? `${label} contains ${p.join(', ')}; write plain text only (no Markdown, links, HTML or ":::")` : null
+  return p.length > 0 ? `${label} contains ${p.join(', ')}; write plain text only (no Markdown, links, HTML or ":::"), in the third person implied: no "I", "my", "we"` : null
+}
+
+/** Short phrases for the log ("first person", "links or images") for a field's problems, or []. */
+export function plainReasons(text: string): string[] {
+  return plainProblems(text).map((p) => (p.startsWith('first person') ? 'first person' : p))
 }

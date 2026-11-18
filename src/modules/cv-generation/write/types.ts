@@ -33,6 +33,8 @@ export type WriterOutcome = {
   model: string | null
   usage: CallUsage
   retries: number
+  /** Why the retry happened, as short phrases ("figure 14k not in evidence", "first person"); empty with no retry. */
+  retryReasons: string[]
   /** Notes for this section's log row. */
   notes: string[]
   /** Genuinely risky items, for "worth a quick check". Rare by design. */

@@ -68,6 +68,12 @@ export type Rendered = {
  * as held; one whose expiry date has passed is left off the CV with a log
  * note; a future expiry date is a held certification. An undated one is shown
  * without a date.
+ *
+ * Weak certification rule (Phase 3b): one with NEITHER an issuer NOR a date
+ * cannot be checked and says little, so it is skipped (log note) unless Select
+ * ranked it relevant, meaning it is Select's first pick (`rank` 0, the
+ * selection's order is relevance order). A certification with an issuer or a
+ * date is never skipped by this rule.
  */
 export function renderCertifications(certs: readonly CertificationEvidence[], now: Date = new Date()): Rendered {
   const notes: string[] = []
@@ -76,6 +82,10 @@ export function renderCertifications(certs: readonly CertificationEvidence[], no
     const status = certificationStatus(c, now)
     if (status === 'expired') {
       notes.push(`"${c.name}" expired in ${year(c.expiryDate as Date)} and was left out.`)
+      continue
+    }
+    if (!c.issuer?.trim() && !c.issueDate && !c.expiryDate && (c.rank ?? 0) > 0) {
+      notes.push(`"${c.name}" has no issuer and no date, and Select did not rank it first, so it was left out.`)
       continue
     }
     const dates = [c.issueDate ? year(c.issueDate) : null, c.expiryDate ? `expires ${year(c.expiryDate)}` : null].filter(Boolean).join(', ')

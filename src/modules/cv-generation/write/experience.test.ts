@@ -5,10 +5,10 @@ vi.mock('@/modules/llm/prompt-context', () => ({ composeSystem: (...p: Array<str
 
 import { completeJSON } from '@/modules/llm/complete-json'
 import { extractJSON } from '@/modules/llm/extract-json'
-import { writeSelection, writeVault, scripted, UNITY, BLIZZARD } from '../__fixtures__/write'
+import { writeSelection, writeVault, scripted, projectRow, UNITY, BLIZZARD } from '../__fixtures__/write'
 import { buildBriefFor } from '../__fixtures__/gathered'
 import { evidenceFromVault, type EmployerEvidence } from './evidence'
-import { analyseExperience, experiencePrompt, writeExperience, ExperienceOutputSchema } from './experience'
+import { analyseExperience, experiencePrompt, fallbackExperience, writeExperience, ExperienceOutputSchema } from './experience'
 import { requirementText } from './prompt'
 import type { WriteContext } from './types'
 
@@ -322,5 +322,114 @@ describe('analyseExperience', () => {
     const b = analyseExperience({ summary: 'Launched a title.', bullets: ['Launched a live-service title for 3M players.'] }, ctx(), blizzard)
     expect(b.unsupported).toEqual(['3M'])
     expect(ExperienceOutputSchema.safeParse({ summary: 'x', bullets: ['y'] }).success).toBe(true)
+  })
+})
+
+describe('Phase 3b: repetition, voice, projects, retry reasons', () => {
+  const awards = { summary: 'Ran the awards programme.', bullets: ['Won the Unity Awards with 14,000+ attendees.', 'Brought 14k people to the awards.'] }
+  const a = (out: typeof good) => analyseExperience(out, ctx(), unity)
+
+  it('flags a figure stated twice within one employer, by value, and names it', () => {
+    const r = a(awards)
+    expect(r.soft.join(' ')).toMatch(/appear more than once in this entry.*14,000/)
+    expect(r.why).toContain('duplicate figure 14,000')
+  })
+
+  it('does not flag different figures or coincident small numbers', () => {
+    expect(a(good).soft).toEqual([])
+    expect(a({ summary: 'Ran 8 teams.', bullets: ['Ran 8 markets.'] }).soft.join(' ')).not.toMatch(/more than once/)
+  })
+
+  it('retries once for a repeated figure with the figure named, records why, then accepts with a note', async () => {
+    const { s, result } = run([awards, awards])
+    const r = await result
+    expect(s.calls).toHaveLength(2)
+    expect(s.calls[1].prompt).toMatch(/more than once.*14,000/)
+    expect(r.retries).toBe(1)
+    expect(r.retryReasons).toEqual(expect.arrayContaining([expect.stringMatching(/duplicate figure 14,000/)]))
+    expect(r.notes.join(' ')).toMatch(/Accepted with a problem after the retry: these figures appear more than once/)
+  })
+
+  it('rejects first person: retry once with feedback, record why, then accept with a log note (never fail)', async () => {
+    const mine = { ...good, bullets: ['Led my team of 8 through the cut.', ...good.bullets.slice(1)] }
+    const { s, result } = run([mine, mine])
+    const r = await result
+    expect(s.calls).toHaveLength(2)
+    expect(s.calls[1].prompt).toMatch(/bullet 1 contains first person/)
+    expect(r.retryReasons).toEqual(['first person'])
+    expect(r.notes.join(' ')).toMatch(/Accepted with a problem after the retry: bullet 1 contains first person/)
+    expect(r.markdown).toContain('Led my team of 8') // kept, never silently rewritten
+  })
+
+  it('does not retry (and records no reasons) for a clean answer', async () => {
+    const { result } = run([good])
+    expect((await result).retryReasons).toEqual([])
+  })
+
+  it('records why for a figure that is not in the evidence', async () => {
+    const { result } = run([withBullet('40%', '55%'), good])
+    expect((await result).retryReasons).toEqual([expect.stringMatching(/figure 55% not in evidence/)])
+  })
+
+  describe('the prompt', () => {
+    const prompt = (emp: EmployerEvidence) => experiencePrompt({ brief: buildBriefFor(), strategy }, emp)
+    it('asks for merged outcomes, one place per figure, no pronouns, and the present tense for a current employer', () => {
+      const p = prompt(unity)
+      expect(p).toMatch(/Merge items that state the same outcome into ONE bullet/)
+      expect(p).toMatch(/Never repeat a figure within this entry/)
+      expect(p).toMatch(/no pronouns \("I", "my", "we"\)/)
+      expect(p).toMatch(/Use present tense/)
+    })
+    it('asks for the past tense for an employer the candidate has left', () => {
+      const blizzard = evidence.employers.find((e) => e.employer.key === BLIZZARD)!
+      expect(prompt(blizzard)).toMatch(/Use past tense throughout/)
+    })
+  })
+
+  describe('selected projects are evidence for the employer they belong to', () => {
+    const d = (ym: string) => new Date(`${ym}-01T00:00:00Z`)
+    const pv = writeVault([projectRow('pa', 'Enemies Demo Campaign', 'Ran the demo campaign for the new title, reaching 14,000+ players at launch.', { experienceId: 'e-u2', highlights: '["Won the Unity Awards"]' }), projectRow('pb', 'Boot Camp', 'Ran the studio boot camp.', { startDate: d('2016-06') })])
+    const pev = evidenceFromVault(pv, writeSelection(pv, { projects: [{ id: 'pa', reason: '' }, { id: 'pb', reason: '' }] }))
+    const withProject = pev.employers.find((e) => e.employer.key === UNITY)!
+    const pctx = ctx({ evidence: pev })
+    const projectAnswer = { summary: 'Ran release and planning for the platform org.', bullets: [...good.bullets, 'Ran the Enemies Demo Campaign, reaching 14,000+ players at launch.'] }
+
+    it('shows the project in the prompt as extra evidence and allows one more bullet for it', () => {
+      expect(withProject.projects.map((p) => p.name)).toEqual(['Enemies Demo Campaign'])
+      const p = experiencePrompt(pctx, withProject)
+      expect(p).toContain('# Projects at this employer')
+      expect(p).toContain('[pa] project "Enemies Demo Campaign": Ran the demo campaign for the new title')
+      expect(p).toMatch(/Bullets: at most 4,/) // 3 activities + 1 project
+      expect(experiencePrompt(pctx, pev.employers.find((e) => e.employer.key === BLIZZARD)!)).toContain('[pb] project "Boot Camp"')
+      expect(experiencePrompt(ctx(), unity)).not.toContain('# Projects')
+    })
+
+    it('counts the project text as evidence for the numbers check', () => {
+      expect(analyseExperience(projectAnswer, pctx, withProject).unsupported).toEqual([])
+      // Without the project the same bullet states a figure nothing supports.
+      expect(analyseExperience(projectAnswer, ctx(), unity).unsupported).toEqual(['14,000'])
+    })
+
+    it('accepts a project that became its own bullet, or was merged into one by its words', () => {
+      expect(analyseExperience(projectAnswer, pctx, withProject).projectsMissed).toEqual([])
+      const merged = { summary: 'Ran release and planning.', bullets: ['Cut platform release time by 40% and ran the demo for the new title, reaching 14,000+ players at launch.'] }
+      expect(analyseExperience(merged, pctx, withProject).projectsMissed).toEqual([])
+    })
+
+    it('retries once when a selected project is nowhere in the text, then accepts with a note naming it', async () => {
+      const { s, result } = run([good, good], withProject, pctx)
+      const r = await result
+      expect(s.calls).toHaveLength(2)
+      expect(s.calls[1].prompt).toMatch(/selected projects are not reflected: "Enemies Demo Campaign"/)
+      expect(r.retryReasons).toEqual(['project Enemies Demo Campaign not reflected'])
+      expect(r.notes.join(' ')).toMatch(/not reflected.*Enemies Demo Campaign/)
+    })
+
+    it('a model-free fallback names every project it cannot include, so none vanishes silently', () => {
+      const fb = fallbackExperience(withProject)
+      expect(fb.bullets).toHaveLength(3)
+      expect(fb.notes).toEqual(['Project "Enemies Demo Campaign" is not on the CV: this entry was made without a model call, from your activity text only.'])
+      expect(fallbackExperience(unity).notes).toEqual([])
+    })
   })
 })

@@ -14,7 +14,7 @@
 import * as z from 'zod'
 import { composeSystem } from '@/modules/llm/prompt-context'
 import { completeValidated, type CallUsage, NO_USAGE, usageOfError } from '../call'
-import { CV_GENERATION_FEATURES, MAX_OUTPUT_TOKENS, TIME_BUDGET_MS } from '../schema'
+import { CV_GENERATION_FEATURES, MAX_OUTPUT_TOKENS, TEMPERATURE, TIME_BUDGET_MS } from '../schema'
 import { GROUP_LABEL_MAX_WORDS, MAX_SKILL_GROUPS, MIN_CALL_MS, MIN_NAMES_TO_GROUP } from './limits'
 import { wordCount } from './checks'
 import type { CapabilityEvidence } from './evidence'
@@ -109,6 +109,7 @@ export type SkillsOutcome = {
   model: string | null
   usage: CallUsage
   retries: number
+  retryReasons: string[]
   notes: string[]
 }
 
@@ -126,7 +127,7 @@ export async function writeSkills(
   const byCode = (notes: string[], usage: CallUsage = NO_USAGE): SkillsOutcome => {
     const s = codeOrder(skills)
     const t = codeOrder(tools)
-    return { skills: s, tools: t, ...render(s, t), model: null, usage, retries: 0, notes }
+    return { skills: s, tools: t, ...render(s, t), model: null, usage, retries: 0, retryReasons: [], notes }
   }
   if (skills.length === 0 && tools.length === 0) return byCode(['Nothing selected.'])
   if (skills.length < MIN_NAMES_TO_GROUP && tools.length < MIN_NAMES_TO_GROUP) {
@@ -139,7 +140,7 @@ export async function writeSkills(
       system: composeSystem(instructions.rules, instructions.brief, instructions.prompt, SKILLS_OUTPUT_FORMAT),
       maxOutputTokens: MAX_OUTPUT_TOKENS.writeSkills,
       retryMaxOutputTokens: MAX_OUTPUT_TOKENS.writeSkillsRetry,
-      temperature: 0.2,
+      temperature: TEMPERATURE.writeSkills,
       timeoutMs: TIME_BUDGET_MS.write,
       deadline: ctx.deadline,
       feature: CV_GENERATION_FEATURES.writeSkills,
@@ -158,7 +159,7 @@ export async function writeSkills(
     }
     const s = pick('skills', call.value.skills, skills)
     const t = pick('tools', call.value.tools, tools)
-    return { skills: s, tools: t, ...render(s, t), model: call.model, usage: call.usage, retries: call.retries, notes }
+    return { skills: s, tools: t, ...render(s, t), model: call.model, usage: call.usage, retries: call.retries, retryReasons: call.retryReasons ?? [], notes }
   } catch (err) {
     const why = (err as { kind?: string })?.kind ? ` (${(err as { kind: string }).kind})` : ''
     // The calls that did answer (a failed retry, say) were still paid for.

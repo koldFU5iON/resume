@@ -8,6 +8,7 @@ import {
   PREVIEW_NOTICE,
   assembledSummary,
   previewCopy,
+  retryReasonLine,
   sectionMeta,
   stageNotes,
   uncoveredLine,
@@ -392,5 +393,24 @@ describe("write and assemble rows (phase 3)", () => {
     expect(uncoveredLine(sel)).toBe("No kept evidence supports these emphasise items: Regulatory compliance; Vendor management")
     expect(uncoveredLine({ uncovered: ["X"] })).toBe("No kept evidence supports this emphasise item: X")
     expect(uncoveredLine(CvSelectionSchema.parse({ mode: "model" }))).toBeNull()
+  })
+})
+
+describe("retryReasonLine (why a stage or section retried)", () => {
+  it("lists the recorded reasons on one line", () => {
+    expect(retryReasonLine({ retries: 1, retryReasons: ["figure 14k not in evidence", "first person"] })).toBe("Retried because: figure 14k not in evidence; first person")
+  })
+
+  it("says nothing when there was no retry, or the stored row has no reasons", () => {
+    expect(retryReasonLine({ retries: 0, retryReasons: ["first person"] })).toBeNull()
+    expect(retryReasonLine({ retries: 1, retryReasons: [] })).toBeNull()
+    expect(retryReasonLine({ retries: 1 })).toBeNull()
+  })
+
+  it("reads the reasons of a stored section row, and a row stored before they existed has none", () => {
+    const row = StageLogEntrySchema.parse({ stage: "write", retries: 1, sections: [{ id: "experience:unity", label: "x", retries: 1, retryReasons: ["duplicate figure 14,000"] }, { id: "skills", label: "y", retries: 1 }] })
+    expect(retryReasonLine(row.sections[0])).toBe("Retried because: duplicate figure 14,000")
+    expect(retryReasonLine(row.sections[1])).toBeNull()
+    expect(sectionMeta(row.sections[0])).toContain("1 retry")
   })
 })

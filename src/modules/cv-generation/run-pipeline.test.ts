@@ -132,13 +132,13 @@ describe('runCvGenerationStages', () => {
   })
 
   it('words the gather and select counts correctly for one and for many', async () => {
-    mockSelect.mockResolvedValue({ selection: { ...selection, notSelectedTotal: 1 }, model: 'm-fast', retries: 0, notes: [] })
+    mockSelect.mockResolvedValue({ selection: { ...selection, notSelectedTotal: 1 }, model: 'm-fast', retries: 0, retryReasons: [], notes: [] })
     await runCvGenerationStages('run-1', 'p1', { stopAfter: 'selecting' })
     const one = (mockUpdate.mock.calls[0][2].log as { entries: Array<{ notes: string[] }> }).entries
     expect(one[2].notes).toContain('1 other profile item was not selected.')
     expect(one[0].notes.join(' ')).toMatch(/Profile: 6 roles at 6 employers with 48 activities;/)
     mockUpdate.mockClear()
-    mockSelect.mockResolvedValue({ selection: { ...selection, notSelectedTotal: 5 }, model: 'm-fast', retries: 0, notes: [] })
+    mockSelect.mockResolvedValue({ selection: { ...selection, notSelectedTotal: 5 }, model: 'm-fast', retries: 0, retryReasons: [], notes: [] })
     await runCvGenerationStages('run-1', 'p1', { stopAfter: 'selecting' })
     expect((mockUpdate.mock.calls[0][2].log as { entries: Array<{ notes: string[] }> }).entries[2].notes).toContain('5 other profile items were not selected.')
   })
@@ -283,7 +283,7 @@ describe('runCvGenerationStages: write and assemble (phase 3)', () => {
   it('takes brief and select tokens and cost from the call results, not from rows that may not be written yet', async () => {
     mockUsage.mockResolvedValue({ total: bucket() as never, byFeature: {} }) // the usage rows are not there yet
     mockBrief.mockResolvedValue({ value: buildBriefFor(), model: 'm-analysis', retries: 0, usage: { input: 3000, output: 400, costUsd: 0.03, calls: 1 } })
-    mockSelect.mockResolvedValue({ selection, model: 'm-fast', retries: 0, notes: [], usage: { input: 7000, output: 900, costUsd: 0.0012, calls: 1 } })
+    mockSelect.mockResolvedValue({ selection, model: 'm-fast', retries: 0, retryReasons: [], notes: [], usage: { input: 7000, output: 900, costUsd: 0.0012, calls: 1 } })
     await runCvGenerationStages('run-1', 'p1', { stopAfter: 'selecting' })
     const log = mockUpdate.mock.calls[0][2].log as { entries: Array<Record<string, unknown>> }
     expect(log.entries[1]).toMatchObject({ stage: 'brief', tokens: { input: 3000, output: 400 }, costUsd: 0.03 })
@@ -291,14 +291,14 @@ describe('runCvGenerationStages: write and assemble (phase 3)', () => {
   })
 
   it('shows tokens even when the model has no listed price (cost null)', async () => {
-    mockSelect.mockResolvedValue({ selection, model: 'm-fast', retries: 0, notes: [], usage: { input: 7000, output: 900, costUsd: null, calls: 1 } })
+    mockSelect.mockResolvedValue({ selection, model: 'm-fast', retries: 0, retryReasons: [], notes: [], usage: { input: 7000, output: 900, costUsd: null, calls: 1 } })
     await runCvGenerationStages('run-1', 'p1', { stopAfter: 'selecting' })
     const log = mockUpdate.mock.calls[0][2].log as { entries: Array<Record<string, unknown>> }
     expect(log.entries[2]).toMatchObject({ tokens: { input: 7000, output: 900 }, costUsd: null })
   })
 
   it('fails as invalid_output, with the section rows written so far, when a writer cannot produce valid output', async () => {
-    const rows = [{ id: 'experience:unity', label: 'x', status: 'ok' as const, model: 'm', durationMs: 1, tokens: { input: 1, output: 1 }, costUsd: null, retries: 0, notes: [] }]
+    const rows = [{ id: 'experience:unity', label: 'x', status: 'ok' as const, model: 'm', durationMs: 1, tokens: { input: 1, output: 1 }, costUsd: null, retries: 0, retryReasons: [], notes: [] }]
     mockWrite.mockRejectedValue(new WriteStageError(new LLMError('The experience section could not be used (bad block).', 'invalid_output'), rows))
     await runCvGenerationStages('run-1', 'p1', { stopAfter: 'assembling' })
     expect(mockFail).toHaveBeenCalledWith('p1', 'run-1', 'invalid_output', null, expect.objectContaining({ log: expect.anything() }))
