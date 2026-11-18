@@ -11,11 +11,16 @@ import { evidenceFromVault, type EmployerEvidence } from './evidence'
 import { CutOffError } from '../call'
 import { experienceTokenCaps, PROJECT_EVIDENCE_MAX_CHARS } from './limits'
 import { llmReply } from '../__fixtures__/write'
-import { analyseExperience, experiencePrompt, fallbackExperience, writeExperience, ExperienceOutputSchema } from './experience'
+import { analyseExperience as analyse, experiencePrompt, fallbackExperience, writeExperience, ExperienceOutputSchema, EXPERIENCE_OUTPUT_FORMAT as EXPERIENCE_OUTPUT_FORMAT_FOR_TEST } from './experience'
 import { requirementText } from './prompt'
 import type { WriteContext } from './types'
 
 const mockJSON = vi.mocked(completeJSON)
+
+/** Most tests are about the text of bullets: a plain string gets a valid source (E1, and P1 when the employer has a project; unknown labels are dropped). */
+type LooseOut = { summary: string; bullets: Array<string | { text: string; sources?: string[] }> }
+const sourced = (o: LooseOut) => ({ ...o, bullets: o.bullets.map((b) => (typeof b === 'string' ? { text: b, sources: ['E1', 'P1'] } : { text: b.text, sources: b.sources ?? [] })) })
+const analyseExperience = (out: LooseOut, ...rest: Parameters<typeof analyse> extends [unknown, ...infer R] ? R : never) => analyse(sourced(out), ...rest)
 const vault = writeVault()
 const evidence = evidenceFromVault(vault, writeSelection(vault))
 const strategy = { mustHave: ['Delivery at scale', 'Stakeholder management'], niceToHave: [] as string[] }
@@ -37,7 +42,7 @@ const good = {
 /** `good` with one bullet's text replaced. */
 const withBullet = (from: string, to: string) => ({ ...good, bullets: good.bullets.map((b) => b.replace(from, to)) })
 const run = (replies: Array<object | 'junk'>, emp: EmployerEvidence = unity, c = ctx()) => {
-  const s = scripted((t, sch) => extractJSON(t, sch as never), replies)
+  const s = scripted((t, sch) => extractJSON(t, sch as never), replies.map((r) => (r !== 'junk' && 'bullets' in r ? sourced(r as LooseOut) : r)))
   mockJSON.mockImplementation(s.impl as never)
   return { s, result: writeExperience(c, emp, instructions) }
 }
@@ -272,7 +277,7 @@ describe('writeExperience', () => {
     let n = 0
     mockJSON.mockImplementation((async (_p: string, _prompt: string, schema: never) => {
       if (++n === 2) throw Object.assign(new Error('provider down'), { kind: 'unavailable' })
-      return { extracted: extractJSON(`\`\`\`json\n${JSON.stringify(bad)}\n\`\`\``, schema), finishReason: 'stop', rawText: '', model: 'claude-sonnet-5-5', provider: 'anthropic', usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: null, cacheWriteTokens: null } }
+      return { extracted: extractJSON(`\`\`\`json\n${JSON.stringify(sourced(bad))}\n\`\`\``, schema), finishReason: 'stop', rawText: '', model: 'claude-sonnet-5-5', provider: 'anthropic', usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: null, cacheWriteTokens: null } }
     }) as never)
     const r = await writeExperience(ctx(), unity, instructions)
     expect(r.markdown).toContain('45%')
@@ -290,7 +295,7 @@ describe('experiencePrompt (what the model sees)', () => {
 
   it('carries the brief, the full evidence text and impact, and the limits, with no block syntax', () => {
     expect(prompt).toContain('The problem the role is hired to solve')
-    expect(prompt).toContain('[ua1] achievement: Cut platform release time by 40% across 8 teams — impact: saved 2 weeks per release')
+    expect(prompt).toContain('[E1] achievement: Cut platform release time by 40% across 8 teams — impact: saved 2 weeks per release')
     expect(prompt).toMatch(/at most 3, each at most 25 words/)
     expect(prompt).not.toContain(':::compact-list') // code builds every block
     expect(prompt).toMatch(/Plain text only/)
@@ -324,7 +329,7 @@ describe('analyseExperience', () => {
     expect(a.soft).toEqual([])
     const b = analyseExperience({ summary: 'Launched a title.', bullets: ['Launched a live-service title for 3M players.'] }, ctx(), blizzard)
     expect(b.unsupported).toEqual(['3M'])
-    expect(ExperienceOutputSchema.safeParse({ summary: 'x', bullets: ['y'] }).success).toBe(true)
+    expect(ExperienceOutputSchema.safeParse({ summary: 'x', bullets: [{ text: 'y', sources: ['E1'] }] }).success).toBe(true)
   })
 })
 
@@ -378,7 +383,7 @@ describe('Phase 3b: repetition, voice, projects, retry reasons', () => {
     const prompt = (emp: EmployerEvidence) => experiencePrompt({ brief: buildBriefFor(), strategy }, emp)
     it('asks for merged outcomes, one place per figure, no pronouns, and the present tense for a current employer', () => {
       const p = prompt(unity)
-      expect(p).toMatch(/Merge items that state the same outcome into ONE bullet/)
+      expect(p).toMatch(/Merge items only when they state the same measured result with the same figures/)
       expect(p).toMatch(/Never repeat a figure within this entry/)
       expect(p).toMatch(/no pronouns \("I", "my", "we"\)/)
       expect(p).toMatch(/summary line and ongoing responsibilities may be in the present tense/)
@@ -421,11 +426,11 @@ describe('Phase 3b: repetition, voice, projects, retry reasons', () => {
       expect(withProject.projects.map((p) => p.name)).toEqual(['Enemies Demo Campaign'])
       const p = experiencePrompt(pctx, withProject)
       expect(p).toContain('# Projects at this employer')
-      expect(p).toContain('[pa] project "Enemies Demo Campaign": Ran the demo campaign for the new title')
+      expect(p).toContain('[P1] project "Enemies Demo Campaign": Ran the demo campaign for the new title')
       expect(p).toMatch(/Bullets: at most 3,/) // the 3 activities: a project that is not lead-with is merged, never its own
       expect(p).not.toContain('LEAD WITH: the brief names')
       expect(p).toMatch(/never gets a bullet of its own/)
-      expect(experiencePrompt(pctx, pev.employers.find((e) => e.employer.key === BLIZZARD)!)).toContain('[pb] project "Boot Camp"')
+      expect(experiencePrompt(pctx, pev.employers.find((e) => e.employer.key === BLIZZARD)!)).toContain('[P1] project "Boot Camp"')
       expect(experiencePrompt(ctx(), unity)).not.toContain('# Projects')
     })
 
@@ -534,7 +539,7 @@ describe('Phase 3c', () => {
   describe('a lead-with project gets its own bullet (and one more bullet than the allocation)', () => {
     it('the prompt gives the lead-with line, asks for an own bullet and allows allocation + 1', () => {
       const p = experiencePrompt(lctx(), unityP)
-      expect(p).toContain('[pa] project "Enemies Demo Campaign"')
+      expect(p).toContain('[P1] project "Enemies Demo Campaign"')
       expect(p).toContain('LEAD WITH: the brief names this project and frames it as "The Enemies Demo Campaign: a go-to-market launch-timing decision"')
       expect(p).toMatch(/Give it an own bullet/)
       expect(p).toMatch(/Bullets: at most 4 \(the 3 evidence items plus 1 own bullet for the LEAD WITH project\)/)
@@ -650,7 +655,7 @@ describe('Phase 3c', () => {
     const cutOff = llmReply({ ok: false, reason: 'parse', error: null }, { finishReason: 'length', rawText: 'SECRET' })
 
     it('the first attempt uses a cap scaled to the allocation (well above the old fixed 1,500) and the retry a larger one', async () => {
-      mockJSON.mockResolvedValueOnce(cutOff as never).mockResolvedValueOnce(llmReply({ ok: true, value: good }) as never)
+      mockJSON.mockResolvedValueOnce(cutOff as never).mockResolvedValueOnce(llmReply({ ok: true, value: sourced(good) }) as never)
       const r = await writeExperience(ctx(), unity, instructions)
       const caps = experienceTokenCaps(3, false)
       expect(mockJSON).toHaveBeenCalledTimes(2)
@@ -672,7 +677,7 @@ describe('Phase 3c', () => {
     })
 
     it('the cap grows with the number of bullets', async () => {
-      mockJSON.mockResolvedValue(llmReply({ ok: true, value: good }) as never)
+      mockJSON.mockResolvedValue(llmReply({ ok: true, value: sourced(good) }) as never)
       await writeExperience(ctx(), unity, instructions)
       await writeExperience(ctx(), evidence.employers.find((e) => e.employer.key === BLIZZARD)!, instructions)
       expect(mockJSON.mock.calls[0][3].maxOutputTokens as number).toBeGreaterThan(mockJSON.mock.calls[1][3].maxOutputTokens as number)
@@ -688,7 +693,7 @@ describe('Phase 3c', () => {
     it('cuts the text in the prompt to the per-project limit but keeps the full text as evidence', () => {
       expect(long.length).toBeGreaterThan(PROJECT_EVIDENCE_MAX_CHARS * 2)
       const p = experiencePrompt({ brief: buildBriefFor(), strategy }, emp)
-      const line = p.split('\n').find((l) => l.startsWith('[pa] project'))!
+      const line = p.split('\n').find((l) => l.startsWith('[P1] project'))!
       expect(line.length).toBeLessThan(PROJECT_EVIDENCE_MAX_CHARS + 100)
       expect(line).toContain('14,000+')
       expect(line).not.toContain('777,000')
@@ -696,5 +701,125 @@ describe('Phase 3c', () => {
       const a = analyseExperience({ summary: 'Ran release.', bullets: ['Ran the Enemies Demo Campaign to 777,000 wishlists.', good.bullets[0], good.bullets[1]] }, ctx({ evidence: lev }), emp)
       expect(a.unsupported).toEqual([])
     })
+  })
+})
+
+describe('Phase 3d: per-bullet provenance', () => {
+  const cited = (sources: string[][]) => ({ ...good, bullets: good.bullets.map((text, i) => ({ text, sources: sources[i] ?? [] })) })
+  const sourcesOk = cited([['E1'], ['E2'], ['E3']])
+
+  it('labels every evidence item E1.. and every project P1.. in the prompt, never the real ids, and asks for { text, sources }', () => {
+    const p = experiencePrompt(ctx(), unity)
+    expect(p).toContain('[E1] achievement: Cut platform release time by 40% across 8 teams')
+    expect(p).toContain('[E3] achievement: Shipped 12 titles on schedule')
+    expect(p).not.toMatch(/\[ua\d\]/)
+    expect(p).toMatch(/"sources" lists the labels \(\[E1\], \[P1\]\.\.\.\)/)
+    expect(p).toMatch(/Merge items only when they state the same measured result with the same figures/)
+    expect(EXPERIENCE_OUTPUT_FORMAT_FOR_TEST).toContain('"sources"')
+  })
+
+  it('returns each bullet with the real ids and a snippet of what it came from, in display order', async () => {
+    const { s, result } = run([sourcesOk])
+    const r = await result
+    expect(s.calls).toHaveLength(1)
+    expect(r.retries).toBe(0)
+    expect(r.provenance.map((b) => b.text)).toEqual(r.bullets)
+    expect(r.provenance[0]).toEqual({
+      text: 'Cut platform release time by 40% across 8 teams, saving 2 weeks per release.',
+      sources: [{ id: 'ua1', kind: 'activity', snippet: 'Cut platform release time by 40% across 8 teams' }],
+    })
+    expect(r.provenance.map((b) => b.sources.map((x) => x.id))).toEqual([['ua1'], ['ua2'], ['ua3']])
+    expect(r.provenance.flatMap((b) => b.sources).every((x) => x.snippet.length > 0 && x.snippet.length <= 140)).toBe(true)
+  })
+
+  it('drops unknown labels without a retry when a valid one remains, and says so in the log', async () => {
+    const { s, result } = run([cited([['E1', 'E9'], ['e2'], ['[E3]', 'Z1']])])
+    const r = await result
+    expect(s.calls).toHaveLength(1)
+    expect(r.provenance.map((b) => b.sources.map((x) => x.id))).toEqual([['ua1'], ['ua2'], ['ua3']])
+    expect(r.notes.join(' ')).toMatch(/2 source labels the writer cited are not evidence items of this employer and were dropped/)
+  })
+
+  it('retries ONCE, with feedback, a bullet that cites no valid source; the retry can fix it', async () => {
+    const { s, result } = run([cited([['E1'], [], ['E9']]), sourcesOk])
+    const r = await result
+    expect(s.calls).toHaveLength(2)
+    expect(s.calls[1].prompt).toMatch(/bullets 2, 3 cite no evidence item that exists: cite the evidence item\(s\) this bullet comes from/)
+    expect(r.retries).toBe(1)
+    expect(r.retryReasons).toEqual(['no source for bullet 2, 3'])
+    expect(r.provenance.every((b) => b.sources.length === 1)).toBe(true)
+    expect(r.notes.join(' ')).not.toMatch(/Accepted with a problem/)
+  })
+
+  it('accepts a bullet that still has no source after the retry, with a log note, and never makes a third call', async () => {
+    const { s, result } = run([cited([['E1'], [], ['E3']]), cited([['E1'], [], ['E3']])])
+    const r = await result
+    expect(s.calls).toHaveLength(2)
+    expect(r.provenance[1]).toEqual({ text: 'Ran the quarterly planning cycle for the platform org.', sources: [] })
+    expect(r.notes.join(' ')).toMatch(/Accepted with a problem after the retry: bullet 2 cites no evidence item that exists: cite the evidence item\(s\) this bullet comes from/)
+    expect(r.markdown).toContain('Ran the quarterly planning cycle') // the bullet stays on the CV
+    expect(r.checkNotes).toEqual([]) // not a "worth a quick check" note
+  })
+
+  it('a bare string bullet (no sources) is a missing source, not a crash: the schema reads it as no source', () => {
+    expect(ExperienceOutputSchema.safeParse({ summary: 'x', bullets: [{ text: 'y' }] })).toMatchObject({ success: true, data: { bullets: [{ text: 'y', sources: [] }] } })
+    expect(analyse({ summary: 'x', bullets: [{ text: 'Shipped 12 titles on schedule.', sources: [] }] }, ctx(), unity).soft.join(' ')).toMatch(/cite the evidence item/)
+  })
+
+  it('the numbers check still uses the employer’s whole evidence as the authority: a figure from another item than the cited one passes', () => {
+    const a = analyse({ summary: 'Ran releases.', bullets: [{ text: 'Shipped 12 titles on schedule.', sources: ['E1'] }] }, ctx(), unity)
+    expect(a.unsupported).toEqual([])
+    expect(a.soft).toEqual([])
+    const bad = analyse({ summary: 'Ran releases.', bullets: [{ text: 'Shipped 13 titles on schedule.', sources: ['E3'] }] }, ctx(), unity)
+    expect(bad.unsupported).toEqual(['13'])
+  })
+
+  it('keeps each bullet’s sources aligned when the hard cap trims a bullet', async () => {
+    const many = { summary: good.summary, bullets: [
+      { text: 'Ran the quarterly planning cycle for the platform org.', sources: ['E2'] },
+      { text: 'Cut platform release time by 40% across 8 teams, saving 2 weeks per release.', sources: ['E1'] },
+      { text: 'Shipped 12 titles on schedule.', sources: ['E3'] },
+      { text: 'Kept the release calendar tidy.', sources: ['E2'] },
+    ] }
+    const { result } = run([many, many])
+    const r = await result
+    expect(r.provenance).toHaveLength(r.bullets.length)
+    expect(r.bullets).toHaveLength(3)
+    r.provenance.forEach((b, i) => expect(b.text).toBe(r.bullets[i]))
+    const byText = Object.fromEntries(r.provenance.map((b) => [b.text, b.sources.map((x) => x.id)]))
+    expect(byText['Cut platform release time by 40% across 8 teams, saving 2 weeks per release.']).toEqual(['ua1'])
+    expect(byText['Shipped 12 titles on schedule.']).toEqual(['ua3'])
+  })
+
+  describe('mixed-source flag (informational: no retry, never a check note)', () => {
+    it('notes a bullet whose figures come from two different activities, naming both', async () => {
+      const mixed = { summary: good.summary, bullets: [
+        { text: 'Cut platform release time by 40% and shipped 12 titles on schedule.', sources: ['E1', 'E3'] },
+        { text: 'Ran the quarterly planning cycle for the platform org.', sources: ['E2'] },
+      ] }
+      const { s, result } = run([mixed])
+      const r = await result
+      expect(s.calls).toHaveLength(1) // no retry for it
+      const note = r.notes.find((n) => n.startsWith('Bullet combines figures from 2 activities:'))
+      expect(note).toBe('Bullet combines figures from 2 activities: Cut platform release time by 40% across 8 teams / Shipped 12 titles on schedule')
+      expect(r.checkNotes).toEqual([])
+      expect(r.checks).toEqual([])
+    })
+
+    it('says nothing for a bullet from a single source, or one that cites two items but takes figures from one', async () => {
+      const single = { summary: good.summary, bullets: [
+        { text: 'Cut platform release time by 40% across 8 teams.', sources: ['E1'] },
+        { text: 'Ran the quarterly planning cycle for the platform org.', sources: ['E1', 'E2'] },
+      ] }
+      const { result } = run([single])
+      const r = await result
+      expect(r.notes.join(' ')).not.toMatch(/combines figures/)
+    })
+  })
+
+  it('the code-written fallback cites exactly the activity each bullet is made from', () => {
+    const fb = fallbackExperience(unity)
+    expect(fb.provenance.map((b) => b.sources.map((x) => x.id))).toEqual([['ua1'], ['ua2'], ['ua3']])
+    expect(fb.provenance.map((b) => b.text)).toEqual(fb.bullets)
   })
 })

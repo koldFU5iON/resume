@@ -1,12 +1,12 @@
 /**
  * Everything the writers must not touch, rendered BY CODE from profile data:
- * employer headings (company, latest title, dates, progression), header-only
- * employers, certifications, education, languages, and the skills and tools
- * blocks. Titles, companies and dates are facts: no model writes them.
+ * employer headings (company, latest title, dates, progression), the Earlier
+ * Experience list (employers shown without bullets), certifications,
+ * education, languages, and the skills and tools blocks. Titles, companies and dates are facts: no model writes them.
  * Pure: no DB, no network, no model.
  */
 
-import { employerPeriod } from '../employers'
+import { employerPeriod, stintYears } from '../employers'
 import type { SelectedEmployer } from '../schema'
 import type { CertificationEvidence, EducationEvidence } from './evidence'
 import { plainLine } from './plain'
@@ -22,9 +22,21 @@ export function renderEmployerHeader(e: SelectedEmployer): string {
   return parts.join('\n')
 }
 
-/** A header-only employer: heading, title, dates, progression; nothing else, no model. */
-export function renderHeaderOnlyEmployer(e: SelectedEmployer): string {
-  return renderEmployerHeader(e)
+/**
+ * The Earlier Experience block (Phase 3d): employers listed without bullets,
+ * one clean line each, in the order given (newest first): "Company — Latest
+ * title, 2012–2014" (returnees: "2015–2017, 2019–present"; the years of the
+ * employer's stints, never one overall span). No progression, no bullets.
+ * Code only, from the profile: titles, companies and dates are facts. Empty
+ * string when there are none.
+ */
+export function renderEarlierExperience(employers: readonly SelectedEmployer[]): string {
+  const lines = employers.map((e) => {
+    const stints = e.stints && e.stints.length > 0 ? e.stints : e.start ? [{ start: e.start, end: e.end }] : []
+    const years = stintYears(stints)
+    return `- ${oneLine(e.company)} — ${oneLine(e.latestTitle)}${years ? `, ${years}` : ''}`
+  })
+  return lines.length > 0 ? `:::compact-list\n${lines.join('\n')}\n:::` : ''
 }
 
 /** The heading block, the one-sentence summary and the bullet block of an employer that shows bullets. */

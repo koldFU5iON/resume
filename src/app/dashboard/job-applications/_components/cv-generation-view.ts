@@ -15,6 +15,8 @@ import {
   DROP_REASON_LABEL,
   employersWithBullets,
   stageForStatus,
+  type BulletProvenance,
+  type BulletSource,
   type CvBrief,
   type CvGenerationStage,
   type CvGenerationStatus,
@@ -357,6 +359,26 @@ export function stageNotes(entry: Pick<StageLogEntry, "stage" | "notes">): strin
   return entry.notes.filter((n) => !n.startsWith(CHECK_NOTE_PREFIX) || ++checks <= MAX_CHECK_NOTES)
 }
 
+/** The summary of the per-bullet provenance disclosure under an experience row. */
+export const PROVENANCE_SUMMARY = "Where each bullet came from"
+
+/** One source of a bullet as a line: "from: <snippet> (activity)". */
+export function sourceLine(s: Pick<BulletSource, "snippet" | "kind">): string {
+  return `from: ${s.snippet.trim() || "(no text)"} (${s.kind})`
+}
+
+/** The lines under one bullet: its sources, or a plain statement that the writer cited none. */
+export function bulletSourceLines(b: Pick<BulletProvenance, "sources">): string[] {
+  return b.sources.length > 0 ? b.sources.map(sourceLine) : ["from: no source cited"]
+}
+
+/** The provenance of every employer section of an assembled CV, by section id. Sections without bullets (and runs stored before provenance) are left out. */
+export function provenanceBySection(assembled: { sections?: ReadonlyArray<{ id: string; bullets?: readonly BulletProvenance[] }> } | null | undefined): Map<string, readonly BulletProvenance[]> {
+  const out = new Map<string, readonly BulletProvenance[]>()
+  for (const s of assembled?.sections ?? []) if (s.bullets && s.bullets.length > 0) out.set(s.id, s.bullets)
+  return out
+}
+
 /** "9 sections · about 410 words" for the assembled CV panel. */
 export function assembledSummary(a: Pick<CvAssembled, "markdown" | "sections">): string {
   const words = a.markdown.trim().split(/\s+/).filter(Boolean).length
@@ -388,7 +410,7 @@ export type RunLogInput = {
     stageTimings?: Partial<Record<CvGenerationStage, number>> | null
     brief?: CvBrief | null
     selection?: CvSelection | null
-    assembled?: Pick<CvAssembled, "markdown" | "warnings" | "checkNotes"> | null
+    assembled?: (Pick<CvAssembled, "markdown" | "warnings" | "checkNotes"> & { sections?: CvAssembled["sections"] }) | null
     /** The run's usage total (calls, tokens, estimated cost). */
     usage?: { total: { requests: number; failedRequests?: number; inputTokens: number; outputTokens: number; estimatedCostUsd: number; estimateComplete: boolean } } | null
   }
@@ -478,6 +500,7 @@ export function runLogMarkdown({ jobTitle, company, run }: RunLogInput): string 
   }
 
   const log = run.log ?? []
+  const provenance = provenanceBySection(run.assembled)
   if (log.length > 0) {
     out.push("## Stages", "")
     const rows = buildStageRows({ status: run.status, partial: run.partial, log, stageTimings: run.stageTimings ?? {} })
@@ -499,6 +522,14 @@ export function runLogMarkdown({ jobTitle, company, run }: RunLogInput): string 
           const r = retryReasonLine(s)
           if (r) out.push(`  - ${r}`)
           out.push(...s.notes.map((n) => `  - ${n.replace(/\s*\n\s*/g, " ")}`))
+          const from = provenance.get(s.id)
+          if (from) {
+            out.push(`  - ${PROVENANCE_SUMMARY}:`)
+            for (const b of from) {
+              out.push(`    - ${b.text.replace(/\s*\n\s*/g, " ")}`)
+              out.push(...bulletSourceLines(b).map((l) => `      - ${l.replace(/\s*\n\s*/g, " ")}`))
+            }
+          }
         }
       }
       if (e.flaggedClaims.length > 0) {

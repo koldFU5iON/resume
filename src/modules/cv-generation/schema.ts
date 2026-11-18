@@ -491,10 +491,28 @@ export const ASSEMBLED_SECTION_KINDS = [
 ] as const
 export type AssembledSectionKind = typeof ASSEMBLED_SECTION_KINDS[number]
 
+/** Where a bullet came from: a real evidence id and a short snippet of its text (at most 140 characters, contact details scrubbed). */
+export const BulletSourceSchema = z.object({
+  id: z.string(),
+  kind: z.enum(['activity', 'project']).catch('activity'),
+  snippet: z.string().default(''),
+})
+export type BulletSource = z.infer<typeof BulletSourceSchema>
+
+/** One written bullet and the evidence it was written from. `sources` is empty when the writer did not cite one. */
+export const BulletProvenanceSchema = z.object({
+  text: z.string(),
+  sources: z.array(z.unknown()).default([]).transform((items) =>
+    items.flatMap((i) => { const p = BulletSourceSchema.safeParse(i); return p.success ? [p.data] : [] })).catch([]),
+})
+export type BulletProvenance = z.infer<typeof BulletProvenanceSchema>
+
 /**
  * One section of the assembled CV. `model` is the model that wrote it (absent
  * when code rendered it); `tokens` its total tokens. An experience section is
- * one employer (`employerKey`).
+ * one employer (`employerKey`). `bullets` (Phase 3d) is the provenance of an
+ * employer entry's bullets, in display order; absent on runs stored before it
+ * and on every other section, and a malformed entry inside it is dropped.
  */
 export const AssembledSectionSchema = z.object({
   id: z.string(),
@@ -503,8 +521,11 @@ export const AssembledSectionSchema = z.object({
   markdown: z.string(),
   model: z.string().optional(),
   tokens: z.object({ input: z.number().nonnegative().default(0), output: z.number().nonnegative().default(0) }).optional(),
+  bullets: z.array(z.unknown()).optional().transform((items) =>
+    items?.flatMap((i) => { const p = BulletProvenanceSchema.safeParse(i); return p.success ? [p.data] : [] })).catch(undefined),
 })
-export type AssembledSection = z.infer<typeof AssembledSectionSchema>
+// The transform makes the key required in the inferred type; it is optional in what is stored.
+export type AssembledSection = Omit<z.infer<typeof AssembledSectionSchema>, 'bullets'> & { bullets?: BulletProvenance[] }
 
 /**
  * `CvGeneration.assembled`: the CV as one Markdown document (with the literal
@@ -520,7 +541,7 @@ export const CvAssembledSchema = z.object({
   warnings: z.array(z.unknown()).default([]).transform((items) => items.filter((i): i is string => typeof i === 'string')).catch([]),
   checkNotes: z.array(z.unknown()).default([]).transform((items) => items.filter((i): i is string => typeof i === 'string')).catch([]),
 })
-export type CvAssembled = z.infer<typeof CvAssembledSchema>
+export type CvAssembled = Omit<z.infer<typeof CvAssembledSchema>, 'sections'> & { sections: AssembledSection[] }
 
 /** A stored assembled CV, or null when absent or unreadable (never throws). */
 export function parseAssembled(value: unknown): CvAssembled | null {

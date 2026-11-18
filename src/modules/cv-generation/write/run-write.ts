@@ -3,7 +3,8 @@
  *
  * Wave 1, in parallel (at most WRITE_CONCURRENCY calls at once): one experience
  * writer per employer that shows bullets, and the skills/tools grouping.
- * Employers listed without bullets are rendered entirely by code (no call).
+ * Employers listed without bullets are rendered entirely by code (no call), as
+ * ONE "Earlier Experience" section: one line each, newest first.
  * Wave 2, after wave 1: the profile, headline and competencies, which read the
  * wave-1 text.
  *
@@ -31,13 +32,14 @@ import type { Vault } from '@/modules/profile-map/types'
 import { addUsage, CutOffError, NO_USAGE, usageOfError, type CallUsage } from '../call'
 import { MAX_CHECK_NOTES, WRITE_CONCURRENCY, type CvBrief, type CvSelection, type SectionLogEntry } from '../schema'
 import type { Strategy } from '../strategy'
+import { countOf } from '../text'
 import { evidenceFromVault, type EmployerEvidence } from './evidence'
 import { fallbackExperience, writeExperience } from './experience'
 import { ASSEMBLE_RESERVE_MS, MIN_CALL_MS, WAVE2_MIN_START_MS, WAVE2_RESERVE_MS } from './limits'
 import { runPool } from './pool'
 import { experienceDigest, fallbackProfile, writeProfile } from './profile'
 import { requirementText } from './prompt'
-import { renderCertifications, renderEducation, renderEmployerHeader, renderLanguages } from './render'
+import { renderCertifications, renderEarlierExperience, renderEducation, renderLanguages } from './render'
 import { writeSkills } from './skills'
 import { CHECK_KIND_RANK, type CheckNote, type WriteContext, type WrittenSection } from './types'
 
@@ -141,18 +143,24 @@ export async function runWrite(
     ])
     const rules = { rules: writing.rules, brief: writing.brief }
 
-    // Wave 1. Employers without bullets are rendered by code right away.
+    // Wave 1. Employers without bullets are rendered by code right away, as one Earlier Experience list (newest first).
     const withBullets: EmployerEvidence[] = []
+    const earlier: EmployerEvidence['employer'][] = []
+    const earlierNotes: string[] = []
     for (const e of evidence.employers) {
-      const id = `experience:${e.employer.key}`
       if (e.employer.headerOnly || (e.activities.length === 0 && e.projects.length === 0)) {
-        const why = e.employer.headerOnly
-          ? 'Listed without bullets: rendered by code, no model call.'
-          : 'None of its selected activities is still in the profile, so it is listed without bullets: rendered by code, no model call.'
-        keep({ id, kind: 'experience', employerKey: e.employer.key, markdown: renderEmployerHeader(e.employer), log: logOf(id, experienceLabel(e.employer), { notes: [why] }) })
+        earlier.push(e.employer)
+        if (!e.employer.headerOnly) earlierNotes.push(`${e.employer.company}: none of its selected activities is still in the profile, so it is listed here without bullets.`)
       } else {
         withBullets.push(e)
       }
+    }
+    const earlierMarkdown = renderEarlierExperience(earlier)
+    if (earlierMarkdown) {
+      keep({
+        id: 'earlier-experience', kind: 'earlier-experience', markdown: earlierMarkdown,
+        log: logOf('earlier-experience', 'Earlier experience', { notes: [`${countOf(earlier.length, 'employer')} listed without bullets, one line each, newest first: rendered by code from your profile, no model call.`, ...earlierNotes] }),
+      })
     }
 
     const digests = new Map<string, { summary: string; bullets: string[] }>()
@@ -173,7 +181,7 @@ export async function runWrite(
             addCost(out.usage)
             out.checks.forEach((c) => note(c, employerIndex.get(key) ?? 0))
             keep({
-              id, kind: 'experience', employerKey: key, markdown: out.markdown, model: out.model ?? undefined, tokens: tokensOf(out.usage),
+              id, kind: 'experience', employerKey: key, markdown: out.markdown, bullets: out.provenance, model: out.model ?? undefined, tokens: tokensOf(out.usage),
               log: logOf(id, label, { model: out.model, durationMs: ms, tokens: tokensOf(out.usage), costUsd: out.usage.costUsd, retries: out.retries, retryReasons: out.retryReasons, notes: out.notes }),
             })
           } catch (err) {
@@ -183,7 +191,7 @@ export async function runWrite(
             const fb = fallbackExperience(task.emp)
             digests.set(key, { summary: fb.summary, bullets: fb.bullets })
             keep({
-              id, kind: 'experience', employerKey: key, markdown: fb.markdown, tokens: tokensOf(u),
+              id, kind: 'experience', employerKey: key, markdown: fb.markdown, bullets: fb.provenance, tokens: tokensOf(u),
               log: logOf(id, label, { durationMs: Date.now() - t0, tokens: tokensOf(u), costUsd: u.calls > 0 ? u.costUsd : null, notes: [err instanceof CutOffError ? 'The answer was cut off at the largest output budget, so the bullets are your own activity text from the profile, with no summary.' : 'The run ran out of time for this entry, so its bullets are your own activity text from the profile, with no summary.', ...fb.notes] }),
             })
           }

@@ -37,6 +37,19 @@ let delayFor: ((prompt: string, feature: string) => number) | null = null
 /** Runs inside a call, before it answers (to move a faked clock, or to fail it). */
 let onCall: ((feature: string, prompt: string) => void) | null = null
 
+const UNITY_TEXT = 'Cut platform release time'
+const BLIZZARD_TEXT = 'Launched a live-service title for 2M'
+/** The real ids are not in the prompt any more (labels E1.. are): a prompt is identified by its evidence text. */
+const isUnity = (prompt: string) => prompt.includes(UNITY_TEXT)
+const isBlizzard = (prompt: string) => prompt.includes(BLIZZARD_TEXT)
+/** A writer's answer with its bullets cited: a plain string bullet cites E1 (and P1; unknown labels are dropped). */
+const withSources = (reply: unknown) => {
+  const r = reply as { bullets?: unknown[] } | string
+  return typeof r === 'object' && r && Array.isArray(r.bullets)
+    ? { ...r, bullets: r.bullets.map((b) => (typeof b === 'string' ? { text: b, sources: ['E1', 'P1'] } : b)) }
+    : reply
+}
+
 const unityAnswer = {
   summary: 'Ran release and planning for the platform org.',
   bullets: ['Cut platform release time by 40% across 8 teams, saving 2 weeks per release.', 'Ran the quarterly planning cycle for the platform org.', 'Shipped 12 titles on schedule.'],
@@ -77,8 +90,8 @@ beforeEach(() => {
     if (opts.feature === 'cv-gen-write-skills') reply = skillsAnswer
     else if (opts.feature === 'cv-gen-write-profile') reply = profileAnswer
     else if (experienceOverride) reply = experienceOverride(prompt)
-    else reply = prompt.includes('[ua1]') ? unityAnswer : prompt.includes('[ba1]') ? blizzardAnswer : genericAnswer
-    const text = reply === 'junk' ? 'no json' : `\`\`\`json\n${JSON.stringify(reply)}\n\`\`\``
+    else reply = isUnity(prompt) ? unityAnswer : isBlizzard(prompt) ? blizzardAnswer : genericAnswer
+    const text = reply === 'junk' ? 'no json' : `\`\`\`json\n${JSON.stringify(withSources(reply))}\n\`\`\``
     return llmReply(extractJSON(text, schema))
   }) as never)
 })
@@ -100,7 +113,7 @@ describe('runWrite', () => {
     expect(profile.prompt).toContain('Launched a live-service title for 2M players.')
 
     expect(r.sections.map((s) => s.id).sort()).toEqual([
-      `experience:${BLIZZARD}`, `experience:${OLD_CO}`, `experience:${UNITY}`,
+      `experience:${BLIZZARD}`, 'earlier-experience', `experience:${UNITY}`,
       'certification', 'competencies', 'education', 'languages', 'profile', 'skills', 'tools',
     ].sort())
     expect(r.headline).toBe('Delivery and operations leader')
@@ -110,18 +123,35 @@ describe('runWrite', () => {
     expect(r.notes.join(' ')).not.toMatch(/project/) // no projects selected
   })
 
-  it('renders a header-only employer entirely by code: no model call, title and dates untouched, no "promoted"', async () => {
+  it('renders the header-only employers entirely by code as ONE Earlier experience row: no model call, one line each, titles and dates untouched, no "promoted"', async () => {
     const vault = writeVault()
     const r = await runWrite(vault, buildBriefFor(), writeSelection(vault), strategy, ctx())
-    const old = r.sections.find((s) => s.id === `experience:${OLD_CO}`)!
-    expect(old.markdown).toBe('### Old Co\n**Coordinator** · Jan 2010 – Dec 2014')
+    const old = r.sections.find((s) => s.id === 'earlier-experience')!
+    expect(old.kind).toBe('earlier-experience')
+    expect(old.markdown).toBe(':::compact-list\n- Old Co — Coordinator, 2010–2014\n:::')
+    expect(r.sections.some((s) => s.id === `experience:${OLD_CO}`)).toBe(false)
     expect(old.model).toBeUndefined()
-    expect(old.log).toMatchObject({ model: null, tokens: { input: 0, output: 0 } })
-    expect(old.log.notes[0]).toMatch(/rendered by code, no model call/)
+    expect(old.log).toMatchObject({ label: 'Earlier experience', model: null, tokens: { input: 0, output: 0 } })
+    expect(old.log.notes[0]).toMatch(/1 employer listed without bullets.*rendered by code.*no model call/)
     const unity = r.sections.find((s) => s.id === `experience:${UNITY}`)!
     expect(unity.markdown).toContain('**Snr. Program Manager** · Jan 2019 – present')
     expect(unity.markdown).toContain('_Two roles at Unity (2019–present): Program Manager → Snr. Program Manager_')
     expect(r.sections.map((s) => s.markdown).join('\n')).not.toMatch(/promot/i)
+  })
+
+  it('carries each employer’s per-bullet provenance on its section (real ids and snippets), and a mixed-source note on its log row', async () => {
+    experienceOverride = (prompt) => (isUnity(prompt)
+      ? { summary: 'Ran the platform org.', bullets: [{ text: 'Cut platform release time by 40% and shipped 12 titles on schedule.', sources: ['E1', 'E3'] }, { text: 'Ran the quarterly planning cycle for the platform org.', sources: ['E2'] }] }
+      : blizzardAnswer)
+    const vault = writeVault()
+    const r = await runWrite(vault, buildBriefFor(), writeSelection(vault), strategy, ctx())
+    const unity = r.sections.find((x) => x.id === `experience:${UNITY}`)!
+    expect(unity.bullets?.map((b) => b.sources.map((x) => x.id))).toEqual([['ua1', 'ua3'], ['ua2']])
+    expect(unity.log.notes.join(' ')).toMatch(/Bullet combines figures from 2 activities: Cut platform release time by 40% across 8 teams \/ Shipped 12 titles on schedule/)
+    expect(r.checkNotes).toEqual([]) // the mixed-source note never counts toward the "worth a quick check" notes
+    const blizzard = r.sections.find((x) => x.id === `experience:${BLIZZARD}`)!
+    expect(blizzard.bullets?.[0].sources[0].id).toBe('ba1')
+    expect(r.sections.find((x) => x.id === 'earlier-experience')!.bullets).toBeUndefined()
   })
 
   it('renders certifications and education from the profile in relevance order, in-progress ones as (in progress)', async () => {
@@ -180,8 +210,8 @@ describe('runWrite', () => {
       mockJSON.mockImplementation((async (_p: string, prompt: string, schema: never, opts: { feature: string }) => {
         seen.push({ feature: opts.feature, prompt, system: '', at: Date.now(), deadline: 0 })
         if (opts.feature === 'cv-gen-write-profile') throw Object.assign(new LLMError('slow', 'timeout'), { usage: { input: 0, output: 0, costUsd: 0, calls: 0 } })
-        const reply = opts.feature === 'cv-gen-write-skills' ? skillsAnswer : prompt.includes('[ua1]') ? unityAnswer : prompt.includes('[ba1]') ? blizzardAnswer : genericAnswer
-        return llmReply(extractJSON(`\`\`\`json\n${JSON.stringify(reply)}\n\`\`\``, schema))
+        const reply = opts.feature === 'cv-gen-write-skills' ? skillsAnswer : isUnity(prompt) ? unityAnswer : isBlizzard(prompt) ? blizzardAnswer : genericAnswer
+        return llmReply(extractJSON(`\`\`\`json\n${JSON.stringify(withSources(reply))}\n\`\`\``, schema))
       }) as never)
       const vault = writeVault()
       const r = await runWrite(vault, buildBriefFor(), writeSelection(vault), strategy, ctx())
@@ -192,9 +222,9 @@ describe('runWrite', () => {
     it('lists an employer with its own activity text, and keeps going, when its call times out', async () => {
       mockJSON.mockImplementation((async (_p: string, prompt: string, schema: never, opts: { feature: string }) => {
         seen.push({ feature: opts.feature, prompt, system: '', at: Date.now(), deadline: 0 })
-        if (opts.feature === 'cv-gen-write-experience' && prompt.includes('[ba1]')) throw new LLMError('slow', 'timeout')
+        if (opts.feature === 'cv-gen-write-experience' && isBlizzard(prompt)) throw new LLMError('slow', 'timeout')
         const reply = opts.feature === 'cv-gen-write-skills' ? skillsAnswer : opts.feature === 'cv-gen-write-profile' ? profileAnswer : unityAnswer
-        return llmReply(extractJSON(`\`\`\`json\n${JSON.stringify(reply)}\n\`\`\``, schema))
+        return llmReply(extractJSON(`\`\`\`json\n${JSON.stringify(withSources(reply))}\n\`\`\``, schema))
       }) as never)
       const vault = writeVault()
       const r = await runWrite(vault, buildBriefFor(), writeSelection(vault), strategy, ctx())
@@ -209,14 +239,14 @@ describe('runWrite', () => {
       const bootCamp = projectRow('pb', 'Boot Camp', 'Ran the studio boot camp for new hires.', { startDate: new Date('2016-06-01T00:00:00Z') })
       mockJSON.mockImplementation((async (_p: string, prompt: string, schema: never, opts: { feature: string }) => {
         seen.push({ feature: opts.feature, prompt, system: '', at: Date.now(), deadline: 0 })
-        if (opts.feature === 'cv-gen-write-experience' && prompt.includes('[ba1]')) return llmReply({ ok: false, reason: 'parse', error: null }, { finishReason: 'length' })
+        if (opts.feature === 'cv-gen-write-experience' && isBlizzard(prompt)) return llmReply({ ok: false, reason: 'parse', error: null }, { finishReason: 'length' })
         const reply = opts.feature === 'cv-gen-write-skills' ? skillsAnswer : opts.feature === 'cv-gen-write-profile' ? profileAnswer : unityAnswer
-        return llmReply(extractJSON(`\`\`\`json\n${JSON.stringify(reply)}\n\`\`\``, schema))
+        return llmReply(extractJSON(`\`\`\`json\n${JSON.stringify(withSources(reply))}\n\`\`\``, schema))
       }) as never)
       const vault = writeVault([bootCamp])
       const sel = writeSelection(vault, { projects: [{ id: 'pb', reason: '' }] })
       const r = await runWrite(vault, buildBriefFor(), sel, strategy, ctx())
-      expect(seen.filter((x) => x.feature === 'cv-gen-write-experience' && x.prompt.includes('[ba1]'))).toHaveLength(1) // the retry was not spent on the same budget
+      expect(seen.filter((x) => x.feature === 'cv-gen-write-experience' && isBlizzard(x.prompt))).toHaveLength(1) // the retry was not spent on the same budget
       const blizzard = r.sections.find((s) => s.id === `experience:${BLIZZARD}`)!
       expect(blizzard.markdown).toContain('- Launched a live-service title for 2M players')
       expect(blizzard.log.notes.join(' ')).toMatch(/cut off at the largest output budget/)
@@ -227,8 +257,8 @@ describe('runWrite', () => {
 
     it('still fails other errors (an invalid wave-2 answer is not a time problem)', async () => {
       mockJSON.mockImplementation((async (_p: string, prompt: string, schema: never, opts: { feature: string }) => {
-        const reply = opts.feature === 'cv-gen-write-skills' ? skillsAnswer : opts.feature === 'cv-gen-write-profile' ? 'junk' : prompt.includes('[ba1]') ? blizzardAnswer : unityAnswer
-        const text = reply === 'junk' ? 'no json' : `\`\`\`json\n${JSON.stringify(reply)}\n\`\`\``
+        const reply = opts.feature === 'cv-gen-write-skills' ? skillsAnswer : opts.feature === 'cv-gen-write-profile' ? 'junk' : isBlizzard(prompt) ? blizzardAnswer : unityAnswer
+        const text = reply === 'junk' ? 'no json' : `\`\`\`json\n${JSON.stringify(withSources(reply))}\n\`\`\``
         return llmReply(extractJSON(text, schema))
       }) as never)
       const vault = writeVault()
@@ -301,18 +331,18 @@ describe('runWrite', () => {
   })
 
   it('fails the run (WriteStageError → invalid_output) when an experience writer cannot produce valid output, keeping the section rows so far', async () => {
-    experienceOverride = (prompt) => (prompt.includes('[ba1]') ? 'junk' : unityAnswer)
+    experienceOverride = (prompt) => (isBlizzard(prompt) ? 'junk' : unityAnswer)
     const vault = writeVault()
     const err = await runWrite(vault, buildBriefFor(), writeSelection(vault), strategy, ctx()).catch((e) => e)
     expect(err).toBeInstanceOf(WriteStageError)
     expect(err.original).toMatchObject({ kind: 'invalid_output' })
     const rows = (err as WriteStageError).sectionLogs
     expect(rows.find((r) => r.id === `experience:${BLIZZARD}`)).toMatchObject({ status: 'failed' })
-    expect(rows.find((r) => r.id === `experience:${OLD_CO}`)).toMatchObject({ status: 'ok' })
+    expect(rows.find((r) => r.id === 'earlier-experience')).toMatchObject({ status: 'ok' })
     // The profile writer never started.
     expect(seen.some((s) => s.feature === 'cv-gen-write-profile')).toBe(false)
     // Each writer made at most two calls: Blizzard's junk was retried once.
-    expect(seen.filter((s) => s.prompt.includes('[ba1]'))).toHaveLength(2)
+    expect(seen.filter((s) => isBlizzard(s.prompt))).toHaveLength(2)
   })
 
   it('orders the "worth a quick check" notes by priority (figures, claimed tools, education dates) and employer, not by completion order', async () => {
@@ -320,10 +350,10 @@ describe('runWrite', () => {
     ;(src.educations as Array<{ id: string; startDate: Date }>).find((e) => e.id === 'we2')!.startDate = new Date('2005-09-01T00:00:00Z') // no end date, long ago
     const vault = buildVault(src)
     // Unity names a claimed tool the job asks for; Blizzard has a figure nothing supports. Unity answers LAST.
-    experienceOverride = (prompt) => (prompt.includes('[ua1]')
+    experienceOverride = (prompt) => (isUnity(prompt)
       ? { summary: 'Ran releases.', bullets: ['Built Tableau dashboards for 8 teams.'] }
       : { summary: 'Launched a title.', bullets: ['Launched a live-service title for 3M players.'] })
-    delayFor = (prompt, feature) => (feature === 'cv-gen-write-experience' && prompt.includes('[ua1]') ? 60 : 0)
+    delayFor = (prompt, feature) => (feature === 'cv-gen-write-experience' && isUnity(prompt) ? 60 : 0)
     const r = await runWrite(vault, buildBriefFor(), writeSelection(vault), { mustHave: ['Tableau'], niceToHave: [] }, ctx())
     expect(r.checkNotes).toHaveLength(3)
     expect(r.checkNotes[0]).toMatch(/^Blizzard Entertainment: "3M" could not be matched/)
@@ -335,7 +365,7 @@ describe('runWrite', () => {
     const src = writeVaultSource()
     ;(src.educations as Array<{ id: string; startDate: Date }>).find((e) => e.id === 'we2')!.startDate = new Date('2005-09-01T00:00:00Z')
     const vault = buildVault(src)
-    experienceOverride = (prompt) => ({ summary: 'Did the work.', bullets: [prompt.includes('[ua1]') ? 'Built Tableau dashboards, grew revenue 91%.' : 'Grew revenue 91%.'] })
+    experienceOverride = (prompt) => ({ summary: 'Did the work.', bullets: [isUnity(prompt) ? 'Built Tableau dashboards, grew revenue 91%.' : 'Grew revenue 91%.'] })
     const r = await runWrite(vault, buildBriefFor(), writeSelection(vault), { mustHave: ['Tableau'], niceToHave: [] }, ctx())
     expect(r.checkNotes).toHaveLength(3)
     expect(r.checkNotes.every((n) => !n.startsWith('Education:'))).toBe(true)
@@ -351,7 +381,7 @@ describe('runWrite', () => {
   })
 
   it('records the tokens of a failed run: the calls that answered, on the error and on the failed row', async () => {
-    experienceOverride = (prompt) => (prompt.includes('[ba1]') ? 'junk' : unityAnswer)
+    experienceOverride = (prompt) => (isBlizzard(prompt) ? 'junk' : unityAnswer)
     const vault = writeVault()
     const err = await runWrite(vault, buildBriefFor(), writeSelection(vault), strategy, ctx()).catch((e) => e)
     expect(err).toBeInstanceOf(WriteStageError)
@@ -365,8 +395,8 @@ describe('runWrite', () => {
   it('counts the tokens of a failed skills grouping in the stage total and on its rows', async () => {
     const skillsRows = new Set(['cv-gen-write-skills'])
     mockJSON.mockImplementation((async (_p: string, prompt: string, schema: never, opts: { feature: string }) => {
-      const reply = skillsRows.has(opts.feature) ? 'junk' : opts.feature === 'cv-gen-write-profile' ? profileAnswer : prompt.includes('[ba1]') ? blizzardAnswer : unityAnswer
-      const text = reply === 'junk' ? 'no json' : `\`\`\`json\n${JSON.stringify(reply)}\n\`\`\``
+      const reply = skillsRows.has(opts.feature) ? 'junk' : opts.feature === 'cv-gen-write-profile' ? profileAnswer : isBlizzard(prompt) ? blizzardAnswer : unityAnswer
+      const text = reply === 'junk' ? 'no json' : `\`\`\`json\n${JSON.stringify(withSources(reply))}\n\`\`\``
       return llmReply(extractJSON(text, schema))
     }) as never)
     const vault = writeVault()
@@ -399,7 +429,12 @@ describe('runWrite', () => {
     const other = buildVault(vaultSource()) // a different profile's data: none of the selected ids exist in it
     const r = await runWrite(other, buildBriefFor(), writeSelection(writeVault()), strategy, ctx())
     expect(seen.filter((s) => s.feature === 'cv-gen-write-experience')).toHaveLength(0)
-    expect(r.sections.find((s) => s.id === `experience:${UNITY}`)!.log.notes[0]).toMatch(/None of its selected activities is still in the profile/)
+    // Nothing of the selection resolved, so every employer is listed (without bullets) in the one Earlier experience row, with a note each.
+    const earlier = r.sections.find((s) => s.id === 'earlier-experience')!
+    expect(earlier.markdown).toContain('- Unity — Snr. Program Manager, 2019–present')
+    expect(earlier.markdown).toContain('- Blizzard Entertainment — Program Manager, 2015–2018')
+    expect(earlier.log.notes.join(' ')).toMatch(/Unity: none of its selected activities is still in the profile/)
+    expect(r.sections.some((s) => s.kind === 'experience')).toBe(false)
     expect(r.sections.find((s) => s.id === 'certification')).toBeUndefined()
     expect(r.sections.find((s) => s.id === 'tools')).toBeUndefined()
   })
@@ -416,15 +451,15 @@ describe('runWrite', () => {
     const allNotes = (r: Awaited<ReturnType<typeof runWrite>>) => [...r.notes, ...r.sections.flatMap((s) => s.log.notes)].join('\n')
 
     it('gives each selected project to the writer of the employer it belongs to, and it reaches the CV', async () => {
-      experienceOverride = (prompt) => (prompt.includes('[ua1]') ? unityWithProject : bootCampAnswer)
+      experienceOverride = (prompt) => (isUnity(prompt) ? unityWithProject : bootCampAnswer)
       const vault = writeVault([demo, bootCamp])
       const r = await runWrite(vault, buildBriefFor(), writeSelection(vault, { projects: pick('pa', 'pb') }), strategy, ctx())
       const prompts = seen.filter((x) => x.feature === 'cv-gen-write-experience')
-      const unityPrompt = prompts.find((x) => x.prompt.includes('[ua1]'))!.prompt
-      const blizzardPrompt = prompts.find((x) => x.prompt.includes('[ba1]'))!.prompt
-      expect(unityPrompt).toContain('[pa] project "Enemies Demo Campaign"')
-      expect(unityPrompt).not.toContain('[pb]')
-      expect(blizzardPrompt).toContain('[pb] project "Boot Camp"') // no role: placed by its date (2016-06 is in Blizzard's stint)
+      const unityPrompt = prompts.find((x) => isUnity(x.prompt))!.prompt
+      const blizzardPrompt = prompts.find((x) => isBlizzard(x.prompt))!.prompt
+      expect(unityPrompt).toContain('[P1] project "Enemies Demo Campaign"')
+      expect(unityPrompt).not.toContain('Boot Camp')
+      expect(blizzardPrompt).toContain('[P1] project "Boot Camp"') // no role: placed by its date (2016-06 is in Blizzard's stint)
       expect(r.sections.find((x) => x.id === `experience:${UNITY}`)!.markdown).toContain('Enemies Demo Campaign')
       expect(r.sections.find((x) => x.id === `experience:${BLIZZARD}`)!.markdown).toContain('Boot Camp')
       expect(r.notes.join(' ')).not.toMatch(/not on the CV/)
@@ -448,7 +483,7 @@ describe('runWrite', () => {
     it('records why an entry retried on its section row', async () => {
       let n = 0
       experienceOverride = (prompt) => {
-        if (!prompt.includes('[ua1]')) return blizzardAnswer
+        if (!isUnity(prompt)) return blizzardAnswer
         return n++ === 0 ? { ...unityAnswer, bullets: ['Led my team to cut release time by 40%.', ...unityAnswer.bullets.slice(1)] } : unityAnswer
       }
       const vault = writeVault()
@@ -476,7 +511,7 @@ describe('runWrite', () => {
         { id: 'wcw', profileId: 'p1', name: 'React Front-End Course', issuer: null, issueDate: null, expiryDate: null, credentialUrl: null, tags: '[]', createdAt: new Date(0), updatedAt: new Date(0), skills: [] },
       )
       const vault = buildVault(src)
-      experienceOverride = (prompt) => (prompt.includes('[ua1]') ? unityWithProject : blizzardAnswer)
+      experienceOverride = (prompt) => (isUnity(prompt) ? unityWithProject : blizzardAnswer)
       const sel = writeSelection(vault, { projects: pick('pa', 'pc'), certifications: pick('wc1', 'wcx', 'wcw', 'wc2') })
       const r = await runWrite(vault, buildBriefFor(), sel, strategy, ctx())
       const onCv = r.sections.map((x) => x.markdown).join('\n')

@@ -1,7 +1,9 @@
 /**
  * Stage 4, Assemble. No model. Puts the written and code-rendered sections in
  * the order of the DEFAULT CV structure (buildStructureGuide(null): never the
- * master CV, decision 1), adds the header block with the candidate's name, the
+ * master CV, decision 1) plus Earlier Experience right after Professional
+ * Experience (cvStructure; the shared default stays as the writing contract
+ * external agents read), adds the header block with the candidate's name, the
  * headline and the literal `{{contact}}` placeholder (never contact details:
  * the app fills it in when the owner accepts a draft), then validates the
  * document with the writing desk's own validator and fact-checks it against
@@ -14,7 +16,7 @@
 import { CONTACT_PLACEHOLDER } from '@/modules/profile-map/contact'
 import type { ProfileSnapshot } from '@/modules/profile/snapshot'
 import { checkFacts } from '@/modules/writing-desk/fact-check'
-import { buildStructureGuide } from '@/modules/writing-desk/structure-guide'
+import { buildStructureGuide, type StructureGuide } from '@/modules/writing-desk/structure-guide'
 import { validateDraftMarkdown } from '@/modules/writing-desk/validate'
 import { MAX_CHECK_NOTES, type AssembledSection, type CvAssembled, type CvSelection } from './schema'
 import { CV_BODY_WORDS_SOFT_LIMIT } from './write/limits'
@@ -45,12 +47,25 @@ export function renderHeader(name: string, headline: string | null): string {
   return [':::header', `# ${oneLine(name) || 'Curriculum Vitae'}`, ...(headline && plainLine(headline) ? [`## ${plainLine(headline)}`] : []), CONTACT_PLACEHOLDER, ':::'].join('\n')
 }
 
+/** The section key and heading of the Earlier Experience list (employers shown without bullets). */
+export const EARLIER_EXPERIENCE = { key: 'earlier-experience', heading: 'Earlier Experience' } as const
+
+/** The default CV structure with Earlier Experience right after Professional Experience. */
+export function cvStructure(): StructureGuide {
+  const base = buildStructureGuide(null)
+  const at = base.sections.findIndex((s) => s.key === 'experience')
+  const sections = [...base.sections]
+  sections.splice(at < 0 ? sections.length : at + 1, 0, { ...EARLIER_EXPERIENCE })
+  return { ...base, sections }
+}
+
 export function assembleCv(input: AssembleInput): AssembleResult {
-  const guide = buildStructureGuide(null)
+  const guide = cvStructure()
   const byKind = (kind: string) => input.sections.filter((s) => s.kind === kind)
   const pieces: AssembledSection[] = []
   const strip = (s: WrittenSection, markdown: string): AssembledSection => ({
     id: s.id, kind: s.kind, ...(s.employerKey ? { employerKey: s.employerKey } : {}), markdown,
+    ...(s.bullets && s.bullets.length > 0 ? { bullets: s.bullets } : {}),
     ...(s.model ? { model: s.model } : {}), ...(s.tokens && (s.tokens.input > 0 || s.tokens.output > 0) ? { tokens: s.tokens } : {}),
   })
 

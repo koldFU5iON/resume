@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { SelectedEmployer } from '../schema'
 import {
-  renderCertifications, renderEducation, renderEmployerEntry, renderEmployerHeader, renderHeaderOnlyEmployer, renderLanguages, renderNameGroups,
+  renderCertifications, renderEarlierExperience, renderEducation, renderEmployerEntry, renderEmployerHeader, renderLanguages, renderNameGroups,
 } from './render'
 
 const employer = (over: Partial<SelectedEmployer> = {}): SelectedEmployer => ({
@@ -25,12 +25,6 @@ describe('employer rendering (titles, companies and dates come from the profile)
 
   it('omits the progression line for a single role', () => {
     expect(renderEmployerHeader(employer({ progression: null, stints: [{ start: '2019-01-01', end: null }] }))).toBe('### Unity\n**Snr. Program Manager** · Jan 2019 – present')
-  })
-
-  it('renders a header-only employer as the heading alone: no summary, no block', () => {
-    const md = renderHeaderOnlyEmployer(employer({ headerOnly: true }))
-    expect(md).toBe(renderEmployerHeader(employer()))
-    expect(md).not.toContain(':::')
   })
 
   it('wraps the writer text with the code-rendered heading', () => {
@@ -173,5 +167,38 @@ describe('lists', () => {
       '**Delivery**\n\n:::skills\n- A\n- B\n:::\n\n**Planning**\n\n:::skills\n- C\n:::',
     )
     expect(renderNameGroups([{ label: null, names: ['Jira'] }], 'inline-list')).toBe(':::inline-list\n- Jira\n:::')
+  })
+})
+
+describe('renderEarlierExperience (Phase 3d)', () => {
+  const old = (over: Partial<SelectedEmployer>) => employer({ headerOnly: true, relevance: undefined, progression: 'Two roles at X (2012–2014): A → B', roles: [], ...over })
+
+  it('is one compact-list line per employer: "Company — Latest title, years", in the order given, with no heading, progression or bullets', () => {
+    const md = renderEarlierExperience([
+      old({ key: 'a', company: 'Acme', latestTitle: 'Senior Analyst', start: '2012-03-01', end: '2014-09-30', stints: [{ start: '2012-03-01', end: '2014-09-30' }] }),
+      old({ key: 'b', company: 'Old Co', latestTitle: 'Coordinator', start: '2008-01-01', end: '2010-12-31', stints: [{ start: '2008-01-01', end: '2010-12-31' }] }),
+    ])
+    expect(md).toBe(':::compact-list\n- Acme — Senior Analyst, 2012–2014\n- Old Co — Coordinator, 2008–2010\n:::')
+    expect(md).not.toMatch(/###|\*\*|_Two roles|→/)
+  })
+
+  it('uses every stint for a returnee, and the bare year when a stint stays inside one year', () => {
+    expect(renderEarlierExperience([old({ stints: [{ start: '2015-01-01', end: '2017-06-30' }, { start: '2019-01-01', end: null }] })])).toBe(':::compact-list\n- Unity — Snr. Program Manager, 2015–2017, 2019–present\n:::')
+    expect(renderEarlierExperience([old({ stints: [{ start: '2013-02-01', end: '2013-09-30' }] })])).toContain('Snr. Program Manager, 2013\n')
+  })
+
+  it('reads a row stored before stints as one stint, and leaves the years out when the profile has no dates', () => {
+    expect(renderEarlierExperience([old({ stints: undefined, start: '2012-01-01', end: '2014-12-31' })])).toContain('Snr. Program Manager, 2012–2014')
+    expect(renderEarlierExperience([old({ stints: undefined, start: null, end: null })])).toBe(':::compact-list\n- Unity — Snr. Program Manager\n:::')
+  })
+
+  it('is empty when there are none, so the section is omitted', () => {
+    expect(renderEarlierExperience([])).toBe('')
+  })
+
+  it('the block is valid for the writing desk validator', async () => {
+    const { validateDraftMarkdown } = await import('@/modules/writing-desk/validate')
+    const md = renderEarlierExperience([old({ stints: [{ start: '2012-01-01', end: '2014-12-31' }] })])
+    expect(validateDraftMarkdown(`## Earlier Experience\n\n${md}\n`).issues).toEqual([])
   })
 })

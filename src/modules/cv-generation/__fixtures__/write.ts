@@ -126,14 +126,14 @@ const wsec = (id: string, kind: string, markdown: string, over: Partial<WrittenS
   id, kind, markdown, log: { id, label: id, status: 'ok', model: null, durationMs: 0, tokens: { input: 0, output: 0 }, costUsd: null, retries: 0, retryReasons: [], notes: [] }, ...over,
 })
 
-/** Written sections of the fixture profile, deliberately out of CV order. */
+/** Written sections of the fixture profile, deliberately out of CV order (Old Co is the Earlier Experience list). */
 export function writtenSections(): WrittenSection[] {
   return [
     wsec('education', 'education', '- **MSc in Supply chain** — Example University (2012 – 2014)'),
     wsec('skills', 'skills', ':::skills\n- Release management\n:::', { model: 'm', tokens: { input: 10, output: 5 } }),
     wsec(`experience:${BLIZZARD}`, 'experience', '### Blizzard Entertainment\n**Program Manager** · Jan 2015 – Dec 2018\n\nLaunched a title.\n\n:::compact-list\n- Launched a live-service title for 2M players.\n:::', { employerKey: BLIZZARD }),
     wsec(`experience:${UNITY}`, 'experience', '### Unity\n**Snr. Program Manager** · Jan 2019 – present\n\nRan the platform org.\n\n:::compact-list\n- Cut platform release time by 40% across 8 teams.\n:::', { employerKey: UNITY }),
-    wsec(`experience:${OLD_CO}`, 'experience', '### Old Co\n**Coordinator** · Jan 2010 – Dec 2014', { employerKey: OLD_CO }),
+    wsec('earlier-experience', 'earlier-experience', ':::compact-list\n- Old Co — Coordinator, 2010–2014\n:::'),
     wsec('tools', 'tools', ':::inline-list\n- Jira\n:::'),
     wsec('profile', 'profile', 'Delivery leader.'),
     wsec('competencies', 'competencies', ':::skills\n- Cross-functional leadership\n:::'),

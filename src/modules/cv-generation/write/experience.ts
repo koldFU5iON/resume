@@ -1,7 +1,8 @@
 /**
  * The experience writer: ONE call per employer that shows bullets (wave 1).
- * It writes a one-sentence summary and the bullets (a list of strings) from
- * only that employer's selected evidence; code builds the `:::compact-list`
+ * It writes a one-sentence summary and the bullets from only that employer's
+ * selected evidence, each bullet with the labels (E1.., P1..) of the evidence
+ * items it comes from (provenance.ts); code builds the `:::compact-list`
  * block and renders the heading (company, latest title, dates, progression)
  * around it, so a malformed block cannot fail the run.
  *
@@ -22,21 +23,30 @@
 import * as z from 'zod'
 import { composeSystem } from '@/modules/llm/prompt-context'
 import { completeChecked, softIssueNotes, type CheckResult } from '../call'
-import { CV_GENERATION_FEATURES, TEMPERATURE, TIME_BUDGET_MS } from '../schema'
+import { CV_GENERATION_FEATURES, TEMPERATURE, TIME_BUDGET_MS, type BulletProvenance } from '../schema'
 import { bulletAllowance, leadWithProjects, leadWithStanding, playDownBullets, shortened, trimBullets, wrongTenseLines } from './bullets'
 import { BULLET_MAX_WORDS, SUMMARY_MAX_WORDS, capProjectText, experienceTokenCaps } from './limits'
 import { claimedHits, credentialProblems, introducedNames, projectReflected, repeatedFigures, unsupportedFigures, wordCount } from './checks'
 import { evidenceTexts, figureIgnoredNames, type EmployerEvidence } from './evidence'
 import { plainFeedback, plainLine, plainReasons } from './plain'
+import { evidenceRefs, mixedSourceNote, resolveSources, toProvenance, type EvidenceRef } from './provenance'
 import { briefText, data, requirementsBlock } from './prompt'
 import { renderEmployerEntry } from './render'
 import type { CheckNote, WriteContext, WriterOutcome } from './types'
 
-export type ExperienceOutcome = WriterOutcome & { summary: string; bullets: string[] }
+export type ExperienceOutcome = WriterOutcome & {
+  summary: string
+  bullets: string[]
+  /** Each shown bullet with the evidence it came from, in display order (same length as `bullets`). */
+  provenance: BulletProvenance[]
+}
 
 export const ExperienceOutputSchema = z.object({
   summary: z.string().describe(`One plain sentence on what the candidate was responsible for, at most ${SUMMARY_MAX_WORDS} words`),
-  bullets: z.array(z.string()).default([]).describe(`The bullets, one plain-text string each, without "- " or any Markdown, at most ${BULLET_MAX_WORDS} words each`),
+  bullets: z.array(z.object({
+    text: z.string().describe(`The bullet as plain text, without "- " or any Markdown, at most ${BULLET_MAX_WORDS} words`),
+    sources: z.array(z.string()).default([]).describe('The labels of the evidence items this bullet comes from, e.g. ["E1"] or ["E2", "P1"]. At least one, only labels from the evidence list'),
+  })).default([]).describe('The bullets, best first'),
 })
 export type ExperienceOutput = z.infer<typeof ExperienceOutputSchema>
 
@@ -49,14 +59,15 @@ ${JSON.stringify(z.toJSONSchema(ExperienceOutputSchema, { io: 'input' }))}
 export function experiencePrompt(ctx: Pick<WriteContext, 'brief' | 'strategy'>, emp: EmployerEvidence): string {
   const max = bulletAllowance(emp, ctx.brief)
   const leads = new Map(leadWithProjects(emp.projects, ctx.brief.leadWith).map((l) => [l.name, l]))
-  const items = emp.activities.map((a) => `[${a.id}] ${a.kind}: ${a.text}${a.impact ? ` — impact: ${a.impact}` : ''}${a.highlighted ? ' (the candidate highlighted this)' : ''}`)
+  // Short stable labels (E1.., P1..), never the real ids: the writer cites them per bullet and code maps them back (provenance.ts).
+  const items = emp.activities.map((a, i) => `[E${i + 1}] ${a.kind}: ${a.text}${a.impact ? ` — impact: ${a.impact}` : ''}${a.highlighted ? ' (the candidate highlighted this)' : ''}`)
   // A current employer: the summary and ongoing duties may be present tense, but a completed result is past tense. A finished one is past throughout.
   const tense = emp.employer.end === null
     ? 'The summary line and ongoing responsibilities may be in the present tense (the candidate works here now), but every completed achievement and every measured result is in the PAST tense ("Drove 14,000+ voters", never "Drives 14,000+ voters").'
     : 'Past tense throughout (the candidate has left).'
-  const projectLine = (p: EmployerEvidence['projects'][number]) => {
+  const projectLine = (p: EmployerEvidence['projects'][number], i: number) => {
     const lead = leads.get(p.name)
-    return `[${p.id}] project "${p.name}": ${capProjectText(p.text.replace(/\n+/g, ' — '))}${lead ? `\n  LEAD WITH: the brief names this project and frames it as "${lead.line}". Give it an own bullet, framed that way, that starts with the project.` : ''}`
+    return `[P${i + 1}] project "${p.name}": ${capProjectText(p.text.replace(/\n+/g, ' — '))}${lead ? `\n  LEAD WITH: the brief names this project and frames it as "${lead.line}". Give it an own bullet, framed that way, that starts with the project.` : ''}`
   }
   const extra = max - emp.activities.length
   return [
@@ -69,11 +80,11 @@ export function experiencePrompt(ctx: Pick<WriteContext, 'brief' | 'strategy'>, 
     ...(emp.projects.length > 0
       ? [
           `# Projects at this employer\n\nExtra evidence, equal to the items above. Each project must be reflected. A project marked LEAD WITH gets an own bullet (it is the one thing allowed beyond the evidence items' count); any other project is merged into a bullet that states the same outcome and never gets a bullet of its own. The project below is the only source for what you say about it.`,
-          data('projects', emp.projects.map(projectLine).join('\n')),
+          data('projects', emp.projects.map((p, i) => projectLine(p, i)).join('\n')),
         ]
       : []),
-    `# Limits\n\n- Summary: one sentence, at most ${SUMMARY_MAX_WORDS} words.\n- Bullets: at most ${max}${extra > 0 ? ` (the ${emp.activities.length} evidence item${emp.activities.length === 1 ? '' : 's'} plus ${extra} own bullet${extra === 1 ? '' : 's'} for the LEAD WITH project${extra === 1 ? '' : 's'})` : ''}, each at most ${BULLET_MAX_WORDS} words, outcome and business impact first. Merge items that state the same outcome into ONE bullet.\n- Never repeat a figure within this entry: each number appears once, in the one place it fits best.\n- Play down: ${ctx.brief.playDown.length > 0 ? 'the "Play down" items in the brief may appear at most as a clause inside another bullet, never as a bullet of their own.' : 'nothing to play down.'}\n- Voice: no pronouns ("I", "my", "we"); an implied subject. Tense: ${tense}\n- Plain text only: no Markdown, links, HTML or ":::". Code builds the list from your strings.\n- Numbers exactly as in the evidence, whether you write them as digits or words; no title, company or date that the evidence does not contain.`,
-    'Return the summary and the bullets as one JSON object matching the schema, in a ```json code block.',
+    `# Limits\n\n- Summary: one sentence, at most ${SUMMARY_MAX_WORDS} words.\n- Bullets: at most ${max}${extra > 0 ? ` (the ${emp.activities.length} evidence item${emp.activities.length === 1 ? '' : 's'} plus ${extra} own bullet${extra === 1 ? '' : 's'} for the LEAD WITH project${extra === 1 ? '' : 's'})` : ''}, each at most ${BULLET_MAX_WORDS} words, outcome and business impact first. Merge items only when they state the same measured result with the same figures; related items with different figures or mechanisms stay separate bullets.\n- Sources: every bullet is an object {"text", "sources"}; "sources" lists the labels ([E1], [P1]...) of the evidence item(s) it comes from, at least one. A figure comes only from the item that states it.\n- Never repeat a figure within this entry: each number appears once, in the one place it fits best.\n- Play down: ${ctx.brief.playDown.length > 0 ? 'the "Play down" items in the brief may appear at most as a clause inside another bullet, never as a bullet of their own.' : 'nothing to play down.'}\n- Voice: no pronouns ("I", "my", "we"); an implied subject. Tense: ${tense}\n- Plain text only: no Markdown, links, HTML or ":::". Code builds the list from your strings.\n- Numbers exactly as in the evidence, whether you write them as digits or words; no title, company or date that the evidence does not contain.`,
+    'Return the summary and the bullets (each with its source labels) as one JSON object matching the schema, in a ```json code block.',
   ].join('\n\n')
 }
 
@@ -86,6 +97,10 @@ type Analysis = CheckResult & {
   summary: string
   /** Cleaned (plainLine), empty ones dropped. */
   bullets: string[]
+  /** The valid evidence items each of `bullets` cites (same length and order); empty when the writer cited none that exist. */
+  bulletSources: EvidenceRef[][]
+  /** Labels the writer cited that are not evidence items of this employer (dropped). */
+  unknownSources: number
   /** Figures that no evidence item supports, after the checks. */
   unsupported: string[]
   /** Claimed names mentioned, with whether the job's requirements name them. */
@@ -100,7 +115,12 @@ export function analyseExperience(out: ExperienceOutput, ctx: Pick<WriteContext,
   const why: string[] = []
   const problem = (long: string, short: string) => { soft.push(long); why.push(short) }
   const summary = plainLine(out.summary)
-  const bullets = out.bullets.map(plainLine).filter(Boolean)
+  const kept = out.bullets.map((b) => ({ text: plainLine(b.text), cited: b.sources })).filter((b) => b.text)
+  const refs = evidenceRefs(emp)
+  const resolved = kept.map((b) => resolveSources(b.cited, refs))
+  const bullets = kept.map((b) => b.text)
+  const bulletSources = resolved.map((r) => r.sources)
+  const unknownSources = resolved.reduce((n, r) => n + r.unknown, 0)
   const texts = evidenceTexts(emp)
   const evidenceText = texts.join('\n')
   const max = bulletAllowance(emp, ctx.brief)
@@ -108,7 +128,7 @@ export function analyseExperience(out: ExperienceOutput, ctx: Pick<WriteContext,
   // Not plain (or first person): retried once with feedback like any soft problem; the kept text is cleaned either way.
   // Verbatim names from the candidate's own text ("My Talking Tom launch") are not first person.
   const ownText = [evidenceText, ...ctx.evidence.profileCompanies, ...ctx.evidence.profileTitles].join('\n')
-  const fields: Array<[string, string]> = [['the summary', out.summary], ...out.bullets.map((b, i): [string, string] => [`bullet ${i + 1}`, b])]
+  const fields: Array<[string, string]> = [['the summary', out.summary], ...out.bullets.map((b, i): [string, string] => [`bullet ${i + 1}`, b.text])]
   for (const [label, text] of fields) {
     const f = plainFeedback(label, text, ownText)
     if (f) problem(f, plainReasons(text, ownText).join(', '))
@@ -121,6 +141,10 @@ export function analyseExperience(out: ExperienceOutput, ctx: Pick<WriteContext,
   bullets.forEach((b, i) => {
     if (wordCount(b) > BULLET_MAX_WORDS) problem(`bullet ${i + 1} is ${wordCount(b)} words; each must be at most ${BULLET_MAX_WORDS}`, `bullet ${i + 1} over ${BULLET_MAX_WORDS} words`)
   })
+
+  // Provenance: every bullet cites at least one evidence item that exists. Unknown labels are dropped; a bullet left with none is retried once.
+  const unsourced = bulletSources.flatMap((s, i) => (s.length === 0 ? [i + 1] : []))
+  if (unsourced.length > 0) problem(`${unsourced.length === 1 ? `bullet ${unsourced[0]} cites` : `bullets ${unsourced.join(', ')} cite`} no evidence item that exists: cite the evidence item(s) this bullet comes from, by their labels (${refs.map((r) => r.label).join(', ') || 'none'}), in "sources"`, `no source for bullet ${unsourced.join(', ')}`)
 
   const all = [summary, ...bullets].join('\n')
   const names = [...figureIgnoredNames(ctx.evidence), ...emp.projects.map((p) => p.name)]
@@ -168,7 +192,7 @@ export function analyseExperience(out: ExperienceOutput, ctx: Pick<WriteContext,
     problem(`these are in the present tense; ${emp.employer.end === null ? 'completed achievements and measured results are past tense even in the current role' : 'a finished role is past tense throughout'}: ${present.slice(0, 3).map((l) => `"${shortened(l, 50)}"`).join(', ')}`, emp.employer.end === null ? 'present tense on a result' : 'present tense in a finished role')
   }
 
-  return { hard: [], soft, why: [...new Set(why)], summary, bullets, unsupported, claimed, inProgressNamed: creds.filter((c) => c.inProgress).map((c) => c.name), projectsMissed, leadWithNotOwn }
+  return { hard: [], soft, why: [...new Set(why)], summary, bullets, bulletSources, unknownSources, unsupported, claimed, inProgressNamed: creds.filter((c) => c.inProgress).map((c) => c.name), projectsMissed, leadWithNotOwn }
 }
 
 /**
@@ -176,11 +200,14 @@ export function analyseExperience(out: ExperienceOutput, ctx: Pick<WriteContext,
  * Used when the answer has no usable bullets, or the run has no time left for
  * the call. It claims nothing the evidence does not say.
  */
-export function fallbackExperience(emp: EmployerEvidence): { summary: string; bullets: string[]; markdown: string; notes: string[] } {
-  const bullets = emp.activities.map((a) => plainLine(a.text)).filter(Boolean)
+export function fallbackExperience(emp: EmployerEvidence): { summary: string; bullets: string[]; provenance: BulletProvenance[]; markdown: string; notes: string[] } {
+  // Each bullet IS one activity's text, so its source is exact.
+  const refs = evidenceRefs(emp)
+  const pairs = emp.activities.map((a, i) => ({ text: plainLine(a.text), ref: refs[i] })).filter((b) => b.text)
+  const bullets = pairs.map((b) => b.text)
   // A project has no activity text to reuse as a bullet, so it is named in the log instead of vanishing.
   const notes = emp.projects.map((p) => `Project "${p.name}" is not on the CV: this entry was made without a model call, from your activity text only.`)
-  return { summary: '', bullets, markdown: renderEmployerEntry(emp.employer, '', bullets), notes }
+  return { summary: '', bullets, provenance: pairs.map((b) => toProvenance(b.text, [b.ref])), markdown: renderEmployerEntry(emp.employer, '', bullets), notes }
 }
 
 /** Writes one employer's entry. Throws LLMError (invalid_output, timeout, ...). */
@@ -207,6 +234,14 @@ export async function writeExperience(ctx: WriteContext, emp: EmployerEvidence, 
   // The allowance is a hard cap: whatever the last answer held, trim to it (lead-with project and brief-matching bullets first, then the writer's order).
   const trimmed = trimBullets(a.bullets, ctx.brief, emp.projects, allowance)
   let bullets = trimmed.bullets
+  // trimBullets keeps the writer's order, so the kept texts line up with their sources.
+  let provenance: BulletProvenance[] = []
+  {
+    let k = 0
+    a.bullets.forEach((b, i) => {
+      if (k < bullets.length && bullets[k] === b) { provenance.push(toProvenance(b, a.bulletSources[i])); k++ }
+    })
+  }
   for (const t of trimmed.trimmed) notes.push(`Cut a bullet over this employer's limit of ${allowance}: “${shortened(t)}”.`)
   // A bullet that carried a selected project may be the one that was cut: say so, so the project is never lost silently.
   for (const p of emp.projects) {
@@ -217,8 +252,17 @@ export async function writeExperience(ctx: WriteContext, emp: EmployerEvidence, 
   if (bullets.length === 0) {
     const fb = fallbackExperience(emp)
     bullets = fb.bullets
+    provenance = fb.provenance
     notes.push('The answer had no usable bullets, so the bullets are your own activity text from the profile.', ...fb.notes)
   }
+  if (a.unknownSources > 0) notes.push(`${a.unknownSources === 1 ? '1 source label' : `${a.unknownSources} source labels`} the writer cited ${a.unknownSources === 1 ? 'is' : 'are'} not evidence items of this employer and ${a.unknownSources === 1 ? 'was' : 'were'} dropped.`)
+  // Conflation made visible: a bullet whose figures come from two different activities. Informational only (no retry, not a check note).
+  const figureNames = [...figureIgnoredNames(ctx.evidence), ...emp.projects.map((p) => p.name)]
+  a.bullets.forEach((b, i) => {
+    if (!provenance.some((p) => p.text === b)) return // cut by the limit
+    const mixed = mixedSourceNote(b, a.bulletSources[i], figureNames)
+    if (mixed) notes.push(mixed)
+  })
   if (a.unsupported.length > 0) {
     checks.push({ kind: 'figure', text: `${who}: ${a.unsupported.map((f) => `"${f}"`).join(', ')} could not be matched to the profile text. Worth a quick check.` })
   }
@@ -234,6 +278,7 @@ export async function writeExperience(ctx: WriteContext, emp: EmployerEvidence, 
     markdown: renderEmployerEntry(emp.employer, a.summary, bullets),
     summary: a.summary,
     bullets,
+    provenance,
     model: call.model,
     usage: call.usage,
     retries: call.retries,
