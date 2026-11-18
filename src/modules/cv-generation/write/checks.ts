@@ -460,3 +460,59 @@ export function headlineTitleProblem(headline: string, titles: readonly string[]
   if (word) return `it uses "${word}", which reads as a title or seniority claim the profile does not make; write a descriptor, not a title`
   return null
 }
+
+// ── Proper nouns, tools and qualitative claims (used by the Review re-check) ─
+
+const NAME_TOKEN = /[\p{L}\p{N}](?:[\p{L}\p{N}'’._+#-]*[\p{L}\p{N}+#])?/gu
+
+/** Whether a token looks like a name, a tool or an acronym rather than an ordinary word. `sentenceStart` tokens are capitalised by grammar, so a plain capitalised word there is ordinary. */
+function nameLike(tok: string, sentenceStart: boolean): boolean {
+  if (/^\d[\d.,+]*$/.test(tok)) return false // a bare number: the figures check owns it
+  if (/^\d/.test(tok)) return false // 14k, 2M, 40x, 3D: figures, not names
+  if (/\p{N}/u.test(tok)) return true // GA4, Web3, Q3
+  if (/\p{Ll}\p{Lu}/u.test(tok)) return true // TypeScript, iOS
+  if (/\p{L}{2,}\.\p{L}{2,}/u.test(tok) || /[+#]/.test(tok)) return true // Node.js, C++, C#
+  if (/^\p{Lu}{2,}$/u.test(tok)) return true // EA, KPI
+  return !sentenceStart && /^\p{Lu}\p{Ll}/u.test(tok)
+}
+
+/**
+ * Names, tools and acronyms in `text` (capitalised words inside a sentence,
+ * all-caps acronyms, CamelCase, dotted or digit-bearing tokens such as
+ * Node.js, GA4, Kubernetes, EA) that NONE of `allowed` contains. A token is
+ * allowed when every word in it appears somewhere in the allowed texts
+ * (case-insensitive; one-letter parts such as the "s" of "Unity's" are
+ * ignored). The caller decides what is allowed: the old text, the employer's
+ * evidence and the profile's own names. The job's requirement text must never
+ * be passed: job keywords cannot be stuffed into a bullet. Best effort: it
+ * errs towards flagging, so it is used to DISCARD a model's replacement, never
+ * to fail a run.
+ */
+export function unsupportedProperNouns(text: string, allowed: readonly string[]): string[] {
+  const words = new Set(allowed.flatMap((t) => normalised(t)))
+  const out: string[] = []
+  for (const m of text.matchAll(NAME_TOKEN)) {
+    const tok = m[0]
+    const before = text.slice(0, m.index ?? 0).trimEnd()
+    const sentenceStart = before === '' || /[.!?:;]$/.test(before)
+    if (!nameLike(tok, sentenceStart)) continue
+    const parts = normalised(tok).filter((w) => w.length > 1)
+    if (parts.every((w) => words.has(w))) continue
+    if (!out.some((o) => o.toLowerCase() === tok.toLowerCase())) out.push(tok)
+  }
+  return out
+}
+
+/** Qualitative superlatives that a CV must not add on its own. A short list on purpose: only phrases that are almost never an ordinary description, so false positives stay near zero. */
+const QUALITATIVE = [
+  'award-winning', 'world-class', 'best-in-class', 'industry-leading', 'market-leading', 'record-breaking', 'groundbreaking',
+  'cutting-edge', 'state-of-the-art', 'unrivalled', 'unrivaled', 'unparalleled', 'second to none',
+]
+
+/** Qualitative claims in `text` (see QUALITATIVE) that none of `allowed` contains. */
+export function unsupportedQualitative(text: string, allowed: readonly string[]): string[] {
+  const norm = (t: string) => t.toLowerCase().replace(/[-\s]+/g, ' ')
+  const hay = allowed.map(norm).join('\n')
+  const mine = norm(text)
+  return QUALITATIVE.filter((q) => mine.includes(norm(q)) && !hay.includes(norm(q)))
+}

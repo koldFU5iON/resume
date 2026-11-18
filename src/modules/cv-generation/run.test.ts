@@ -15,7 +15,7 @@ vi.mock('@/lib/db', () => {
 
 import { prisma } from '@/lib/db'
 import { ACTIVE_STATUSES, CV_GENERATION_CONCURRENCY_PER_PROFILE, CV_GENERATION_STALE_MS, CV_GENERATION_STATUSES } from './schema'
-import { FAILURE_MESSAGES, allowedFrom, createCvGenerationRun, failRun, setStatus, updateActive } from './run'
+import { FAILURE_MESSAGES, allowedFrom, createCvGenerationRun, failRun, findActiveCvGeneration, isRunActive, setStatus, updateActive } from './run'
 import { FAILURE_KINDS } from './schema'
 
 const db = vi.mocked(prisma, { deep: true })
@@ -149,5 +149,27 @@ describe('createCvGenerationRun', () => {
     expect(db.cvGeneration.count).toHaveBeenCalledWith({
       where: { profileId: 'p1', status: { in: [...ACTIVE_STATUSES] }, createdAt: { gte: expect.any(Date) } },
     })
+  })
+})
+
+describe('findActiveCvGeneration and isRunActive (phase 4a review fixes)', () => {
+  it('finds the job’s live run, scoped to the profile and the stale window', async () => {
+    db.cvGeneration.findFirst.mockResolvedValue({ id: 'run-live' } as never)
+    expect(await findActiveCvGeneration('p1', 'job-1')).toBe('run-live')
+    const where = db.cvGeneration.findFirst.mock.calls[0][0]!.where as Record<string, unknown>
+    expect(where).toMatchObject({ profileId: 'p1', jobApplicationId: 'job-1', status: { in: [...ACTIVE_STATUSES] } })
+    expect((where.createdAt as { gte: Date }).gte.getTime()).toBeGreaterThan(Date.now() - CV_GENERATION_STALE_MS - 5_000)
+  })
+
+  it('is null when nothing is running', async () => {
+    expect(await findActiveCvGeneration('p1', 'job-1')).toBeNull()
+  })
+
+  it('isRunActive is true only for an active, non-stale run of this profile', async () => {
+    db.cvGeneration.count.mockResolvedValue(1)
+    expect(await isRunActive('p1', 'run-1')).toBe(true)
+    expect(db.cvGeneration.count.mock.calls[0][0]!.where).toMatchObject({ id: 'run-1', profileId: 'p1', status: { in: [...ACTIVE_STATUSES] } })
+    db.cvGeneration.count.mockResolvedValue(0)
+    expect(await isRunActive('p1', 'run-1')).toBe(false)
   })
 })

@@ -17,7 +17,9 @@ import {
   stageForStatus,
   type BulletProvenance,
   type BulletSource,
+  CONCERN_KIND_LABEL,
   type CvBrief,
+  type CvReview,
   type CvGenerationStage,
   type CvGenerationStatus,
   type CvAssembled,
@@ -37,7 +39,7 @@ export const CV_GENERATION_STAGE_INFO: Record<CvGenerationStage, { label: string
   select: { label: "Select", detail: "The evidence worth showing per section, within hard limits" },
   write: { label: "Write", detail: "Each section, from only its selected evidence" },
   assemble: { label: "Assemble", detail: "Ordering, contact details, block validation and fact checks" },
-  review: { label: "Review", detail: "Cohesion against the brief, and every factual claim checked against your profile" },
+  review: { label: "Review", detail: "One check of the written CV against your evidence and the brief: unsupported claims removed, concerns listed for the coach" },
   land: { label: "Land", detail: "Saved to the writing desk as a draft for you to accept or discard" },
 }
 
@@ -157,17 +159,27 @@ export function stageMeta(row: Pick<StageRow, "entry" | "durationMs">): string[]
   return out
 }
 
-// ── Preview run (stages 0-2 only) ───────────────────────────────────────────
+// ── Finished runs ───────────────────────────────────────────────────────────
 
-/** Shown on a complete run that stopped after Assemble (log.partial). */
-export const PREVIEW_NOTICE = "Preview run: review and draft stages are not built yet. The assembled CV is below."
+/** The heading of a run that landed a draft. */
+export const COMPLETE_HEADING = "CV drafted: review it in the writing desk"
+
+/** The draft's page in the writing desk. */
+export function draftHref(jobId: string, documentId: string): string {
+  return `/dashboard/job-applications/view/${jobId}/writing/${documentId}`
+}
+
+// ── Preview runs (stored before Phase 4a; new runs never are) ───────────────
+
+/** Shown on an old complete run that stopped after Assemble (log.partial). */
+export const PREVIEW_NOTICE = "Preview run (made before drafts existed): no review, no draft. The assembled CV is below."
 export const PREVIEW_DETAIL =
-  "This run gathered your evidence, wrote the brief, chose what to show, wrote each section and assembled the CV. Nothing was reviewed against your profile yet and no draft was created."
+  "This run gathered your evidence, wrote the brief, chose what to show, wrote each section and assembled the CV. It stopped there: nothing was reviewed and no draft was created. Generate the CV again to get a draft."
 
 /** Shown on a preview run stored before the writing stages existed: it has a selection but no CV. */
 export const PREVIEW_NOTICE_SELECTION_ONLY = "Preview run: selection only"
 export const PREVIEW_DETAIL_SELECTION_ONLY =
-  "This run gathered your evidence, wrote the brief and chose what to show. It was made before the writing stages existed, so there is no assembled CV. Run the preview again to get one."
+  "This run gathered your evidence, wrote the brief and chose what to show. It was made before the writing stages existed, so there is no assembled CV. Generate the CV again to get one."
 
 /** The notice and detail for a preview run: the assembled-CV wording only when there is a CV. */
 export function previewCopy(hasAssembled: boolean): { notice: string; detail: string } {
@@ -176,13 +188,14 @@ export function previewCopy(hasAssembled: boolean): { notice: string; detail: st
     : { notice: PREVIEW_NOTICE_SELECTION_ONLY, detail: PREVIEW_DETAIL_SELECTION_ONLY }
 }
 
-/** What the run-preview button tells the user for each response of POST /api/jobs/[id]/cv-generation. */
+/** What the generate button tells the user for each response of POST /api/jobs/[id]/cv-generation. */
 export function startResponseMessage(status: number): { ok: boolean; message: string | null } {
   if (status === 200 || status === 202) return { ok: true, message: null }
-  if (status === 401) return { ok: false, message: "Sign in again to run a preview." }
+  if (status === 401) return { ok: false, message: "Sign in again to generate a CV." }
   if (status === 404) return { ok: false, message: "Job not found." }
+  if (status === 409) return { ok: false, message: "This job's CV document already has a draft waiting. Open it, or discard it, then generate again." }
   if (status === 429) return { ok: false, message: `${CV_GENERATION_CONCURRENCY_PER_PROFILE} CV generations are already running. Try again when one finishes.` }
-  return { ok: false, message: "Couldn't start the preview. Check your connection and try again." }
+  return { ok: false, message: "Couldn't start the CV generation. Check your connection and try again." }
 }
 
 /** A list item: `text`, bold only when `strong` (the Emphasise items), and `note` (why) in muted text under it. */
@@ -367,10 +380,15 @@ export function sourceLine(s: Pick<BulletSource, "snippet" | "kind">): string {
   return `from: ${s.snippet.trim() || "(no text)"} (${s.kind})`
 }
 
-/** The lines under one bullet: its sources, or a plain statement that the writer cited none. */
-export function bulletSourceLines(b: Pick<BulletProvenance, "sources">): string[] {
-  return b.sources.length > 0 ? b.sources.map(sourceLine) : ["from: no source cited"]
+/** The lines under one bullet: its sources, or a plain statement that the writer cited none; a bullet the review reworded says so first. */
+export function bulletSourceLines(b: Pick<BulletProvenance, "sources" | "editedByReview">): string[] {
+  const lines = b.sources.map(sourceLine)
+  if (!b.editedByReview) return lines.length > 0 ? lines : ["from: no source cited"]
+  return [EDITED_BY_REVIEW, ...lines]
 }
+
+/** Shown under a bullet the Review stage reworded after it was written. */
+export const EDITED_BY_REVIEW = "edited by review (reworded after the CV was written)"
 
 /** The provenance of every employer section of an assembled CV, by section id. Sections without bullets (and runs stored before provenance) are left out. */
 export function provenanceBySection(assembled: { sections?: ReadonlyArray<{ id: string; bullets?: readonly BulletProvenance[] }> } | null | undefined): Map<string, readonly BulletProvenance[]> {
@@ -392,6 +410,57 @@ export function uncoveredLine(sel: Pick<CvSelection, "uncovered">): string | nul
     : null
 }
 
+// ── Review (stage 5) ────────────────────────────────────────────────────────
+
+/** One concern as the log page shows it: a kind badge, the title, why, and the question for the owner. */
+export type ConcernRow = { kind: string; badge: string; title: string; why: string; question: string; refs: string[] }
+
+/** The stored concerns for display; empty for a run with no review, a skipped one, or an old run. */
+export function concernRows(review: Pick<CvReview, "concerns"> | null | undefined): ConcernRow[] {
+  return (review?.concerns ?? []).map((c) => ({
+    kind: c.kind, badge: CONCERN_KIND_LABEL[c.kind] ?? CONCERN_KIND_LABEL.other, title: c.title, why: c.why, question: c.question,
+    refs: c.refs.map((r) => r.snippet.trim()).filter(Boolean),
+  }))
+}
+
+/** "Applied 2 edits, discarded 1, 3 concerns for the coach", or why the review was skipped; null when there is no review record. */
+export function reviewSummary(review: CvReview | null | undefined): string | null {
+  if (!review) return null
+  if (review.skipped) return `Review skipped: ${review.skipReason ?? "no reason recorded"}`
+  const n = (k: number, w: string) => `${k} ${w}${k === 1 ? "" : "s"}`
+  return `Applied ${n(review.applied.length, "edit")}, discarded ${review.discarded.length}, ${n(review.concerns.length, "concern")} for the coach`
+}
+
+const editLine = (e: { sectionId: string; bulletId: string | null; action: string }) => `${e.action} ${e.sectionId}${e.bulletId ? ` ${e.bulletId}` : ""}`
+
+/** The Review section of the copied log: applied and discarded edits with their reasons, then the concerns. Empty when there is no review. */
+export function reviewMarkdown(review: CvReview | null | undefined): string[] {
+  const summary = reviewSummary(review)
+  if (!review || !summary) return []
+  const one = (t: string) => t.replace(/\s*\n\s*/g, " ")
+  const out = ["## Review", "", summary, ""]
+  if (review.applied.length > 0) {
+    out.push("### Edits applied")
+    for (const a of review.applied) out.push(`- ${editLine(a)}: “${one(a.before)}”${a.after ? ` → “${one(a.after)}”` : ""} (${one(a.reason) || "no reason given"})`)
+    out.push("")
+  }
+  if (review.discarded.length > 0) {
+    out.push("### Edits discarded")
+    for (const d of review.discarded) out.push(`- ${editLine(d)}: ${one(d.why)}${d.proposed ? ` — proposed “${one(d.proposed)}”` : ""}`)
+    out.push("")
+  }
+  if (review.concerns.length > 0) {
+    out.push("### Concerns for the coach")
+    for (const c of review.concerns) {
+      out.push(`- **${one(c.title)}** (${CONCERN_KIND_LABEL[c.kind] ?? c.kind}): ${one(c.why)}`)
+      out.push(`  - Question: ${one(c.question)}`)
+      for (const r of c.refs) out.push(`  - Evidence: ${one(r.snippet)}`)
+    }
+    out.push("")
+  }
+  return out
+}
+
 // ── Copy log: the whole run as readable Markdown ────────────────────────────
 
 /** What the copy-log text needs. Every run field is optional so a row stored by an earlier phase (no brief, no assembled CV, no retry reasons) still produces a log. */
@@ -411,6 +480,12 @@ export type RunLogInput = {
     brief?: CvBrief | null
     selection?: CvSelection | null
     assembled?: (Pick<CvAssembled, "markdown" | "warnings" | "checkNotes"> & { sections?: CvAssembled["sections"] }) | null
+    /** The Review stage's record (edits, concerns, skipped flag); absent on older runs. */
+    review?: CvReview | null
+    /** The earlier run whose brief and selection this run reused; absent or null for a fresh one. */
+    selectionReusedFromRunId?: string | null
+    /** The writing desk document the draft landed in, when it did. */
+    writingDeskDocumentId?: string | null
     /** The run's usage total (calls, tokens, estimated cost). */
     usage?: { total: { requests: number; failedRequests?: number; inputTokens: number; outputTokens: number; estimatedCostUsd: number; estimateComplete: boolean } } | null
   }
@@ -454,7 +529,9 @@ export function runLogMarkdown({ jobTitle, company, run }: RunLogInput): string 
   const head: string[] = [
     `Run: ${run.id}`,
     `Date: ${iso(run.createdAt) ?? "unknown"}`,
-    `Status: ${CV_GENERATION_STATUS_LABEL[run.status] ?? run.status}${run.partial ? " (preview run: no review, no draft)" : ""}`,
+    `Status: ${CV_GENERATION_STATUS_LABEL[run.status] ?? run.status}${run.partial ? " (preview run made before drafts existed: no review, no draft)" : ""}`,
+    ...(run.selectionReusedFromRunId ? [`Brief and selection: reused from run ${run.selectionReusedFromRunId} (nothing changed since)`] : []),
+    ...(run.writingDeskDocumentId ? [`Draft: writing desk document ${run.writingDeskDocumentId}`] : []),
     ...(run.failureMessage ? [`Failure: ${run.failureMessage}`] : []),
     ...(total && total.requests > 0
       ? [
@@ -543,6 +620,8 @@ export function runLogMarkdown({ jobTitle, company, run }: RunLogInput): string 
       out.push("")
     }
   }
+
+  out.push(...reviewMarkdown(run.review))
 
   if (run.assembled) {
     const fence = fenceFor(run.assembled.markdown)

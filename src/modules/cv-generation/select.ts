@@ -25,7 +25,7 @@
 import * as z from 'zod'
 import { composeSystem, loadCVSelectPrompt } from '@/modules/llm/prompt-context'
 import { LLMError } from '@/modules/llm/errors'
-import { completeValidated, type CallUsage } from './call'
+import { attributionOf, completeValidated, type CallUsage } from './call'
 import {
   FLAT_CAPS,
   FLAT_SECTIONS,
@@ -563,7 +563,7 @@ export type SelectResult = {
 export async function runSelect(
   g: Gathered,
   brief: CvBrief,
-  ctx: { profileId: string; jobApplicationId: string; runId: string; deadline: number },
+  ctx: { profileId: string; jobApplicationId: string; runId: string; deadline: number; writingDeskDocumentId?: string | null },
 ): Promise<SelectResult> {
   let failure: string
   let retries = 0
@@ -581,7 +581,7 @@ export async function runSelect(
       timeoutMs: TIME_BUDGET_MS.select,
       deadline: ctx.deadline,
       feature: CV_GENERATION_FEATURES.select,
-      attribution: { jobApplicationId: ctx.jobApplicationId, runId: ctx.runId },
+      attribution: attributionOf(ctx),
       label: 'selection',
     })
     retries = call.retries

@@ -18,7 +18,7 @@
 
 import * as z from 'zod'
 import { composeSystem } from '@/modules/llm/prompt-context'
-import { completeChecked, softIssueNotes, type CheckResult } from '../call'
+import { attributionOf, completeChecked, softIssueNotes, type CheckResult } from '../call'
 import { CV_GENERATION_FEATURES, MAX_OUTPUT_TOKENS, TEMPERATURE, TIME_BUDGET_MS } from '../schema'
 import { COMPETENCY_LABEL_MAX_WORDS, COMPETENCY_LABEL_MIN_WORDS, COMPETENCY_MAX_LABELS, HEADLINE_MAX_WORDS, PROFILE_MAX_FIGURES, PROFILE_MAX_WORDS } from './limits'
 import { claimedHits, competencyLabelProblem, credentialProblems, distinctNotableFigures, headlineTitleProblem, introducedNames, labelGroundedIn, labelReflectsCompetency, sharedFigures, unsupportedFigures, wordCount } from './checks'
@@ -287,7 +287,7 @@ export async function writeProfile(
     timeoutMs: TIME_BUDGET_MS.write,
     deadline: ctx.deadline,
     feature: CV_GENERATION_FEATURES.writeProfile,
-    attribution: { jobApplicationId: ctx.jobApplicationId, runId: ctx.runId },
+    attribution: attributionOf(ctx),
     label: 'professional profile',
     check: (v) => analyseProfile(v, ctx, allowed),
   })

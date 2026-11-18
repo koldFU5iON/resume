@@ -16,7 +16,7 @@ model CvGeneration {
   deepDiveId            String?
   /// queued | gathering | briefing | selecting | writing | assembling | reviewing | landing | complete | failed
   status                String
-  /// no_llm_key | no_description | timeout | rate_limited | overloaded | refusal | invalid_output | draft_exists | error
+  /// no_llm_key | no_description | timeout | rate_limited | overloaded | refusal | invalid_output | draft_exists | document_limit | error
   failureKind           String?
   failureMessage        String?
   /// sha256 of the gathered inputs (profile, job, strategy source); set by the gather stage
@@ -33,6 +33,10 @@ model CvGeneration {
   selection             Json?
   /// The assembled CV (CvAssembled: { markdown, sections[], warnings[], checkNotes[] }), validated with Zod on read; null until the Assemble stage ends
   assembled             Json?
+  /// The Review stage's output (CvReview: applied and discarded edits, concerns for the coach, skipped flag and reason, model and cost), validated with Zod on read; null until that stage ends and on older runs
+  review                Json?
+  /// The earlier run whose Brief and Select this run reused because nothing changed (null: a fresh Brief and Select). Not a relation: the earlier run may be deleted.
+  selectionReusedFromRunId String?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 

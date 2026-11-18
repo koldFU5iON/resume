@@ -56,6 +56,10 @@ export async function loadCVWriteProfilePrompt(profileId: string): Promise<strin
   return loadPromptText(profileId, 'cv-gen-write-profile')
 }
 
+export async function loadCVReviewPrompt(profileId: string): Promise<string> {
+  return loadPromptText(profileId, 'cv-gen-review')
+}
+
 export async function loadWritingContext(profileId: string): Promise<WritingContext> {
   const [rules, settings] = await Promise.all([
     loadWritingRules(profileId).catch(() => ''),

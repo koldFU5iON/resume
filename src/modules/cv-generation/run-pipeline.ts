@@ -11,11 +11,14 @@
  *   with the guarded `setStatus` (a stage never runs twice, a finished or
  *   stale row is never written), logs one entry per stage as it ends, and
  *   ends the row on any failure. It never throws.
- * - Stages 3-4 (write, assemble) move it writing → assembling; review and land
- *   (stages 5-6) do not exist yet, so a run is told where to `stopAfter`
- *   ('selecting' or 'assembling'): it finishes as `complete` with
- *   `log.partial = true` (a preview run that creates no draft). The assembled
- *   CV is stored on the row.
+ * - Stages 3-4 (write, assemble) move it writing → assembling.
+ * - Stage 5 (review, write/review.ts) is ONE 'analysis' call that may edit the
+ *   CV after code re-checks each edit; it never fails the run (a failure or
+ *   `review: false` skips it, logged). Stage 6 (land, land.ts) creates the draft
+ *   in the job's CV document. A run now ends `complete` (never `partial`);
+ *   `log.partial` is only read from runs stored before Phase 4a.
+ * - A run whose inputs are unchanged since the newest complete run of the job
+ *   reuses that run's Brief and Select (reuse.ts) unless `fresh` is set.
  *
  * A run killed mid-way stays in its active status and reads as failed /
  * timeout after CV_GENERATION_STALE_MS (queries.ts).
@@ -28,26 +31,40 @@ import { getLLMConfigStatus } from '@/modules/llm/client'
 import { LLMError } from '@/modules/llm/errors'
 import { loadVault } from '@/modules/profile-map/load'
 import { toProfileSnapshot } from '@/modules/profile/snapshot'
-import { assembleCv, bodyWordCount, employerOrderOf, lengthNote } from './assemble'
+import { assembleCv, bodyWordCount, employerOrderOf, lengthNote, recheckMarkdown } from './assemble'
 import { runBrief } from './brief'
 import type { CallUsage } from './call'
 import { gatherCvInputs } from './gather'
+import { checkLandingTarget, landCv } from './land'
 import { getRunUsage } from './queries'
-import { createCvGenerationRun, failRun, setStatus, updateActive, FAILURE_MESSAGES } from './run'
+import { createCvGenerationRun, failRun, findActiveCvGeneration, isRunActive, setStatus, updateActive, FAILURE_MESSAGES } from './run'
+import { computeReuseKey, findReusableSelection, reuseNote } from './reuse'
 import {
   CHECK_NOTE_PREFIX,
   CV_GENERATION_FEATURES,
+  LAND_RESERVE_MS,
   TIME_BUDGET_MS,
+  type CvBrief,
+  type CvReview,
+  type CvSelection,
   type CvGenerationFailureKind,
   type CvGenerationStage,
   type StageLogEntry,
 } from './schema'
 import { runSelect, selectionLogLines } from './select'
 import { countOf } from './text'
+import { evidenceFromVault } from './write/evidence'
+import { shortened } from './write/bullets'
+import { runReview } from './write/review'
 import { runWrite, WriteStageError } from './write/run-write'
 
-/** How far a run goes. Review and Land do not exist yet; later phases widen this. */
-export type StopAfter = 'selecting' | 'assembling'
+/** What a caller may ask for (the route's body, schema.ts StartCvGenerationBodySchema). */
+export type RunOptions = {
+  /** Force a new Brief and Select instead of reusing the stored ones. */
+  fresh?: boolean
+  /** false skips the Review call: the CV lands unreviewed. Default true. */
+  review?: boolean
+}
 
 export type StartCvGenerationResult =
   | { kind: 'started'; runId: string }
@@ -56,18 +73,26 @@ export type StartCvGenerationResult =
   /** The profile already has the maximum number of active runs. */
   | { kind: 'limit' }
   | { kind: 'not_found' }
+  /** The job's CV document already has a draft waiting: nothing was started and nothing was spent. */
+  | { kind: 'draft_exists'; documentId: string }
 
 /**
  * Admits and starts a run of `jobId`. The pipeline runs in after(), so the
  * caller returns at once (202 + runId). A missing key or description is not
  * refused here: the run starts and ends failed (no_llm_key / no_description),
- * so the log page shows why.
+ * so the log page shows why. A pending draft on the target document IS refused
+ * here, before any run exists or any model is called.
  */
 export async function startCvGeneration(
   profileId: string,
   jobId: string,
-  opts: { stopAfter: StopAfter },
+  opts: RunOptions = {},
 ): Promise<StartCvGenerationResult> {
+  // An already running run of this job is answered first (a second click is not a conflict); no run is created and nothing is spent here.
+  const active = await findActiveCvGeneration(profileId, jobId)
+  if (active) return { kind: 'existing', runId: active }
+  const landing = await checkLandingTarget(profileId, jobId)
+  if (landing.kind === 'draft_exists') return landing
   const result = await createCvGenerationRun(profileId, jobId)
   if (result.kind === 'created') {
     const runId = result.runId
@@ -117,21 +142,28 @@ async function stageUsage(profileId: string, runId: string, feature: string, cal
 const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`
 
 /** The pipeline. Never throws: every failure ends on the row. */
-export async function runCvGenerationStages(runId: string, profileId: string, opts: { stopAfter: StopAfter } = { stopAfter: 'assembling' }): Promise<void> {
+export async function runCvGenerationStages(runId: string, profileId: string, opts: RunOptions = {}): Promise<void> {
   const entries: StageLogEntry[] = []
   const timings: Partial<Record<CvGenerationStage, number>> = {}
   let stage: CvGenerationStage = 'gather'
   let stageStart = Date.now()
   const runStart = Date.now()
   const deadline = runStart + TIME_BUDGET_MS.run
+  const wantReview = opts.review !== false
 
-  const log = (partial = false) => ({ entries, partial })
+  // New runs are never partial (a preview run is only something an older run can be).
+  // The reuse key and origin are set once Gather has ended: they are what a later run compares to reuse this run's brief and selection.
+  let reuseKey: string | undefined
+  let reuseOrigin: { runId: string; at: string } | undefined
+  const log = () => ({ entries, partial: false, ...(reuseKey ? { reuseKey } : {}), ...(reuseOrigin ? { reuseOrigin } : {}) })
   const begin = (s: CvGenerationStage) => { stage = s; stageStart = Date.now() }
   const end = (entry: Omit<StageLogEntry, 'stage' | 'startedAt' | 'durationMs'>) => {
     const durationMs = Date.now() - stageStart
     timings[stage] = durationMs
     entries.push({ stage, startedAt: new Date(stageStart).toISOString(), durationMs, ...entry })
   }
+  /** Data kept on a failed row so nothing generated is lost (set once the CV exists). */
+  let keep: NonNullable<Parameters<typeof failRun>[4]>['data'] = {}
   const fail = async (kind: CvGenerationFailureKind, notes: string[] = [], sections: StageLogEntry['sections'] = [], spent?: CallUsage) => {
     timings[stage] = Date.now() - stageStart
     entries.push({
@@ -139,8 +171,9 @@ export async function runCvGenerationStages(runId: string, profileId: string, op
       tokens: { input: spent?.input ?? 0, output: spent?.output ?? 0 }, costUsd: spent && spent.calls > 0 ? spent.costUsd : null,
       notes: [FAILURE_MESSAGES[kind], ...notes], kept: [], dropped: [], retries: 0, retryReasons: [], flaggedClaims: [], sections,
     })
-    await failRun(profileId, runId, kind, null, { stageTimings: timings, log: log() })
+    await failRun(profileId, runId, kind, null, { stageTimings: timings, log: log(), data: keep })
   }
+  const noUsage = { tokens: { input: 0, output: 0 }, costUsd: null } as const
 
   try {
     const row = await prisma.cvGeneration.findFirst({ where: { id: runId, profileId }, select: { jobApplicationId: true } })
@@ -151,6 +184,11 @@ export async function runCvGenerationStages(runId: string, profileId: string, op
     if (!(await setStatus(profileId, runId, 'gathering', { startedAt: new Date() }))) return
     begin('gather')
     if (!(await getLLMConfigStatus(profileId)).configured) return await fail('no_llm_key')
+    // Before any spend: a job already at its document limit with no CV document to reuse cannot land.
+    const landing = await checkLandingTarget(profileId, jobId)
+    if (landing.kind === 'limit') return await fail('document_limit')
+    // The desk document the draft will go to, when it already exists: the calls below carry it in their usage attribution.
+    const writingDeskDocumentId = landing.kind === 'ok' ? landing.documentId : null
     const g = await gatherCvInputs(profileId, jobId, { runId })
     if (!g.ok) return await fail(g.kind === 'no_description' ? 'no_description' : 'error', g.kind === 'not_found' ? [g.message] : [])
     const c = g.candidates
@@ -158,64 +196,70 @@ export async function runCvGenerationStages(runId: string, profileId: string, op
     const roleCount = c.employers.reduce((n, e) => n + e.roles.length, 0)
     const analysisUsage = g.strategy.source === 'analysed' || g.strategy.source === 'none'
       ? await featureUsage(profileId, runId, CV_GENERATION_FEATURES.analyse)
-      : { tokens: { input: 0, output: 0 }, costUsd: null }
+      : { ...noUsage }
+    reuseKey = await computeReuseKey(profileId, g.inputsHash)
+    const reuse = opts.fresh ? null : await findReusableSelection(profileId, jobId, { inputsHash: g.inputsHash, reuseKey })
+    // The run that made the brief and selection this run holds (itself, unless it reuses): the reuse window runs from there.
+    reuseOrigin = reuse ? { runId: reuse.runId, at: reuse.at.toISOString() } : { runId, at: new Date(runStart).toISOString() }
     end({
       status: 'ok', model: null, ...analysisUsage,
       notes: [
         ...g.notes,
         `Profile: ${countOf(roleCount, 'role')} at ${countOf(c.employers.length, 'employer')} with ${countOf(activityCount, 'activity', 'activities')}; ${countOf(c.skills.length, 'skill')}, ${countOf(c.tools.length, 'tool')}, ${countOf(c.competencies.length, 'competency', 'competencies')}, ${countOf(c.certifications.length, 'certification')}, ${c.education.length} education, ${countOf(c.projects.length, 'project')}.`,
+        ...(opts.fresh ? ['A fresh brief and selection were requested, so none are reused.'] : []),
       ],
       kept: [], dropped: [], retries: 0, retryReasons: [], flaggedClaims: [], sections: [],
     })
 
-    // 1. Brief
+    // 1. Brief (or the stored one)
     if (!(await setStatus(profileId, runId, 'briefing', {
       inputsHash: g.inputsHash, deepDiveId: g.deepDiveId, stageTimings: json(timings), log: json(log()),
     }))) return
     begin('brief')
-    const brief = await runBrief(g, { profileId, jobApplicationId: jobId, runId, deadline })
-    end({
-      status: 'ok', model: brief.model, ...(await stageUsage(profileId, runId, CV_GENERATION_FEATURES.brief, brief.usage)),
-      notes: [], kept: [], dropped: [], retries: brief.retries, retryReasons: brief.retryReasons ?? [], flaggedClaims: [], sections: [],
-    })
+    let briefValue: CvBrief
+    if (reuse) {
+      briefValue = reuse.brief
+      end({ status: 'skipped', model: null, ...noUsage, notes: [reuseNote(reuse.at)], kept: [], dropped: [], retries: 0, retryReasons: [], flaggedClaims: [], sections: [] })
+    } else {
+      const brief = await runBrief(g, { profileId, jobApplicationId: jobId, runId, deadline, writingDeskDocumentId })
+      briefValue = brief.value
+      end({
+        status: 'ok', model: brief.model, ...(await stageUsage(profileId, runId, CV_GENERATION_FEATURES.brief, brief.usage)),
+        notes: [], kept: [], dropped: [], retries: brief.retries, retryReasons: brief.retryReasons ?? [], flaggedClaims: [], sections: [],
+      })
+    }
 
-    // 2. Select
+    // 2. Select (or the stored one)
     if (!(await setStatus(profileId, runId, 'selecting', {
-      brief: json(brief.value), stageTimings: json(timings), log: json(log()),
+      brief: json(briefValue), selectionReusedFromRunId: reuse?.runId ?? null, stageTimings: json(timings), log: json(log()),
     }))) return
     begin('select')
-    const picked = await runSelect(g, brief.value, { profileId, jobApplicationId: jobId, runId, deadline })
-    const lines = selectionLogLines(picked.selection)
-    end({
-      status: 'ok', model: picked.model, ...(await stageUsage(profileId, runId, CV_GENERATION_FEATURES.select, picked.usage)),
-      notes: [
-        ...picked.notes,
-        ...(lines.notSelected > 0 ? [`${lines.notSelected === 1 ? '1 other profile item was' : `${lines.notSelected} other profile items were`} not selected.`] : []),
-      ],
-      kept: lines.kept, dropped: lines.dropped, retries: picked.retries, retryReasons: picked.retryReasons ?? [], flaggedClaims: [], sections: [],
-    })
-
-    // Review and Land (stages 5-6) do not exist yet: stopping after Select or
-    // Assemble finishes a preview run (log.partial) that creates no draft.
-    if (opts.stopAfter === 'selecting') {
-      await updateActive(profileId, runId, {
-        status: 'complete',
-        selection: json(picked.selection),
-        completedAt: new Date(),
-        stageTimings: json(timings),
-        log: json(log(true)),
+    let selection: CvSelection
+    if (reuse) {
+      selection = reuse.selection
+      end({ status: 'skipped', model: null, ...noUsage, notes: [reuseNote(reuse.at)], kept: [], dropped: [], retries: 0, retryReasons: [], flaggedClaims: [], sections: [] })
+    } else {
+      const picked = await runSelect(g, briefValue, { profileId, jobApplicationId: jobId, runId, deadline, writingDeskDocumentId })
+      selection = picked.selection
+      const lines = selectionLogLines(picked.selection)
+      end({
+        status: 'ok', model: picked.model, ...(await stageUsage(profileId, runId, CV_GENERATION_FEATURES.select, picked.usage)),
+        notes: [
+          ...picked.notes,
+          ...(lines.notSelected > 0 ? [`${lines.notSelected === 1 ? '1 other profile item was' : `${lines.notSelected} other profile items were`} not selected.`] : []),
+        ],
+        kept: lines.kept, dropped: lines.dropped, retries: picked.retries, retryReasons: picked.retryReasons ?? [], flaggedClaims: [], sections: [],
       })
-      return
     }
 
     // 3. Write. The selection is stored as the stage starts, so the page shows
     // what is being written from.
     if (!(await setStatus(profileId, runId, 'writing', {
-      selection: json(picked.selection), stageTimings: json(timings), log: json(log()),
+      selection: json(selection), stageTimings: json(timings), log: json(log()),
     }))) return
     begin('write')
     const vault = await loadVault(profileId)
-    const written = await runWrite(vault, brief.value, picked.selection, g.strategy, { profileId, jobApplicationId: jobId, runId, deadline })
+    const written = await runWrite(vault, briefValue, selection, g.strategy, { profileId, jobApplicationId: jobId, runId, deadline, writingDeskDocumentId })
     const writeMs = Date.now() - stageStart
     end({
       status: 'ok',
@@ -236,16 +280,18 @@ export async function runCvGenerationStages(runId: string, profileId: string, op
     // 4. Assemble: code only.
     if (!(await setStatus(profileId, runId, 'assembling', { stageTimings: json(timings), log: json(log()) }))) return
     begin('assemble')
+    const snapshot = toProfileSnapshot(vault)
     const assembled = assembleCv({
       name: vault.identity.props.name,
       headline: written.headline,
       sections: written.sections,
-      employerOrder: employerOrderOf(picked.selection),
+      employerOrder: employerOrderOf(selection),
       checkNotes: written.checkNotes,
-      snapshot: toProfileSnapshot(vault),
+      snapshot,
     })
     if (!assembled.ok) return await fail('invalid_output', ['The assembled CV has invalid blocks.', ...assembled.issues])
     const cv = assembled.assembled
+    keep = { assembled: json(cv) } // from here on a failure keeps the CV on the row
     const tooLong = lengthNote(cv.markdown)
     end({
       status: 'ok', model: null, tokens: { input: 0, output: 0 }, costUsd: null,
@@ -258,12 +304,81 @@ export async function runCvGenerationStages(runId: string, profileId: string, op
       ],
       kept: [], dropped: [], retries: 0, retryReasons: [], flaggedClaims: [], sections: [],
     })
+
+    // 5. Review: one call that may edit the CV (after code re-checks) and lists concerns for the coach. Never fails the run.
+    if (!(await setStatus(profileId, runId, 'reviewing', { assembled: json(cv), stageTimings: json(timings), log: json(log()) }))) return
+    begin('review')
+    let finalCv = cv
+    let review: CvReview
+    if (!wantReview) {
+      const reason = 'The review was turned off for this run, so the CV lands unreviewed.'
+      review = { skipped: true, skipReason: reason, model: null, tokens: { input: 0, output: 0 }, costUsd: null, applied: [], discarded: [], concerns: [] }
+      end({ status: 'skipped', model: null, ...noUsage, notes: [reason], kept: [], dropped: [], retries: 0, retryReasons: [], flaggedClaims: [], sections: [] })
+    } else {
+      const outcome = await runReview(
+        {
+          assembled: cv, selection, brief: briefValue, strategy: g.strategy, evidence: evidenceFromVault(vault, selection),
+          validate: (markdown) => recheckMarkdown(markdown, snapshot).errors,
+        },
+        { profileId, jobApplicationId: jobId, runId, writingDeskDocumentId, deadline: deadline - LAND_RESERVE_MS },
+      )
+      review = outcome.review
+      if (outcome.assembled !== cv) {
+        // Edits were applied: the warnings are those of the edited text.
+        const checked = recheckMarkdown(outcome.assembled.markdown, snapshot)
+        finalCv = { ...outcome.assembled, warnings: checked.warnings }
+      }
+      const r = outcome.review
+      end({
+        status: r.skipped ? 'skipped' : 'ok', model: r.model, tokens: r.tokens, costUsd: r.costUsd,
+        notes: r.skipped
+          ? outcome.notes
+          : [
+              `Applied ${countOf(r.applied.length, 'edit')}, discarded ${r.discarded.length}; ${countOf(r.concerns.length, 'concern')} for the coach.`,
+              ...r.applied.map((a) => `Applied: ${a.action} ${a.sectionId}${a.bulletId ? ` ${a.bulletId}` : ''}: “${shortened(a.before, 60)}”${a.after ? ` → “${shortened(a.after, 60)}”` : ''} (${a.reason || 'no reason given'}).${a.note ? ` ${a.note}` : ''}`),
+              ...r.discarded.map((d) => `Discarded: ${d.action} ${d.sectionId}${d.bulletId ? ` ${d.bulletId}` : ''}: ${d.why}.`),
+              ...outcome.notes,
+            ],
+        kept: [], dropped: [], retries: 0, retryReasons: [], flaggedClaims: [], sections: [],
+      })
+    }
+    keep = { assembled: json(finalCv), review: json(review) }
+
+    // 6. Land: a draft in the job's CV document. Nothing live is overwritten.
+    if (!(await setStatus(profileId, runId, 'landing', { assembled: json(finalCv), review: json(review), stageTimings: json(timings), log: json(log()) }))) return
+    begin('land')
+    const landed = await landCv(profileId, { id: jobId, company: g.job.company, title: g.job.title }, finalCv.markdown, {
+      isActive: () => isRunActive(profileId, runId),
+      // false = the row can no longer be written (the run is stale or was killed): Land stops before it writes a draft.
+      onTarget: async (documentId) => {
+        const wrote = await updateActive(profileId, runId, { writingDeskDocumentId: documentId })
+        if (wrote) keep = { ...keep, writingDeskDocumentId: documentId }
+        return wrote
+      },
+    })
+    if (landed.kind === 'aborted') {
+      // Nothing can be written to a dead run's row, so there is nothing to fail: say so in the server log and stop.
+      console.warn('[cv-generation] the run is no longer active; the draft was not written', { runId, documentId: landed.documentId })
+      return
+    }
+    if (landed.kind !== 'landed') {
+      if (landed.kind === 'draft_exists') return await fail('draft_exists', ['A draft appeared in the document while the CV was being generated. The generated CV is kept on this run (see below); nothing was written to the document.'])
+      if (landed.kind === 'limit') return await fail('document_limit')
+      return await fail('error', [landed.message])
+    }
+    end({
+      status: 'ok', model: null, ...noUsage,
+      notes: [`${landed.created ? 'Created a new CV document' : 'Reused the CV document from the earlier run'} and saved the CV as a draft in it, for you to accept or discard. {{contact}} is filled in when you accept.`],
+      kept: [], dropped: [], retries: 0, retryReasons: [], flaggedClaims: [], sections: [],
+    })
     await updateActive(profileId, runId, {
       status: 'complete',
-      assembled: json(cv),
+      writingDeskDocumentId: landed.documentId,
+      assembled: json(finalCv),
+      review: json(review),
       completedAt: new Date(),
       stageTimings: json(timings),
-      log: json(log(true)),
+      log: json(log()),
     })
   } catch (err) {
     let cause = err

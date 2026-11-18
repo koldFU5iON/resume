@@ -5,7 +5,7 @@ vi.mock('@/modules/llm/complete-json', () => ({ completeJSON: vi.fn() }))
 import { z } from 'zod'
 import { LLMError } from '@/modules/llm/errors'
 import { completeJSON } from '@/modules/llm/complete-json'
-import { addUsage, CutOffError, completeChecked, completeValidated, NO_USAGE, softIssueNotes, usageOf, usageOfError } from './call'
+import { addUsage, attributionOf, CutOffError, completeChecked, completeValidated, NO_USAGE, softIssueNotes, usageOf, usageOfError } from './call'
 import { MAX_OUTPUT_TOKENS } from './schema'
 
 const mockJSON = vi.mocked(completeJSON)
@@ -34,10 +34,11 @@ beforeEach(() => {
 })
 
 describe('output caps', () => {
-  it('are brief 4000/8000, select 8000/16000, the skills and profile writers 1500/3000 (the experience writer scales: experienceTokenCaps)', () => {
+  it('are brief 4000/8000, select 8000/16000, the skills and profile writers 1500/3000, the review 3000/6000 (the experience writer scales: experienceTokenCaps)', () => {
     expect(MAX_OUTPUT_TOKENS).toEqual({
       brief: 4_000, briefRetry: 8_000, select: 8_000, selectRetry: 16_000,
       writeSkills: 1_500, writeSkillsRetry: 3_000, writeProfile: 1_500, writeProfileRetry: 3_000,
+      review: 3_000, reviewRetry: 6_000,
     })
   })
 })
@@ -336,5 +337,13 @@ describe('a cut-off first answer does not spend the retry on the same budget (Ph
     mockJSON.mockResolvedValue(bad('length'))
     await expect(completeValidated('p1', 'prompt', schema, opts(sameCap))).rejects.toBeInstanceOf(CutOffError)
     expect(mockJSON).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('attributionOf (usage attribution of every CV generation call)', () => {
+  it('is the job and the run, plus the desk document when it is known', () => {
+    expect(attributionOf({ jobApplicationId: 'job-1', runId: 'run-1' })).toEqual({ jobApplicationId: 'job-1', runId: 'run-1' })
+    expect(attributionOf({ jobApplicationId: 'job-1', runId: 'run-1', writingDeskDocumentId: null })).toEqual({ jobApplicationId: 'job-1', runId: 'run-1' })
+    expect(attributionOf({ jobApplicationId: 'job-1', runId: 'run-1', writingDeskDocumentId: 'doc-1' })).toEqual({ jobApplicationId: 'job-1', runId: 'run-1', writingDeskDocumentId: 'doc-1' })
   })
 })

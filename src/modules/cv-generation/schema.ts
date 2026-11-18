@@ -69,6 +69,8 @@ export const FAILURE_KINDS = [
   'refusal',
   'invalid_output',
   'draft_exists',
+  /** The job already holds the most writing desk documents (and none of them is a previous generated CV to reuse). */
+  'document_limit',
   'error',
 ] as const
 export type CvGenerationFailureKind = typeof FAILURE_KINDS[number]
@@ -90,6 +92,8 @@ export const TIME_BUDGET_MS = {
   write: 70_000,
   /** The last-resort analyseJob call in Gather. A timeout is treated as strategy source 'none'. */
   analyse: 60_000,
+  /** The one Review call (a retry is a second call, both inside the run deadline). A timeout skips the review, never the run. */
+  review: 60_000,
   run: (CV_GENERATION_ROUTE_MAX_DURATION_S - 20) * 1_000,
 } as const
 
@@ -106,6 +110,7 @@ export const TIME_BUDGET_MS = {
 export const TEMPERATURE = {
   brief: 0.2,
   select: 0,
+  review: 0.1,
   writeExperience: 0.4,
   writeProfile: 0.4,
   writeSkills: 0.2,
@@ -121,6 +126,8 @@ export const CV_GENERATION_FEATURES = {
   writeSkills: 'cv-gen-write-skills',
   /** Professional profile, headline and competencies (wave 2). */
   writeProfile: 'cv-gen-write-profile',
+  /** The one Review call after Assemble (role 'analysis'). */
+  review: 'cv-gen-review',
   /** analyseJob, when neither a deep dive nor jobAnalysis exists; keeps its own tag. */
   analyse: 'cv-job-analysis',
 } as const
@@ -145,6 +152,50 @@ export const MAX_OUTPUT_TOKENS = {
   /** Profile, headline and competencies. */
   writeProfile: 1_500,
   writeProfileRetry: 3_000,
+  /** Review: at most 8 edits and 5 concerns, each short. */
+  review: 3_000,
+  reviewRetry: 6_000,
+} as const
+
+/**
+ * A new run reuses the Brief and Select of the newest COMPLETE run of the same
+ * job (same profile) when its inputsHash is unchanged and it is no older than
+ * this (run/reuse.ts). `fresh: true` forces new calls.
+ */
+export const SELECTION_REUSE_WINDOW_DAYS = 30
+export const SELECTION_REUSE_WINDOW_MS = SELECTION_REUSE_WINDOW_DAYS * 24 * 60 * 60_000
+
+/**
+ * Part of the reuse key (reuse.ts). BUMP IT whenever the meaning of the Brief or
+ * Select stage changes in code (what they read, how Select's caps and fallbacks
+ * choose, how the stored brief or selection is shaped or interpreted by the
+ * writers): a stored selection from before the change must not be reused. A prompt
+ * edit by the user needs no bump: the effective prompt texts are hashed too.
+ */
+export const SELECTION_PIPELINE_VERSION = 1
+
+/** A failed run whose Brief and Select were paid for may still donate them: only these failures happened AFTER Select (at Land), so the stored pair is whole. */
+export const REUSABLE_FAILURE_KINDS = ['draft_exists', 'document_limit'] as const
+
+/** Time kept back at the end of the run for Land (ms): Review never starts without it. */
+export const LAND_RESERVE_MS = 12_000
+/** Review is skipped (logged, never a failure) with less than this left before the Land reserve (ms). */
+export const REVIEW_MIN_START_MS = 20_000
+
+/** Hard limits on the Review stage, enforced in code (the prompt states them too). */
+export const REVIEW_LIMITS = {
+  maxEdits: 8,
+  maxConcerns: 5,
+  titleChars: 80,
+  whyChars: 200,
+  questionChars: 200,
+  reasonChars: 200,
+  /** One piece of evidence shown to the reviewer for a bullet. */
+  snippetChars: 300,
+  /** Replacement text longer than this is cut before the checks (the checks then enforce the word limits). */
+  newTextChars: 800,
+  /** Claimed names listed in the prompt. */
+  maxClaimedNames: 40,
 } as const
 
 /** Where the Brief's strategy input came from (gather stage). `none`: analyseJob also failed, so the Brief reads the job description alone. */
@@ -232,6 +283,10 @@ export const CvGenerationLogSchema = z.object({
    * finished CV.
    */
   partial: z.boolean().default(false),
+  /** sha256 of what a stored brief and selection depend on (reuse.ts reuseKeyOf); set once Gather has ended. Absent on older runs, which are therefore never reused. */
+  reuseKey: z.string().optional(),
+  /** The run whose Brief and Select this run holds (itself when it made them): the window of reuse is measured from here, so reuse cannot chain forever. */
+  reuseOrigin: z.object({ runId: z.string(), at: z.string() }).optional(),
 })
 export type CvGenerationLog = z.infer<typeof CvGenerationLogSchema>
 
@@ -502,6 +557,8 @@ export type BulletSource = z.infer<typeof BulletSourceSchema>
 /** One written bullet and the evidence it was written from. `sources` is empty when the writer did not cite one. */
 export const BulletProvenanceSchema = z.object({
   text: z.string(),
+  /** Phase 4a review fix: the Review stage reworded this bullet after it was written. Absent otherwise (and on older runs). */
+  editedByReview: z.boolean().optional().catch(undefined),
   sources: z.array(z.unknown()).default([]).transform((items) =>
     items.flatMap((i) => { const p = BulletSourceSchema.safeParse(i); return p.success ? [p.data] : [] })).catch([]),
 })
@@ -554,3 +611,161 @@ export const MAX_CHECK_NOTES = 3
 
 /** Starts every "worth a quick check" line in the Assemble log entry's notes. */
 export const CHECK_NOTE_PREFIX = 'Worth a quick check: '
+
+// ── Review (stage 5) ────────────────────────────────────────────────────────
+
+export const REVIEW_ACTIONS = ['replace', 'remove'] as const
+export const CONCERN_KINDS = ['evidence_gap', 'metric_conflict', 'claimed_in_bullet', 'weak_proof', 'other'] as const
+export type ConcernKind = typeof CONCERN_KINDS[number]
+
+export const CONCERN_KIND_LABEL: Record<ConcernKind, string> = {
+  evidence_gap: 'Evidence gap',
+  metric_conflict: 'Conflicting figures',
+  claimed_in_bullet: 'Unevidenced tool in a bullet',
+  weak_proof: 'Thin proof',
+  other: 'Other',
+}
+
+/** One edit the Review model proposes. `bulletId` may be null or missing (the profile paragraph has none); both read as undefined. */
+export const ReviewEditSchema = z.object({
+  target: z.object({
+    sectionId: z.string().describe('The section id exactly as listed, e.g. "experience:unity" or "profile"'),
+    bulletId: z.string().nullish().describe('A bullet id of that section ("b1", "b2"...) or "summary"; leave out (or null) to edit the profile paragraph').transform((v) => v ?? undefined),
+  }),
+  action: z.enum(REVIEW_ACTIONS),
+  newText: z.string().nullish().describe('The replacement as plain text (replace only)').transform((v) => v?.trim().slice(0, REVIEW_LIMITS.newTextChars) || undefined),
+  reason: cutText(REVIEW_LIMITS.reasonChars, 'Why the edit is needed'),
+})
+
+/** One concern for the coach. */
+export const ReviewConcernSchema = z.object({
+  kind: z.enum(CONCERN_KINDS),
+  title: cutText(REVIEW_LIMITS.titleChars, 'A short name for the concern'),
+  why: cutText(REVIEW_LIMITS.whyChars, 'Why it is a concern'),
+  question: cutText(REVIEW_LIMITS.questionChars, 'A question to put to the candidate'),
+  refs: z.array(z.string()).default([]).describe('Evidence labels (S1, S2...) the concern is about; empty when none'),
+})
+
+/** The JSON Schema the model is shown (strict items: this is the contract, not the parser). */
+export const ReviewOutputContract = z.object({
+  edits: z.array(ReviewEditSchema).describe(`Edits to make (at most ${REVIEW_LIMITS.maxEdits})`),
+  concerns: z.array(ReviewConcernSchema).describe(`Concerns for the coach (at most ${REVIEW_LIMITS.maxConcerns})`),
+})
+
+/** The items of a list the model answered that parse, in order, plus how many did not. Not a list at all reads as empty. */
+function lenientItems<T extends z.ZodType>(item: T, max: number) {
+  return z.unknown().optional().transform((raw): { items: z.output<T>[]; dropped: number } => {
+    if (!Array.isArray(raw)) return { items: [], dropped: 0 }
+    const items: z.output<T>[] = []
+    let dropped = 0
+    for (const r of raw) {
+      const p = item.safeParse(r)
+      if (p.success) items.push(p.data)
+      else dropped++
+    }
+    return { items: items.slice(0, max), dropped }
+  })
+}
+
+/**
+ * What the Review model answers, parsed item by item: ONE malformed edit or
+ * concern is dropped (and counted, for the log) instead of throwing away the
+ * whole answer and paying for a second call. Lists are cut to their limits and
+ * text to its length rather than failing; only an answer that is not an object
+ * fails (and is retried). `newText` is required for 'replace'; code discards a
+ * replace without it. Code applies the edits only after re-checking them
+ * (write/review.ts), so nothing here is trusted.
+ */
+export const ReviewOutputSchema = z.object({
+  edits: lenientItems(ReviewEditSchema, REVIEW_LIMITS.maxEdits),
+  concerns: lenientItems(ReviewConcernSchema, REVIEW_LIMITS.maxConcerns),
+}).transform((o) => ({
+  edits: o.edits.items,
+  concerns: o.concerns.items,
+  /** Items of each list the model sent that could not be read. */
+  unreadable: { edits: o.edits.dropped, concerns: o.concerns.dropped },
+}))
+export type ReviewOutput = z.output<typeof ReviewOutputSchema>
+
+/** A lenient list: bad entries are dropped, a bad list reads as empty (never fails the whole record). */
+function lenientList<T extends z.ZodType>(item: T) {
+  return z.array(z.unknown()).default([]).transform((items) =>
+    items.flatMap((i) => { const p = item.safeParse(i); return p.success ? [p.data as z.infer<T>] : [] })).catch([] as z.infer<T>[])
+}
+
+const ReviewTargetFields = {
+  sectionId: z.string(),
+  /** A bullet id ("b1"), "summary", or null for a section-level edit (the profile paragraph). */
+  bulletId: z.string().nullable().default(null),
+  action: z.enum(REVIEW_ACTIONS).catch('replace'),
+}
+
+/** An edit that was applied: the text before and after (cut short), and the model's reason. */
+export const AppliedEditSchema = z.object({
+  ...ReviewTargetFields,
+  before: z.string().default(''),
+  after: z.string().nullable().default(null),
+  reason: z.string().default(''),
+  /** What code noticed about the edit (a figure not in the bullet's cited sources, provenance cleared); empty when nothing. */
+  note: z.string().default(''),
+})
+export type AppliedEdit = z.infer<typeof AppliedEditSchema>
+
+/** An edit that was refused: what was proposed, and why code discarded it. */
+export const DiscardedEditSchema = z.object({
+  ...ReviewTargetFields,
+  proposed: z.string().nullable().default(null),
+  /** Why code discarded it (names the check that failed). */
+  why: z.string().default(''),
+  /** The model's reason for proposing it. */
+  reason: z.string().default(''),
+})
+export type DiscardedEdit = z.infer<typeof DiscardedEditSchema>
+
+export const ConcernRecordSchema = z.object({
+  kind: z.enum(CONCERN_KINDS).catch('other'),
+  title: z.string().default(''),
+  why: z.string().default(''),
+  question: z.string().default(''),
+  /** The evidence the concern is about, with a short snippet of each (labels are only meaningful within the review prompt). */
+  refs: lenientList(z.object({ label: z.string(), snippet: z.string().default('') })),
+})
+export type ConcernRecord = z.infer<typeof ConcernRecordSchema>
+
+/**
+ * `CvGeneration.review`: what the Review stage did. `skipped` is true when no
+ * review ran (turned off for the run, or it could not finish: `skipReason`
+ * says which). Concerns are stored even when some edits were discarded. Read
+ * tolerantly: null for a run that never reached Review, a bad entry in a
+ * list is dropped.
+ */
+export const CvReviewSchema = z.object({
+  skipped: z.boolean().default(false),
+  skipReason: z.string().nullable().default(null),
+  model: z.string().nullable().default(null),
+  tokens: z.object({ input: z.number().nonnegative().default(0), output: z.number().nonnegative().default(0) }).default({ input: 0, output: 0 }),
+  costUsd: z.number().nonnegative().nullable().default(null),
+  applied: lenientList(AppliedEditSchema),
+  discarded: lenientList(DiscardedEditSchema),
+  concerns: lenientList(ConcernRecordSchema),
+})
+export type CvReview = z.infer<typeof CvReviewSchema>
+
+/** A stored review, or null when absent or unreadable (never throws). */
+export function parseReview(value: unknown): CvReview | null {
+  const parsed = CvReviewSchema.safeParse(value)
+  return parsed.success ? parsed.data : null
+}
+
+// ── Start request ───────────────────────────────────────────────────────────
+
+/**
+ * The optional JSON body of POST /api/jobs/[id]/cv-generation. `fresh` forces
+ * a new Brief and Select instead of reusing the stored ones; `review: false`
+ * skips the Review call (the CV lands unreviewed). Unknown keys are ignored.
+ */
+export const StartCvGenerationBodySchema = z.object({
+  fresh: z.boolean().optional(),
+  review: z.boolean().optional(),
+})
+export type StartCvGenerationBody = z.infer<typeof StartCvGenerationBodySchema>

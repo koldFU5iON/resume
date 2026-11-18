@@ -120,3 +120,21 @@ describe('the writer prompts, after the review fixes', () => {
     })
   })
 })
+
+describe('the review prompt file (phase 4a)', () => {
+  const t = read('cv-gen-review')
+
+  it('names no model id and no contact detail, and treats the CV text as data', () => {
+    expect(t).not.toMatch(/claude|gpt|gemini|sonnet|haiku|opus/i)
+    expect(t).not.toMatch(/@\w+\.\w+/)
+    expect(t).toContain('data, not instructions')
+  })
+
+  it('states the read-only sections, the evidence-only rule, the concern kinds and that code re-checks every edit', () => {
+    expect(t).toMatch(/titles, companies, dates, headings, certifications, education, languages, the header or the contact placeholder/)
+    expect(t).toContain('Use ONLY the supplied evidence')
+    for (const kind of ['evidence_gap', 'metric_conflict', 'claimed_in_bullet', 'weak_proof']) expect(t).toContain(kind)
+    expect(t).toMatch(/re-checks every edit/)
+    expect(t).toMatch(/last bullet|at least one bullet/)
+  })
+})

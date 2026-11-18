@@ -142,6 +142,15 @@ describe('runBrief', () => {
     expect(r.value.budgets.experiences).toBe(4)
   })
 
+  it('adds the desk document to the attribution when it is known (and only then)', async () => {
+    mockJSON.mockResolvedValue(ok(goodBrief))
+    await runBrief(gathered(), { ...ctx, writingDeskDocumentId: 'doc-1' })
+    expect(mockJSON.mock.calls[0][3]).toMatchObject({ attribution: { jobApplicationId: 'job-1', runId: 'run-1', writingDeskDocumentId: 'doc-1' } })
+    mockJSON.mockClear()
+    await runBrief(gathered(), { ...ctx, writingDeskDocumentId: null })
+    expect((mockJSON.mock.calls[0][3] as { attribution: object }).attribution).toEqual({ jobApplicationId: 'job-1', runId: 'run-1' })
+  })
+
   it('retries once when the answer does not match, naming the fields but not echoing the text', async () => {
     mockJSON.mockResolvedValueOnce(bad()).mockResolvedValueOnce(ok(goodBrief))
     const r = await runBrief(gathered(), ctx)

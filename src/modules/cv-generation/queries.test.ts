@@ -83,6 +83,17 @@ describe('toCvGenerationView', () => {
     expect(toCvGenerationView(row({ assembled: { markdown: 5 } }), summarizeRunUsage([]), NOW).assembled).toBeNull()
   })
 
+  it('exposes the review and the reuse source, and reads a run stored before Phase 4a (no columns) as none', () => {
+    const review = { skipped: false, model: 'm', tokens: { input: 1, output: 1 }, costUsd: 0.01, applied: [], discarded: [], concerns: [{ kind: 'evidence_gap', title: 'T', why: 'w', question: 'q?', refs: [] }] }
+    const view = toCvGenerationView(row({ status: 'complete', review, selectionReusedFromRunId: 'run-0' }), summarizeRunUsage([]), NOW)
+    expect(view.review?.concerns).toHaveLength(1)
+    expect(view.selectionReusedFromRunId).toBe('run-0')
+    const old = toCvGenerationView(row(), summarizeRunUsage([]), NOW)
+    expect(old.review).toBeNull()
+    expect(old.selectionReusedFromRunId).toBeNull()
+    expect(toCvGenerationView(row({ review: 'junk', selectionReusedFromRunId: undefined }), summarizeRunUsage([]), NOW)).toMatchObject({ review: null, selectionReusedFromRunId: null })
+  })
+
   it('reads a stored log without section rows (written before phase 3) with empty sections', () => {
     const view = toCvGenerationView(row({ log: { entries: [{ stage: 'select', status: 'ok' }], partial: true } }), summarizeRunUsage([]), NOW)
     expect(view.log[0].sections).toEqual([])

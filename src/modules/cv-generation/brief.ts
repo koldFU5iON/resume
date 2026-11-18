@@ -12,7 +12,7 @@
 
 import * as z from 'zod'
 import { composeSystem, loadCVBriefPrompt } from '@/modules/llm/prompt-context'
-import { completeValidated, type ValidatedCall } from './call'
+import { attributionOf, completeValidated, type ValidatedCall } from './call'
 import type { Candidates } from './candidates'
 import type { GatherResult } from './gather'
 import { CV_GENERATION_FEATURES, CvBriefSchema, MAX_OUTPUT_TOKENS, TEMPERATURE, TIME_BUDGET_MS, type CvBrief } from './schema'
@@ -47,7 +47,7 @@ export function applyProfileBudgets(brief: CvBrief, cands: Pick<Candidates, 'edu
 /** Runs the Brief call. Throws LLMError (kind invalid_output, timeout, ...). */
 export async function runBrief(
   g: Gathered,
-  ctx: { profileId: string; jobApplicationId: string; runId: string; deadline: number },
+  ctx: { profileId: string; jobApplicationId: string; runId: string; deadline: number; writingDeskDocumentId?: string | null },
 ): Promise<BriefResult> {
   const instructions = await loadCVBriefPrompt(ctx.profileId)
   const result = await completeValidated(ctx.profileId, briefPrompt(g), CvBriefSchema, {
@@ -59,7 +59,7 @@ export async function runBrief(
     timeoutMs: TIME_BUDGET_MS.brief,
     deadline: ctx.deadline,
     feature: CV_GENERATION_FEATURES.brief,
-    attribution: { jobApplicationId: ctx.jobApplicationId, runId: ctx.runId },
+    attribution: attributionOf(ctx),
     label: 'brief',
   })
   return { ...result, value: applyProfileBudgets(result.value, g.candidates) }

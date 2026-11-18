@@ -13,7 +13,7 @@
 
 import * as z from 'zod'
 import { composeSystem } from '@/modules/llm/prompt-context'
-import { completeValidated, type CallUsage, NO_USAGE, usageOfError } from '../call'
+import { attributionOf, completeValidated, type CallUsage, NO_USAGE, usageOfError } from '../call'
 import { CV_GENERATION_FEATURES, MAX_OUTPUT_TOKENS, TEMPERATURE, TIME_BUDGET_MS } from '../schema'
 import { GROUP_LABEL_MAX_WORDS, MAX_SKILL_GROUPS, MIN_CALL_MS, MIN_NAMES_TO_GROUP } from './limits'
 import { wordCount } from './checks'
@@ -144,7 +144,7 @@ export async function writeSkills(
       timeoutMs: TIME_BUDGET_MS.write,
       deadline: ctx.deadline,
       feature: CV_GENERATION_FEATURES.writeSkills,
-      attribution: { jobApplicationId: ctx.jobApplicationId, runId: ctx.runId },
+      attribution: attributionOf(ctx),
       label: 'skills grouping',
     })
     const notes: string[] = []
