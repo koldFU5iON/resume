@@ -14,7 +14,7 @@ vi.mock('@/lib/db', () => {
 })
 
 import { prisma } from '@/lib/db'
-import { ACTIVE_STATUSES, CV_GENERATION_CONCURRENCY_PER_PROFILE, CV_GENERATION_STATUSES } from './schema'
+import { ACTIVE_STATUSES, CV_GENERATION_CONCURRENCY_PER_PROFILE, CV_GENERATION_STALE_MS, CV_GENERATION_STATUSES } from './schema'
 import { FAILURE_MESSAGES, allowedFrom, createCvGenerationRun, failRun, setStatus, updateActive } from './run'
 import { FAILURE_KINDS } from './schema'
 
@@ -55,40 +55,47 @@ describe('allowedFrom', () => {
 describe('setStatus', () => {
   it('updates guarded by the statuses it may come from and writes the data with the new status', async () => {
     const startedAt = new Date()
-    expect(await setStatus('run-1', 'gathering', { startedAt })).toBe(true)
+    expect(await setStatus('p1', 'run-1', 'gathering', { startedAt })).toBe(true)
     expect(db.cvGeneration.updateMany).toHaveBeenCalledWith({
-      where: { id: 'run-1', status: { in: ['queued'] } },
+      where: { id: 'run-1', profileId: 'p1', status: { in: ['queued'] }, createdAt: { gte: expect.any(Date) } },
       data: { startedAt, status: 'gathering' },
     })
   })
 
   it('returns false when the run is gone, finished or already past (nothing matched)', async () => {
     db.cvGeneration.updateMany.mockResolvedValue({ count: 0 })
-    expect(await setStatus('run-1', 'briefing')).toBe(false)
+    expect(await setStatus('p1', 'run-1', 'briefing')).toBe(false)
   })
 
   it('does not let data override the status', async () => {
-    await setStatus('run-1', 'selecting', { status: 'complete' })
+    await setStatus('p1', 'run-1', 'selecting', { status: 'complete' } as never)
     expect(db.cvGeneration.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'selecting' } }))
   })
 
   it('refuses a move to queued without touching the database', async () => {
-    expect(await setStatus('run-1', 'queued')).toBe(false)
+    expect(await setStatus('p1', 'run-1', 'queued')).toBe(false)
     expect(db.cvGeneration.updateMany).not.toHaveBeenCalled()
   })
 })
 
 describe('updateActive and failRun', () => {
   it('only writes a run that is still active', async () => {
-    expect(await updateActive('run-1', { log: { entries: [] } })).toBe(true)
+    expect(await updateActive('p1', 'run-1', { log: { entries: [] } })).toBe(true)
     expect(db.cvGeneration.updateMany).toHaveBeenCalledWith({
-      where: { id: 'run-1', status: { in: [...ACTIVE_STATUSES] } },
+      where: { id: 'run-1', profileId: 'p1', status: { in: [...ACTIVE_STATUSES] }, createdAt: { gte: expect.any(Date) } },
       data: { log: { entries: [] } },
     })
   })
 
+  it('never writes a run of another profile or one past the stale window', async () => {
+    await updateActive('p1', 'run-1', { log: {} })
+    const where = (db.cvGeneration.updateMany.mock.calls[0][0] as { where: { profileId: string; createdAt: { gte: Date } } }).where
+    expect(where.profileId).toBe('p1')
+    expect(Date.now() - where.createdAt.gte.getTime()).toBeGreaterThanOrEqual(CV_GENERATION_STALE_MS - 1000)
+  })
+
   it('records a failure with the kind’s default message and a completion time', async () => {
-    expect(await failRun('run-1', 'no_llm_key', null, { stageTimings: { gather: 5 } })).toBe(true)
+    expect(await failRun('p1', 'run-1', 'no_llm_key', null, { stageTimings: { gather: 5 } })).toBe(true)
     const call = db.cvGeneration.updateMany.mock.calls[0][0] as { data: Record<string, unknown> }
     expect(call.data).toMatchObject({
       status: 'failed', failureKind: 'no_llm_key', failureMessage: FAILURE_MESSAGES.no_llm_key, stageTimings: { gather: 5 },
@@ -99,7 +106,7 @@ describe('updateActive and failRun', () => {
   it('never throws when the write fails', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     db.cvGeneration.updateMany.mockRejectedValue(new Error('db down'))
-    expect(await failRun('run-1', 'error', 'boom')).toBe(false)
+    expect(await failRun('p1', 'run-1', 'error', 'boom')).toBe(false)
   })
 
   it('has a message for every failure kind', () => {

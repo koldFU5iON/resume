@@ -79,8 +79,8 @@ function RunBody({ jobId, view }: { jobId: string; view: CvGenerationView }) {
   return (
     <div className="max-w-[68ch] space-y-8">
       {active ? (
-        <div aria-live="polite">
-          <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-[-0.02em]">
+        <div>
+          <h1 aria-live="polite" className="flex items-center gap-2 text-2xl font-semibold tracking-[-0.02em]">
             <Loader2 className="size-5 animate-spin text-primary" aria-hidden="true" />
             {CV_GENERATION_STATUS_LABEL[view.status]}
           </h1>

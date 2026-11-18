@@ -84,10 +84,30 @@ export function allowedFrom(target: CvGenerationStatus): readonly CvGenerationSt
   return ACTIVE_STATUSES.slice(0, (ACTIVE_STATUSES as readonly CvGenerationStatus[]).indexOf(target))
 }
 
-/** Updates a run that is still active; a finished row is never written again. */
-export async function updateActive(id: string, data: Prisma.CvGenerationUncheckedUpdateManyInput): Promise<boolean> {
+/** Fields a caller may write: never the owner, the job or the status (use `setStatus` for that). */
+export type CvGenerationRunData = Omit<
+  Prisma.CvGenerationUncheckedUpdateManyInput,
+  'id' | 'profileId' | 'jobApplicationId' | 'status'
+>
+
+/**
+ * Updates a run of `profileId` that is still active; a finished row is never
+ * written again. A run past CV_GENERATION_STALE_MS already reads as failed
+ * (queries.ts), so it is not written either: a stalled run that resumes late
+ * cannot flip to complete after the user has started another.
+ */
+export async function updateActive(
+  profileId: string,
+  id: string,
+  data: CvGenerationRunData & { status?: CvGenerationStatus },
+): Promise<boolean> {
   const res = await prisma.cvGeneration.updateMany({
-    where: { id, status: { in: [...ACTIVE_STATUSES] } },
+    where: {
+      id,
+      profileId,
+      status: { in: [...ACTIVE_STATUSES] },
+      createdAt: { gte: new Date(Date.now() - CV_GENERATION_STALE_MS) },
+    },
     data,
   })
   return res.count === 1
@@ -99,14 +119,20 @@ export async function updateActive(id: string, data: Prisma.CvGenerationUnchecke
  * which case nothing is written and the caller stops.
  */
 export async function setStatus(
+  profileId: string,
   id: string,
   status: CvGenerationStatus,
-  data: Prisma.CvGenerationUncheckedUpdateManyInput = {},
+  data: CvGenerationRunData = {},
 ): Promise<boolean> {
   const from = allowedFrom(status)
   if (from.length === 0) return false
   const res = await prisma.cvGeneration.updateMany({
-    where: { id, status: { in: [...from] } },
+    where: {
+      id,
+      profileId,
+      status: { in: [...from] },
+      createdAt: { gte: new Date(Date.now() - CV_GENERATION_STALE_MS) },
+    },
     data: { ...data, status },
   })
   return res.count === 1
@@ -126,13 +152,14 @@ export const FAILURE_MESSAGES: Record<CvGenerationFailureKind, string> = {
 
 /** Ends an active run as failed. Best effort: it never throws. */
 export async function failRun(
+  profileId: string,
   id: string,
   kind: CvGenerationFailureKind,
   message: string | null,
   extra: { stageTimings?: object; log?: object } = {},
 ): Promise<boolean> {
   try {
-    return await updateActive(id, {
+    return await updateActive(profileId, id, {
       status: 'failed',
       failureKind: kind,
       failureMessage: message ?? FAILURE_MESSAGES[kind],

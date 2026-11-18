@@ -1,6 +1,6 @@
 # CV generation (writing desk)
 
-Status: **plan agreed; phase 1 (run record, attribution, generation log) shipped.** The Implementation record at the end is filled in as each PR lands, so this file ends up as the implementation record. The pipeline of the code being replaced is kept in [`cv-generation-legacy.md`](./cv-generation-legacy.md) until phase 5 removes it.
+Status: **plan agreed; phase 1 (run record, attribution, generation log) in review (PR #414).** The Implementation record at the end is filled in as each PR lands, so this file ends up as the implementation record. The pipeline of the code being replaced is kept in [`cv-generation-legacy.md`](./cv-generation-legacy.md) until phase 5 removes it.
 
 Replaces the legacy cv-builder generation (`createAndGenerateCV` in `src/modules/cv/actions.ts`, `src/modules/cv/generate.ts`). The result is a **writing desk document** (Markdown with `:::` blocks), landed as a reviewable draft.
 
@@ -93,7 +93,7 @@ Each phase is its own PR, cut from `origin/main`.
 
 _Filled in per phase: what shipped, file locations, schema and migration names, prompt locations, caps and limits chosen, usage tags, and deviations from this plan._
 
-- Phase 1: **shipped.** The run row, usage attribution and an empty-but-working generation log. No prompts, no LLM calls, no stages, and "Generate CV" still points at the old flow.
+- Phase 1: **in review (PR #414).** The run row, usage attribution and an empty-but-working generation log. No prompts, no LLM calls, no stages, and "Generate CV" still points at the old flow.
   - **Migration** `20261118085231_cv_generation_run`: new `CvGeneration` table, and `LlmUsageLog.writingDeskDocumentId` (nullable, indexed, FK to `WritingDeskDocument`, `ON DELETE SET NULL`).
   - **Schema**: `prisma/schema/cv-generation.prisma`. Columns: `id`, `profileId`, `jobApplicationId`, `writingDeskDocumentId?`, `deepDiveId?`, `status`, `failureKind?`, `failureMessage?`, `inputsHash?`, `startedAt?`, `completedAt?`, `stageTimings Json?`, `log Json?`, `createdAt`, `updatedAt`. Indexes `(profileId, jobApplicationId, createdAt)`, `(profileId, status)`, `writingDeskDocumentId`, `deepDiveId`. Relations: profile and job cascade on delete; desk document and deep dive `SetNull`.
   - **Attribution**: `writingDeskDocumentId` on `LlmAttribution` and `resolveAttribution` (`src/modules/llm/attribution.ts`). It must belong to the profile, and to the given job (or the job a CV implied); otherwise it is dropped with a warning. Without a job it supplies the document's job. The BYOK client's `writeUsageLog` (success and failed-call paths) and the Jev reservation both store the resolved value. `docs/llm-usage-tracking.md` documents the field and its feature table is refreshed to the current tags.

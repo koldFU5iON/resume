@@ -36,6 +36,7 @@ model CvGeneration {
   deepDive            JobDeepDive?         @relation(fields: [deepDiveId], references: [id], onDelete: SetNull)
 
   @@index([profileId, jobApplicationId, createdAt])
+  @@index([jobApplicationId, createdAt])
   @@index([profileId, status])
   @@index([writingDeskDocumentId])
   @@index([deepDiveId])
