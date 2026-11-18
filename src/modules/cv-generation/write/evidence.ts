@@ -51,7 +51,7 @@ export type CertificationEvidence = {
   issuer: string | null
   issueDate: Date | null
   expiryDate: Date | null
-  /** Position in the selection's relevance order (0 = Select's first pick). */
+  /** Position among the certifications that will be rendered (not expired), in the selection's relevance order (0 = the first shown). Undefined when the selection was chosen by code, not the model. */
   rank?: number
 }
 
@@ -86,9 +86,16 @@ export type Evidence = {
   credentials: Array<{ name: string; inProgress: boolean }>
 }
 
-/** Names whose digits are part of the name ("ISO 27001", "GA4"), not figures: selected skills, tools, competencies and certifications. */
-export function figureIgnoredNames(e: Pick<Evidence, 'skills' | 'tools' | 'competencies' | 'certifications'>): string[] {
-  return [...e.skills, ...e.tools, ...e.competencies, ...e.certifications].map((c) => c.name)
+/**
+ * Names whose digits are part of the name ("ISO 27001", "GA4", the employer "2K"), not figures: selected skills,
+ * tools, competencies and certifications, every company in the profile and the selected project names.
+ */
+export function figureIgnoredNames(e: Pick<Evidence, 'skills' | 'tools' | 'competencies' | 'certifications'> & Partial<Pick<Evidence, 'profileCompanies' | 'employers'>>): string[] {
+  return [
+    ...[...e.skills, ...e.tools, ...e.competencies, ...e.certifications].map((c) => c.name),
+    ...(e.profileCompanies ?? []),
+    ...(e.employers ?? []).flatMap((emp) => emp.projects.map((p) => p.name)),
+  ]
 }
 
 /** The text a writer's figures and names may be checked against: the activities' text and impact. */
@@ -178,11 +185,16 @@ export function evidenceFromVault(vault: Vault, selection: CvSelection, now: Dat
         : []
     })
 
-  const certifications = selection.certifications.flatMap(({ id }, rank) => {
+  // Rank among the certifications that will actually be rendered: an expired or removed first pick leaves the next one rank 0.
+  // The weak-certification rule only means something for a model's relevance order, so a code-chosen selection carries no rank.
+  const certifications: CertificationEvidence[] = []
+  for (const { id } of selection.certifications) {
     const n = vault.notes.get(id)
-    if (n?.type !== 'certification') { unresolved.push({ section: 'certifications', id }); return [] }
-    return [{ id, name: n.props.name, issuer: n.props.issuer, issueDate: n.props.issueDate, expiryDate: n.props.expiryDate, rank }]
-  })
+    if (n?.type !== 'certification') { unresolved.push({ section: 'certifications', id }); continue }
+    const rank = certifications.filter((c) => certificationStatus(c, now) !== 'expired').length
+    const c = { id, name: n.props.name, issuer: n.props.issuer, issueDate: n.props.issueDate, expiryDate: n.props.expiryDate }
+    certifications.push(selection.mode === 'model' && certificationStatus(c, now) !== 'expired' ? { ...c, rank } : c)
+  }
   const education = selection.education.flatMap(({ id }) => {
     const n = vault.notes.get(id)
     if (n?.type !== 'education') unresolved.push({ section: 'education', id })

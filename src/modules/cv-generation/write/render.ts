@@ -70,10 +70,12 @@ export type Rendered = {
  * without a date.
  *
  * Weak certification rule (Phase 3b): one with NEITHER an issuer NOR a date
- * cannot be checked and says little, so it is skipped (log note) unless Select
- * ranked it relevant, meaning it is Select's first pick (`rank` 0, the
- * selection's order is relevance order). A certification with an issuer or a
- * date is never skipped by this rule.
+ * cannot be checked and says little, so it is skipped (log note) unless it is
+ * the first certification shown (`rank` 0 among those rendered, in Select's
+ * relevance order). A certification with an issuer or a date is never skipped
+ * by this rule, and neither is one that is in progress (it has no date by
+ * nature). `rank` is undefined for a code-chosen (fallback) selection, so the
+ * rule does not apply there.
  */
 export function renderCertifications(certs: readonly CertificationEvidence[], now: Date = new Date()): Rendered {
   const notes: string[] = []
@@ -84,7 +86,8 @@ export function renderCertifications(certs: readonly CertificationEvidence[], no
       notes.push(`"${c.name}" expired in ${year(c.expiryDate as Date)} and was left out.`)
       continue
     }
-    if (!c.issuer?.trim() && !c.issueDate && !c.expiryDate && (c.rank ?? 0) > 0) {
+    // An in-progress certification is never "weak": it has no date by nature, and the CV shows it as "(in progress)".
+    if (status !== 'in_progress' && !c.issuer?.trim() && !c.issueDate && !c.expiryDate && (c.rank ?? 0) > 0) {
       notes.push(`"${c.name}" has no issuer and no date, and Select did not rank it first, so it was left out.`)
       continue
     }

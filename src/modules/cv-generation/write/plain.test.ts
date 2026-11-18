@@ -98,3 +98,36 @@ describe('first person (the voice is an implied subject)', () => {
     expect(plainLine('Led my team')).toBe('Led my team')
   })
 })
+
+describe('first person: verbatim names and roman numerals are not violations', () => {
+  const evidence = [
+    'Launched the My Talking Tom campaign', 'Shipped We Happy Few to console', "Licensed the \"I'm Lovin' It\" jingle", 'Published Our World in Data dashboards',
+    'Ran the I Am Legend premiere', 'Led the "Me Too" campaign for the studio',
+  ].join('\n')
+
+  it.each([
+    'Led the My Talking Tom launch.',
+    'Shipped We Happy Few on three platforms.',
+    "Reworked the I'm Lovin' It jingle.",
+    'Built dashboards for Our World in Data.',
+    'Hosted the I Am Legend premiere.',
+    'Led the "Me Too" campaign.',
+  ])('ignores a title taken verbatim from the evidence: "%s"', (text) => {
+    expect(hasFirstPerson(text)).toBe(true) // without the evidence it is flagged
+    expect(hasFirstPerson(text, evidence)).toBe(false)
+    expect(plainProblems(text, evidence)).toEqual([])
+  })
+
+  it.each(['Delivered Phase I of the rollout.', 'Researched World War I memorials.', 'Surveyed Grade I listed buildings.', 'Phase I launched on time.', 'Played Final Fantasy I'])('ignores a roman-numeral I: "%s"', (text) => {
+    expect(hasFirstPerson(text)).toBe(false)
+  })
+
+  it('still flags a real violation, even next to evidence text', () => {
+    expect(hasFirstPerson('I led the My Talking Tom launch.', evidence)).toBe(true)
+    expect(hasFirstPerson('Led my team on the Me Too campaign.', evidence)).toBe(true)
+    expect(hasFirstPerson('We shipped it.', evidence)).toBe(true)
+    expect(hasFirstPerson('Then I led the team.', evidence)).toBe(true)
+    expect(hasFirstPerson('Led Team I managed.', evidence)).toBe(true)
+    expect(plainReasons('We shipped it.', evidence)).toEqual(['first person'])
+  })
+})

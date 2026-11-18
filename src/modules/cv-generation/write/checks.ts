@@ -184,24 +184,44 @@ export function distinctNotableFigures(text: string, names: readonly string[] = 
 
 // ── Projects ────────────────────────────────────────────────────────────────
 
-const distinctiveWords = (text: string) => new Set(text.toLowerCase().split(/[^\p{L}\p{N}+#]+/u).filter((w) => w.length >= 5))
+/** Words that say nothing about WHICH project it was: they never prove one was reflected. */
+const GENERIC_PROJECT_WORDS = new Set([
+  'project', 'projects', 'campaign', 'campaigns', 'launch', 'launches', 'demo', 'demos', 'program', 'programme', 'initiative', 'event', 'events',
+  'product', 'platform', 'redesign', 'website', 'site', 'team', 'update', 'new', 'the', 'and', 'for', 'with',
+])
+
+const normalised = (text: string) => text.toLowerCase().normalize('NFKD').replace(/\p{M}/gu, '').split(/[^\p{L}\p{N}]+/u).filter(Boolean)
+
+/** The words of a project's name that identify it: 4+ characters, not a generic word, not in the employer's ordinary activity text. */
+export function distinctiveNameTokens(name: string, ordinaryText: string): string[] {
+  const ordinary = new Set(normalised(ordinaryText))
+  return [...new Set(normalised(name))].filter((w) => w.length >= 4 && !GENERIC_PROJECT_WORDS.has(w) && !ordinary.has(w))
+}
 
 /**
- * Whether `output` reflects a selected project: it names the project, or it
- * uses at least two of the project's own distinctive words (5+ letters; all of
- * them when the project has fewer). Best effort: a paraphrase with no shared
- * word is a false negative, which costs one retry and a log note, never a
- * failed run.
+ * Whether `output` reflects a selected project: it contains the project's name
+ * (normalised: case, accents and punctuation ignored), or a DISTINCTIVE token
+ * of that name. A word that is generic ("campaign", "launch") or appears in the
+ * employer's ordinary activity text (`ordinaryText`) never counts, so "Launched
+ * marketing campaign across social channels" does not cover a project called
+ * "Enemies Demo Campaign". A project whose name is nothing but generic words
+ * is reflected only by its full name. Best effort: a paraphrase is a false
+ * negative, which costs one retry and a log note, never a failed run.
  */
-export function projectReflected(output: string, project: { name: string; text: string }): boolean {
-  if (containsPhrase(output, project.name)) return true
-  const mine = [...distinctiveWords(`${project.name} ${project.text}`)]
-  if (mine.length === 0) return true
-  const theirs = distinctiveWords(output)
-  return mine.filter((w) => theirs.has(w)).length >= Math.min(2, mine.length)
+export function projectReflected(output: string, project: { name: string }, ordinaryText = ''): boolean {
+  const name = normalised(project.name).join(' ')
+  const out = ` ${normalised(output).join(' ')} `
+  if (name && out.includes(` ${name} `)) return true
+  const outWords = new Set(normalised(output))
+  return distinctiveNameTokens(project.name, ordinaryText).some((w) => outWords.has(w))
 }
 
 // ── Competency labels ───────────────────────────────────────────────────────
+
+/** A number standing on its own ("Top 10 lists", "24/7"); digits inside a name ("B2B", "Web3", "3D") are not. */
+const STANDALONE_DIGITS = /(?<![\p{L}\p{N}])\d+(?![\p{L}\p{N}])/u
+/** Sentence punctuation; a dot inside a token ("Node.js") is not a sentence. */
+const SENTENCE_MARK = /[;:!?]|\.(?:\s|$)/
 
 /** Why a Core Competencies label is not a short noun phrase (2-5 words, no numbers, no sentence), or null when it is fine. */
 export function competencyLabelProblem(label: string, bounds: { min: number; max: number }): string | null {
@@ -209,9 +229,36 @@ export function competencyLabelProblem(label: string, bounds: { min: number; max
   const n = wordCount(l)
   if (n < bounds.min) return `"${l}" is ${n === 0 ? 'empty' : 'one word'}; use ${bounds.min} to ${bounds.max} words`
   if (n > bounds.max) return `"${l}" is ${n} words; use ${bounds.min} to ${bounds.max}`
-  if (figuresIn(l, { bareOne: true }).length > 0 || /\d/.test(l)) return `"${l}" has a number; labels carry no numbers`
-  if (/[.;:!?]/.test(l)) return `"${l}" reads as a sentence; use a plain noun phrase`
+  if (figuresIn(l, { bareOne: true }).length > 0 || STANDALONE_DIGITS.test(l)) return `"${l}" has a number; labels carry no numbers`
+  if (SENTENCE_MARK.test(l)) return `"${l}" reads as a sentence; use a plain noun phrase`
   return null
+}
+
+/** Short words and fillers that say nothing about what a label is about. */
+const LABEL_STOP = new Set(['with', 'from', 'that', 'this', 'across', 'into', 'over', 'under', 'and', 'for', 'the', 'their', 'your', 'using', 'based'])
+
+/** The content words of a text as 5-letter stems, so "launch", "launched" and "launching" meet. */
+function contentStems(text: string): Set<string> {
+  return new Set(normalised(text).filter((w) => w.length >= 4 && !LABEL_STOP.has(w)).map((w) => w.slice(0, 5)))
+}
+
+/** Whether a Core Competencies label is grounded in `texts` (the selected competency names, the employers' evidence): it shares a content word with any of them. */
+export function labelGroundedIn(label: string, texts: readonly string[]): boolean {
+  const mine = contentStems(label)
+  return texts.some((t) => [...contentStems(t)].some((w) => mine.has(w)) || containsPhrase(t, label))
+}
+
+/**
+ * Whether a label reflects a selected competency: it contains the name (or the
+ * name contains it), or more than half of the name's content words appear in it.
+ * Matching on full names and words, not the first word.
+ */
+export function labelReflectsCompetency(label: string, name: string): boolean {
+  if (containsPhrase(label, name) || containsPhrase(name, label)) return true
+  const wanted = [...contentStems(name)]
+  if (wanted.length === 0) return false
+  const mine = contentStems(label)
+  return wanted.filter((w) => mine.has(w)).length > wanted.length / 2
 }
 
 // ── Names ───────────────────────────────────────────────────────────────────

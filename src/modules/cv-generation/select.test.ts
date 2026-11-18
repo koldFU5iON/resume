@@ -814,7 +814,8 @@ describe('the select prompt file (phase 3b additions)', () => {
   it('leaves out a certification with no clear relevance, with the front-end React course example', () => {
     expect(text).toContain('A certification with no clear relevance to the role is left out')
     expect(text).toContain('front-end React course for a product marketing role')
-    expect(text).toMatch(/no issuer, no date\) is left out even when the budget has room/)
+    expect(text).toMatch(/no issuer and no date\) is left out even when the budget has room, unless it is your first pick/)
+    expect(text).toMatch(/in progress, which has no date by nature/)
     expect(text).toContain('the first one is treated as the most relevant')
   })
 })

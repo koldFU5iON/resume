@@ -192,7 +192,7 @@ describe('writeProfile', () => {
     })
 
     it('accepts the in-progress wording', () => {
-      const a = analyseProfile({ ...good, profile: 'Delivery leader, currently studying for the PMP.' }, named([{ name: 'PMP', inProgress: true }]), { digest, competencies: [], maxLabels: 6 })
+      const a = analyseProfile({ ...good, profile: 'Delivery leader, currently studying for the PMP.' }, named([{ name: 'PMP', inProgress: true }]), { digest, competencies: writableCompetencies(evidence.competencies), maxLabels: 6 })
       expect(a.soft).toEqual([])
     })
 
@@ -357,7 +357,73 @@ describe('Phase 3b: no cross-section repetition, short competency labels, voice'
     it('labelsFromSelected keeps only names that already are short labels', () => {
       const comp = (name: string) => ({ id: name, name, category: null, level: null, claimed: false })
       expect(labelsFromSelected([comp('Stakeholder management'), comp('Leadership'), comp('Cut release time by 40%'), comp('Stakeholder Management')], 6))
-        .toEqual({ labels: ['Stakeholder management'], skipped: ['Leadership', 'Cut release time by 40%'] })
+        .toEqual({ labels: ['Stakeholder management'], skipped: ['Leadership', 'Cut release time by 40%'], overflow: [] })
+      expect(labelsFromSelected([comp('Stakeholder management'), comp('Release governance')], 1)).toEqual({ labels: ['Stakeholder management'], skipped: [], overflow: ['Release governance'] })
+    })
+
+    describe('nothing selected vanishes silently', () => {
+      const comp = (name: string, claimed = false) => ({ id: name, name, category: null, level: null, claimed })
+      const withComps = (names: string[], budget = 6) => ctx({
+        evidence: { ...evidence, competencies: names.map((n) => comp(n)) },
+        brief: buildBriefFor({ budgets: { experiences: 2, skills: 12, tools: 10, competencies: budget, certifications: 4, education: 3, projects: 2 } }),
+      })
+
+      it('names a selected evidenced competency that no label reflects', async () => {
+        const { result } = run([{ ...good, competencies: ['Cross-functional leadership'] }], withComps(['Cross-functional leadership', 'Vendor negotiation']))
+        const r = await result
+        expect(r.competenciesMarkdown).toBe(':::skills\n- Cross-functional leadership\n:::')
+        expect(r.notes.join(' ')).toMatch(/not reflected in Core Competencies.*Vendor negotiation/)
+        expect(r.notes.join(' ')).not.toMatch(/Cross-functional leadership\./)
+      })
+
+      it('matches on the full name or its words: a reworded label still reflects the competency, a shared first word does not', async () => {
+        const { result } = run([{ ...good, competencies: ['Stakeholder and risk management', 'Change communications'] }], withComps(['Stakeholder management', 'Change management']))
+        const r = await result
+        const note = r.notes.find((n) => /not reflected in Core Competencies/.test(n)) ?? ''
+        expect(note).toContain('Change management')
+        expect(note).not.toContain('Stakeholder management')
+      })
+
+      it('says so when the fallback has more evidenced competencies than room', () => {
+        const f = fallbackProfile(withComps(['Release governance', 'Programme planning', 'Stakeholder management'], 2), digest, 'No time.')
+        expect(f.competenciesMarkdown).toBe(':::skills\n- Release governance\n- Programme planning\n:::')
+        expect(f.notes.join(' ')).toMatch(/not reflected in Core Competencies.*Stakeholder management/)
+        expect(f.notes.join(' ')).not.toMatch(/reflected.*Release governance/)
+      })
+
+      it('says so when the brief budgets 0 competencies, naming each selected one (writer and fallback)', async () => {
+        const c = withComps(['Release governance', 'Programme planning'], 0)
+        const f = fallbackProfile(c, digest, 'No time.')
+        expect(f.competenciesMarkdown).toBe('')
+        expect(f.notes.join(' ')).toMatch(/competency budget is 0.*Release governance, Programme planning/)
+        const { result } = run([{ ...good, competencies: [] }], c)
+        expect((await result).notes.join(' ')).toMatch(/competency budget is 0.*Release governance, Programme planning/)
+      })
+
+      it('when the writer gave no usable label and the fallback names overflow, the overflow is noted', async () => {
+        const { result } = run([{ ...good, competencies: ['x'] }], withComps(['Release governance', 'Programme planning', 'Stakeholder management'], 2))
+        const r = await result
+        expect(r.notes.join(' ')).toMatch(/not reflected in Core Competencies.*Stakeholder management/)
+      })
+    })
+
+    describe('labels must be grounded in the profile', () => {
+      it('flags a label that overlaps no selected competency and no evidence text: one retry, then a check note, label kept', async () => {
+        const ungrounded = { ...good, competencies: ['Cross-functional leadership', 'Blockchain tokenomics design'] }
+        const { s, result } = run([ungrounded, ungrounded])
+        const r = await result
+        expect(s.calls).toHaveLength(2)
+        expect(s.calls[1].prompt).toMatch(/match none of the selected competencies or the experience evidence.*Blockchain tokenomics design/)
+        expect(r.retryReasons.join(' ')).toMatch(/Blockchain tokenomics design/)
+        expect(r.competenciesMarkdown).toContain('Blockchain tokenomics design')
+        expect(r.checks).toEqual([{ kind: 'competency', text: expect.stringContaining('"Blockchain tokenomics design"') }])
+        expect(r.notes.join(' ')).toMatch(/match none of your selected competencies or experience text: Blockchain tokenomics design/)
+      })
+
+      it('does not flag a label that shares a word with a selected competency or with the evidence text', () => {
+        const a = analyseProfile({ ...good, competencies: ['Leadership across teams', 'Release process improvement'] }, ctx(), { digest, competencies: writableCompetencies(evidence.competencies), maxLabels: 6 })
+        expect(a.ungroundedLabels).toEqual([])
+      })
     })
   })
 

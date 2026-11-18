@@ -203,23 +203,46 @@ function pickCompanySpelling(members: readonly RoleInput[], latest: RoleInput): 
 const laterEnd = (a: Pick<RoleInput, 'end'>, b: Pick<RoleInput, 'end'>) => (endMs(a) === endMs(b) ? 0 : endMs(b) > endMs(a) ? 1 : -1)
 
 /**
+ * A role that starts later wins the employer's latest title only when it also
+ * ends within this many months of the earlier-starting role's end (or is
+ * current). A nested role (an "Interim Head" 2019-2020 inside a "Program
+ * Manager" 2016-2023) ended years before the person left, so it does not
+ * show on the heading.
+ */
+export const LATEST_TITLE_END_TOLERANCE_MONTHS = 6
+
+/**
  * Which of two roles at ONE employer is the later one (negative: `a` is later).
- * A current role (no end date) wins; otherwise the LATER START wins; the end
- * date is only the tiebreak for equal starts. Why not the end date first: roles
- * in a promotion chain often share or overlap end dates (one "left the company"
- * date entered on each, or an earlier role left open a month longer), and then
- * the end date picks the oldest title (Megarom: Co-ordinator, Executive,
- * Manager showed the Co-ordinator title). The start date is what orders a
- * chain. Exported for tests.
+ * 1. A current role (no end date) wins; of two current roles the later start.
+ * 2. Otherwise the LATER START wins, but only when its end is no more than
+ *    LATEST_TITLE_END_TOLERANCE_MONTHS before the other role's end; a role that
+ *    starts later but finished much earlier (it was nested inside the longer
+ *    one) loses to the role that kept running.
+ * 3. Equal starts: the later end.
+ * Why not the end date first: roles in a promotion chain often share or overlap
+ * end dates (one "left the company" date entered on each, or an earlier role
+ * left open a month longer), and then the end date picks the oldest title
+ * (Megarom: Co-ordinator, Executive, Manager showed the Co-ordinator title).
+ * Exported for tests.
  */
 export function laterRole(a: RoleInput, b: RoleInput): number {
-  return Number(b.end === null) - Number(a.end === null) || b.start.getTime() - a.start.getTime() || laterEnd(a, b)
+  const current = Number(b.end === null) - Number(a.end === null)
+  if (current !== 0) return current
+  const byStart = b.start.getTime() - a.start.getTime()
+  if (byStart === 0) return laterEnd(a, b)
+  if (a.end === null) return byStart // both current: the later start
+  // Both finished, different starts: the later-starting role must not have ended well before the other.
+  const [later, earlier] = byStart > 0 ? [b, a] : [a, b]
+  const floor = Date.UTC(earlier.end!.getUTCFullYear(), earlier.end!.getUTCMonth() - LATEST_TITLE_END_TOLERANCE_MONTHS, earlier.end!.getUTCDate())
+  const laterWins = later.end!.getTime() >= floor
+  return laterWins === (later === a) ? -1 : 1
 }
 
 /**
  * How recently a person worked at an EMPLOYER (negative: `a` is more recent):
- * any current role first, then the latest end date over all its roles, then the
- * later start of its latest role. This is employer-level on purpose: when you
+ * any current role first, then the latest end date over all its roles (a current
+ * role counts as the latest possible end), then the later start of its latest
+ * role, so of two current employers the one started more recently comes first. This is employer-level on purpose: when you
  * left a company is what orders a work history, and it does not have the
  * latest-title flaw (it never reads one role's end date as the title's).
  */
@@ -232,8 +255,9 @@ const byEmployerRecency = (a: EmployerRecency, b: EmployerRecency) =>
  * were last worked at: a current role beats a finished one, then the latest
  * end date, then the later start of the latest role). `roles` of an employer
  * are oldest first (by start, then end). The latest title is the title of the
- * latest role by `laterRole` (current role, else the later START, end date only
- * as the tiebreak). Ties keep the order the roles were given in. A role whose
+ * latest role by `laterRole` (current role, else the later START unless it
+ * ended more than LATEST_TITLE_END_TOLERANCE_MONTHS before the other role, end
+ * date only as the tiebreak for equal starts). Ties keep the order the roles were given in. A role whose
  * company normalises to nothing is its own employer (never merged with another
  * blank one).
  */
@@ -245,7 +269,7 @@ export function groupEmployers(roles: readonly RoleInput[]): EmployerGroup[] {
   }
 
   const groups = [...byKey.entries()].map(([key, members]) => {
-    const latest = [...members].sort(laterRole)[0]
+    const latest = members.reduce((best, r) => (laterRole(r, best) < 0 ? r : best))
     const oldestFirst = [...members].sort((a, b) => a.start.getTime() - b.start.getTime() || endMs(a) - endMs(b))
     const employerRoles: EmployerRole[] = oldestFirst.map((r) => ({
       experienceId: r.experienceId,
@@ -261,7 +285,8 @@ export function groupEmployers(roles: readonly RoleInput[]): EmployerGroup[] {
     const company = pickCompanySpelling(members, latest)
     const recency: EmployerRecency = {
       current: members.some((m) => !m.end),
-      end: Math.max(...members.map((m) => (m.end ? m.end.getTime() : Number.NEGATIVE_INFINITY))),
+      // A current role is the latest possible end, so two current employers tie here and fall through to the start date.
+      end: Math.max(...members.map((m) => (m.end ? m.end.getTime() : FAR_FUTURE))),
       start: latest.start.getTime(),
     }
     return {

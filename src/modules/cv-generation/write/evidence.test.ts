@@ -96,6 +96,34 @@ describe('evidenceFromVault', () => {
   })
 })
 
+describe('certification rank (the weak-certification rule)', () => {
+  const sel = (vault: ReturnType<typeof writeVault>, ids: string[], over: object = {}) => ({ ...writeSelection(vault, { certifications: ids.map((id) => ({ id, reason: '' })) }), ...over })
+  const withCerts = (rows: object[]) => {
+    const src = writeVaultSource()
+    ;(src.certifications as unknown[]).push(...rows.map((r) => ({ profileId: 'p1', issuer: null, issueDate: null, expiryDate: null, credentialUrl: null, tags: '[]', createdAt: new Date(0), updatedAt: new Date(0), skills: [], ...r })))
+    return buildVault(src)
+  }
+  const now = new Date('2026-11-18T00:00:00Z')
+
+  it('ranks among the certifications that will be rendered: an expired first pick leaves the next one rank 0', () => {
+    const vault = withCerts([{ id: 'wx', name: 'ITIL 3', issuer: 'Axelos', issueDate: new Date('2018-01-01T00:00:00Z'), expiryDate: new Date('2021-01-01T00:00:00Z') }, { id: 'ww', name: 'Product Marketing Course' }])
+    const ev = evidenceFromVault(vault, sel(vault, ['wx', 'ww', 'wc1']), now)
+    expect(ev.certifications.map((c) => [c.name, c.rank])).toEqual([['ITIL 3', undefined], ['Product Marketing Course', 0], ['PMP', 1]])
+  })
+
+  it('a removed first pick does not leave the next one at rank 1', () => {
+    const vault = withCerts([{ id: 'ww', name: 'Product Marketing Course' }])
+    const ev = evidenceFromVault(vault, sel(vault, ['gone', 'ww']), now)
+    expect(ev.certifications.map((c) => [c.name, c.rank])).toEqual([['Product Marketing Course', 0]])
+  })
+
+  it('carries no rank when code (not the model) chose the selection, so the rule does not apply', () => {
+    const vault = withCerts([{ id: 'ww', name: 'Product Marketing Course' }])
+    const ev = evidenceFromVault(vault, sel(vault, ['wc1', 'ww'], { mode: 'fallback' }), now)
+    expect(ev.certifications.map((c) => c.rank)).toEqual([undefined, undefined])
+  })
+})
+
 describe('projects ride along as evidence for the employer they belong to', () => {
   const d = (ym: string) => new Date(`${ym}-01T00:00:00Z`)
   const pick = (...ids: string[]) => ids.map((id) => ({ id, reason: '' }))

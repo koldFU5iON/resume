@@ -285,16 +285,34 @@ describe('competencyLabelProblem (short noun phrases, 2-5 words, no numbers)', (
     expect(competencyLabelProblem('Five year planning', b)).toMatch(/has a number/)
     expect(competencyLabelProblem('Shipped titles on time.', b)).toMatch(/sentence/)
     expect(competencyLabelProblem('', b)).toMatch(/empty/)
+    expect(competencyLabelProblem('Top 10 lists', b)).toMatch(/has a number/)
+    expect(competencyLabelProblem('Growth. Leadership', b)).toMatch(/sentence/)
+  })
+
+  it.each(['B2B product marketing', 'Web3 community growth', '3D art pipeline', 'Node.js tooling', 'Vue.js and Next.js delivery'])('accepts a name that carries digits or a dot inside a token: "%s"', (l) => {
+    expect(competencyLabelProblem(l, b)).toBeNull()
   })
 })
 
 describe('projectReflected', () => {
-  const p = { name: 'Enemies Demo Campaign', text: 'Ran the demo campaign for the new title, reaching 14,000+ players at launch.' }
-  it('is reflected when the text names the project, or uses two of its own distinctive words', () => {
+  const p = { name: 'Enemies Demo Campaign' }
+  it('is reflected when the text names the project (case, accents and punctuation ignored), or uses a distinctive word of its name', () => {
     expect(projectReflected('Led the Enemies Demo Campaign.', p)).toBe(true)
-    expect(projectReflected('Ran a demo reaching 14,000+ players before launch.', p)).toBe(true)
+    expect(projectReflected('Ran the enemies-demo campaign for launch.', p)).toBe(true)
+    expect(projectReflected('Ran an Enemies demo reaching 14,000+ players.', p)).toBe(true)
   })
-  it('is not reflected by unrelated text', () => {
+  it('is not reflected by unrelated text, nor by generic words alone', () => {
     expect(projectReflected('Cut release time by 40% across 8 teams.', p)).toBe(false)
+    // Two shared 5+ letter words used to count as covered.
+    expect(projectReflected('Launched marketing campaign across social channels', p)).toBe(false)
+    expect(projectReflected('Ran a demo campaign reaching 14,000+ players before launch.', p)).toBe(false)
+  })
+  it('ignores a word the employer\'s ordinary activity text already uses', () => {
+    expect(projectReflected('Ran the Enemies programme.', p, 'Ran the Enemies programme for studio partners')).toBe(false)
+    expect(projectReflected('Ran the Enemies programme.', p, 'Cut release time')).toBe(true)
+  })
+  it('a name of generic words only is reflected by its full name alone', () => {
+    expect(projectReflected('Ran the demo campaign.', { name: 'Demo Campaign' })).toBe(true)
+    expect(projectReflected('Ran a campaign.', { name: 'Demo Campaign' })).toBe(false)
   })
 })

@@ -196,6 +196,52 @@ describe('groupEmployers', () => {
       expect(tie.map((e) => e.company)).toEqual(['B Co', 'A Co'])
     })
 
+    it('between two CURRENT employers the one started more recently comes first, even when the other has a finished role', () => {
+      const g = groupEmployers([
+        role('o1', 'OldCo', 'Advisor', '2010-01', null),
+        role('o2', 'OldCo', 'Analyst', '2005-01', '2009-01'),
+        role('n1', 'NewCo', 'Director', '2025-01', null),
+      ])
+      expect(g.map((e) => e.company)).toEqual(['NewCo', 'OldCo'])
+      // Input order does not matter.
+      expect(groupEmployers([role('n1', 'NewCo', 'Director', '2025-01', null), role('o2', 'OldCo', 'Analyst', '2005-01', '2009-01'), role('o1', 'OldCo', 'Advisor', '2010-01', null)]).map((e) => e.company)).toEqual(['NewCo', 'OldCo'])
+    })
+
+    describe('a nested role does not take the heading (LATEST_TITLE_END_TOLERANCE_MONTHS)', () => {
+      it('a role that started later but ended years before the other keeps the title of the one that kept running', () => {
+        const roles = [
+          role('a', 'Co', 'Program Manager', '2016-01', '2023-01'),
+          role('b', 'Co', 'Interim Head', '2019-01', '2020-01'),
+        ]
+        expect(groupEmployers(roles)[0].latestTitle).toBe('Program Manager')
+        expect(groupEmployers([...roles].reverse())[0].latestTitle).toBe('Program Manager')
+        // The progression and stints are untouched.
+        expect(groupEmployers(roles)[0].roles.map((r) => r.title)).toEqual(['Program Manager', 'Interim Head'])
+      })
+
+      it('a later-starting role ending within six months of the other still wins (Megarom stays right)', () => {
+        const g = groupEmployers([
+          role('a', 'Co', 'Executive', '2012-05', '2016-06'),
+          role('b', 'Co', 'Manager', '2014-02', '2016-01'),
+        ])
+        expect(g[0].latestTitle).toBe('Manager')
+        // Seven months short: the longer role wins.
+        const far = groupEmployers([
+          role('a', 'Co', 'Executive', '2012-05', '2016-09'),
+          role('b', 'Co', 'Manager', '2014-02', '2016-01'),
+        ])
+        expect(far[0].latestTitle).toBe('Executive')
+      })
+
+      it('a later-starting CURRENT role wins whatever the other ended', () => {
+        const g = groupEmployers([
+          role('a', 'Co', 'Program Manager', '2016-01', '2023-01'),
+          role('b', 'Co', 'Interim Head', '2019-01', null),
+        ])
+        expect(g[0].latestTitle).toBe('Interim Head')
+      })
+    })
+
     it('leaves stints alone: overlapping roles are still one stint', () => {
       const g = groupEmployers(megarom(['2016-06', '2016-03', '2016-03']))
       expect(g[0].stints).toEqual([{ start: '2010-03-01', end: '2016-06-01' }])

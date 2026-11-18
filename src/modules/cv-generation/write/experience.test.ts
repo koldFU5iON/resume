@@ -386,6 +386,24 @@ describe('Phase 3b: repetition, voice, projects, retry reasons', () => {
     })
   })
 
+  describe('names that carry digits are not figures (figureIgnoredNames)', () => {
+    const out = { summary: 'Partnered with 2K on the launch.', bullets: ['Shipped the 2K Sports tie-in on time.'] }
+    const withTexts = { ...unity, activities: [{ ...unity.activities[0], text: 'Partnered with 2K on the launch and shipped the 2K Sports tie-in' }] }
+
+    it('a company named like a figure ("2K") is not counted as the figure 2000 twice', () => {
+      expect(analyseExperience(out, ctx(), withTexts).soft.join(' ')).toMatch(/figures appear more than once/)
+      const c = ctx()
+      const withCompany = ctx({ evidence: { ...c.evidence, profileCompanies: [...c.evidence.profileCompanies, '2K'] } })
+      expect(analyseExperience(out, withCompany, withTexts).soft.join(' ')).not.toMatch(/more than once/)
+    })
+
+    it('a selected project name with digits is ignored too', () => {
+      const bigTwice = { summary: 'Ran Project 5000 planning.', bullets: ['Shipped Project 5000 on time.'] }
+      expect(analyseExperience(bigTwice, ctx(), { ...withTexts, projects: [] }).soft.join(' ')).toMatch(/more than once/)
+      expect(analyseExperience(bigTwice, ctx(), { ...withTexts, projects: [{ id: 'p', name: 'Project 5000', text: 'Launch work.' }] }).soft.join(' ')).not.toMatch(/more than once/)
+    })
+  })
+
   describe('selected projects are evidence for the employer they belong to', () => {
     const d = (ym: string) => new Date(`${ym}-01T00:00:00Z`)
     const pv = writeVault([projectRow('pa', 'Enemies Demo Campaign', 'Ran the demo campaign for the new title, reaching 14,000+ players at launch.', { experienceId: 'e-u2', highlights: '["Won the Unity Awards"]' }), projectRow('pb', 'Boot Camp', 'Ran the studio boot camp.', { startDate: d('2016-06') })])
@@ -410,10 +428,21 @@ describe('Phase 3b: repetition, voice, projects, retry reasons', () => {
       expect(analyseExperience(projectAnswer, ctx(), unity).unsupported).toEqual(['14,000'])
     })
 
-    it('accepts a project that became its own bullet, or was merged into one by its words', () => {
+    it('accepts a project that became its own bullet, or was merged into one by a distinctive word of its name', () => {
       expect(analyseExperience(projectAnswer, pctx, withProject).projectsMissed).toEqual([])
-      const merged = { summary: 'Ran release and planning.', bullets: ['Cut platform release time by 40% and ran the demo for the new title, reaching 14,000+ players at launch.'] }
+      const merged = { summary: 'Ran release and planning.', bullets: ['Cut platform release time by 40% and ran the Enemies demo for the new title, reaching 14,000+ players at launch.'] }
       expect(analyseExperience(merged, pctx, withProject).projectsMissed).toEqual([])
+    })
+
+    it('a generic bullet does not cover the project: only generic words in common with its name', () => {
+      const generic = { summary: 'Ran release and planning.', bullets: ['Launched marketing campaign across social channels, reaching 14,000+ players.'] }
+      expect(analyseExperience(generic, pctx, withProject).projectsMissed).toEqual(['Enemies Demo Campaign'])
+    })
+
+    it('a word the employer\'s ordinary activities already use never covers a project', () => {
+      const own = { ...withProject, activities: [{ ...withProject.activities[0], text: 'Ran the Enemies programme for studio partners' }, ...withProject.activities.slice(1)] }
+      const out = { summary: 'Ran release and planning.', bullets: ['Ran the Enemies programme for studio partners.'] }
+      expect(analyseExperience(out, pctx, own).projectsMissed).toEqual(['Enemies Demo Campaign'])
     })
 
     it('retries once when a selected project is nowhere in the text, then accepts with a note naming it', async () => {

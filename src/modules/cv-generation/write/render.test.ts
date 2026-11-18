@@ -93,6 +93,12 @@ describe('renderCertifications', () => {
       expect(renderCertifications([weak('Product Marketing Course', 0), cert({ rank: 1 })], now).markdown).toBe('- **Product Marketing Course**\n- **PMP** — PMI (2018)')
     })
 
+    it('never skips an in-progress one, whatever its rank (it has no date by nature)', () => {
+      const r = renderCertifications([cert({ rank: 0 }), weak('PMP (in progress)', 2)], now)
+      expect(r.markdown).toBe('- **PMP** — PMI (2018)\n- **PMP (in progress)**')
+      expect(r.notes).toEqual(['"PMP (in progress)" is shown as in progress.'])
+    })
+
     it('never skips one that has an issuer or a date', () => {
       const r = renderCertifications([cert({ rank: 0 }), cert({ name: 'Dated', issuer: null, rank: 2 }), cert({ name: 'Issued', issueDate: null, rank: 3 })], now)
       expect(r.markdown).toContain('**Dated** (2018)')

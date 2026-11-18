@@ -461,14 +461,16 @@ describe('runWrite', () => {
       const r = await runWrite(vault, buildBriefFor(), sel, strategy, ctx())
       const onCv = r.sections.map((x) => x.markdown).join('\n')
       const notes = allNotes(r)
+      // Each selected item is matched by its FULL name (education by its qualification and institution), never by a first word.
+      const nameOf = (id: string): string[] => {
+        const n = vault.notes.get(id)!
+        return n.type === 'education' ? [n.props.qualification, n.props.institution] : [n.title]
+      }
       const selected = [
         ...sel.projects, ...sel.certifications, ...sel.competencies, ...sel.tools, ...sel.skills, ...sel.education,
-      ].map((i) => ({ id: i.id, name: vault.notes.get(i.id)!.title }))
+      ].map((i) => ({ id: i.id, names: nameOf(i.id) }))
       expect(selected.length).toBeGreaterThan(10)
-      const missing = selected.filter((i) => {
-        const word = i.name.split(/\s+/)[0] // education titles carry the institution after the qualification
-        return !onCv.includes(i.name) && !notes.includes(i.name) && !onCv.includes(word) && !notes.includes(word)
-      })
+      const missing = selected.filter((i) => !i.names.every((n) => onCv.includes(n) || notes.includes(n)))
       expect(missing).toEqual([])
       // The ones the CV leaves out are each named.
       for (const name of ['Side project', 'ITIL 3', 'React Front-End Course', 'Change management']) {
@@ -477,11 +479,21 @@ describe('runWrite', () => {
       }
     })
 
+    it('keeps an in-progress certification that has no issuer and no date, even when it is not Select\'s first pick', async () => {
+      const src = writeVaultSource()
+      ;(src.certifications as unknown[]).push({ id: 'wcp', profileId: 'p1', name: 'PMP (in progress)', issuer: null, issueDate: null, expiryDate: null, credentialUrl: null, tags: '[]', createdAt: new Date(0), updatedAt: new Date(0), skills: [] })
+      const vault = buildVault(src)
+      const r = await runWrite(vault, buildBriefFor(), writeSelection(vault, { certifications: pick('wc1', 'wcp') }), strategy, ctx())
+      const cert = r.sections.find((x) => x.id === 'certification')!
+      expect(cert.markdown).toBe('- **PMP** — PMI (2018)\n- **PMP (in progress)**')
+      expect(cert.log.notes.join(' ')).not.toContain('left out')
+    })
+
     it('names a selected item that was removed from the profile since the run', async () => {
       const vault = writeVault([demo])
       const sel = writeSelection(vault, { projects: pick('pa') })
       const r = await runWrite(writeVault(), buildBriefFor(), sel, strategy, ctx()) // the project is gone from this vault
-      expect(r.notes.join(' ')).toMatch(/A selected project item \(pa\) is no longer in your profile, so it is not on the CV\./)
+      expect(r.notes.join('\n')).toMatch(/^A selected project item is no longer in your profile, so it is not on the CV\.$/m)
     })
   })
 })

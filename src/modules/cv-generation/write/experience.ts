@@ -92,10 +92,12 @@ export function analyseExperience(out: ExperienceOutput, ctx: Pick<WriteContext,
   const max = maxBullets(emp)
 
   // Not plain (or first person): retried once with feedback like any soft problem; the kept text is cleaned either way.
+  // Verbatim names from the candidate's own text ("My Talking Tom launch") are not first person.
+  const ownText = [evidenceText, ...ctx.evidence.profileCompanies, ...ctx.evidence.profileTitles].join('\n')
   const fields: Array<[string, string]> = [['the summary', out.summary], ...out.bullets.map((b, i): [string, string] => [`bullet ${i + 1}`, b])]
   for (const [label, text] of fields) {
-    const f = plainFeedback(label, text)
-    if (f) problem(f, plainReasons(text).join(', '))
+    const f = plainFeedback(label, text, ownText)
+    if (f) problem(f, plainReasons(text, ownText).join(', '))
   }
 
   if (summary === '') problem('the summary is empty; write one sentence', 'empty summary')
@@ -107,7 +109,7 @@ export function analyseExperience(out: ExperienceOutput, ctx: Pick<WriteContext,
   })
 
   const all = [summary, ...bullets].join('\n')
-  const names = figureIgnoredNames(ctx.evidence)
+  const names = [...figureIgnoredNames(ctx.evidence), ...emp.projects.map((p) => p.name)]
   const unsupported = unsupportedFigures(all, texts, names)
   if (unsupported.length > 0) problem(`these figures are not in the evidence (digits or words), so remove them or use the evidence's exact figures: ${unsupported.join(', ')}`, `figure ${unsupported.join(', ')} not in evidence`)
 
@@ -126,8 +128,10 @@ export function analyseExperience(out: ExperienceOutput, ctx: Pick<WriteContext,
   const creds = credentialProblems(all, ctx.evidence.credentials, evidenceText)
   for (const c of creds) problem(c.problem, `credential ${c.name}`)
 
-  // Selected projects are evidence too: the text must reflect each one (its name, or its own distinctive words).
-  const projectsMissed = emp.projects.filter((p) => !projectReflected(all, p)).map((p) => p.name)
+  // Selected projects are evidence too: the text must reflect each one (its name, or a distinctive word of its name).
+  // The employer's ordinary activity text is passed so that a generic word it shares with a project name never counts as covering it.
+  const ordinary = emp.activities.flatMap((a) => [a.text, a.impact ?? '']).join('\n')
+  const projectsMissed = emp.projects.filter((p) => !projectReflected(all, p, ordinary)).map((p) => p.name)
   if (projectsMissed.length > 0) problem(`these selected projects are not reflected: ${projectsMissed.map((n) => `"${n}"`).join(', ')}; give each a bullet of its own or merge it into a bullet that states the same outcome, using only the project text`, `project ${projectsMissed.join(', ')} not reflected`)
 
   return { hard: [], soft, why: [...new Set(why)], summary, bullets, unsupported, claimed, inProgressNamed: creds.filter((c) => c.inProgress).map((c) => c.name), projectsMissed }
