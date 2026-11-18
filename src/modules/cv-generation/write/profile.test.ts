@@ -87,11 +87,31 @@ describe('writeProfile', () => {
     expect(r.headline).toBe(good.headline)
   })
 
-  it('retries when the profile is over 80 words', async () => {
+  it('shortens a profile over 80 words in code at a clause boundary, with a note and no retry', async () => {
+    const first = Array.from({ length: 70 }, (_, i) => `w${i}`).join(' ')
+    const long = { ...good, profile: `${first}, and then ${Array.from({ length: 20 }, (_, i) => `x${i}`).join(' ')}` }
+    const { s, result } = run([long])
+    const r = await result
+    expect(s.calls).toHaveLength(1)
+    expect(r.profileMarkdown).toBe(first)
+    expect(r.notes.join(' ')).toMatch(/Shortened the profile from 9\d to 70 words at a clause boundary \(limit 80\)/)
+  })
+
+  it('keeps an over-long profile with no clause boundary as written, noted, without a retry', async () => {
     const long = { ...good, profile: Array.from({ length: 90 }, (_, i) => `w${i}`).join(' ') }
-    const { s, result } = run([long, good])
-    await result
-    expect(s.calls[1].prompt).toMatch(/profile is 90 words; it must be at most 80/)
+    const { s, result } = run([long])
+    const r = await result
+    expect(s.calls).toHaveLength(1)
+    expect(r.notes.join(' ')).toMatch(/profile is 90 words, over the limit of 80/)
+  })
+
+  it('shortens an over-long headline at a clause boundary instead of retrying', async () => {
+    const long = { ...good, headline: 'Delivery and operations leader, systems thinker, programme builder and release owner for platform teams' }
+    const { s, result } = run([long])
+    const r = await result
+    expect(s.calls).toHaveLength(1)
+    expect(r.headline).toBe('Delivery and operations leader, systems thinker')
+    expect(r.notes.join(' ')).toMatch(/Shortened the headline/)
   })
 
   it('retries on a figure that is in neither the experience text nor the evidence', async () => {

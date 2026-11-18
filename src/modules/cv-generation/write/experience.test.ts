@@ -581,6 +581,27 @@ describe('thin lead-with project (title only): nothing is invented from the brie
   })
 })
 
+describe('filler bullet that repeats the summary', () => {
+  it('drops a bullet that is a near-verbatim copy of the summary sentence, with a log note and no retry', async () => {
+    const summary = 'Directed international PR strategy across EMEA, Americas and APAC.'
+    const { s, result } = run([{ summary, bullets: ['Directed international PR strategy across EMEA, Americas & APAC', ...good.bullets.slice(0, 2)] }])
+    const r = await result
+    expect(s.calls).toHaveLength(1)
+    expect(r.bullets.join(' ')).not.toMatch(/international PR/)
+    expect(r.bullets).toHaveLength(2)
+    expect(r.provenance).toHaveLength(2)
+    expect(r.notes.join(' ')).toMatch(/Dropped a bullet that only repeats the summary sentence/)
+  })
+
+  it('keeps a bullet that adds an outcome, and never drops the last bullet', async () => {
+    const summary = 'Ran release and planning for the platform org.'
+    const kept = await run([{ summary, bullets: ['Ran release planning for the platform org, cutting release time by 40%.', 'Shipped 12 titles on schedule.'] }]).result
+    expect(kept.bullets).toHaveLength(2)
+    const only = await run([{ summary, bullets: ['Ran release and planning for the platform org'] }]).result
+    expect(only.bullets).toHaveLength(1)
+  })
+})
+
 describe('Phase 3c', () => {
   const d = (ym: string) => new Date(`${ym}-01T00:00:00Z`)
   const demoText = 'Ran the demo campaign for the new title: a go-to-market and launch-timing decision, reaching 14,000+ players at launch.'

@@ -324,6 +324,49 @@ export function enforceSelection(
     byEmployer.set(parent, [...(byEmployer.get(parent) ?? []), p])
   }
 
+  // Named items: the brief's lead-with and emphasise items are searched in ALL
+  // candidate activities and projects (ranked or not), by name/keyword. When
+  // the model's picks do not cover one and a candidate does, that candidate is
+  // pinned first, so it survives the caps. Only an employer that shows bullets
+  // can take one.
+  const named = namedItems(brief)
+  const pickedActs = new Set(actRanked.map((p) => p.id))
+  const pickedProjects = new Set(out.projects.map((p) => p.id))
+  const claimedFor = new Map(out.emphasise.map((c) => [c.item.trim().toLowerCase(), c.evidence]))
+  const pinnedProjects: Array<{ id: string; reason: string }> = []
+  const companyTerms = cands.employers.flatMap((e) => termsOf(e.company))
+  for (const { item } of named) {
+    const words = termsOf(item).filter((w) => !companyTerms.includes(w))
+    const need = termsNeeded(words.length)
+    if (need === 0) continue
+    const textOf = (a: CandidateActivity) => `${a.text} ${a.impact ?? ''}`
+    const projText = (c: Candidates['projects'][number]) => `${c.label} ${c.detail ?? ''}`
+    const covered =
+      (claimedFor.get(item.trim().toLowerCase()) ?? []).some((id) => pickedActs.has(id) || pickedProjects.has(id)) ||
+      cands.employers.some((e) => bulletKeys.has(e.key) && e.activities.some((a) => pickedActs.has(a.id) && matches(textOf(a), words).length >= need)) ||
+      cands.projects.some((c) => pickedProjects.has(c.id) && matches(projText(c), words).length >= need) ||
+      pinnedProjects.some((p) => matches(projText(cands.projects.find((c) => c.id === p.id)!), words).length >= need)
+    if (covered) continue
+    const hits = cands.employers
+      .filter((e) => bulletKeys.has(e.key))
+      .flatMap((e) => e.activities.map((a, idx) => ({ a, key: e.key, idx, score: matches(textOf(a), words).length })))
+      .filter((h) => h.score >= need && !pickedActs.has(h.a.id))
+      .sort((x, y) => y.score - x.score || activityRank(y.a) - activityRank(x.a) || x.idx - y.idx)
+    const proj = cands.projects.filter((c) => !pickedProjects.has(c.id) && matches(projText(c), words).length >= need)
+      .sort((x, y) => matches(projText(y), words).length - matches(projText(x), words).length)[0]
+    const best = hits[0]
+    const bestProjScore = proj ? matches(projText(proj), words).length : 0
+    if (best && (!proj || best.score >= bestProjScore) && !pickedActs.has(best.a.id)) {
+      const why = `Named in the brief: “${item}”`
+      byEmployer.set(best.key, [{ id: best.a.id, reason: why }, ...(byEmployer.get(best.key) ?? [])])
+      pickedActs.add(best.a.id)
+      notes.push(`Added “${labels.get(best.a.id) ?? best.a.id}” for the brief's ${named.find((n) => n.item === item)!.kind} item “${item}”: the model did not pick it, and it matches by name.`)
+    } else if (proj && !pinnedProjects.some((p) => p.id === proj.id)) {
+      pinnedProjects.push({ id: proj.id, reason: `Named in the brief: “${item}”` })
+      notes.push(`Added the project “${proj.label}” for the brief's ${named.find((n) => n.item === item)!.kind} item “${item}”: the model did not pick it, and it matches by name.`)
+    }
+  }
+
   // Bullets: a total budget split by relevance. What an employer can supply is
   // what the model picked for it, topped up by rule to the minimum.
   const supply = (e: (typeof bulletEmployers)[number]) =>
@@ -385,7 +428,7 @@ export function enforceSelection(
     let limit = clampBudget(brief.budgets[s], FLAT_CAPS[s])
     // A profile with education shows at least one entry, whatever the brief asked for.
     if (s === 'education' && cands.education.length > 0) limit = Math.max(1, limit)
-    const picks = rank(s, out[s], known)
+    const picks = rank(s, s === 'projects' ? [...pinnedProjects.filter((p) => !out.projects.some((o) => o.id === p.id)), ...out.projects] : out[s], known)
     let kept = picks.slice(0, limit)
     for (const p of picks.slice(limit)) dropReason.set(p.id, 'over_cap')
     if (kept.length === 0 && limit > 0 && cands[s].length > 0) {
@@ -415,13 +458,18 @@ export function enforceSelection(
   ]
   const keptSupportIds = new Set([...keptActIds, ...flat.projects.map((p) => p.id)])
   const claimed = new Map(out.emphasise.map((c) => [c.item.trim().toLowerCase(), c.evidence]))
-  const uncovered = (brief.emphasise ?? []).map((e) => e.item).filter((item) => {
+  const notCovered = (item: string) => {
     if ((claimed.get(item.trim().toLowerCase()) ?? []).some((id) => keptSupportIds.has(id))) return false
-    const words = termsOf(item)
-    const need = Math.min(2, words.length)
+    const words = termsOf(item).filter((w) => !companyTerms.includes(w))
+    const need = termsNeeded(words.length)
     return need === 0 || !keptText.some((t) => matches(t, words).length >= need)
-  })
-  if (uncovered.length > 0) notes.push(`No kept evidence supports ${countOf(uncovered.length, 'emphasise item')}: ${uncovered.map((u) => `“${u}”`).join(', ')}.`)
+  }
+  // Both lead-with and emphasise items are reported (an item in both counts once, as emphasise).
+  const emphasiseUncovered = [...new Set((brief.emphasise ?? []).map((e) => e.item))].filter(notCovered)
+  const leadUncovered = named.filter((n) => n.kind === 'lead-with').map((n) => n.item).filter((i) => !emphasiseUncovered.includes(i) && notCovered(i))
+  const uncovered = [...leadUncovered, ...emphasiseUncovered]
+  if (leadUncovered.length > 0) notes.push(`No kept evidence supports ${countOf(leadUncovered.length, 'lead-with item')}: ${leadUncovered.map((u) => `“${u}”`).join(', ')}. No candidate activity or project in the profile matches ${leadUncovered.length === 1 ? 'it' : 'them'} by name.`)
+  if (emphasiseUncovered.length > 0) notes.push(`No kept evidence supports ${countOf(emphasiseUncovered.length, 'emphasise item')}: ${emphasiseUncovered.map((u) => `“${u}”`).join(', ')}.`)
 
   // What was dropped: every candidate that is not kept, with why. Not-selected
   // activities of employers that do not show bullets are not listed one by one.
@@ -467,6 +515,18 @@ const STOPWORDS = new Set(['the', 'and', 'for', 'with', 'that', 'this', 'from', 
 /** Lower-case words of at least 3 characters, without filler. */
 export function briefTerms(brief: Pick<CvBrief, 'leadWith' | 'emphasise'>): string[] {
   return termsOf([...brief.leadWith, ...brief.emphasise.map((e) => e.item)].join(' '))
+}
+
+/** How many of an item's key words a text must contain to count as naming it: 2, or a third of a long item's words; 1 for a one-word item; 0 when it has none. */
+function termsNeeded(n: number): number {
+  return n === 0 ? 0 : Math.min(n, Math.max(2, Math.ceil(n / 3)))
+}
+
+/** The brief's lead-with and emphasise items, de-duplicated (an item in both is emphasise). */
+function namedItems(brief: Pick<EnforceBrief, 'leadWith' | 'emphasise'>): Array<{ item: string; kind: 'lead-with' | 'emphasise' }> {
+  const out: Array<{ item: string; kind: 'lead-with' | 'emphasise' }> = (brief.emphasise ?? []).map((e) => ({ item: e.item, kind: 'emphasise' }))
+  for (const item of brief.leadWith ?? []) if (!out.some((o) => o.item.trim().toLowerCase() === item.trim().toLowerCase())) out.push({ item, kind: 'lead-with' })
+  return out
 }
 
 function termsOf(text: string): string[] {

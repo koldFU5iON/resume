@@ -25,8 +25,14 @@ export const PROFILE_MAX_FIGURES = 1
 /** Group labels in Skills and Tools (per list). */
 export const MAX_SKILL_GROUPS = 3
 export const GROUP_LABEL_MAX_WORDS = 4
-/** Skills and tools lists at or under this many names are not grouped: nothing to gain from a model call. */
-export const MIN_NAMES_TO_GROUP = 5
+/**
+ * A skills or tools list is grouped only with at least this many names; a
+ * shorter one is one ungrouped list (a first real run split 4 tools into three
+ * groups of 1-2). No model call is made when neither list reaches it.
+ */
+export const MIN_NAMES_TO_GROUP = 6
+/** A group with fewer names than this is never emitted: it is merged into a neighbour. */
+export const MIN_GROUP_SIZE = 2
 /** Time kept back at the end of the run for Assemble and storing the result (ms). */
 export const ASSEMBLE_RESERVE_MS = 8_000
 /** An education entry with no end date counts as in progress only when it started within this many years. */

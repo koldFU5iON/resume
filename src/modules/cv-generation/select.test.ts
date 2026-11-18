@@ -768,6 +768,56 @@ describe('emphasise coverage (uncovered)', () => {
   })
 })
 
+describe('lead-with and emphasise items are searched in ALL candidates', () => {
+  const cands = realistic()
+  const unity = cands.employers[0]
+  // The named items exist only in activities the model did not rank.
+  unity.activities[27].text = 'Built the One Marketing Request Form with Workato, an API layer and a React front end'
+  unity.activities[28].text = 'Ran Unity Weta Tools & Games production planning'
+  const model = (ids: string[]): SelectOutput => ({ ...empty, employers: epick([unity.key, 5]), activities: pick(...ids) })
+  const pickedFirst = unity.activities.slice(0, 6).map((a) => a.id)
+  const b = buildBriefFor({ leadWith: ['One Marketing Request Form (Workato/API/React tooling)', 'Weta Tools & Games'], emphasise: [] })
+
+  it('keeps a named lead-with activity the model ranked below the cap, ahead of the ranked ones, and reports nothing uncovered', () => {
+    const r = enforceSelection(model(pickedFirst), cands, b)
+    const ids = r.selection.employers.find((e) => e.key === unity.key)!.bullets.map((x) => x.id)
+    expect(ids).toContain('u-a27')
+    expect(ids).toContain('u-a28')
+    expect(r.selection.uncovered).toEqual([])
+    expect(r.notes.join(' ')).toMatch(/Added .*for the brief's lead-with item “One Marketing Request Form/)
+  })
+
+  it('also finds it when the model picked no activities at all', () => {
+    const r = enforceSelection(model([]), cands, b)
+    expect(r.selection.employers[0].bullets.map((x) => x.id)).toEqual(expect.arrayContaining(['u-a27', 'u-a28']))
+  })
+
+  it('does not add anything a pick already covers', () => {
+    const r = enforceSelection(model(['u-a27', ...pickedFirst]), cands, buildBriefFor({ leadWith: ['One Marketing Request Form'], emphasise: [] }))
+    expect(r.notes.join(' ')).not.toMatch(/Added /)
+  })
+
+  it('reports a lead-with item that no candidate matches as uncovered, with a note', () => {
+    const r = enforceSelection(model(pickedFirst), cands, buildBriefFor({ leadWith: ['Quantum ledger migration'], emphasise: [] }))
+    expect(r.selection.uncovered).toEqual(['Quantum ledger migration'])
+    expect(r.notes.join(' ')).toMatch(/No kept evidence supports 1 lead-with item: “Quantum ledger migration”/)
+  })
+
+  it('pins an emphasise item found only in an unranked candidate', () => {
+    const r = enforceSelection(model(pickedFirst), cands, buildBriefFor({ leadWith: [], emphasise: [{ item: 'Weta Tools and Games', why: 'core' }] }))
+    expect(r.selection.employers[0].bullets.map((x) => x.id)).toContain('u-a28')
+    expect(r.selection.uncovered).toEqual([])
+  })
+
+  it('pins a matching project the model did not pick', () => {
+    const withProject = bigCandidates(2, 4)
+    withProject.projects = [{ id: 'pj1', label: 'One Marketing Request Form', detail: 'Workato and React intake tool', proven: true }]
+    const r = enforceSelection({ ...empty, employers: epick(['co-0', 4]) }, withProject, buildBriefFor({ leadWith: ['One Marketing Request Form'], emphasise: [] }))
+    expect(r.selection.projects.map((p) => p.id)).toContain('pj1')
+    expect(r.selection.uncovered).toEqual([])
+  })
+})
+
 describe('the select prompt: emphasise and budgets', () => {
   it('passes the emphasise list and asks for supporting evidence for each item where candidates exist', () => {
     const text = selectPrompt(buildBriefFor({ emphasise: [{ item: 'Platform migration', why: 'core' }, { item: 'Vendor management', why: 'core' }] }), bigCandidates(2, 2))
@@ -813,6 +863,21 @@ describe('the select prompt file (phase 3 additions)', () => {
     expect(text).toContain('Emphasise items')
     expect(text).toContain('`emphasise`')
     expect(text).toContain('"uncovered"')
+  })
+})
+
+describe('the select prompt file (tuning additions)', () => {
+  const text = readFileSync('src/lib/prompts/cv-gen-select.md', 'utf8')
+
+  it('prefers evidence with an outcome or figure, or that maps to lead-with/emphasise, over broad one-line responsibilities', () => {
+    expect(text).toMatch(/Prefer evidence with an outcome or a figure/)
+    expect(text).toMatch(/lead-with or emphasise/)
+    expect(text).toMatch(/broad one-line responsibilit/)
+  })
+
+  it('avoids items the brief says to play down, and searches all of an employer\'s activities for named items', () => {
+    expect(text).toMatch(/play down/i)
+    expect(text).toMatch(/Search every activity and project/)
   })
 })
 

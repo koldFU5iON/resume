@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildBriefFor } from '../__fixtures__/gathered'
 import {
-  LEAD_WITH_PROJECT_EXTRA_BULLETS, bulletAllowance, leadWithProjects, leadWithStanding, opensInPresentTense, playDownBullets, reflectsItem, shortened,
+  LEAD_WITH_PROJECT_EXTRA_BULLETS, bulletAllowance, leadWithProjects, leadWithStanding, opensInPresentTense, playDownBullets, reflectsItem, repeatsSummary, shortened,
   thinLeadWithProjects, trimBullets, wrongTenseLines,
 } from './bullets'
 
@@ -139,5 +139,18 @@ describe('shortened', () => {
     expect(shortened('a  b\nc')).toBe('a b c')
     expect(shortened('x'.repeat(200), 20)).toHaveLength(20)
     expect(shortened('x'.repeat(200), 20).endsWith('…')).toBe(true)
+  })
+})
+
+describe('repeatsSummary', () => {
+  const summary = 'Directed international PR strategy across EMEA, Americas and APAC.'
+  it('flags a near-verbatim copy of the summary, tense and punctuation aside', () => {
+    expect(repeatsSummary('Directed international PR strategy across EMEA, Americas & APAC', summary)).toBe(true)
+    expect(repeatsSummary('Direct international PR strategy for Americas and APAC', summary)).toBe(true)
+  })
+  it('does not flag a bullet with an outcome, a figure or its own content', () => {
+    expect(repeatsSummary('Directed international PR strategy across EMEA, lifting coverage by 30%', summary)).toBe(false)
+    expect(repeatsSummary('Cut platform release time across eight teams', summary)).toBe(false)
+    expect(repeatsSummary('PR strategy', summary)).toBe(false)
   })
 })

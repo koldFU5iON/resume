@@ -24,7 +24,7 @@ import * as z from 'zod'
 import { composeSystem } from '@/modules/llm/prompt-context'
 import { attributionOf, completeChecked, softIssueNotes, type CheckResult } from '../call'
 import { CV_GENERATION_FEATURES, TEMPERATURE, TIME_BUDGET_MS, type BulletProvenance } from '../schema'
-import { bulletAllowance, leadWithProjects, leadWithStanding, playDownBullets, shortened, trimBullets, wrongTenseLines } from './bullets'
+import { bulletAllowance, leadWithProjects, leadWithStanding, playDownBullets, repeatsSummary, shortened, trimBullets, wrongTenseLines } from './bullets'
 import { BULLET_MAX_WORDS, SUMMARY_MAX_WORDS, experienceTokenCaps } from './limits'
 import { claimedHits, credentialProblems, introducedNames, projectReflected, repeatedFigures, unsupportedFigures, wordCount } from './checks'
 import { activityPromptText, evidenceTexts, figureIgnoredNames, projectPromptText, type EmployerEvidence } from './evidence'
@@ -242,8 +242,12 @@ export async function writeExperience(ctx: WriteContext, emp: EmployerEvidence, 
   const thinIds = new Set(emp.projects.filter(isThin).map((p) => p.id))
   const keepAt = analysed.bullets.map((_, i) => !(thinIds.size > 0 && analysed.bulletSources[i].length > 0 && analysed.bulletSources[i].every((r) => thinIds.has(r.id))))
   const dropThin = keepAt.some((k) => !k) && keepAt.some(Boolean)
-  const bulletIdx = analysed.bullets.map((_, i) => i).filter((i) => !dropThin || keepAt[i])
+  // A bullet that is only a near-verbatim copy of the summary sentence (a title-like responsibility, no outcome, scope or figure) is dropped: the summary already says it. Never the last bullet.
+  const repeatAt = analysed.bullets.map((b) => repeatsSummary(b, analysed.summary))
+  const dropRepeat = repeatAt.some(Boolean) && analysed.bullets.some((_, i) => !repeatAt[i] && (!dropThin || keepAt[i]))
+  const bulletIdx = analysed.bullets.map((_, i) => i).filter((i) => (!dropThin || keepAt[i]) && (!dropRepeat || !repeatAt[i]))
   if (dropThin) analysed.bullets.forEach((b, i) => { if (!keepAt[i]) notes.push(`Dropped a bullet that was written from a project with no text, not from evidence: “${shortened(b)}”.`) })
+  if (dropRepeat) analysed.bullets.forEach((b, i) => { if (repeatAt[i]) notes.push(`Dropped a bullet that only repeats the summary sentence (no outcome, scope or figure of its own): “${shortened(b)}”.`) })
   const a = {
     ...analysed,
     summary: fit(analysed.summary, SUMMARY_MAX_WORDS, 'the summary'),
