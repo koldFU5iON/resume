@@ -31,6 +31,8 @@ model CvGeneration {
   brief                 Json?
   /// The Select stage's output (CvSelection: kept ids, reasons, what was dropped and why); null until that stage ends
   selection             Json?
+  /// The assembled CV (CvAssembled: { markdown, sections[], warnings[], checkNotes[] }), validated with Zod on read; null until the Assemble stage ends
+  assembled             Json?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 

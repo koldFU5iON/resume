@@ -12,10 +12,12 @@ import {
   asStatus,
   isActiveStatus,
   isPartialLog,
+  parseAssembled,
   parseBrief,
   parseCvGenerationLog,
   parseSelection,
   parseStageTimings,
+  type CvAssembled,
   type CvBrief,
   type CvGenerationFailureKind,
   type CvGenerationStage,
@@ -49,6 +51,8 @@ export type CvGenerationView = {
   brief: CvBrief | null
   /** The Select stage's output (kept ids and labels, what was dropped); null likewise. */
   selection: CvSelection | null
+  /** The assembled CV (markdown, sections, warnings, check notes); null before Assemble ends, on runs stored before Phase 3, or when unreadable. */
+  assembled: CvAssembled | null
   /** Usage of this run's LLM calls (rows with runId = id); an estimate, billed to the user's own key. */
   usage: CvGenerationUsage
   createdAt: Date
@@ -68,6 +72,7 @@ type Row = {
   log: unknown
   brief: unknown
   selection: unknown
+  assembled?: unknown
   createdAt: Date
   startedAt: Date | null
   completedAt: Date | null
@@ -114,6 +119,7 @@ export function toCvGenerationView(row: Row, usage: CvGenerationUsage, now: Date
     partial: isPartialLog(row.log),
     brief: parseBrief(row.brief),
     selection: parseSelection(row.selection),
+    assembled: parseAssembled(row.assembled),
     usage,
     createdAt: row.createdAt,
     startedAt: row.startedAt,
@@ -124,7 +130,7 @@ export function toCvGenerationView(row: Row, usage: CvGenerationUsage, now: Date
 const ROW_SELECT = {
   id: true, jobApplicationId: true, writingDeskDocumentId: true, deepDiveId: true,
   status: true, failureKind: true, failureMessage: true,
-  stageTimings: true, log: true, brief: true, selection: true, createdAt: true, startedAt: true, completedAt: true,
+  stageTimings: true, log: true, brief: true, selection: true, assembled: true, createdAt: true, startedAt: true, completedAt: true,
 } as const
 
 /** Usage of one run: its LLM rows, grouped by runId. */
