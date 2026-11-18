@@ -105,6 +105,23 @@ export function assembleCv(input: AssembleInput): AssembleResult {
   }
 }
 
+/**
+ * Validates and fact-checks a CV Markdown again after the Review stage edited
+ * it, with the same validator and structure as `assembleCv`. `errors` is empty
+ * when the document is valid; `warnings` are the (soft) block and fact-check
+ * findings for the new text.
+ */
+export function recheckMarkdown(markdown: string, snapshot: ProfileSnapshot): { errors: string[]; warnings: string[] } {
+  const validation = validateDraftMarkdown(markdown, cvStructure())
+  return {
+    errors: validation.issues.filter((i) => i.severity === 'error').map((i) => i.message),
+    warnings: [
+      ...validation.issues.filter((i) => i.severity === 'warning').map((i) => `${i.message}${i.line ? ` (line ${i.line})` : ''}`),
+      ...checkFacts(markdown, snapshot).map((w) => `${w.message} “${w.excerpt}”`),
+    ],
+  }
+}
+
 /** The employer keys of a selection in CV order. */
 export function employerOrderOf(selection: Pick<CvSelection, 'employers'>): string[] {
   return selection.employers.map((e) => e.key)
