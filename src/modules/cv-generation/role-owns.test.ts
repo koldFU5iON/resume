@@ -67,6 +67,20 @@ describe('assigning project-only activities to their role changes nothing a read
   })
 })
 
+describe('an activity whose role disagrees with its project\'s role stays with its own role', () => {
+  it('is listed once, under the role, and not under the project', () => {
+    const src = source(true)
+    // A third role, and an activity of e1 that names a project of the other role.
+    src.experiences.push({ ...src.experiences[0], id: 'e2', company: 'Other Co', activities: [], skills: [] } as never)
+    src.projects.push(projectRow('pj3', 'Other Project', 'Elsewhere.', { experienceId: 'e2', activities: [{ ...atomRow('mx1', 'Mislabelled work'), projectId: 'pj3', experienceId: 'e1' }] }) as never)
+    src.experiences[0].activities = [...src.experiences[0].activities, src.projects[2].activities[0]] as never
+    const vault = buildVault(src)
+    expect(vault.byType.evidence.filter((id) => id === 'mx1')).toHaveLength(1)
+    expect(vault.notes.get('mx1')).toMatchObject({ props: { parentId: 'e1' } })
+    expect(vault.notes.get('pj3')!.links.map((l) => l.id)).not.toContain('mx1')
+  })
+})
+
 describe('the verification helpers', () => {
   it('simulateAssignment gives project-only activities their role, without touching the input', () => {
     const src = source(false)

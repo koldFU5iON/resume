@@ -3,7 +3,7 @@
 // that presents them as linked notes.
 
 import { parseJsonField } from '@/lib/utils'
-import { roleOwnEvidence } from '@/modules/profile/ownership'
+import { projectEvidenceOf, roleOwnEvidence } from '@/modules/profile/ownership'
 import { evidenceLine, projectHighlights } from '@/modules/profile/project-highlights'
 import { combineImpact, parseResult } from '@/modules/profile/result'
 import { normalizeSearchProfile } from '@/modules/search-profile/schema'
@@ -206,16 +206,16 @@ export function buildVault(row: VaultSource): Vault {
   }
 
   // ── Experiences and their evidence ──
-  const profileProjectIds = new Set(row.projects.map((p) => p.id))
+  const projectRoles = new Map(row.projects.map((p) => [p.id, p.experienceId] as const))
   for (const e of row.experiences) {
     // An activity labelled with a project is that project's evidence (the project sits inside the role), so it is
     // added once, under the project, whether or not it also carries the role.
-    const ownActivities = roleOwnEvidence(e.activities, profileProjectIds)
+    const ownActivities = roleOwnEvidence(e.activities, projectRoles)
     const evidenceIds = addEvidence(ownActivities, e.id)
     const projectIds = row.projects.filter((p) => p.experienceId === e.id).map((p) => p.id)
     const achievements = ownActivities.filter((a) => a.kind === 'achievement').length
     // findGaps counts contained projects' evidence toward the role; say so here too.
-    const projectEvidence = row.projects.reduce((n, p) => (p.experienceId === e.id ? n + p.activities.length : n), 0)
+    const projectEvidence = row.projects.reduce((n, p) => (p.experienceId === e.id ? n + projectEvidenceOf(p.activities, p.experienceId).length : n), 0)
     const evidenceGist = ownActivities.length
       ? evidenceCounts(achievements, ownActivities.length - achievements) + (projectEvidence ? ` (+${projectEvidence} from projects)` : '')
       : projectEvidence ? `${projectEvidence} evidence from projects` : null
@@ -251,8 +251,9 @@ export function buildVault(row: VaultSource): Vault {
 
   // ── Projects: description + notes collapse into one body ──
   for (const p of row.projects) {
-    const evidenceIds = addEvidence(p.activities, p.id)
-    const highlights = projectHighlights(p.activities, parseJsonField<unknown>(p.highlights, []))
+    const projectActivities = projectEvidenceOf(p.activities, p.experienceId)
+    const evidenceIds = addEvidence(projectActivities, p.id)
+    const highlights = projectHighlights(projectActivities, parseJsonField<unknown>(p.highlights, []))
     const body = [p.description.trim(), p.notes.trim()].filter(Boolean).join('\n\n')
     const note: ProjectNote = {
       id: p.id,

@@ -20,7 +20,7 @@ export type ReaderFingerprint = { vault: string; candidates: string; readiness: 
 
 export function readerFingerprint(source: VaultSource, now: Date): ReaderFingerprint {
   const vault = buildVault(source)
-  const candidates = buildCandidates(vault)
+  const candidates = buildCandidates(vault, now)
   return {
     vault: sha(stable(vault)),
     candidates: sha(stable(candidates) + candidatesToPrompt(candidates)),
