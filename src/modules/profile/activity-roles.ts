@@ -6,7 +6,20 @@
 // activity is left with a role that disagrees with its project's role, and no delete takes evidence the
 // owner chose to keep. Readers (src/modules/profile/ownership.ts) already cope with both shapes.
 
+import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
+
+/** The slice of a transaction client `lockRow` needs. */
+type RawTx = { $queryRaw: (q: TemplateStringsArray | Prisma.Sql, ...v: unknown[]) => Promise<unknown> }
+
+/**
+ * Locks a role or project row until the transaction ends. A write that names it (an insert that references it
+ * takes a key-share lock) then waits, and fails cleanly if the row is gone, instead of landing between this
+ * transaction's steps and being cascaded away or left on a stale role.
+ */
+export async function lockRow(tx: RawTx, table: 'Experience' | 'Project', id: string, profileId: string): Promise<void> {
+  await tx.$queryRaw(Prisma.sql`SELECT "id" FROM ${Prisma.raw(`"${table}"`)} WHERE "id" = ${id} AND "profileId" = ${profileId} FOR UPDATE`)
+}
 
 /** Where an activity goes: a role, or a project (which also gives it the project's role). */
 export type ActivityOwner = { experienceId: string } | { projectId: string }
@@ -74,15 +87,17 @@ export async function deleteExperienceRow(profileId: string, id: string, project
   const experience = await prisma.experience.findFirst({ where: { id, profileId }, select: { id: true } })
   if (!experience) return
   await prisma.$transaction(async (tx) => {
-    // Another role's evidence under this role's projects must not go with the projects or the role.
-    await tx.roleActivity.updateMany({
-      where: { project: { experienceId: id, profileId }, AND: [{ experienceId: { not: null } }, { experienceId: { not: id } }] },
-      data: { projectId: null },
-    })
+    await lockRow(tx, 'Experience', id, profileId)
     if (projects === 'keep') {
       // These stay as the projects' evidence; the cascade from the role would delete them.
       await tx.roleActivity.updateMany({ where: { experienceId: id, project: { experienceId: id, profileId } }, data: { experienceId: null } })
     } else {
+      // The projects are going: another role's evidence under them must not go with them. It keeps its role and
+      // loses only the label. (When the projects are kept it keeps the label too; readers trust its own role.)
+      await tx.roleActivity.updateMany({
+        where: { project: { experienceId: id, profileId }, AND: [{ experienceId: { not: null } }, { experienceId: { not: id } }] },
+        data: { projectId: null },
+      })
       await tx.project.deleteMany({ where: { experienceId: id, profileId } })
     }
     await tx.experience.deleteMany({ where: { id, profileId } })
@@ -97,6 +112,7 @@ export async function deleteProjectRow(profileId: string, id: string): Promise<v
   const project = await prisma.project.findFirst({ where: { id, profileId }, select: { id: true, experienceId: true } })
   if (!project) return
   await prisma.$transaction(async (tx) => {
+    await lockRow(tx, 'Project', id, profileId)
     await tx.roleActivity.updateMany({
       where: { projectId: id, AND: [{ experienceId: { not: null } }, ...(project.experienceId ? [{ experienceId: { not: project.experienceId } }] : [])] },
       data: { projectId: null },

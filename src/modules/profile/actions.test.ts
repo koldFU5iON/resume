@@ -9,6 +9,7 @@ vi.mock('@/lib/db', () => ({
     project: { findFirst: vi.fn(), count: vi.fn(), deleteMany: vi.fn((x) => x) },
     roleActivity: { count: vi.fn(), create: vi.fn(async (x) => x), findFirst: vi.fn(), update: vi.fn(async (x) => x), deleteMany: vi.fn(async (x) => x), updateMany: vi.fn() },
     skill: { create: vi.fn(async (x) => x), update: vi.fn(async (x) => x) },
+    $queryRaw: vi.fn(),
     $transaction: vi.fn(async (arg) => (typeof arg === 'function' ? arg(prismaMock.current) : arg)),
   },
 }))
@@ -117,16 +118,25 @@ describe('deleteExperience', () => {
     expect(prisma.roleActivity.updateMany).not.toHaveBeenCalledWith(expect.objectContaining({ data: { experienceId: null } }))
   })
 
-  it('either way, another role\'s evidence under one of its projects keeps its role and loses only the project label', async () => {
+  it('when the projects are deleted, another role\'s evidence under them keeps its role and loses only the label; when kept, it is left alone', async () => {
     vi.mocked(prisma.experience.findFirst).mockResolvedValue({ id: 'e1' } as never)
-    for (const projects of ['keep', 'delete'] as const) {
-      vi.mocked(prisma.roleActivity.updateMany).mockClear()
-      await deleteExperience('e1', { projects })
-      expect(prisma.roleActivity.updateMany).toHaveBeenCalledWith({
-        where: { project: { experienceId: 'e1', profileId: 'p1' }, AND: [{ experienceId: { not: null } }, { experienceId: { not: 'e1' } }] },
-        data: { projectId: null },
-      })
+    const detach = {
+      where: { project: { experienceId: 'e1', profileId: 'p1' }, AND: [{ experienceId: { not: null } }, { experienceId: { not: 'e1' } }] },
+      data: { projectId: null },
     }
+    await deleteExperience('e1', { projects: 'delete' })
+    expect(prisma.roleActivity.updateMany).toHaveBeenCalledWith(detach)
+    vi.mocked(prisma.roleActivity.updateMany).mockClear()
+    await deleteExperience('e1', { projects: 'keep' })
+    expect(prisma.roleActivity.updateMany).not.toHaveBeenCalledWith(detach)
+  })
+
+  it('locks the role first, so a concurrent write into its projects waits instead of landing between the steps', async () => {
+    vi.mocked(prisma.experience.findFirst).mockResolvedValue({ id: 'e1' } as never)
+    await deleteExperience('e1', { projects: 'keep' })
+    const lock = vi.mocked(prisma.$queryRaw).mock.invocationCallOrder[0]
+    expect(lock).toBeLessThan(vi.mocked(prisma.roleActivity.updateMany).mock.invocationCallOrder[0])
+    expect(lock).toBeLessThan(vi.mocked(prisma.experience.deleteMany).mock.invocationCallOrder[0])
   })
 })
 

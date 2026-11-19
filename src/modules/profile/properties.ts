@@ -4,6 +4,7 @@
 // role with no end date is a current role; a project with no role stands alone).
 
 import { prisma } from '@/lib/db'
+import { lockRow } from './activity-roles'
 import { ExperiencePropertiesSchema, ProjectPropertiesSchema, type ExperienceProperties, type ProjectProperties } from './properties-schema'
 
 export type { ExperienceProperties, ProjectProperties }
@@ -23,6 +24,8 @@ export async function saveExperienceProperties(profileId: string, id: string, in
 export async function saveProjectProperties(profileId: string, id: string, input: ProjectProperties): Promise<void> {
   const data = ProjectPropertiesSchema.parse(input)
   await prisma.$transaction(async (tx) => {
+    // Two moves of the same project must not interleave: the second reads the role the first left.
+    await lockRow(tx, 'Project', id, profileId)
     const current = await tx.project.findFirst({ where: { id, profileId }, select: { experienceId: true } })
     if (!current) throw new Error('Project not found')
     if (data.experienceId) {

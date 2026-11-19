@@ -6,6 +6,7 @@ vi.mock('@/lib/db', () => {
     project: { findFirst: vi.fn(), update: vi.fn() },
     roleActivity: { updateMany: vi.fn() },
   }
+  prisma.$queryRaw = vi.fn()
   prisma.$transaction = vi.fn(async (fn: (tx: unknown) => unknown) => fn(prisma))
   return { prisma }
 })
