@@ -481,6 +481,11 @@ describe('SelectOutputSchema', () => {
     expect(parsed.skills[0].reason).toHaveLength(100)
   })
 
+  it('cuts a reason to 8 words in code, without failing', () => {
+    const parsed = SelectOutputSchema.parse({ skills: [{ id: 's0', reason: 'Shows delivery of the platform migration across nine teams, with figures, for the role' }] })
+    expect(parsed.skills[0].reason).toBe('Shows delivery of the platform migration across nine')
+  })
+
   it('validates relevance: rounded and clamped to 1-5, missing or junk reads as none given', () => {
     const parsed = SelectOutputSchema.parse({ employers: [
       { id: 'a', relevance: 4.6 }, { id: 'b', relevance: 9 }, { id: 'c', relevance: 0 }, { id: 'd' },

@@ -74,9 +74,16 @@ type Gathered = Extract<GatherResult, { ok: true }>
 
 // ── What the model returns ──────────────────────────────────────────────────
 
+/** A pick's reason is at most this many words: the model is asked for it, and code cuts a longer one (never fails on it). */
+export const REASON_MAX_WORDS = 8
 const REASON_MAX = 100
-const reason = z.string().default('').describe(`A few words: what this item shows for the role (at most ${REASON_MAX} characters)`)
-  .transform((v) => v.trim().slice(0, REASON_MAX).trim())
+/** A reason cut to REASON_MAX_WORDS words and REASON_MAX characters. Pure. */
+export function trimReason(v: string): string {
+  const words = v.trim().split(/\s+/).filter(Boolean).slice(0, REASON_MAX_WORDS).join(' ')
+  return words.slice(0, REASON_MAX).replace(/[\s,;:–—-]+$/, '').trim()
+}
+const reason = z.string().default('').describe(`At most ${REASON_MAX_WORDS} words: what this item shows for the role`)
+  .transform(trimReason)
 const PickSchema = z.object({ id: z.string(), reason })
 const list = () => z.array(PickSchema).default([])
 
