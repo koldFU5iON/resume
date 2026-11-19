@@ -1182,3 +1182,43 @@ describe('figure-rich evidence', () => {
     expect(none.notes.join(' ')).not.toContain('states a figure and matches')
   })
 })
+
+describe('figure-rich swap guards', () => {
+  const b2 = { budgets: brief.budgets, leadWith: [], emphasise: [{ name: 'Automation', framing: 'Automation', why: 'x' }, { name: 'Intake', framing: 'Intake', why: 'y' }] }
+  function cands2() {
+    const c = bigCandidates(4, 8)
+    const a = c.employers[0].activities
+    a[0].text = 'Ran weekly planning' // model's evidence for Automation: no figure, no name match
+    a[1].text = 'Managed vendors'
+    a[2].text = 'Maintained the roadmap'
+    a[3].text = 'Reported status'
+    a[4].text = 'Cut intake time from 3 weeks to 1 hour' // figure-rich, matches Intake
+    return c
+  }
+  it('never swaps out evidence the model listed for an emphasise item, nor one that matches a named item', () => {
+    const c = cands2()
+    c.employers[0].activities[3].text = 'Built the intake form'
+    const out = { ...empty, employers: epick(['co-0', 3], ['co-1', 3], ['co-2', 3], ['co-3', 3]), activities: ['e0a0', 'e0a1', 'e0a2', 'e0a3'].map((id) => ({ id, reason: 'r' })), emphasise: [{ item: 'Automation', evidence: ['e0a0'] }, { item: 'Intake', evidence: ['e0a3'] }] }
+    const kept = enforceSelection(out, c, b2).selection.employers[0].bullets.map((x) => x.id)
+    expect(kept).toContain('e0a0')
+    expect(kept).toContain('e0a3')
+    expect(kept).toContain('e0a4')
+  })
+  it('swaps out only a bullet with neither a figure nor a brief match', () => {
+    const c = cands2()
+    c.employers[0].activities[3].impact = '40% faster'
+    const out = { ...empty, employers: epick(['co-0', 3], ['co-1', 3], ['co-2', 3], ['co-3', 3]), activities: ['e0a0', 'e0a1', 'e0a2', 'e0a3'].map((id) => ({ id, reason: 'r' })), emphasise: [{ item: 'Automation', evidence: ['e0a0'] }] }
+    const kept = enforceSelection(out, c, b2).selection.employers[0].bullets.map((x) => x.id)
+    expect(kept).toContain('e0a3') // has an outcome: protected
+    expect(kept).toContain('e0a0') // claimed
+    expect(kept).toContain('e0a4')
+  })
+  it('leaves an expired certification the model picked off the selection', () => {
+    const c = bigCandidates(4, 4)
+    c.certifications[0].expired = true
+    const s = enforceSelection({ ...empty, employers: epick(['co-0', 3]), certifications: pick('ce0', 'ce1') }, c, brief)
+    expect(s.selection.certifications.map((i) => i.id)).not.toContain('ce0')
+    expect(s.selection.certifications.map((i) => i.id)).toContain('ce1')
+    expect(s.notes.join(' ')).toContain('expired certification')
+  })
+})

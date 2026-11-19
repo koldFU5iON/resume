@@ -338,6 +338,7 @@ export function enforceSelection(
   const pickedActs = new Set(actRanked.map((p) => p.id))
   const pickedProjects = new Set(out.projects.map((p) => p.id))
   const claimedFor = claimsByItem(out.emphasise)
+  const claimedIds = new Set([...claimedFor.values()].flat())
   const pinnedProjects: Array<{ id: string; reason: string }> = []
   const textOf = (a: CandidateActivity) => `${a.text} ${a.impact ?? ''}`
   const projText = (c: Candidates['projects'][number]) => `${c.label} ${c.detail ?? ''}`
@@ -394,15 +395,19 @@ export function enforceSelection(
       if (extra.length > 0) toppedUp++
     }
     // Swap: a strong activity left out (picked below the cap, or never picked)
-    // replaces the last kept one that is not strong and was not named in the brief.
+    // replaces the last kept one that has NO figure or outcome AND matches no named brief
+    // item, was not pinned by name and is not evidence the model listed for an item.
     const actOf = new Map(e.activities.map((a) => [a.id, a]))
     const waiting = e.activities
       .filter((a) => strong(a) && !kept.some((k) => k.id === a.id))
-      .sort((x, y) => Number(pickedActs.has(y.id)) - Number(pickedActs.has(x.id)) || x.id.localeCompare(y.id))
+      .sort((x, y) => Number(pickedActs.has(y.id)) - Number(pickedActs.has(x.id)) || activityRank(y) - activityRank(x) || e.activities.indexOf(x) - e.activities.indexOf(y))
     let swaps = 0
     for (const a of waiting) {
       if (swaps >= MAX_FIGURE_SWAPS_PER_EMPLOYER) break
-      const victim = [...kept.keys()].reverse().find((k) => !kept[k].reason.startsWith('Named in the brief') && !strong(actOf.get(kept[k].id)!))
+      const victim = [...kept.keys()].reverse().find((k) => {
+        const v = actOf.get(kept[k].id)!
+        return !kept[k].reason.startsWith('Named in the brief') && !claimedIds.has(v.id) && !strong(v) && !hasOutcome(v) && !named.some((n) => matchesName(textOf(v), n.name))
+      })
       if (victim === undefined) break
       const out = kept[victim]
       kept[victim] = { ...item(a.id, 'Chosen by rule: states a figure and matches a brief item'), experienceId: a.experienceId }
@@ -451,9 +456,13 @@ export function enforceSelection(
   for (const s of FLAT_SECTIONS) {
     const known = new Set(cands[s].map((c) => c.id))
     const limit = clampBudgetValue(s, brief.budgets[s])
+    const expiredIds = s === 'certifications' ? new Set(cands.certifications.filter((c) => c.expired).map((c) => c.id)) : new Set<string>()
     const picks = rank(s, s === 'projects' ? [...pinnedProjects.filter((p) => !out.projects.some((o) => o.id === p.id)), ...out.projects] : out[s], known)
-    let kept = picks.slice(0, limit)
-    for (const p of picks.slice(limit)) dropReason.set(p.id, 'over_cap')
+    const live = picks.filter((p) => !expiredIds.has(p.id))
+    for (const p of picks) if (expiredIds.has(p.id)) dropReason.set(p.id, 'not_selected')
+    if (live.length < picks.length) notes.push(`Left out ${countOf(picks.length - live.length, 'expired certification')} the model picked: ${picks.filter((p) => expiredIds.has(p.id)).map((p) => labels.get(p.id) ?? p.id).join(', ')}.`)
+    let kept = live.slice(0, limit)
+    for (const p of live.slice(limit)) dropReason.set(p.id, 'over_cap')
     const want = Math.min(BUDGET_FLOORS[s], limit, cands[s].length)
     if (kept.length < want) {
       const taken = new Set(kept.map((k) => k.id))
@@ -558,10 +567,13 @@ function employerCarries(e: Pick<CandidateEmployer, 'company'>, name: string): b
 const MAX_FIGURE_SWAPS_PER_EMPLOYER = 2
 
 /** An activity that states a figure or an outcome (a figure in the text, or an impact line) AND names a lead-with or emphasise item. */
+export function hasOutcome(a: Pick<CandidateActivity, 'text' | 'impact'>): boolean {
+  return Boolean(a.impact?.trim()) || figuresIn(`${a.text} ${a.impact ?? ''}`).length > 0
+}
+
 export function strongEvidence(a: Pick<CandidateActivity, 'text' | 'impact'>, items: readonly Pick<NamedItem, 'name'>[]): boolean {
   const text = `${a.text} ${a.impact ?? ''}`
-  const outcome = Boolean(a.impact?.trim()) || figuresIn(text).length > 0
-  return outcome && items.some((n) => matchesName(text, n.name))
+  return hasOutcome(a) && items.some((n) => matchesName(text, n.name))
 }
 
 /** A year-based age limit: a certification issued longer ago than this is "stale" when ranking. */
