@@ -10,8 +10,12 @@ import { MAX_COMPETENCIES } from '../caps'
 export const SUMMARY_MAX_WORDS = 40
 /** One experience bullet. */
 export const BULLET_MAX_WORDS = 25
-/** The professional profile paragraph: 4-6 sentences, first person, figure-led (raised from 80 after the owner's own CV profile ran about 110 words). A longer one is shortened at a clause boundary. */
-export const PROFILE_MAX_WORDS = 110
+/** The professional profile paragraph: 70-90 words, 4-5 sentences, first person. A longer one is shortened at a clause boundary (the top third of page 1 is what gets read). */
+export const PROFILE_MAX_WORDS = 90
+/** The profile is asked to run at least this long (guidance in the prompt, not a check: a short career may be shorter). */
+export const PROFILE_TARGET_MIN_WORDS = 70
+/** Sentences the profile is asked for (prompt guidance). */
+export const PROFILE_SENTENCES = '4 to 5'
 /** The headline under the name: a descriptor, never a title. */
 export const HEADLINE_MAX_WORDS = 12
 /**
@@ -26,8 +30,8 @@ export const COMPETENCY_LABEL_MAX_WORDS = 5
 export const COMPETENCY_MAX_LABELS = MAX_COMPETENCIES
 /** No minimum number of competency labels: the call writes as many as the experience supports, up to the budget; code never tops up to reach a count. */
 export const COMPETENCY_MIN_LABELS = 0
-/** The professional profile uses at most this many figures (and none already used in an experience bullet). */
-export const PROFILE_MAX_FIGURES = 1
+/** The professional profile and headline use at most this many figures; the profile (only) may repeat one a bullet also states. */
+export const PROFILE_MAX_FIGURES = 2
 /** Group labels in Skills and Tools (per list). */
 export const MAX_SKILL_GROUPS = 3
 export const GROUP_LABEL_MAX_WORDS = 4

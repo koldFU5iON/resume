@@ -516,3 +516,25 @@ export function unsupportedQualitative(text: string, allowed: readonly string[])
   const mine = norm(text)
   return QUALITATIVE.filter((q) => mine.includes(norm(q)) && !hay.includes(norm(q)))
 }
+
+// ── Unsupported self-description (profile) ──────────────────────────────────
+
+/**
+ * Working-style and personality claims a CV cannot back from evidence ("I work
+ * best where...", "passionate", "a team player"). Best-effort and soft: the
+ * profile says what the candidate did and what came of it, not what they are
+ * like. Returns the phrases found, as written. Pure.
+ */
+const SELF_DESCRIPTION: RegExp[] = [
+  /\bI (?:work|operate|perform) (?:best|well|better)\b/gi,
+  /\bI do my best work\b/gi,
+  /\bI(?:'m| am) (?:at my best|happiest|passionate|driven|motivated|committed)\b/gi,
+  /\bI (?:thrive|love|enjoy|believe|care deeply)\b/gi,
+  /\b(?:passionate|self-starter|team player|results-driven|detail-oriented|hard-?working|go-getter|natural leader|people person|fast learner|quick learner|proactive|highly motivated|strong work ethic|dynamic|innovative thinker)\b/gi,
+]
+
+export function selfDescriptions(text: string): string[] {
+  const found: string[] = []
+  for (const re of SELF_DESCRIPTION) for (const m of text.matchAll(re)) if (!found.includes(m[0])) found.push(m[0])
+  return found
+}

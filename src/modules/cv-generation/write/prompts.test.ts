@@ -34,7 +34,7 @@ describe('the writer prompt files', () => {
     const t = read('cv-gen-write-profile')
     expect(t).toContain('AFTER the experience section exists')
     expect(t).toContain('NOT a job title')
-    expect(t).toContain('Do not state a number of years of experience unless the limits section gives you one')
+    expect(t).toContain('Do not state a number of years of experience unless the limits section gives you the exact phrase')
     expect(t).toContain('Numbers verbatim')
   })
 })
@@ -110,11 +110,14 @@ describe('the writer prompts, after the review fixes', () => {
 
     it('the profile prompt: opens with positioning for this role, at most one figure none of them from the bullets, labels of 2 to 5 words, no pronouns', () => {
       const t = read('cv-gen-write-profile')
-      expect(t).toContain('Open with the positioning for THIS role')
-      expect(t).toMatch(/\*\*4 to 6 sentences\*\*/)
+      expect(t).toContain("names the target role or domain in the job ad's own terms")
+      expect(t).toMatch(/\*\*4 to 5 sentences, 70 to 90 words\*\*/)
       expect(t).toMatch(/hidden question/)
       expect(t).toMatch(/what kind of company or product it is/)
-      expect(t).toMatch(/at most ONE figure.*never a figure that already appears in the experience section/)
+      expect(t).toMatch(/up to TWO in the profile and headline together/i)
+      expect(t).toMatch(/second sentence gives the strongest result, with its figure/)
+      expect(t).toMatch(/never write unsupported claims about how the candidate works/)
+      expect(t).toMatch(/Do not restate a bullet's sentence nearly word for word|Do not restate a bullet/)
       expect(t).toMatch(/short noun-phrase labels\*\* of 2 to 5 words/)
       expect(t).toMatch(/no numbers, no sentences/)
       // First person is for the profile paragraph only; the headline and labels stay impersonal.

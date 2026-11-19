@@ -39,7 +39,7 @@ import type { Strategy } from '../strategy'
 import { isThin } from './thin'
 import { leadWithProjects, leadWithStanding, playDownBullets, shortened, wrongTenseLines } from './bullets'
 import {
-  claimedHits, credentialProblems, distinctNotableFigures, figuresIn, introducedNames, projectReflected, repeatedFigures, sharedFigures,
+  claimedHits, credentialProblems, distinctNotableFigures, figuresIn, introducedNames, projectReflected, repeatedFigures, selfDescriptions,
   unsupportedFigures, unsupportedProperNouns, unsupportedQualitative, wordCount,
 } from './checks'
 import { activityPromptText, evidenceTexts, figureIgnoredNames, projectPromptText, type EmployerEvidence, type Evidence } from './evidence'
@@ -309,9 +309,10 @@ export function recheckText(
     const added = repeatedFigures([...scope.others, text], names).filter((f) => !before.has(f))
     if (added.length > 0) return { why: `repeats a figure already stated in this entry or the profile: ${added.join(', ')}` }
   } else {
-    const shared = sharedFigures(text, scope.others, names)
-    if (shared.length > 0) return { why: `repeats a figure the experience section already states: ${shared.join(', ')}` }
-    if (distinctNotableFigures(text, names).length > PROFILE_MAX_FIGURES) return { why: `uses more than ${PROFILE_MAX_FIGURES} notable figure` }
+    // The profile may repeat a figure a bullet states (the top of page 1 carries the best proof); it may not use more than PROFILE_MAX_FIGURES or make working-style claims.
+    if (distinctNotableFigures(text, names).length > PROFILE_MAX_FIGURES) return { why: `uses more than ${PROFILE_MAX_FIGURES} notable figures` }
+    const selfDescribed = selfDescriptions(text)
+    if (selfDescribed.length > 0) return { why: `makes a working-style or personality claim the evidence cannot back: ${selfDescribed.join(', ')}` }
   }
   return { text, notes }
 }
@@ -376,7 +377,7 @@ export function applyEdits(doc: ReviewDoc, edits: ReviewOutput['edits'], ctx: Ap
       if (bulletId.toLowerCase() === 'summary') {
         if (!ex.summary) { discard('the entry has no summary'); continue }
         if (e.action === 'remove') { discard('the summary cannot be removed (every entry keeps one): reword it instead'); continue }
-        const ok = recheckText('summary', proposed, ctx, { emp, current: ex.current, others: [...activeTexts(), profileText].filter(Boolean), old: ex.summary, cited: [] })
+        const ok = recheckText('summary', proposed, ctx, { emp, current: ex.current, others: activeTexts().filter(Boolean), old: ex.summary, cited: [] })
         if ('why' in ok) { discard(ok.why); continue }
         if (ok.text === ex.summary) { discard('the new text is the same as the old'); continue }
         const rule = entryRuleProblem(emp, ctx, { summary: ex.summary, bullets: activeTexts() }, { summary: ok.text, bullets: activeTexts() })
@@ -398,7 +399,7 @@ export function applyEdits(doc: ReviewDoc, edits: ReviewOutput['edits'], ctx: Ap
         continue
       }
       const ok = recheckText('bullet', proposed, ctx, {
-        emp, current: ex.current, others: [ex.summary, ...without, profileText].filter(Boolean), old: bullet.text, cited: citedTexts(emp, bullet.sources),
+        emp, current: ex.current, others: [ex.summary, ...without].filter(Boolean), old: bullet.text, cited: citedTexts(emp, bullet.sources),
       })
       if ('why' in ok) { discard(ok.why); continue }
       if (ok.text === bullet.text) { discard('the new text is the same as the old'); continue }

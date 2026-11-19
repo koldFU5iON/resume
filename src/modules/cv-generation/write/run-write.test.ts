@@ -96,6 +96,33 @@ beforeEach(() => {
   }) as never)
 })
 
+describe('years of experience reaches the profile prompt (computed from the earliest role across all employers)', () => {
+  const profilePrompt = async (startOfOldest: Date | null) => {
+    const src = writeVaultSource()
+    if (startOfOldest) {
+      // The oldest role is header-only (Earlier Experience): it still counts.
+      const oldest = (src.experiences as Array<{ startDate: Date }>).reduce((a, b) => (a.startDate < b.startDate ? a : b))
+      oldest.startDate = startOfOldest
+    } else {
+      for (const e of src.experiences as Array<{ startDate: Date }>) e.startDate = new Date(Date.UTC(new Date().getUTCFullYear() - 3, 0, 1))
+    }
+    const vault = buildVault(src)
+    await runWrite(vault, buildBriefFor(), writeSelection(vault), strategy, ctx())
+    return seen.find((s) => s.feature === 'cv-gen-write-profile')!.prompt
+  }
+  const yearsAgo = (n: number) => new Date(Date.UTC(new Date().getUTCFullYear() - n, 0, 1))
+
+  it('states nothing for a 3-year career', async () => {
+    const p = await profilePrompt(null)
+    expect(p).toContain('Do not state a number of years of experience.')
+  })
+  it('asks for "10+ years" for a 12-year career and "20+ years" for a 24-year one', async () => {
+    expect(await profilePrompt(yearsAgo(12))).toContain('states exactly "10+ years"')
+    seen = []
+    expect(await profilePrompt(yearsAgo(24))).toContain('states exactly "20+ years"')
+  })
+})
+
 describe('runWrite', () => {
   it('writes employers and skills in wave 1, then the profile, and renders the rest by code', async () => {
     const vault = writeVault()
