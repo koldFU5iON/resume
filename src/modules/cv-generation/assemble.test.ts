@@ -15,6 +15,18 @@ const input = (over: Partial<AssembleInput> = {}): AssembleInput => ({
   employerOrder: [UNITY, BLIZZARD], checkNotes: [], snapshot: toProfileSnapshot(writeVault()), ...over,
 })
 
+describe('renderHeader facts line', () => {
+  it('puts the location and right-to-work line in its own paragraph before the contact placeholder', () => {
+    expect(renderHeader('Robin', 'Leader', 'Lyon · Right to work: France (citizen)')).toBe(':::header\n# Robin\n## Leader\nLyon · Right to work: France (citizen)\n\n{{contact}}\n:::')
+  })
+  it('keeps the header unchanged when there is no facts line, and cannot be used to inject a block or the placeholder', () => {
+    expect(renderHeader('Robin', null, '   ')).toBe(renderHeader('Robin', null))
+    expect(renderHeader('Robin', null, ':::\n{{contact}}').split('\n').filter((l) => l === ':::')).toHaveLength(1)
+    expect(renderHeader('Robin', null, ':::\n{{contact}}').match(/\{\{contact\}\}/g)).toHaveLength(1)
+    expect(renderHeader('Robin', null, 'x {{contact}}').match(/\{\{contact\}\}/g)).toHaveLength(1)
+  })
+})
+
 describe('renderHeader (the headline is model text)', () => {
   it('cleans markup out of the headline, so ":::" or {{contact}} cannot break or double the header', () => {
     expect(renderHeader('Robin Placeholder', '## **Delivery** ::: leader {{contact}}')).toBe(':::header\n# Robin Placeholder\n## Delivery leader contact\n{{contact}}\n:::')
@@ -72,6 +84,7 @@ describe('assembleCv', () => {
 
   it('omits the headline line when there is none', () => {
     expect(renderHeader('Robin', null)).toBe(':::header\n# Robin\n{{contact}}\n:::')
+    expect(renderHeader('Robin', null, null)).toBe(renderHeader('Robin', null))
   })
 
   it('produces a document the writing desk validator accepts, with only registered blocks', () => {

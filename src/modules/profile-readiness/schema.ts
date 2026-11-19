@@ -7,7 +7,7 @@ export const READINESS_KINDS = [
   'experience_dates_reversed', 'concurrent_roles', 'employment_gap', 'experience_no_evidence', 'role_overview_thin',
   'unmeasured_achievements', 'figure_in_prose', 'outcome_without_project', 'filler_responsibility', 'long_activity', 'conflicting_figures',
   'claimed_only_capabilities', 'unlinked_evidence', 'unlisted_capability',
-  'contact_missing', 'location_missing', 'right_to_work_not_shown',
+  'contact_missing', 'location_missing',
 ] as const
 
 /** `fix`: the CV generator cannot work around it. `consider`: worth a look; may be intended. */

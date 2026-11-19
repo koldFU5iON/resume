@@ -28,6 +28,8 @@ export type AssembleInput = {
   name: string
   /** A short descriptor under the name; null when there is none. */
   headline: string | null
+  /** Location and right to work, built in code from the profile (header-facts.ts); null or absent when there is none. */
+  headerFacts?: string | null
   sections: readonly WrittenSection[]
   /** The selection's employers fix the order of the experience entries (newest first). */
   employerOrder: readonly string[]
@@ -42,9 +44,10 @@ export type AssembleResult =
 
 const oneLine = (s: string) => s.replace(/\s+/g, ' ').trim()
 
-/** The header block: name, headline, contact placeholder. */
-export function renderHeader(name: string, headline: string | null): string {
-  return [':::header', `# ${oneLine(name) || 'Curriculum Vitae'}`, ...(headline && plainLine(headline) ? [`## ${plainLine(headline)}`] : []), CONTACT_PLACEHOLDER, ':::'].join('\n')
+/** The header block: name, headline, the location and right-to-work line when there is one (its own paragraph), contact placeholder. */
+export function renderHeader(name: string, headline: string | null, facts: string | null = null): string {
+  const factsLine = facts && plainLine(facts) ? [plainLine(facts), ''] : []
+  return [':::header', `# ${oneLine(name) || 'Curriculum Vitae'}`, ...(headline && plainLine(headline) ? [`## ${plainLine(headline)}`] : []), ...factsLine, CONTACT_PLACEHOLDER, ':::'].join('\n')
 }
 
 /** The section key and heading of the Earlier Experience list (employers shown without bullets). */
@@ -71,7 +74,7 @@ export function assembleCv(input: AssembleInput): AssembleResult {
 
   for (const { key, heading } of guide.sections) {
     if (key === 'header') {
-      pieces.push({ id: 'header', kind: 'header', markdown: renderHeader(input.name, input.headline) })
+      pieces.push({ id: 'header', kind: 'header', markdown: renderHeader(input.name, input.headline, input.headerFacts ?? null) })
       continue
     }
     if (key === 'experience') {
