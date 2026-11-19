@@ -5,7 +5,7 @@
 // "consider" checks: they are phrased as questions.
 
 import { certificationStatus, educationStatus } from '@/modules/cv-generation/write/status'
-import { isThinProject } from '@/modules/cv-generation/write/limits'
+import { isThinProject, THIN_PROJECT_MIN_CHARS } from '@/modules/cv-generation/write/limits'
 import { notesOf } from '@/modules/profile-map/build'
 import { formatMonth, normalizeName, oneLine } from '@/modules/profile-map/format'
 import type { EvidenceNote, ExperienceNote, Note, ProjectNote, Vault } from '@/modules/profile-map/types'
@@ -318,6 +318,19 @@ export function checkExperienceEvidence(vault: Vault, now: Date): Candidate[] {
         suggestion: 'Add the two or three things you did there that you would want a reader to know, with a result where you have one.',
       })
     })
+}
+
+// ── Role overview ──────────────────────────────────────────────────────
+/** A role with achievements but an overview under THIN_PROJECT_MIN_CHARS gives the CV writer nothing concrete for the summary line, so the summary is left out. */
+export function checkRoleOverview(vault: Vault, now: Date): Candidate[] {
+  const thin = new Set(thinNotes(vault).map((n) => n.id))
+  return notesOf(vault, 'experience')
+    .filter((e) => !thin.has(e.id) && roleEvidence(vault, e).length > 0 && (e.body ?? '').trim().length < THIN_PROJECT_MIN_CHARS)
+    .map((e) => about(e, {
+      kind: 'role_overview_thin', severity: 'consider', impact: isRecent(e, now) ? 3 : 1, title: `${roleName(e)}: no overview`,
+      message: `${roleName(e)} has achievements but almost no overview, so the CV cannot say what ${e.props.company} is or what your remit was.`,
+      suggestion: 'Add a line or two to the role: what the employer is (size, market, products), your team or region and your remit.',
+    }))
 }
 
 // ── Evidence quality ───────────────────────────────────────────────────

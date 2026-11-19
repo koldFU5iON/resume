@@ -27,7 +27,7 @@ import { attributionOf, completeChecked, softIssueNotes, type CheckResult } from
 import { CV_GENERATION_FEATURES, TEMPERATURE, TIME_BUDGET_MS, type BulletProvenance } from '../schema'
 import { bulletAllowance, leadWithProjects, leadWithStanding, dedupeSummary, playDownBullets, shortened, trimBullets, wrongTenseLines } from './bullets'
 import { BULLET_MAX_WORDS, SUMMARY_MAX_WORDS, experienceTokenCaps } from './limits'
-import { claimedHits, credentialProblems, introducedNames, projectReflected, repeatedFigures, unsupportedFigures, wordCount } from './checks'
+import { claimedHits, contentStems, credentialProblems, introducedNames, normalised, projectReflected, repeatedFigures, unsupportedFigures, wordCount } from './checks'
 import { activityPromptText, evidenceTexts, figureIgnoredNames, projectPromptText, type EmployerEvidence } from './evidence'
 import { plainFeedback, plainLine, plainReasons, shortenToWords } from './plain'
 import { isThin, thinProjectNote } from './thin'
@@ -44,7 +44,7 @@ export type ExperienceOutcome = WriterOutcome & {
 }
 
 export const ExperienceOutputSchema = z.object({
-  summary: z.string().describe(`One plain sentence on what the candidate was responsible for, at most ${SUMMARY_MAX_WORDS} words`),
+  summary: z.string().describe(`One plain sentence of concrete scope (what the employer is, team or region or portfolio size, remit) taken from the role overview, at most ${SUMMARY_MAX_WORDS} words; an EMPTY string when the overview states no concrete scope fact`),
   bullets: z.array(z.object({
     text: z.string().describe(`The bullet as plain text, without "- " or any Markdown, at most ${BULLET_MAX_WORDS} words`),
     sources: z.array(z.string()).default([]).describe('The labels of the evidence items this bullet comes from, e.g. ["E1"] or ["E2", "P1"]. At least one, only labels from the evidence list'),
@@ -79,6 +79,7 @@ export function experiencePrompt(ctx: Pick<WriteContext, 'brief' | 'strategy'>, 
     '# Job requirements\n\nFor emphasis only. They are not facts about the candidate.',
     data('job_requirements', requirementsBlock(ctx.strategy)),
     `# Hard limit\n\nThis entry may have at most ${max} bullets in total${extra > 0 ? ` (the ${emp.activities.length} evidence item${emp.activities.length === 1 ? '' : 's'} plus ${extra} own bullet${extra === 1 ? '' : 's'} for the LEAD WITH project${extra === 1 ? '' : 's'})` : ''}. Code counts them and cuts any beyond ${max}. Decide which items to merge before you write, and count your bullets before you answer.`,
+    ...(emp.overview?.trim() ? ['# Role overview\n\nThe only source for the summary (scope facts: what the employer is, team, region, portfolio, remit). Not for bullets.', data('overview', emp.overview.trim())] : ['# Role overview\n\n(none: the profile gives no overview for this employer, so the summary is an empty string)']),
     `# Evidence for this employer\n\nThese items are everything you may state. Best first.`,
     data('evidence', items.join('\n') || '(none: write from the projects below)'),
     ...(emp.projects.length > 0
@@ -87,7 +88,7 @@ export function experiencePrompt(ctx: Pick<WriteContext, 'brief' | 'strategy'>, 
           data('projects', emp.projects.map((p, i) => projectLine(p, i)).join('\n')),
         ]
       : []),
-    `# Limits\n\n- Summary: one sentence, at most ${SUMMARY_MAX_WORDS} words. It is scope and context only, never drawn from the activities listed above (every listed activity is for a bullet; two may share a bullet only when they describe the same achievement, and then the bullet cites both).\n- Bullets: at most ${max}${extra > 0 ? ` (the ${emp.activities.length} evidence item${emp.activities.length === 1 ? '' : 's'} plus ${extra} own bullet${extra === 1 ? '' : 's'} for the LEAD WITH project${extra === 1 ? '' : 's'})` : ''}, each at most ${BULLET_MAX_WORDS} words, outcome and business impact first. Merge items only when they state the same measured result with the same figures; related items with different figures or mechanisms stay separate bullets.\n- Sources: every bullet is an object {"text", "sources"}; "sources" lists the labels ([E1], [P1]...) of the evidence item(s) it comes from, at least one. A figure comes only from the item that states it.\n- Never repeat a figure within this entry: each number appears once, in the one place it fits best.\n- Play down: ${ctx.brief.playDown.length > 0 ? 'the "Play down" items in the brief may appear at most as a clause inside another bullet, never as a bullet of their own.' : 'nothing to play down.'}\n- Role verbs: when the evidence is a project, the candidate's ROLE verbs come from the evidence (\"led communications\", \"planned\", \"ran\"). Never promote the candidate to the product's creator or launcher (\"launched the demo\", \"built the game\") unless the evidence says they did.\n- Voice: no pronouns ("I", "my", "we"); an implied subject. Tense: ${tense}\n- Plain text only: no Markdown, links, HTML or ":::". Code builds the list from your strings.\n- Numbers exactly as in the evidence, whether you write them as digits or words; no title, company or date that the evidence does not contain.`,
+    `# Limits\n\n- Summary: one sentence, at most ${SUMMARY_MAX_WORDS} words, stating CONCRETE scope facts from the role overview (what the employer is, team, region or portfolio size, remit). Never filler such as \"role covering how launches reached their audiences\". When the overview carries no concrete scope fact, return an EMPTY summary (\"\"). It is scope and context only, never drawn from the activities listed above (every listed activity is for a bullet; two may share a bullet only when they describe the same achievement, and then the bullet cites both).\n- Bullets: at most ${max}${extra > 0 ? ` (the ${emp.activities.length} evidence item${emp.activities.length === 1 ? '' : 's'} plus ${extra} own bullet${extra === 1 ? '' : 's'} for the LEAD WITH project${extra === 1 ? '' : 's'})` : ''}, each at most ${BULLET_MAX_WORDS} words, outcome and business impact first. Merge items only when they state the same measured result with the same figures; related items with different figures or mechanisms stay separate bullets.\n- Sources: every bullet is an object {"text", "sources"}; "sources" lists the labels ([E1], [P1]...) of the evidence item(s) it comes from, at least one. A figure comes only from the item that states it.\n- Never repeat a figure within this entry: each number appears once, in the one place it fits best.\n- Play down: ${ctx.brief.playDown.length > 0 ? 'the "Play down" items in the brief may appear at most as a clause inside another bullet, never as a bullet of their own.' : 'nothing to play down.'}\n- Role verbs: when the evidence is a project, the candidate's ROLE verbs come from the evidence (\"led communications\", \"planned\", \"ran\"). Never promote the candidate to the product's creator or launcher (\"launched the demo\", \"built the game\") unless the evidence says they did.\n- Voice: no pronouns ("I", "my", "we"); an implied subject. Tense: ${tense}\n- Plain text only: no Markdown, links, HTML or ":::". Code builds the list from your strings.\n- Numbers exactly as in the evidence, whether you write them as digits or words; no title, company or date that the evidence does not contain.`,
     'Return the summary and the bullets (each with its source labels) as one JSON object matching the schema, in a ```json code block.',
   ].join('\n\n')
 }
@@ -119,6 +120,22 @@ type Analysis = CheckResult & {
   inProgressNamed: string[]
 }
 
+/**
+ * Whether a summary is only generic words: no number, no proper noun (a capitalised
+ * word inside the sentence, other than the employer's own name) and no word of the
+ * role overview. Such a line is filler written because the overview was thin. Pure.
+ */
+export function isGenericSummary(summary: string, emp: Pick<EmployerEvidence, 'employer' | 'overview'>): boolean {
+  const text = summary.trim()
+  if (!text) return false
+  if (/\d/.test(text)) return false
+  const company = new Set(normalised(emp.employer.company))
+  const inner = text.split(/\s+/).slice(1).map((w) => w.replace(/^[^\p{L}]+|[^\p{L}]+$/gu, '')).filter((w) => /^\p{Lu}/u.test(w) && !company.has(w.toLowerCase()))
+  if (inner.length > 0) return false
+  const own = contentStems(emp.overview ?? '')
+  return ![...contentStems(text)].some((w) => own.has(w))
+}
+
 /** All code checks on one answer. Pure. The summary and bullets in the result are already cleaned. */
 export function analyseExperience(out: ExperienceOutput, ctx: Pick<WriteContext, 'evidence' | 'requirementText' | 'brief'>, emp: EmployerEvidence): Analysis {
   const soft: string[] = []
@@ -144,7 +161,7 @@ export function analyseExperience(out: ExperienceOutput, ctx: Pick<WriteContext,
     if (f) problem(f, plainReasons(text, ownText).join(', '))
   }
 
-  if (summary === '') problem('the summary is empty; write one sentence', 'empty summary')
+  // An empty summary is allowed: the overview may carry no concrete scope fact, and then the entry has no summary line.
   // Over the word cap is NOT a retry reason (a retry doubles the call's cost): writeExperience shortens it in code.
   if (bullets.length === 0) problem('there are no bullets; write one per evidence item you use', 'no bullets')
   if (bullets.length > max) problem(`there are ${bullets.length} bullets; at most ${max} are allowed (merge items that state the same outcome; a project that is not marked LEAD WITH is merged into a bullet, never its own)`, `${bullets.length} bullets, limit ${max}`)
@@ -270,9 +287,12 @@ export async function writeExperience(ctx: WriteContext, emp: EmployerEvidence, 
   for (const r of dedup.removed) notes.push(`Removed “${shortened(r)}” from the summary: a bullet already says it (the summary states scope and context only).`)
   for (const u of dedup.unresolved) notes.push(`The summary and a bullet say nearly the same thing: “${shortened(u)}”. Kept both, because the summary has nothing else it could lose safely.`)
   for (const u of dedup.partial) notes.push(`The summary still overlaps a bullet after a clause was removed: “${shortened(u)}”. Kept what is left of both.`)
+  // Filler: a summary of generic words only is dropped, with a pointer to what the profile is missing.
+  const filler = isGenericSummary(dedup.summary, emp)
+  if (filler) notes.push(`${emp.employer.company} has too little overview text for a summary: add a role overview in your profile (what the employer is and your remit). Dropped “${shortened(dedup.summary)}”.`)
   const a = {
     ...analysed,
-    summary: fit(dedup.summary, SUMMARY_MAX_WORDS, 'the summary'),
+    summary: filler ? '' : fit(dedup.summary, SUMMARY_MAX_WORDS, 'the summary'),
     bullets: bulletIdx.map((i) => fit(analysed.bullets[i], BULLET_MAX_WORDS, `bullet ${i + 1}`)),
     bulletSources: bulletIdx.map((i) => analysed.bulletSources[i]),
   }

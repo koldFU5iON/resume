@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   CONCURRENT_MIN_OVERLAP_MONTHS, EMPLOYMENT_GAP_MONTHS, FILLER_RESPONSIBILITY_WORDS, LONG_ACTIVITY_WORDS,
   checkCapabilities, checkCertifications, checkConflictingFigures, checkContact, checkDuplicateProjects, checkEducation,
-  checkEvidenceQuality, checkExperienceDates, checkExperienceEvidence, checkThinNarratives,
+  checkEvidenceQuality, checkExperienceDates, checkExperienceEvidence, checkRoleOverview, checkThinNarratives,
 } from './checks'
 import {
   NOW, activity, careerChanger, certification, cleanProfile, earlyCareer, education, longCareer, messyImport, project,
@@ -271,5 +271,19 @@ describe('checkContact', () => {
   it('never repeats contact details in a finding', () => {
     const text = JSON.stringify(checkContact(cleanProfile()))
     expect(text).not.toContain('robin@example.test')
+  })
+})
+
+describe('checkRoleOverview', () => {
+  const withEvidence = (body: string) => vaultOf({
+    experiences: [role('r', 'Megarom', 'Comms Manager', '2020-01', null, body)],
+    projects: [project('p', 'Atlas', 'x', { experienceId: 'r', activities: [activity('a', { projectId: 'p' }, 'achievement', 'Shipped the Atlas launch across twelve markets with the regional teams and press partners involved', '3 weeks early')] })],
+  })
+  it('considers a role with achievements but a thin overview', () => {
+    expect(checkRoleOverview(withEvidence('Comms.'), NOW)).toMatchObject([{ kind: 'role_overview_thin', severity: 'consider', noteId: 'r' }])
+  })
+  it('is quiet when the overview has enough text, or the role has no achievements', () => {
+    expect(checkRoleOverview(withEvidence('A'.repeat(200)), NOW)).toEqual([])
+    expect(checkRoleOverview(vaultOf({ experiences: [role('r', 'Co', 'Analyst', '2020-01', null, 'A'.repeat(200))] }), NOW)).toEqual([])
   })
 })

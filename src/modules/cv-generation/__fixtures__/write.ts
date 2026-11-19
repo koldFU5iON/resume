@@ -20,7 +20,7 @@ export function writeVaultSource(opts: { projects?: object[] } = {}) {
   const src = vaultSource()
   const base = src.experiences[0]
   const role = (id: string, company: string, title: string, start: string, end: string | null, acts: Array<[string, string, string | null]>) => ({
-    ...base, id, company, role: title, startDate: d(start), endDate: end ? d(end) : null, summary: '',
+    ...base, id, company, role: title, startDate: d(start), endDate: end ? d(end) : null, summary: title.startsWith('Snr.') ? 'Release and planning for the platform org.' : '',
     skills: [],
     activities: acts.map(([aid, desc, impact], i) => ({
       ...base.activities[0], id: aid, experienceId: id, description: desc, impact, highlighted: false, order: i, kind: 'achievement', skills: [],
