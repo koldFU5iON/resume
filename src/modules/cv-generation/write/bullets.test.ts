@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildBriefFor } from '../__fixtures__/gathered'
 import {
-  LEAD_WITH_PROJECT_EXTRA_BULLETS, bulletAllowance, leadWithProjects, leadWithStanding, opensInPresentTense, playDownBullets, reflectsItem, repeatsSummary, shortened,
+  LEAD_WITH_PROJECT_EXTRA_BULLETS, bulletAllowance, dedupeSummary, leadWithProjects, leadWithStanding, opensInPresentTense, playDownBullets, reflectsItem, repeatsSummary, shortened,
   thinLeadWithProjects, trimBullets, wrongTenseLines,
 } from './bullets'
 import { leads, em } from '../__fixtures__/candidates'
@@ -153,5 +153,12 @@ describe('repeatsSummary', () => {
     expect(repeatsSummary('Directed international PR strategy across EMEA, lifting coverage by 30%', summary)).toBe(false)
     expect(repeatsSummary('Cut platform release time across eight teams', summary)).toBe(false)
     expect(repeatsSummary('PR strategy', summary)).toBe(false)
+  })
+})
+
+describe('dedupeSummary', () => {
+  it('drops the overlapping sentence, or clause, and never empties the summary', () => {
+    expect(dedupeSummary('Directed international PR strategy for EMEA. Part of a small team.', ['Directed international PR strategy for EMEA']).summary).toBe('Part of a small team.')
+    expect(dedupeSummary('Directed international PR strategy for EMEA.', ['Directed international PR strategy for EMEA'])).toMatchObject({ summary: 'Directed international PR strategy for EMEA.', unresolved: ['Directed international PR strategy for EMEA'] })
   })
 })

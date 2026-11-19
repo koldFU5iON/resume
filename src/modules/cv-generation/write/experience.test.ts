@@ -583,15 +583,24 @@ describe('thin lead-with project (title only): nothing is invented from the brie
 })
 
 describe('filler bullet that repeats the summary', () => {
-  it('drops a bullet that is a near-verbatim copy of the summary sentence, with a log note and no retry', async () => {
-    const summary = 'Directed international PR strategy across EMEA, Americas and APAC.'
+  it('keeps the bullet and removes the repeated sentence from the summary, with a note and no retry', async () => {
+    const summary = 'Directed international PR strategy across EMEA, Americas and APAC. Part of a 12-person comms team.'
     const { s, result } = run([{ summary, bullets: ['Directed international PR strategy across EMEA, Americas & APAC', ...good.bullets.slice(0, 2)] }])
     const r = await result
     expect(s.calls).toHaveLength(1)
-    expect(r.bullets.join(' ')).not.toMatch(/international PR/)
-    expect(r.bullets).toHaveLength(2)
-    expect(r.provenance).toHaveLength(2)
-    expect(r.notes.join(' ')).toMatch(/Dropped a bullet that only repeats the summary sentence/)
+    expect(r.bullets).toHaveLength(3)
+    expect(r.provenance).toHaveLength(3)
+    expect(r.summary).toBe('Part of a 12-person comms team.')
+    expect(r.notes.join(' ')).toMatch(/Removed .* from the summary: a bullet already says it/)
+  })
+
+  it('removes the repeated clause of a one-sentence summary, and keeps both when nothing else is left', async () => {
+    const clause = await run([{ summary: 'Ran the platform org, directed international PR strategy across regions.', bullets: ['Directed international PR strategy across regions', good.bullets[0]] }]).result
+    expect(clause.bullets).toHaveLength(2)
+    expect(clause.summary).toBe('Ran the platform org.')
+    const both = await run([{ summary: 'Directed international PR strategy across regions.', bullets: ['Directed international PR strategy across regions', good.bullets[0]] }]).result
+    expect(both.bullets).toHaveLength(2)
+    expect(both.notes.join(' ')).toMatch(/Kept both/)
   })
 
   it('keeps a bullet that adds an outcome, and never drops the last bullet', async () => {

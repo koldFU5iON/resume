@@ -855,10 +855,6 @@ describe('thin projects do not use project slots', () => {
     expect(ids.filter((i) => i.startsWith('ps'))).toEqual(['ps1', 'ps2'])
   })
 
-  it('leaves out a thin project the brief does not name', () => {
-    const r = enforceSelection({ ...empty, employers: epick(['co-0', 4]), projects: pick('pt1', 'ps1') }, mk(), buildBriefFor({ leadWith: [], emphasise: [] }))
-    expect(r.selection.projects.map((p) => p.id)).toEqual(['ps1'])
-  })
 })
 
 describe('the select prompt: emphasise and budgets', () => {

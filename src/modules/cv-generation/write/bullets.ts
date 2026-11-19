@@ -150,6 +150,36 @@ export function repeatsSummary(bullet: string, summary: string): boolean {
   return b.filter((w) => s.has(w)).length / b.length >= 0.85
 }
 
+/**
+ * A summary freed of what a bullet already says. The bullet is always kept;
+ * instead the summary loses the sentence (or, in a one-sentence summary, the
+ * comma/semicolon clause) that overlaps it most, as long as something else of
+ * the summary is left. Returns what was removed and whether the repeat is still
+ * there (no other sentence or clause to keep). Pure.
+ */
+export function dedupeSummary(summary: string, bullets: readonly string[]): { summary: string; removed: string[]; unresolved: string[] } {
+  let current = summary
+  const removed: string[] = []
+  const unresolved: string[] = []
+  for (const bullet of bullets) {
+    if (!repeatsSummary(bullet, current)) continue
+    const sentences = current.split(/(?<=[.!?])\s+/).map((t) => t.trim()).filter(Boolean)
+    const clauses = sentences.length > 1 ? sentences : current.replace(/[.!?]+\s*$/, '').split(/\s*[,;]\s*|\s+—\s+/).map((t) => t.trim()).filter(Boolean)
+    const units = clauses.length > 1 ? clauses : []
+    const want = contentStems(bullet)
+    const scored = units.map((u, i) => ({ u, i, n: [...contentStems(u)].filter((w) => want.has(w)).length })).sort((x, y) => y.n - x.n || x.i - y.i)
+    const best = scored[0]
+    if (!best || best.n === 0) { unresolved.push(bullet); continue }
+    const rest = units.filter((_, i) => i !== best.i)
+    const joined = rest.join(sentences.length > 1 ? ' ' : ', ')
+    const next = /[.!?]$/.test(joined) ? joined : `${joined}.`
+    removed.push(best.u)
+    current = next
+    if (repeatsSummary(bullet, current)) unresolved.push(bullet)
+  }
+  return { summary: current, removed, unresolved }
+}
+
 export function shortened(text: string, max = 80): string {
   const t = text.replace(/\s+/g, ' ').trim()
   return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t
