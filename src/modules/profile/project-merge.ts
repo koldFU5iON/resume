@@ -115,7 +115,7 @@ export async function mergeProjects(profileId: string, { keepId, removeId, body 
   await prisma.$transaction(async (tx) => {
     const projects = await tx.project.findMany({
       where: { id: { in: [keepId, removeId] }, profileId },
-      include: { activities: { orderBy: { order: 'asc' }, select: { id: true, description: true, order: true, result: true } } },
+      include: { activities: { orderBy: { order: 'asc' }, select: { id: true, description: true, order: true, result: true, experienceId: true } } },
     })
     const keep = projects.find((p) => p.id === keepId)
     const remove = projects.find((p) => p.id === removeId)
@@ -139,7 +139,9 @@ export async function mergeProjects(profileId: string, { keepId, removeId, body 
         }
         continue
       }
-      await tx.roleActivity.update({ where: { id: activity.id }, data: { projectId: keepId, order: nextOrder++ } })
+      // Evidence that carried the removed project's role takes the kept project's role; another role's own evidence keeps its role.
+      const role = activity.experienceId === remove.experienceId ? keep.experienceId : activity.experienceId
+      await tx.roleActivity.update({ where: { id: activity.id }, data: { projectId: keepId, experienceId: role, order: nextOrder++ } })
     }
 
     const skills = await tx.projectSkill.findMany({ where: { projectId: removeId }, select: { skillId: true } })

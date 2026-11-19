@@ -203,7 +203,9 @@ Principle: **make every reader and writer correct for "a role owns it, a project
 
 Known follow-ups found in review, not in 3a: role extraction (`getExperienceWithSuggestionContext`) still reads all of a role's activities, so after 3c a suggestion could match a project-labelled row (belongs with the draft layer, PR 4); `nextActivityOrder` ignores the project label (ordering only, 3b); the backfill planner treats a responsibility with a role as the role's, which is right for the one-off fold already applied.
 
-### 3b. Safe writers (still no data change)
+### 3b. Safe writers (no data change; one constraint relaxed)
+**Found while building 3b:** the database enforces "exactly one owner" with a CHECK constraint (`RoleActivity_exactly_one_owner_check`, migration `20261114004748`), so a row with both a role and a project is impossible today, and the writers below would fail. 3b therefore includes a migration that relaxes it to "at least one owner" (`RoleActivity_at_least_one_owner_check`). Every existing row satisfies it; it only permits the new shape. 3e later replaces it with NOT NULL on the role. Code ships after the migration (the deploy runs it first). New and moved activities that name a project now carry the project's role.
+
 Tests first for each; today's behaviour is kept while a project can still have no role.
 - `deleteExperience(…, 'keep')`: before deleting, detach the role from the kept projects' activities, because `RoleActivity.experience` is `onDelete: Cascade` and would otherwise delete them. (After 3e this becomes "move the kept projects and their activities to Independent projects".) The delete dialog's counts say what really happens.
 - `saveProjectProperties` (moving a project to another role, or to none): also moves its activities' `experienceId`.
@@ -212,7 +214,7 @@ Tests first for each; today's behaviour is kept while a project can still have n
 - Assignment guard: the apply step filters on `projectId` as well as "no role yet", so a concurrent move cannot assign a stale role.
 
 ### 3c. Assign the roles (data)
-Extend the guarded apply script (dry run, fingerprint, `--apply --confirm`, one transaction) to give project-only activities their project's role. Your report lists the 19. Verification: candidates and vault built from production before and after must be identical (3a's golden check, read-only); readiness findings must not change.
+Needs the 3b constraint change (otherwise the database refuses a row with both). Extend the guarded apply script (dry run, fingerprint, `--apply --confirm`, one transaction) to give project-only activities their project's role. Your report lists the 19. Verification: candidates and vault built from production before and after must be identical (3a's golden check, read-only); readiness findings must not change.
 
 ### 3d. The independent experience
 - `Experience.type = 'independent'`, created on demand, named by the owner (placeholder "Independent projects"), timeless.

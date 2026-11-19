@@ -107,6 +107,26 @@ describe('mergeProjects', () => {
     expect(prisma.project.delete).toHaveBeenCalledWith({ where: { id: 'gone' } })
   })
 
+  it('gives moved evidence the kept project\'s role when it carried the removed project\'s role, and leaves another role\'s own evidence alone', async () => {
+    rows(
+      { experienceId: 'e1', activities: [] },
+      { experienceId: 'e2', activities: [{ ...ev('g1', 'Carried e2', 0), experienceId: 'e2' }, { ...ev('g2', 'Another role\'s', 1), experienceId: 'e9' }, { ...ev('g3', 'No role', 2), experienceId: null }] },
+    )
+    vi.mocked(prisma.projectSkill.findMany).mockResolvedValue([])
+    await mergeProjects('p1', { keepId: 'keep', removeId: 'gone', body: 'keep' })
+    expect(prisma.roleActivity.update).toHaveBeenCalledWith({ where: { id: 'g1' }, data: { projectId: 'keep', experienceId: 'e1', order: 0 } })
+    expect(prisma.roleActivity.update).toHaveBeenCalledWith({ where: { id: 'g2' }, data: { projectId: 'keep', experienceId: 'e9', order: 1 } })
+    // Carried no role while the removed project had one: not the project's role, so it stays as it was.
+    expect(prisma.roleActivity.update).toHaveBeenCalledWith({ where: { id: 'g3' }, data: { projectId: 'keep', experienceId: null, order: 2 } })
+  })
+
+  it('merging into a project with no role clears the role of evidence that carried the removed project\'s role', async () => {
+    rows({ experienceId: null, activities: [] }, { experienceId: 'e2', activities: [{ ...ev('g1', 'Carried e2', 0), experienceId: 'e2' }] })
+    vi.mocked(prisma.projectSkill.findMany).mockResolvedValue([])
+    await mergeProjects('p1', { keepId: 'keep', removeId: 'gone', body: 'keep' })
+    expect(prisma.roleActivity.update).toHaveBeenCalledWith({ where: { id: 'g1' }, data: { projectId: 'keep', experienceId: null, order: 0 } })
+  })
+
   it('does not move evidence the kept project already has, but keeps its confirmed links', async () => {
     rows({ activities: [ev('k1', 'Shipped  4 releases', 0)] }, { activities: [ev('g1', 'shipped 4 releases', 0), ev('g2', 'New', 1)] })
     vi.mocked(prisma.roleActivitySkill.findMany).mockResolvedValue([{ skillId: 's1', source: 'manual', reason: null }] as never)

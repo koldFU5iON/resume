@@ -5,6 +5,7 @@ import { requireProfile } from '@/lib/session'
 import { revalidatePath } from 'next/cache'
 import * as z from 'zod'
 import { Prisma } from '@prisma/client'
+import { activityFieldsFor, deleteExperienceRow, deleteProjectRow, experienceDeleteImpact, nextActivityOrder, ownerOf, type ActivityOwner } from './activity-roles'
 import { activityOwnedBy } from './ownership'
 import { saveExperienceProperties, saveProjectProperties, type ExperienceProperties, type ProjectProperties } from './properties'
 import { readNote, saveExperienceNote, saveProjectNote, type NoteSaveResult } from './note-revision'
@@ -59,36 +60,13 @@ function activityRow(data: ActivityData) {
   return { ...rest, ...(result === undefined ? {} : { result: result === null ? Prisma.JsonNull : result }) }
 }
 
-/** Evidence belongs to exactly one owner: a role or a project. */
-export type ActivityOwner = { experienceId: string } | { projectId: string }
-
-/** The slot after the owner's last evidence, so new items land at the end instead of tying at 0. */
-async function nextActivityOrder(owner: ActivityOwner): Promise<number> {
-  const last = await prisma.roleActivity.findFirst({ where: owner, orderBy: { order: 'desc' }, select: { order: true } })
-  return (last?.order ?? -1) + 1
-}
-
-/** The owner the profile really has, as the row fields that set it (the other owner column is cleared). */
-async function ownedTarget(profileId: string, owner: ActivityOwner): Promise<{ experienceId: string | null; projectId: string | null }> {
-  // A missing id must not match "any row of the profile" (Prisma ignores an undefined filter).
-  const id = 'projectId' in owner ? owner.projectId : owner.experienceId
-  if (typeof id !== 'string' || !id) throw new Error('projectId' in owner ? 'Project not found' : 'Experience not found')
-  if ('projectId' in owner) {
-    const project = await prisma.project.findFirst({ where: { id: owner.projectId, profileId }, select: { id: true } })
-    if (!project) throw new Error('Project not found')
-    return { experienceId: null, projectId: project.id }
-  }
-  const experience = await prisma.experience.findFirst({ where: { id: owner.experienceId, profileId }, select: { id: true } })
-  if (!experience) throw new Error('Experience not found')
-  return { experienceId: experience.id, projectId: null }
-}
+export type { ActivityOwner }
 
 export async function createActivity(owner: ActivityOwner, data: ActivityData) {
   const { profile } = await requireProfile()
-  const { experienceId, projectId } = await ownedTarget(profile.id, owner)
-  const ownerData: ActivityOwner = projectId ? { projectId } : { experienceId: experienceId! }
+  const fields = await activityFieldsFor(profile.id, owner)
   const activity = await prisma.roleActivity.create({
-    data: { ...activityRow(data), ...ownerData, tags: '[]', order: await nextActivityOrder(ownerData) },
+    data: { ...activityRow(data), ...fields, tags: '[]', order: await nextActivityOrder(ownerOf(fields)) },
   })
   revalidatePath('/dashboard/profile', 'layout')
   return activity
@@ -97,16 +75,16 @@ export async function createActivity(owner: ActivityOwner, data: ActivityData) {
 /**
  * Moves an item of evidence to another role or project of the same profile, to the end of its list. Its text,
  * result and capability links stay with it: an outcome belongs to the project or campaign that produced it.
+ * Moving to a project gives it that project's role; moving to a role clears the project label.
  */
 export async function moveActivity(id: string, target: ActivityOwner) {
   const { profile } = await requireProfile()
   const existing = await prisma.roleActivity.findFirst({ where: { id, ...activityOwnedBy(profile.id) }, select: { id: true } })
   if (!existing) throw new Error('Activity not found')
-  const to = await ownedTarget(profile.id, target)
+  const to = await activityFieldsFor(profile.id, target)
   // An archived project is left out of the CV, so evidence moved there would silently stop reaching it.
   if (to.projectId && (await prisma.project.count({ where: { id: to.projectId, status: 'archived' } })) > 0) throw new Error('That project is archived')
-  const owner: ActivityOwner = to.projectId ? { projectId: to.projectId } : { experienceId: to.experienceId! }
-  await prisma.roleActivity.update({ where: { id }, data: { ...to, order: await nextActivityOrder(owner) } })
+  await prisma.roleActivity.update({ where: { id }, data: { ...to, order: await nextActivityOrder(ownerOf(to)) } })
   revalidatePath('/dashboard/profile', 'layout')
 }
 
@@ -155,36 +133,18 @@ const DeleteExperienceOptionsSchema = z.object({ projects: z.enum(['keep', 'dele
 /** What deleting a role takes with it, counted from the database rather than client state. */
 export async function getExperienceDeleteImpact(id: string) {
   const { profile } = await requireProfile()
-  const [evidence, projects, projectEvidence] = await Promise.all([
-    // Every activity that carries the role is deleted with it (cascade), whether or not it also names a project.
-    prisma.roleActivity.count({ where: { experienceId: id, experience: { profileId: profile.id } } }),
-    prisma.project.count({ where: { experienceId: id, profileId: profile.id } }),
-    // The role's projects' activities that do not carry the role: deleted only along with the projects.
-    prisma.roleActivity.count({ where: { project: { experienceId: id, profileId: profile.id }, OR: [{ experienceId: null }, { experienceId: { not: id } }] } }),
-  ])
-  return { evidence, projects, projectEvidence }
+  return experienceDeleteImpact(profile.id, id)
 }
 
 /**
- * `projects: 'keep'` leaves the role's projects standalone (experienceId set
- * null by the foreign key); `'delete'` removes them, and their evidence, too.
- * No default: the caller must choose. Idempotent: a role that is already gone
- * (a double click, another tab) is a no-op, not an error.
+ * `projects: 'keep'` leaves the role's projects standalone, with their evidence; `'delete'` removes them, and
+ * their evidence, too. No default: the caller must choose. Idempotent: a role that is already gone (a double
+ * click, another tab) is a no-op, not an error.
  */
 export async function deleteExperience(id: string, options: { projects: 'keep' | 'delete' }) {
   const { projects } = DeleteExperienceOptionsSchema.parse(options)
   const { profile } = await requireProfile()
-  const experience = await prisma.experience.findFirst({ where: { id, profileId: profile.id }, select: { id: true } })
-  if (experience) {
-    if (projects === 'delete') {
-      await prisma.$transaction([
-        prisma.project.deleteMany({ where: { experienceId: id, profileId: profile.id } }),
-        prisma.experience.deleteMany({ where: { id, profileId: profile.id } }),
-      ])
-    } else {
-      await prisma.experience.deleteMany({ where: { id, profileId: profile.id } })
-    }
-  }
+  await deleteExperienceRow(profile.id, id, projects)
   revalidatePath('/dashboard/profile', 'layout')
 }
 
@@ -229,12 +189,9 @@ export type AcceptSuggestionsPayload = ActivityOwner & {
 export async function acceptSuggestions(payload: AcceptSuggestionsPayload) {
   const { profile } = await requireProfile()
 
-  // Verify ownership before writing anything
+  // Verify ownership before writing anything; a project's new evidence carries the project's role.
   const owner: ActivityOwner = 'projectId' in payload ? { projectId: payload.projectId } : { experienceId: payload.experienceId }
-  const found = 'projectId' in owner
-    ? await prisma.project.findFirst({ where: { id: owner.projectId, profileId: profile.id }, select: { id: true } })
-    : await prisma.experience.findFirst({ where: { id: owner.experienceId, profileId: profile.id }, select: { id: true } })
-  if (!found) throw new Error('projectId' in owner ? 'Project not found' : 'Experience not found')
+  const fields = await activityFieldsFor(profile.id, owner)
   if (payload.activities.some((a) => !(ACTIVITY_KINDS as readonly string[]).includes(a.kind))) {
     throw new Error('Invalid activity kind')
   }
@@ -250,7 +207,7 @@ export async function acceptSuggestions(payload: AcceptSuggestionsPayload) {
           })
         : prisma.roleActivity.create({
             data: {
-              ...owner,
+              ...fields,
               kind: a.kind,
               description: a.description,
               impact: a.impact ?? undefined,
@@ -472,7 +429,7 @@ export async function updateProjectNotes(id: string, notes: string, expectedRevi
 
 export async function deleteProject(id: string) {
   const { profile } = await requireProfile()
-  await prisma.project.deleteMany({ where: { id, profileId: profile.id } })
+  await deleteProjectRow(profile.id, id)
   revalidatePath('/dashboard/profile', 'layout')
 }
 
