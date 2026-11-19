@@ -120,6 +120,19 @@ describe('mergeProjects', () => {
     })
   })
 
+  it('copies the result of a duplicate item onto the kept one only when the kept one has none', async () => {
+    const result = { measure: 'reach', value: '2M', baseline: null, period: null }
+    rows(
+      { activities: [{ ...ev('k1', 'Grew reach', 0), result: null }, { ...ev('k2', 'Cut costs', 1), result: { measure: 'cost', value: '10%' } }] },
+      { activities: [{ ...ev('g1', 'grew reach', 0), result }, { ...ev('g2', 'cut costs', 1), result: { measure: 'cost', value: '12%' } }] },
+    )
+    vi.mocked(prisma.roleActivitySkill.findMany).mockResolvedValue([])
+    vi.mocked(prisma.projectSkill.findMany).mockResolvedValue([])
+    await mergeProjects('p1', { keepId: 'keep', removeId: 'gone', body: 'keep' })
+    expect(prisma.roleActivity.update).toHaveBeenCalledTimes(1)
+    expect(prisma.roleActivity.update).toHaveBeenCalledWith({ where: { id: 'k1' }, data: { result } })
+  })
+
   it('moves project capability links, skipping ones the kept project has', async () => {
     rows({}, {})
     vi.mocked(prisma.projectSkill.findMany).mockResolvedValue([{ skillId: 's1' }, { skillId: 's2' }] as never)

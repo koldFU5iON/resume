@@ -42,6 +42,10 @@ describe('combineImpact', () => {
   it('drops free text that only restates the result figures', () => {
     expect(combineImpact('Cut from 3 weeks to 1 hour', r)).toBe(formatResult(r))
   })
+  it('keeps a figure whose unit differs from the result, even when the number is the same', () => {
+    expect(combineImpact('From 3 weeks to 1 hour across 3 squads', r)).toBe(`${formatResult(r)}; From 3 weeks to 1 hour across 3 squads`)
+    expect(combineImpact('saved £1m', r)).toBe(`${formatResult(r)}; saved £1m`)
+  })
   it('keeps free text with a figure the result lacks, and text with no figure', () => {
     expect(combineImpact('saved 40 hours a month', r)).toBe(`${formatResult(r)}; saved 40 hours a month`)
     expect(combineImpact('praised by the VP', r)).toBe(`${formatResult(r)}; praised by the VP`)

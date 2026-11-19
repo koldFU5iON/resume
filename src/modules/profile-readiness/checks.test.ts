@@ -236,6 +236,14 @@ describe('checkConflictingFigures', () => {
       expect(checkConflictingFigures(two(res('asset turnaround time', '1 hour'), res('request approval time', '1 week')))).toEqual([])
       expect(checkConflictingFigures(two(res('asset turnaround time', '1 hour', '3 weeks'), res('Asset turnaround time', '1 hour', '3 weeks')))).toEqual([])
     })
+    it('does not flag the same result when only one copy gives a baseline, or the figure is spaced differently', () => {
+      expect(checkConflictingFigures(two(res('release cycle', '2 weeks', '6 weeks'), res('release cycle', '2 weeks')))).toEqual([])
+      expect(checkConflictingFigures(two(res('cost saving', '40%'), res('cost saving', '40 %')))).toEqual([])
+    })
+    it('treats measures as the same only when their words are the same', () => {
+      expect(checkConflictingFigures(two(res('UK revenue growth', '20%'), res('US revenue growth', '35%')))).toEqual([])
+      expect(checkConflictingFigures(two(res('revenue growth', '20%'), res('Growth revenue', '35%')))).toHaveLength(1)
+    })
     it('compares structured items by their fields, not by the words of their prose', () => {
       // No shared words in the prose at all, yet the same measure and period disagree.
       const v = vaultOf({ experiences: [role('a', 'A', 'x', '2020-01', null, 'x', [

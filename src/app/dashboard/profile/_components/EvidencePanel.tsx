@@ -85,7 +85,7 @@ export function EvidencePanel({ owner, activities: initial, skills, fromProjects
       return
     }
     const result = filled ? { measure: resMeasure, value: resValue, baseline: resBaseline, period: resPeriod } : null
-    const data = { kind, description: description.trim(), impact: impact.trim() || undefined, result }
+    const data = { kind, description: description.trim(), impact: impact.trim() || null, result }
     setSaving(true)
     try {
       if (editing === 'new') {
@@ -177,20 +177,20 @@ export function EvidencePanel({ owner, activities: initial, skills, fromProjects
               <legend className="px-1 text-xs text-muted-foreground">Result (optional): the figure, so the CV states it correctly</legend>
               <div className="space-y-1">
                 <Label htmlFor="evidence-result-measure" className="text-xs text-muted-foreground">What it measures</Label>
-                <Input className="max-md:h-11" id="evidence-result-measure" value={resMeasure} onChange={e => setResMeasure(e.target.value)} placeholder="e.g. asset turnaround time" />
+                <Input className="max-md:h-11" id="evidence-result-measure" maxLength={120} value={resMeasure} onChange={e => setResMeasure(e.target.value)} placeholder="e.g. asset turnaround time" />
               </div>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                 <div className="space-y-1">
                   <Label htmlFor="evidence-result-value" className="text-xs text-muted-foreground">Result</Label>
-                  <Input className="max-md:h-11" id="evidence-result-value" value={resValue} onChange={e => setResValue(e.target.value)} placeholder="e.g. 1 hour" />
+                  <Input className="max-md:h-11" id="evidence-result-value" maxLength={80} value={resValue} onChange={e => setResValue(e.target.value)} placeholder="e.g. 1 hour" />
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="evidence-result-baseline" className="text-xs text-muted-foreground">Started at</Label>
-                  <Input className="max-md:h-11" id="evidence-result-baseline" value={resBaseline} onChange={e => setResBaseline(e.target.value)} placeholder="e.g. 3 weeks" />
+                  <Input className="max-md:h-11" id="evidence-result-baseline" maxLength={80} value={resBaseline} onChange={e => setResBaseline(e.target.value)} placeholder="e.g. 3 weeks" />
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="evidence-result-period" className="text-xs text-muted-foreground">Period</Label>
-                  <Input className="max-md:h-11" id="evidence-result-period" value={resPeriod} onChange={e => setResPeriod(e.target.value)} placeholder="e.g. Q3 2023" />
+                  <Input className="max-md:h-11" id="evidence-result-period" maxLength={80} value={resPeriod} onChange={e => setResPeriod(e.target.value)} placeholder="e.g. Q3 2023" />
                 </div>
               </div>
             </fieldset>

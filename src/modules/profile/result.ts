@@ -41,26 +41,31 @@ export function formatResult(r: Result): string {
   return `${r.measure}: ${r.value}${r.baseline ? ` (from ${r.baseline})` : ''}${r.period ? `, ${r.period}` : ''}`
 }
 
-const NUMBER = /\d[\d,]*(?:\.\d+)?/g
-const numbersOf = (t: string) => (t.match(NUMBER) ?? []).map((n) => n.replace(/,/g, ''))
+// A figure is a number with the unit that follows it ("6 weeks", "40%", "2m"), so "2 squads" is not "2 weeks".
+const FIGURE = /(?<![A-Za-z\d])(\d[\d,]*(?:\.\d+)?)\s?(%|[a-zA-Z]+)?/g
+type Figure = { n: string; unit: string }
+const figuresOf = (t: string): Figure[] =>
+  [...t.matchAll(FIGURE)].map((m) => ({ n: m[1].replace(/,/g, ''), unit: (m[2] ?? '').toLowerCase().replace(/(?<=\w{3})s$/, '') }))
+/** A figure is stated by the result when it has the same number and the same unit (or either has none). */
+const stated = (f: Figure, known: Figure[]) => known.some((k) => k.n === f.n && (!f.unit || !k.unit || f.unit === k.unit))
 
 /**
  * The impact text of an activity as readers should see it: the structured
  * result first, then the owner's free-text impact unless it only restates the
- * result's figures (every number in it is in the result). Without a result it
- * is the free text unchanged. This is the one place the two are merged, so
- * Select, the writers, Review, the figure check and the readiness checks never
- * disagree about what an achievement says.
+ * result's figures (every figure in it, number and unit, is in the result).
+ * Without a result it is the free text unchanged. This is the one place the two
+ * are merged, so Select, the writers, Review, the figure check and the
+ * readiness checks never disagree about what an achievement says.
  */
 export function combineImpact(impact: string | null | undefined, result: Result | null): string | null {
   const text = impact?.trim() || null
   if (!result) return text
   const formatted = formatResult(result)
   if (!text) return formatted
-  const nums = numbersOf(text)
-  if (nums.length > 0) {
-    const known = new Set(numbersOf(formatted))
-    if (nums.every((n) => known.has(n))) return formatted
+  const figures = figuresOf(text)
+  if (figures.length > 0) {
+    const known = figuresOf(formatted)
+    if (figures.every((f) => stated(f, known))) return formatted
   }
   return `${formatted}; ${text}`
 }

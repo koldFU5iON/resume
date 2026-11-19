@@ -399,13 +399,18 @@ function figuresOf(text: string): Map<string, string> {
 }
 const contentWords = (text: string) => new Set((text.toLowerCase().match(/\p{L}{4,}/gu) ?? []).filter((w) => !STOPWORDS.has(w)))
 
-/** Two structured results disagree when they measure the same thing over the same period and state different results. */
+const tokens = (t: string) => (t.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter((w) => !STOPWORDS.has(w)).map((w) => w.replace(/(?<=\w{3})s$/, '')).sort().join(' ')
+const valueKey = (v: string) => v.toLowerCase().replace(/[,\s]/g, '').replace(/s$/, '')
+
+/**
+ * Two structured results disagree when they measure exactly the same thing (same words, any order; "UK" and "US"
+ * count) over the same period and state different results. A baseline is compared only when both give one.
+ */
 function structuredConflict(a: Result, b: Result): boolean {
-  const sameMeasure = normalizeName(a.measure) === normalizeName(b.measure) || jaccard(contentWords(a.measure), contentWords(b.measure)) >= CONFLICT_MIN_SIMILARITY
-  if (!sameMeasure) return false
+  if (tokens(a.measure) !== tokens(b.measure)) return false
   if (normalizeName(a.period ?? '') !== normalizeName(b.period ?? '')) return false
-  const key = (r: Result) => `${normalizeName(r.value)}|${normalizeName(r.baseline ?? '')}`
-  return key(a) !== key(b)
+  if (valueKey(a.value) !== valueKey(b.value)) return true
+  return Boolean(a.baseline && b.baseline && valueKey(a.baseline) !== valueKey(b.baseline))
 }
 
 export function checkConflictingFigures(vault: Vault): Candidate[] {

@@ -51,7 +51,7 @@ export async function patchProfileField(field: string, value: string): Promise<v
 
 // ── Activities ────────────────────────────────────────────────────────────────
 
-type ActivityData = { kind: string; description: string; impact?: string; result?: ResultInput | null }
+type ActivityData = { kind: string; description: string; impact?: string | null; result?: ResultInput | null }
 
 /** The row fields of an activity: `result: null` clears the Json column, undefined leaves it. */
 function activityRow(data: ActivityData) {
