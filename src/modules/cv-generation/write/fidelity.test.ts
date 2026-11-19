@@ -6,13 +6,30 @@ describe('negationDrift: a bullet may not add a negation its evidence does not h
   it('flags the meaning flip from voluntary to "no mandate"', () => {
     expect(negationDrift('Adopted by the client partner team with no mandate to surface upsell opportunities.', evidence)).toEqual(['no'])
   })
-  it('flags each token the evidence lacks, once', () => {
+  it('flags each token when the evidence has no negation at all, once', () => {
     expect(negationDrift('Never missed a deadline, without escalation, and not once late.', 'Delivered every release on time.')).toEqual(['never', 'without', 'not'])
+  })
+  it('treats all negation words as one class', () => {
+    expect(negationDrift('Ran with no budget.', 'Ran with zero budget.')).toEqual([])
+    expect(negationDrift('Scaled without extra headcount.', 'Scaled with no extra headcount.')).toEqual([])
+    expect(negationDrift('Never missed a deadline.', 'Did not miss a deadline.')).toEqual([])
+  })
+  it('catches n\'t forms and cannot', () => {
+    expect(negationDrift("Didn't miss a deadline.", 'Hit every deadline.')).toEqual(["didn't"])
+    expect(negationDrift('Built what vendors cannot.', 'Built an in-house tool.')).toEqual(['cannot'])
+    expect(negationDrift('Didn’t miss a deadline.', 'Hit every deadline.')).toEqual(['didn’t'])
+  })
+  it('ignores non-negating idioms', () => {
+    expect(negationDrift('Not only cut cost but grew sales.', 'Cut cost and grew sales.')).toEqual([])
+    expect(negationDrift('Ranked No. 1 in the region; no longer a pilot.', 'Ranked first in the region.')).toEqual([])
   })
   it('accepts a negation the evidence has, and a bullet with none', () => {
     expect(negationDrift('Shipped with no downtime.', 'Shipped the migration with no downtime.')).toEqual([])
     expect(negationDrift('Cut release time by 40%.', evidence)).toEqual([])
     expect(negationDrift('Won a deal with zero churn.', 'Account renewed with zero churn for two years.')).toEqual([])
+  })
+  it('does not flag a negation dropped from the bullet (only additions are checked)', () => {
+    expect(negationDrift('Kept the service uninterrupted.', 'Shipped with no downtime.')).toEqual([])
   })
   it('does not read "no" inside another word', () => {
     expect(negationDrift('Led the innovation and notable growth programme.', 'Led growth.')).toEqual([])

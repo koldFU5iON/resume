@@ -347,13 +347,22 @@ describe('Phase 3b: no cross-section repetition, short competency labels, voice'
 
   it('flags working-style and personality claims, softly (one retry)', async () => {
     const a = analyseProfile({ ...good, profile: 'Delivery leader. I work best where roles are clear and I am passionate about releases.' }, ctx(), allowed)
-    expect(a.soft.join(' ')).toMatch(/working-style or personality claims.*"I work best".*"passionate"/)
+    expect(a.soft.join(' ')).toMatch(/working-style or personality claims.*"I work best".*"I am passionate"/)
     expect(a.why).toContain('unsupported self-description')
     const clean = analyseProfile({ ...good, profile: 'I run release programmes in a platform organisation.' }, ctx(), allowed)
     expect(clean.soft.filter((x) => /personality/.test(x))).toEqual([])
     const { s, result } = run([{ ...good, profile: 'I thrive on release work for platform teams.' }, good])
     await result
     expect(s.calls).toHaveLength(2)
+  })
+
+  it('does not flag domain adjectives or activities as self-description', () => {
+    for (const p of ['I run dynamic pricing programmes for platform teams.', 'I built proactive monitoring for release health.', 'I ran highly motivated squads of 8 engineers.']) {
+      expect(analyseProfile({ ...good, profile: p }, ctx(), allowed).soft.filter((x) => /personality/.test(x)), p).toEqual([])
+    }
+    for (const p of ["I'm a natural team player.", 'I am proactive and dynamic.', "I'm a big-picture thinker."]) {
+      expect(analyseProfile({ ...good, profile: p }, ctx(), allowed).soft.join(' '), p).toMatch(/personality/)
+    }
   })
 
   describe('copying a bullet', () => {

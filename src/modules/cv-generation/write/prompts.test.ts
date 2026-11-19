@@ -186,4 +186,9 @@ describe('round 3a prompt rules: paraphrase safety, no approach-only bullets, to
     expect(t).toContain('B2B2C reach gap')
     expect(t).toContain('a phrase or sentence the profile and a bullet share')
   })
+  it('the review prompt exempts the profile from the repeated-figure rule', () => {
+    const t = read('cv-gen-review')
+    expect(t).toContain('The profile is exempt')
+    expect(t).not.toContain('The same figure or achievement in the profile, a summary and a bullet')
+  })
 })

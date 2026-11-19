@@ -264,6 +264,11 @@ describe('applyEdits: edits applied only after the checks', () => {
     expect(r.discarded[0].why).toMatch(/adds "no".*must not change the meaning/)
   })
 
+  it('does not refuse a profile edit for dynamic pricing or proactive monitoring', () => {
+    const r = applyEdits(freshDoc(), [edit('profile', undefined, 'replace', 'I run release programmes for platform teams, from dynamic pricing to proactive monitoring.')], actx())
+    expect(r.discarded).toEqual([])
+  })
+
   it('allows a profile edit to repeat a figure from the experience section, but not a personality claim', () => {
     const shared = applyEdits(freshDoc(), [edit('profile', undefined, 'replace', 'Cut release time by 40% for platform teams.')], actx())
     expect(shared.discarded).toEqual([])

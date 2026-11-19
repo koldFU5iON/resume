@@ -14,20 +14,31 @@
  * Pure.
  */
 
-import { figuresIn, normalised } from './checks'
+import { figuresIn } from './checks'
 import { splitSentences } from './bullets'
 
-/** Negation and exclusion words. */
-export const NEGATION_WORDS = ['no', 'not', 'never', 'without', 'none', 'zero', 'nor', 'neither'] as const
+/** Negation and exclusion words, ONE class: "no", "zero" and "without" are interchangeable renderings of the same exclusion. */
+export const NEGATION_WORDS = ['no', 'not', 'never', 'without', 'none', 'zero', 'nor', 'neither', 'cannot'] as const
 
-/** Negation words in `text` that `evidence` does not contain, in order, once each. */
+/** Non-negating idioms ("not only X but Y", "no longer", "No. 1") removed before looking for a negation. Conservative. */
+const NON_NEGATING = /\bnot (?:only|just|least)\b|\bno longer\b|\bno\.?\s*\d+\b/gi
+const NEGATION = new RegExp(`\\b(?:${NEGATION_WORDS.join('|')})\\b|\\b\\w+n['\u2019]t\\b`, 'gi')
+
+/** The negation tokens in a text, lower-cased, in order (idioms excluded). */
+export function negationsIn(text: string): string[] {
+  return [...text.replace(NON_NEGATING, ' ').matchAll(NEGATION)].map((m) => m[0].toLowerCase())
+}
+
+/**
+ * The negations `text` adds: those it has when its evidence has NONE (any
+ * negation word in the evidence covers the whole class). Only the ADDED
+ * direction is checked; a negation dropped from a bullet is not flagged (a
+ * rewording such as "uninterrupted" for "with no downtime" is legitimate).
+ */
 export function negationDrift(text: string, evidence: string): string[] {
-  const have = new Set(normalised(evidence))
-  const out: string[] = []
-  for (const w of normalised(text)) {
-    if ((NEGATION_WORDS as readonly string[]).includes(w) && !have.has(w) && !out.includes(w)) out.push(w)
-  }
-  return out
+  const mine = negationsIn(text)
+  if (mine.length === 0 || negationsIn(evidence).length > 0) return []
+  return [...new Set(mine)]
 }
 
 /** Superlative and first/only claims. */

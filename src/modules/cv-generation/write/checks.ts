@@ -528,9 +528,12 @@ export function unsupportedQualitative(text: string, allowed: readonly string[])
 const SELF_DESCRIPTION: RegExp[] = [
   /\bI (?:work|operate|perform) (?:best|well|better)\b/gi,
   /\bI do my best work\b/gi,
-  /\bI(?:'m| am) (?:at my best|happiest|passionate|driven|motivated|committed)\b/gi,
+  /\bI(?:'m| am) (?:at my best|happiest|(?:highly |very |deeply )?(?:passionate|driven|motivated|committed|proactive|dynamic|dedicated))\b/gi,
   /\bI (?:thrive|love|enjoy|believe|care deeply)\b/gi,
-  /\b(?:passionate|self-starter|team player|results-driven|detail-oriented|hard-?working|go-getter|natural leader|people person|fast learner|quick learner|proactive|highly motivated|strong work ethic|dynamic|innovative thinker)\b/gi,
+  /\bI(?:'m| am) (?:a|an) [^.!?]{0,40}?\b(?:player|thinker|starter|person|learner|achiever|go-getter|worker)\b/gi,
+  /\bpassionate (?:about|for)\b/gi,
+  // Identity phrases that say what someone is like, never an activity or a domain term ("dynamic pricing", "proactive monitoring" are not flagged).
+  /\b(?:team player|self-starter|go-getter|people person|natural leader|fast learner|quick learner|results-driven|detail-oriented|hard-?working|strong work ethic|innovative thinker)\b/gi,
 ]
 
 export function selfDescriptions(text: string): string[] {
