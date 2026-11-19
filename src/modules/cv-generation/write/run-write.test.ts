@@ -55,7 +55,7 @@ const unityAnswer = {
   bullets: ['Cut platform release time by 40% across 8 teams, saving 2 weeks per release.', 'Ran the quarterly planning cycle for the platform org.', 'Shipped 12 titles on schedule.'],
 }
 const blizzardAnswer = { summary: 'Launched a live-service title.', bullets: ['Launched a live-service title for 2M players.'] }
-const genericAnswer = { summary: 'Did the work.', bullets: ['Did the work well.'] }
+const genericAnswer = { summary: 'Did the work.', bullets: [{ text: 'Did the work well.', sources: ['E1', 'E2', 'E3', 'E4'] }] }
 const skillsAnswer = {
   skills: [{ label: 'Delivery', names: ['Release management', 'Roadmapping', 'Dependency mapping'] }, { label: 'Governance', names: ['Stakeholder management', 'Risk management', 'Budgeting'] }],
   tools: [{ label: '', names: ['Jira', 'Tableau'] }],
