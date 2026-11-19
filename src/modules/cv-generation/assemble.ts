@@ -140,13 +140,13 @@ export function bodyWordCount(markdown: string): number {
 }
 
 /**
- * A SOFT note when the CV body is longer than about two pages (words over
+ * A SOFT note when the CV body is longer than about two and a half pages (words over
  * CV_BODY_WORDS_SOFT_LIMIT), else null. Nothing is trimmed: the writers' limits
  * should keep a CV under it, so a note means a limit leaked.
  */
 export function lengthNote(markdown: string): string | null {
   const words = bodyWordCount(markdown)
   return words > CV_BODY_WORDS_SOFT_LIMIT
-    ? `The CV body is about ${words} words, over the ~${CV_BODY_WORDS_SOFT_LIMIT} that fit one to two pages. Nothing was trimmed; consider shortening it in the editor.`
+    ? `The CV body is about ${words} words, over the ~${CV_BODY_WORDS_SOFT_LIMIT} that fit about two and a half pages. Nothing was trimmed; consider shortening it in the editor.`
     : null
 }

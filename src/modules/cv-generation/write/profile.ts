@@ -344,6 +344,17 @@ export async function writeProfile(
 
   // Core Competencies: the writer's valid labels; when it gave none usable, the selected names that already are labels.
   let labels = a.profile.competencies
+  // Labels the profile does not back are dropped, except as many as it takes to reach the minimum (which the top-up below would otherwise fill from selected ones).
+  if (a.ungroundedLabels.length > 0) {
+    const grounded = labels.filter((l) => !a.ungroundedLabels.includes(l))
+    const room = Math.max(0, minLabels - grounded.length)
+    const allowed = new Set(a.ungroundedLabels.slice(0, room))
+    const dropped = a.ungroundedLabels.filter((l) => !allowed.has(l))
+    if (dropped.length > 0) {
+      labels = labels.filter((l) => !dropped.includes(l))
+      notes.push(`Dropped from Core Competencies because your profile does not back them: ${dropped.join(', ')}.`)
+    }
+  }
   if (a.droppedLabels.length > 0) notes.push(`Left out of Core Competencies: ${a.droppedLabels.join('; ')}.`)
   if (labels.length === 0 && maxLabels > 0) {
     const picked = labelsFromSelected(competencies, maxLabels)
@@ -360,9 +371,10 @@ export async function writeProfile(
     if (labels.length > have) notes.push(`The answer had ${have} competency ${have === 1 ? 'label' : 'labels'}; added ${labels.length - have} from your selected competencies to reach ${minLabels}.`)
   }
   notes.push(...competencyNotes(competencies, labels, maxLabels))
-  if (a.ungroundedLabels.length > 0) {
-    notes.push(`These Core Competencies labels match none of your selected competencies or experience text: ${a.ungroundedLabels.join(', ')}.`)
-    checks.push({ kind: 'competency', text: `Core Competencies: ${a.ungroundedLabels.map((l) => `"${l}"`).join(', ')} could not be matched to your profile. Worth a quick check.` })
+  const keptUngrounded = labels.filter((l) => a.ungroundedLabels.includes(l))
+  if (keptUngrounded.length > 0) {
+    notes.push(`These Core Competencies labels match none of your selected competencies or experience text: ${keptUngrounded.join(', ')}.`)
+    checks.push({ kind: 'competency', text: `Core Competencies: ${keptUngrounded.map((l) => `"${l}"`).join(', ')} could not be matched to your profile. Worth a quick check.` })
   }
   const skippedClaimed = ctx.evidence.competencies.filter((c) => c.claimed).map((c) => c.name)
   if (skippedClaimed.length > 0) {

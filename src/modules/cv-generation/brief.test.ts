@@ -220,3 +220,15 @@ describe('the select prompt file', () => {
     expect(text).not.toMatch(/claude|opus|sonnet|haiku|gpt|gemini/i)
   })
 })
+
+describe('tolerant Brief reader and name derivation', () => {
+  it('defaults a missing framing to the name instead of failing the Brief', () => {
+    const b = CvBriefSchema.parse({ ...goodBrief, leadWith: [{ name: 'Unity' }], emphasise: [{ name: 'Automation', why: 'core' }] })
+    expect(b.leadWith[0]).toEqual({ name: 'Unity', framing: 'Unity' })
+    expect(b.emphasise[0].framing).toBe('Automation')
+  })
+  it('does not read an apostrophe as an opening quote', () => {
+    expect(deriveItemName("Weta's games and Unity's tools")).not.toMatch(/^s /)
+    expect(deriveItemName("Led the 'Request Form' programme")).toBe('Request Form')
+  })
+})

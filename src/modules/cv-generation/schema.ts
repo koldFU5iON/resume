@@ -372,7 +372,7 @@ export function deriveItemName(text: string): string {
   const t = text.trim()
   const colon = t.indexOf(':')
   if (colon > 0 && colon <= NAME_MAX) return t.slice(0, colon).trim()
-  const quoted = t.match(/["“‘']([^"”’']{2,80})["”’']/)
+  const quoted = t.match(/(?:^|\s)["“‘']([^"”’']{2,80})["”’']/)
   if (quoted) return quoted[1].trim()
   const run = [...t.matchAll(/[A-Z0-9][\w&.+#'-]*(?:\s+(?:(?:of|&)\s+)?[A-Z0-9][\w&.+#'-]*)*/g)]
     .find((m) => m[0].includes(' ') || (m.index ?? 0) > 0)
@@ -389,6 +389,8 @@ function briefItemShape(v: unknown): unknown {
     const framing = typeof o.framing === 'string' ? o.framing : typeof o.item === 'string' ? o.item : undefined
     const name = typeof o.name === 'string' && o.name.trim() ? o.name : framing !== undefined ? deriveItemName(framing) : undefined
     if (framing !== undefined) return { ...o, name, framing }
+    // A name with no framing: the name stands as its own framing (never fail the whole Brief).
+    if (typeof o.name === 'string' && o.name.trim()) return { ...o, framing: o.name }
   }
   return v
 }

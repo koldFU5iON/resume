@@ -344,7 +344,8 @@ describe('Phase 3b: no cross-section repetition, short competency labels, voice'
   describe('competencies are short noun-phrase labels in a :::skills block', () => {
     it('renders the labels as an inline :::skills list, at most the budget, de-duplicated', async () => {
       const labels = ['Cross-functional leadership', 'cross-functional leadership', 'Release governance', 'Programme planning', 'Stakeholder management', 'Risk and dependency management', 'Delivery operations', 'Change management']
-      const { result } = run([{ ...good, competencies: labels }], ctx({ brief: buildBriefFor({ budgets: { experiences: 2, skills: 12, tools: 10, competencies: 5, certifications: 4, education: 3, projects: 2 } }) }))
+      const comps = labels.map((name) => ({ id: name, name, category: null, level: null, claimed: false }))
+      const { result } = run([{ ...good, competencies: labels }], ctx({ evidence: { ...evidence, competencies: comps }, brief: buildBriefFor({ budgets: { experiences: 2, skills: 12, tools: 10, competencies: 5, certifications: 4, education: 3, projects: 2 } }) }))
       const r = await result
       expect(r.competenciesMarkdown).toBe(':::skills\n- Cross-functional leadership\n- Release governance\n- Programme planning\n- Stakeholder management\n- Risk and dependency management\n:::')
     })
@@ -434,16 +435,16 @@ describe('Phase 3b: no cross-section repetition, short competency labels, voice'
     })
 
     describe('labels must be grounded in the profile', () => {
-      it('flags a label that overlaps no selected competency and no evidence text: one retry, then a check note, label kept', async () => {
+      it('flags a label that overlaps no selected competency and no evidence text: one retry, then the label is dropped with a note', async () => {
         const ungrounded = { ...good, competencies: ['Cross-functional leadership', 'Blockchain tokenomics design'] }
         const { s, result } = run([ungrounded, ungrounded])
         const r = await result
         expect(s.calls).toHaveLength(2)
         expect(s.calls[1].prompt).toMatch(/match none of the selected competencies or the experience evidence.*Blockchain tokenomics design/)
         expect(r.retryReasons.join(' ')).toMatch(/Blockchain tokenomics design/)
-        expect(r.competenciesMarkdown).toContain('Blockchain tokenomics design')
-        expect(r.checks).toEqual([{ kind: 'competency', text: expect.stringContaining('"Blockchain tokenomics design"') }])
-        expect(r.notes.join(' ')).toMatch(/match none of your selected competencies or experience text: Blockchain tokenomics design/)
+        expect(r.competenciesMarkdown).not.toContain('Blockchain tokenomics design')
+        expect(r.checks).toEqual([])
+        expect(r.notes.join(' ')).toMatch(/Dropped from Core Competencies because your profile does not back them: Blockchain tokenomics design/)
       })
 
       it('does not flag a label that shares a word with a selected competency or with the evidence text', () => {
@@ -557,5 +558,19 @@ describe('competency labels up to the budget (floors)', () => {
     const { result } = run([{ ...good, competencies: names.slice(0, 6) }], c)
     const r = await result
     expect(r.notes.join(' ')).toMatch(/not reflected in Core Competencies.*Budget ownership.*Roadmap strategy/)
+  })
+})
+
+describe('ungrounded competency labels', () => {
+  const comp = (name: string) => ({ id: name, name, category: null, level: null, claimed: false })
+  const names = ['Release governance', 'Programme planning', 'Stakeholder management', 'Vendor negotiation', 'Risk management', 'Team coaching', 'Budget ownership', 'Roadmap strategy']
+  const c = () => ctx({ evidence: { ...evidence, competencies: names.map(comp) }, brief: buildBriefFor({ budgets: { experiences: 4, skills: 12, tools: 10, competencies: 8, certifications: 6, education: 3, projects: 2 } }) })
+  it('drops ungrounded labels beyond the minimum, keeping them only to reach it', async () => {
+    const odd = ['Blockchain tokenomics design', 'Quantum finance modelling']
+    const { result } = run([{ ...good, competencies: [...names.slice(0, 6), ...odd] }, { ...good, competencies: [...names.slice(0, 6), ...odd] }], c())
+    const r = await result
+    expect(r.competenciesMarkdown).not.toContain('Blockchain')
+    expect(r.competenciesMarkdown).not.toContain('Quantum')
+    expect(r.notes.join(' ')).toMatch(/Dropped from Core Competencies because your profile does not back them: Blockchain tokenomics design, Quantum finance modelling/)
   })
 })

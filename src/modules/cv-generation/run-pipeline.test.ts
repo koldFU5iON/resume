@@ -302,7 +302,7 @@ describe('runCvGenerationStages: write and assemble (phase 3)', () => {
     await runCvGenerationStages('run-1', 'p1')
     const long = lastLog().entries[4]
     expect(long.status).toBe('ok')
-    expect(long.notes.join(' ')).toMatch(new RegExp(`The CV body is about \\d+ words, over the ~${CV_BODY_WORDS_SOFT_LIMIT} that fit one to two pages. Nothing was trimmed`))
+    expect(long.notes.join(' ')).toMatch(new RegExp(`The CV body is about \\d+ words, over the ~${CV_BODY_WORDS_SOFT_LIMIT} that fit about two and a half pages. Nothing was trimmed`))
     expect((mockUpdate.mock.calls.at(-1)![2].assembled as { markdown: string }).markdown).toContain('word0 ')
   })
 

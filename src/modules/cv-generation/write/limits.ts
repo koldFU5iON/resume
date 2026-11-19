@@ -98,8 +98,12 @@ export function isThinProject(p: { name: string; text: string }): boolean {
 }
 
 /**
- * About how many words a CV body can hold on one to two pages. Assemble logs a
- * soft note above this (nothing is trimmed): the writers' limits should keep a
- * CV under it, so a note means a limit leaked.
+ * About how many words a CV body can hold on about two and a half pages (the
+ * owner's own CV runs about 850). Assemble logs a soft note above this (nothing
+ * is trimmed): the writers' limits should keep a CV under it, so a note means a
+ * limit leaked. 1,000 because at the ceilings the body can legitimately pass
+ * 900: 20 bullets x 25 words = 500, 4 summaries x 40 = 160, profile 110, 8
+ * competency labels about 25, 22 skills and tools about 45, 6 certifications
+ * about 40, education and Earlier Experience lines about 100: roughly 980.
  */
-export const CV_BODY_WORDS_SOFT_LIMIT = 900
+export const CV_BODY_WORDS_SOFT_LIMIT = 1_000
