@@ -24,6 +24,8 @@
  * timeout after CV_GENERATION_STALE_MS (queries.ts).
  */
 
+import { statedYears } from './write/years'
+import { notesOf } from '@/modules/profile-map/build'
 import { after } from 'next/server'
 import type { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
@@ -320,6 +322,7 @@ export async function runCvGenerationStages(runId: string, profileId: string, op
       const outcome = await runReview(
         {
           assembled: cv, selection, brief: briefValue, strategy: g.strategy, evidence: reviewEvidence,
+          yearsOfExperience: statedYears(notesOf(vault, 'experience').map((e) => e.props.startDate), new Date()),
           validate: (markdown) => recheckMarkdown(markdown, snapshot).errors,
         },
         { profileId, jobApplicationId: jobId, runId, writingDeskDocumentId, deadline: deadline - LAND_RESERVE_MS },

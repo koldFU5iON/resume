@@ -87,9 +87,15 @@ export function experiencePrompt(ctx: Pick<WriteContext, 'brief' | 'strategy'>, 
           data('projects', emp.projects.map((p, i) => projectLine(p, i)).join('\n')),
         ]
       : []),
-    `# Limits\n\n- Summary: one sentence, at most ${SUMMARY_MAX_WORDS} words.\n- Bullets: at most ${max}${extra > 0 ? ` (the ${emp.activities.length} evidence item${emp.activities.length === 1 ? '' : 's'} plus ${extra} own bullet${extra === 1 ? '' : 's'} for the LEAD WITH project${extra === 1 ? '' : 's'})` : ''}, each at most ${BULLET_MAX_WORDS} words, outcome and business impact first. Merge items only when they state the same measured result with the same figures; related items with different figures or mechanisms stay separate bullets.\n- Sources: every bullet is an object {"text", "sources"}; "sources" lists the labels ([E1], [P1]...) of the evidence item(s) it comes from, at least one. A figure comes only from the item that states it.\n- Never repeat a figure within this entry: each number appears once, in the one place it fits best.\n- Play down: ${ctx.brief.playDown.length > 0 ? 'the "Play down" items in the brief may appear at most as a clause inside another bullet, never as a bullet of their own.' : 'nothing to play down.'}\n- Voice: no pronouns ("I", "my", "we"); an implied subject. Tense: ${tense}\n- Plain text only: no Markdown, links, HTML or ":::". Code builds the list from your strings.\n- Numbers exactly as in the evidence, whether you write them as digits or words; no title, company or date that the evidence does not contain.`,
+    `# Limits\n\n- Summary: one sentence, at most ${SUMMARY_MAX_WORDS} words. It is scope and context only, never drawn from the activities listed above (every listed activity is for a bullet; two may share a bullet only when they describe the same achievement, and then the bullet cites both).\n- Bullets: at most ${max}${extra > 0 ? ` (the ${emp.activities.length} evidence item${emp.activities.length === 1 ? '' : 's'} plus ${extra} own bullet${extra === 1 ? '' : 's'} for the LEAD WITH project${extra === 1 ? '' : 's'})` : ''}, each at most ${BULLET_MAX_WORDS} words, outcome and business impact first. Merge items only when they state the same measured result with the same figures; related items with different figures or mechanisms stay separate bullets.\n- Sources: every bullet is an object {"text", "sources"}; "sources" lists the labels ([E1], [P1]...) of the evidence item(s) it comes from, at least one. A figure comes only from the item that states it.\n- Never repeat a figure within this entry: each number appears once, in the one place it fits best.\n- Play down: ${ctx.brief.playDown.length > 0 ? 'the "Play down" items in the brief may appear at most as a clause inside another bullet, never as a bullet of their own.' : 'nothing to play down.'}\n- Voice: no pronouns ("I", "my", "we"); an implied subject. Tense: ${tense}\n- Plain text only: no Markdown, links, HTML or ":::". Code builds the list from your strings.\n- Numbers exactly as in the evidence, whether you write them as digits or words; no title, company or date that the evidence does not contain.`,
     'Return the summary and the bullets (each with its source labels) as one JSON object matching the schema, in a ```json code block.',
   ].join('\n\n')
+}
+
+/** Selected activities (label and text) that none of `bulletSources` cites. */
+export function uncitedActivities(emp: Pick<EmployerEvidence, 'activities' | 'projects'>, bulletSources: ReadonlyArray<ReadonlyArray<{ id: string }>>): Array<{ label: string; text: string }> {
+  const cited = new Set(bulletSources.flatMap((s) => s.map((r) => r.id)))
+  return evidenceRefs(emp).filter((r) => r.kind === 'activity' && !cited.has(r.id)).map((r) => ({ label: r.label, text: r.text }))
 }
 
 type Analysis = CheckResult & {
@@ -142,6 +148,12 @@ export function analyseExperience(out: ExperienceOutput, ctx: Pick<WriteContext,
   // Over the word cap is NOT a retry reason (a retry doubles the call's cost): writeExperience shortens it in code.
   if (bullets.length === 0) problem('there are no bullets; write one per evidence item you use', 'no bullets')
   if (bullets.length > max) problem(`there are ${bullets.length} bullets; at most ${max} are allowed (merge items that state the same outcome; a project that is not marked LEAD WITH is merged into a bullet, never its own)`, `${bullets.length} bullets, limit ${max}`)
+
+  // Selected activities no bullet cites, while the entry has fewer bullets than allowed: usually one the writer spent on the summary. Merged ones are cited elsewhere, so they never count.
+  const uncited = uncitedActivities(emp, bulletSources)
+  if (uncited.length > 0 && bullets.length > 0 && bullets.length < max) {
+    problem(`these selected activities have no bullet and are not cited by any: ${uncited.map((u) => `${u.label} "${shortened(u.text, 80)}"`).join('; ')}. The summary is scope and context only, never drawn from the activities; write a bullet for each (merge two only when they describe the same achievement, citing both labels), up to the limit of ${max}`, `${uncited.length === 1 ? 'activity' : 'activities'} ${uncited.map((u) => u.label).join(', ')} without a bullet`)
+  }
 
   // Provenance: every bullet cites at least one evidence item that exists. Unknown labels are dropped; a bullet left with none is retried once.
   const unsourced = bulletSources.flatMap((s, i) => (s.length === 0 ? [i + 1] : []))
@@ -278,6 +290,8 @@ export async function writeExperience(ctx: WriteContext, emp: EmployerEvidence, 
       if (k < bullets.length && bullets[k] === b) { provenance.push(toProvenance(b, a.bulletSources[i])); k++ }
     })
   }
+  const left = bullets.length < allowance ? uncitedActivities(emp, provenance.map((p) => p.sources)) : []
+  if (left.length > 0) notes.push(`${left.length === 1 ? '1 selected activity was' : `${left.length} selected activities were`} left without a bullet (${bullets.length} of ${allowance} allowed): ${left.map((u) => `${u.label} “${shortened(u.text, 70)}”`).join('; ')}.`)
   for (const t of trimmed.trimmed) notes.push(`Cut a bullet over this employer's limit of ${allowance}: “${shortened(t)}”.`)
   // A bullet that carried a selected project may be the one that was cut: say so, so the project is never lost silently.
   for (const p of emp.projects) {

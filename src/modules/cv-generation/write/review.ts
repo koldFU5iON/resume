@@ -29,6 +29,7 @@
 import * as z from 'zod'
 import { composeSystem, loadCVReviewPrompt, loadWritingContext } from '@/modules/llm/prompt-context'
 import { LLMError } from '@/modules/llm/errors'
+import { yearsPhrase } from './years'
 import { completeValidated, shortReason, usageOfError, NO_USAGE, type CallUsage } from '../call'
 import {
   CV_GENERATION_FEATURES, MAX_OUTPUT_TOKENS, REVIEW_LIMITS, REVIEW_MIN_START_MS, ReviewOutputContract, ReviewOutputSchema, TEMPERATURE, TIME_BUDGET_MS,
@@ -137,6 +138,8 @@ export type ReviewPromptInput = {
   brief: CvBrief
   strategy: Pick<Strategy, 'mustHave' | 'niceToHave'>
   evidence: Evidence
+  /** The years the profile opener states (years.ts: computed in code, already floored); null/unset when the career is too short to state one. */
+  yearsOfExperience?: number | null
 }
 
 /** One distinct piece of evidence shown to the reviewer, by label (S1, S2...). `snippet` is the full text the writer saw (activities whole, projects capped like the writer's), not a short display snippet. */
@@ -215,6 +218,9 @@ export function reviewPrompt(input: ReviewPromptInput, doc: ReviewDoc): { prompt
     data('claimed', list(claimed)),
     '# Still in progress\n\nNever presented as finished or held.',
     data('in_progress', list(inProgress)),
+    ...(typeof input.yearsOfExperience === 'number' && input.yearsOfExperience > 0
+      ? [`# Years of experience\n\nYears of experience (computed from the profile, supported): ${yearsPhrase(input.yearsOfExperience)}\n\nSupported evidence for the profile paragraph only. Keep that exact phrase in the profile; never remove or change it, and never raise a concern about the length of the career.`]
+      : []),
     '# Emphasise items no evidence covers',
     data('uncovered', list(input.selection.uncovered)),
     '# The CV\n\nSection ids, bullet ids (b1, b2...) and, under each bullet, the evidence it was written from (S1, S2...).',
@@ -233,6 +239,8 @@ export type ApplyContext = {
   brief: CvBrief
   strategy: Pick<Strategy, 'mustHave' | 'niceToHave'>
   evidence: Evidence
+  /** The code-supplied years phrase a profile edit may keep (exactly) and may not change. */
+  yearsOfExperience?: number | null
 }
 
 /** What a re-check needs to know about where the new text goes. */
@@ -269,7 +277,13 @@ export function recheckText(
   if (wordCount(text) > max) return { why: `the new text is ${wordCount(text)} words; the limit is ${max}` }
 
   const names = [...figureIgnoredNames(ctx.evidence), ...(emp ? emp.projects.map((p) => p.name) : [])]
-  const unsupported = unsupportedFigures(text, texts, names)
+  const years = kind === 'profile' && typeof ctx.yearsOfExperience === 'number' && ctx.yearsOfExperience > 0 ? ctx.yearsOfExperience : null
+  if (kind === 'profile') {
+    // The one years phrase is code-supplied: exactly that phrase is allowed, any other number of years is not.
+    const wrong = [...text.matchAll(/\b(\d{1,2})(\+?)\s*(?:years|yrs)\b/gi)].filter((m) => years === null || Number(m[1]) !== years || m[2] !== '+').map((m) => m[0])
+    if (wrong.length > 0) return { why: years === null ? `states a number of years of experience (${wrong.join(', ')}), which is not supported` : `changes the years of experience: state exactly "${yearsPhrase(years)}" or no number of years (found ${wrong.join(', ')})` }
+  }
+  const unsupported = unsupportedFigures(text, years === null ? texts : [...texts, `${years} years of experience`], names)
   if (unsupported.length > 0) return { why: `figures not in the employer's evidence: ${unsupported.join(', ')}` }
   const notes: string[] = []
   // A bullet states what ITS evidence states: a figure only in the employer's other evidence is rejected.

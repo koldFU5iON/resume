@@ -20,7 +20,7 @@ const mockJSON = vi.mocked(completeJSON)
 
 /** Most tests are about the text of bullets: a plain string gets a valid source (E1, and P1 when the employer has a project; unknown labels are dropped). */
 type LooseOut = { summary: string; bullets: Array<string | { text: string; sources?: string[] }> }
-const sourced = (o: LooseOut) => ({ ...o, bullets: o.bullets.map((b) => (typeof b === 'string' ? { text: b, sources: ['E1', 'P1'] } : { text: b.text, sources: b.sources ?? [] })) })
+const sourced = (o: LooseOut) => ({ ...o, bullets: o.bullets.map((b) => (typeof b === 'string' ? { text: b, sources: ['E1', 'E2', 'E3', 'E4', 'P1'] } : { text: b.text, sources: b.sources ?? [] })) })
 const analyseExperience = (out: LooseOut, ...rest: Parameters<typeof analyse> extends [unknown, ...infer R] ? R : never) => analyse(sourced(out), ...rest)
 const vault = writeVault()
 const evidence = evidenceFromVault(vault, writeSelection(vault))
@@ -905,7 +905,7 @@ describe('Phase 3d: per-bullet provenance', () => {
   })
 
   it('the numbers check still uses the employer’s whole evidence as the authority: a figure from another item than the cited one passes', () => {
-    const a = analyse({ summary: 'Ran releases.', bullets: [{ text: 'Shipped 12 titles on schedule.', sources: ['E1'] }] }, ctx(), unity)
+    const a = analyse({ summary: 'Ran releases.', bullets: [{ text: 'Shipped 12 titles on schedule.', sources: ['E1', 'E2', 'E3'] }] }, ctx(), unity)
     expect(a.unsupported).toEqual([])
     expect(a.soft).toEqual([])
     const bad = analyse({ summary: 'Ran releases.', bullets: [{ text: 'Shipped 13 titles on schedule.', sources: ['E3'] }] }, ctx(), unity)
@@ -991,5 +991,49 @@ describe('paraphrase fidelity (soft checks on each bullet, against the evidence 
   it('flags a figure that loses "to date"', () => {
     const emp = withEvidence('Sign-ups reached 14,000 to date')
     expect(analyse(bulletOf('Grew sign-ups to 14,000.'), ctx(), emp).soft.join(' ')).toMatch(/drops "to date"/)
+  })
+})
+
+describe('selected activities are bullets, not summary text', () => {
+  const WORDS = ['alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot', 'golf', 'hotel']
+  const acts = (n: number) => Array.from({ length: n }, (_, i) => ({ ...unity.activities[0], id: `x${i}`, text: `Led the ${WORDS[i]} programme for partner studios` }))
+  const empOf = (n: number): EmployerEvidence => ({ ...unity, activities: acts(n), projects: [] })
+  const bulletFor = (i: number, cites: string[] = [`E${i + 1}`]) => ({ text: `Delivered the ${WORDS[i]} programme to partner studios.`, sources: cites })
+  const eaten = (n: number) => ({ summary: `Led the ${WORDS[n - 1]} programme for partner studios.`, bullets: Array.from({ length: n - 1 }, (_, i) => bulletFor(i)) })
+  const full = (n: number) => ({ summary: 'Ran the partner programmes.', bullets: Array.from({ length: n }, (_, i) => bulletFor(i)) })
+
+  it.each([['Unity', 8], ['Blizzard', 3], ['2K', 2]])('%s: an activity used as the summary and given no bullet is retried once, naming it', async (_n, n) => {
+    const { s, result } = run([eaten(n), full(n)], empOf(n))
+    const r = await result
+    expect(s.calls).toHaveLength(2)
+    expect(s.calls[1].prompt).toMatch(new RegExp(`E${n}.*${WORDS[n - 1]}`, 's'))
+    expect(s.calls[1].prompt).toMatch(/no bullet/i)
+    expect(r.bullets).toHaveLength(n)
+  })
+
+  it('accepts after one retry that still leaves it uncited, and the log names the activity', async () => {
+    const { s, result } = run([eaten(3), eaten(3)], empOf(3))
+    const r = await result
+    expect(s.calls).toHaveLength(2)
+    expect(r.bullets).toHaveLength(2)
+    expect(r.notes.join(' ')).toMatch(/without a bullet[\s\S]*charlie/)
+  })
+
+  it('does not retry when the uncited activity is merged into a bullet that cites it', async () => {
+    const merged = { summary: 'Ran the partner programmes.', bullets: [bulletFor(0), bulletFor(1, ['E2', 'E3'])] }
+    const { s, result } = run([merged], empOf(3))
+    await result
+    expect(s.calls).toHaveLength(1)
+  })
+
+  it('does not retry when every allotted bullet is written', async () => {
+    const { s, result } = run([full(3)], empOf(3))
+    await result
+    expect(s.calls).toHaveLength(1)
+  })
+
+  it('the prompt says the summary never draws on the activities listed as bullet evidence', () => {
+    const p = experiencePrompt(ctx(), empOf(3))
+    expect(p).toMatch(/summary[^\n]*never[^\n]*activit/i)
   })
 })

@@ -284,6 +284,32 @@ describe('applyEdits: edits applied only after the checks', () => {
     expect(bullet.discarded[0].why).toMatch(/not plain text \(first person\)/)
   })
 
+  describe('the supplied years phrase (code-computed, supported)', () => {
+    const years = (text: string, yearsOfExperience: number | null = 20) =>
+      applyEdits(freshDoc(), [edit('profile', undefined, 'replace', text)], actx({ yearsOfExperience }))
+    it('applies a profile edit that keeps the supplied phrase', () => {
+      const r = years("I've spent 20+ years running release programmes for platform teams.")
+      expect(r.discarded).toEqual([])
+      expect(r.applied).toHaveLength(1)
+    })
+    it('discards an edit that changes it to another number', () => {
+      expect(years("I've spent 25+ years running release programmes for platform teams.").discarded[0].why).toMatch(/years.*"20\+ years"/)
+      expect(years("I've spent 20 years running release programmes for platform teams.").discarded[0].why).toMatch(/years/)
+    })
+    it('accepts an edit that drops it when the replacement states no years', () => {
+      expect(years('I run release programmes for platform teams.').discarded).toEqual([])
+    })
+    it('with no phrase supplied, a stated number of years is still refused', () => {
+      expect(years("I've spent 20+ years running release programmes.", null).discarded).toHaveLength(1)
+    })
+  })
+
+  it('shows the reviewer the supplied years phrase as supported evidence for the profile', () => {
+    const { prompt } = reviewPrompt(input({ yearsOfExperience: 20 }), freshDoc())
+    expect(prompt).toContain('Years of experience (computed from the profile, supported): 20+ years')
+    expect(reviewPrompt(input(), freshDoc()).prompt).not.toContain('Years of experience')
+  })
+
   it('discards a replace with no new text, and a no-op replace', () => {
     const r = applyEdits(freshDoc(), [edit(U, 'b2', 'replace'), edit(U, 'b2', 'replace', UNITY_BULLETS[1].text)], actx())
     expect(r.discarded.map((d) => d.why)).toEqual(['a replace needs the new text', 'the new text is the same as the old'])
