@@ -151,6 +151,9 @@ function sourceText(evidence: Pick<Evidence, 'employers'>, id: string): string |
   return null
 }
 
+/** Most selected activities (not cited by a bullet) listed per employer as evidence for its summary. */
+export const REVIEW_SUMMARY_EVIDENCE_MAX = 8
+
 /** Read-only sections whose text helps judge repetition; the rest (header, certifications, education, languages, earlier experience) are not sent. */
 const CONTEXT_KINDS = new Set(['competencies', 'tools', 'skills'])
 
@@ -179,6 +182,16 @@ export function reviewPrompt(input: ReviewPromptInput, doc: ReviewDoc): { prompt
         const refs = b.sources.map(labelFor)
         if (refs.length === 0) lines.push('  evidence: (none cited)')
         for (const r of refs) lines.push(`  ${r.label} (${r.kind}): ${r.snippet}`)
+      }
+      // The summary's evidence is the employer's selected activities, including the ones no bullet cites (the writer saw them all).
+      const cited = new Set(ex.bullets.flatMap((b) => b.sources.map((x) => x.id)))
+      const spare = (ex.emp?.activities ?? []).filter((a) => !cited.has(a.id)).slice(0, REVIEW_SUMMARY_EVIDENCE_MAX)
+      if (spare.length > 0) {
+        lines.push('summary evidence (selected for this employer, not cited by a bullet; a summary claim may rest on these):')
+        for (const a of spare) {
+          const r = labelFor({ id: a.id, kind: 'activity', snippet: '' })
+          lines.push(`  ${r.label} (${r.kind}): ${r.snippet}`)
+        }
       }
       cv.push(lines.join('\n'))
     } else if (s.kind === 'profile' && doc.profile) {

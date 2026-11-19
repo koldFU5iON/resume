@@ -21,7 +21,7 @@ import { experiencePrompt } from './experience'
 import { PROJECT_EVIDENCE_MAX_CHARS, capProjectText } from './limits'
 import { renderEmployerEntry } from './render'
 import {
-  applyEdits, renderExperience, reviewDoc, reviewPrompt, runReview, splitExperience, toConcernRecords, writeBack, type ApplyContext, type ReviewPromptInput,
+  REVIEW_SUMMARY_EVIDENCE_MAX, applyEdits, renderExperience, reviewDoc, reviewPrompt, runReview, splitExperience, toConcernRecords, writeBack, type ApplyContext, type ReviewPromptInput,
 } from './review'
 import type { WrittenSection } from './types'
 import { leads } from '../__fixtures__/candidates'
@@ -160,6 +160,18 @@ describe('reviewPrompt', () => {
     const len = ls.find((l) => l.id === 'up1')!.snippet.length
     expect(len).toBeGreaterThan(300)
     expect(len).toBeLessThanOrEqual('Big: '.length + PROJECT_EVIDENCE_MAX_CHARS + 1)
+  })
+
+  it('lists the employer\'s selected activities that no bullet cites as labelled evidence for its summary, capped', () => {
+    const asm = assembled({ unity: UNITY_BULLETS.slice(0, 2) }) // ua3 is selected but not cited
+    const out = reviewPrompt(input({ assembled: asm }), reviewDoc(asm, selection, evidence))
+    expect(out.prompt).toMatch(/summary evidence[^\n]*\n\s+S\d+ \(activity\): \S+: Shipped 12 titles on schedule/)
+    expect(out.labels.some((l) => l.id === 'ua3')).toBe(true)
+    const many = evidenceFromVault(vault, selection)
+    const u = many.employers.find((e) => e.employer.key === UNITY)!
+    u.activities = Array.from({ length: 20 }, (_, i) => ({ ...u.activities[0], id: `x${i}`, text: `Extra ${i}`, impact: null }))
+    const capped = reviewPrompt(input({ evidence: many, assembled: asm }), reviewDoc(asm, selection, many))
+    expect(capped.prompt.match(/\(activity\): \S+: Extra/g) ?? []).toHaveLength(REVIEW_SUMMARY_EVIDENCE_MAX)
   })
 
   it('shows an activity whole, as the writer sees it', () => {
