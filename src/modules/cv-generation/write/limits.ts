@@ -41,6 +41,14 @@ export const GROUP_LABEL_MAX_WORDS = 4
  * groups of 1-2). No model call is made when neither list reaches it.
  */
 export const MIN_NAMES_TO_GROUP = 6
+/**
+ * The Skills list needs more names to be grouped than Tools: a real run split 8
+ * skills into groups of 2 and 6 that mixed topics. Under this it is ONE plain
+ * list ordered by relevance.
+ */
+export const MIN_SKILLS_TO_GROUP = 10
+/** Two skill names whose word stems overlap by at least this share (Jaccard) are the same skill. */
+export const SKILL_DUPLICATE_SIMILARITY = 0.6
 /** A group with fewer names than this is never emitted: it is merged into a neighbour. */
 export const MIN_GROUP_SIZE = 2
 /** Time kept back at the end of the run for Assemble and storing the result (ms). */

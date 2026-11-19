@@ -15,7 +15,7 @@
  */
 
 import type { BriefItem, CvBrief } from '../schema'
-import { contentStems, figuresIn, normalised, phraseIndex, projectNameKey } from './checks'
+import { contentStems, distinctiveTokens, figuresIn, normalised, phraseIndex, projectNameKey } from './checks'
 import type { EmployerEvidence } from './evidence'
 import { isThinProject } from './limits'
 
@@ -80,13 +80,18 @@ export function bulletAllowance(emp: Pick<EmployerEvidence, 'activities' | 'proj
  * Best effort on the project's name: a bullet that describes it without
  * naming it counts as `missing`.
  */
-export function leadWithStanding(bullets: readonly string[], project: Pick<LeadWithProject, 'key'>): 'own' | 'trailing' | 'missing' {
+export function leadWithStanding(bullets: readonly string[], project: Pick<LeadWithProject, 'key'> & { name?: string }): 'own' | 'trailing' | 'missing' {
+  const tokens = project.name ? distinctiveTokens(project.name) : []
   let named = false
   for (const b of bullets) {
+    const words = normalised(b)
+    const half = Math.floor(words.length / 2)
     const at = phraseIndex(b, project.key)
-    if (at < 0) continue
+    // A rewording may drop the generic words of the name ("Enemies Demo Campaign" -> "the Enemies digital human tech demo").
+    const tokenAt = tokens.length > 0 && tokens.every((t) => words.includes(t)) ? Math.max(...tokens.map((t) => words.indexOf(t))) : -1
+    if (at < 0 && tokenAt < 0) continue
     named = true
-    if (at * 2 < normalised(b).length) return 'own'
+    if ((at >= 0 && at * 2 < words.length) || (tokenAt >= 0 && tokenAt <= half)) return 'own'
   }
   return named ? 'trailing' : 'missing'
 }

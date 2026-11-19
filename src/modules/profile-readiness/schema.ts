@@ -4,7 +4,7 @@ export const READINESS_KINDS = [
   'thin_narrative', 'duplicate_project',
   'cert_no_issuer', 'cert_status_in_name', 'cert_in_progress_no_date', 'cert_expired',
   'education_dates_reversed', 'education_undated',
-  'experience_dates_reversed', 'concurrent_roles', 'employment_gap', 'experience_no_evidence',
+  'experience_dates_reversed', 'concurrent_roles', 'employment_gap', 'experience_no_evidence', 'role_overview_thin',
   'unmeasured_achievements', 'filler_responsibility', 'long_activity', 'conflicting_figures',
   'claimed_only_capabilities', 'unlinked_evidence', 'unlisted_capability',
   'contact_missing', 'location_missing', 'right_to_work_not_shown',

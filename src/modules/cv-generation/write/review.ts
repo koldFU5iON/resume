@@ -40,7 +40,7 @@ import type { Strategy } from '../strategy'
 import { isThin } from './thin'
 import { leadWithProjects, leadWithStanding, playDownBullets, shortened, wrongTenseLines } from './bullets'
 import {
-  claimedHits, credentialProblems, distinctNotableFigures, figuresIn, introducedNames, projectReflected, repeatedFigures, selfDescriptions,
+  claimedHits, credentialProblems, distinctiveTokens, distinctNotableFigures, figuresIn, introducedNames, normalised, projectReflected, repeatedFigures, selfDescriptions,
   unsupportedFigures, unsupportedProperNouns, unsupportedQualitative, wordCount,
 } from './checks'
 import { activityPromptText, evidenceTexts, figureIgnoredNames, projectPromptText, type EmployerEvidence, type Evidence } from './evidence'
@@ -360,7 +360,9 @@ export function entryRuleProblem(
   const all = (e: { summary: string; bullets: readonly string[] }) => [e.summary, ...e.bullets].join('\n')
   for (const p of emp.projects) {
     if (isThin(p)) continue // a project with no text may always go: it has no evidence to protect
-    if (projectReflected(all(before), p) && !projectReflected(all(after), p)) return `it leaves the selected project "${p.name}" out of the entry`
+    // A review rewording may keep the project by its distinctive words only ("the Enemies ... demo"); that still reflects it.
+    const reflected = (e: { summary: string; bullets: readonly string[] }) => projectReflected(all(e), p) || (distinctiveTokens(p.name).length > 0 && distinctiveTokens(p.name).every((t) => normalised(all(e)).includes(t)))
+    if (reflected(before) && !reflected(after)) return `it leaves the selected project "${p.name}" out of the entry`
   }
   return null
 }

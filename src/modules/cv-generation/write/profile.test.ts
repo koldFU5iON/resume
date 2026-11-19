@@ -8,7 +8,7 @@ import { extractJSON } from '@/modules/llm/extract-json'
 import { scripted, writeSelection, writeVault } from '../__fixtures__/write'
 import { buildBriefFor } from '../__fixtures__/gathered'
 import { evidenceFromVault } from './evidence'
-import { analyseProfile, copiesBullet, dropCopiedSentences, experienceDigest, fallbackProfile, labelsFromSelected, maxCompetencyLabels, minCompetencyLabels, profilePrompt, writableCompetencies, writeProfile } from './profile'
+import { analyseProfile, copiesBullet, dropCopiedSentences, experienceDigest, fallbackProfile, labelsFromSelected, maxCompetencyLabels, minCompetencyLabels, profilePrompt, writableCompetencies, writeProfile, yearsClaimProblem } from './profile'
 import { requirementText } from './prompt'
 import type { WriteContext } from './types'
 
@@ -579,6 +579,27 @@ describe('Phase 3b: no cross-section repetition, short competency labels, voice'
       expect(a.unsupported).toEqual([])
       expect(analyseProfile({ ...good, profile: "I've spent 15+ years turning programmes into predictable releases." }, ctx(), allowed).unsupported).toEqual(['15'])
     })
+  })
+})
+
+describe('the years phrase describes the candidate\'s field, not the job\'s', () => {
+  const ev = {
+    profileTitles: ['Head of Communications', 'PR Manager'],
+    employers: [{ overview: 'Communications, PR and marketing for game launches and campaigns at a games and technology studio.', activities: [], projects: [] }],
+  } as unknown as Parameters<typeof yearsClaimProblem>[3]
+  const req = 'Developer marketing for an open source enterprise platform; launches and campaigns for developers'
+  it('flags the job\'s domain terms in the years sentence', () => {
+    const p = yearsClaimProblem("I've spent 20+ years turning complex technical products into launches and campaigns for developers. I led a launch.", 20, req, ev)
+    expect(p).toMatch(/developer/)
+  })
+  it('accepts the actual field with the target domain in a separate sentence', () => {
+    expect(yearsClaimProblem("I've spent 20+ years in communications, PR and marketing in games and technology. Now I focus on developer marketing.", 20, req, ev)).toBeNull()
+  })
+  it('is a soft problem in analyseProfile and the prompt asks for the actual field', () => {
+    const c = { ...ctx(), yearsOfExperience: 20, requirementText: req, evidence: { ...ctx().evidence, ...ev } }
+    const a = analyseProfile({ profile: "I've spent 20+ years turning products into open source developer launches.", headline: '', competencies: [] }, c, { digest: '', competencies: [], maxLabels: 0 })
+    expect(a.why).toContain('years phrase attached to the target domain')
+    expect(profilePrompt(c, '', [], 0)).toMatch(/ACTUAL field/)
   })
 })
 

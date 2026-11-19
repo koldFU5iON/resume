@@ -11,7 +11,7 @@ import { evidenceFromVault, type EmployerEvidence } from './evidence'
 import { CutOffError } from '../call'
 import { experienceTokenCaps, PROJECT_EVIDENCE_MAX_CHARS } from './limits'
 import { llmReply } from '../__fixtures__/write'
-import { analyseExperience as analyse, experiencePrompt, fallbackExperience, writeExperience, ExperienceOutputSchema, EXPERIENCE_OUTPUT_FORMAT as EXPERIENCE_OUTPUT_FORMAT_FOR_TEST } from './experience'
+import { analyseExperience as analyse, experiencePrompt, fallbackExperience, isGenericSummary, writeExperience, ExperienceOutputSchema, EXPERIENCE_OUTPUT_FORMAT as EXPERIENCE_OUTPUT_FORMAT_FOR_TEST } from './experience'
 import { requirementText } from './prompt'
 import type { WriteContext } from './types'
 import { leads } from '../__fixtures__/candidates'
@@ -371,7 +371,7 @@ describe('analyseExperience', () => {
   it('treats an empty summary and no bullets as soft problems (the run is never failed for them)', () => {
     const a = analyseExperience({ summary: '', bullets: [] }, ctx(), unity)
     expect(a.hard).toEqual([])
-    expect(a.soft).toContain('the summary is empty; write one sentence')
+    expect(a.soft).not.toContain('the summary is empty; write one sentence') // an empty summary is allowed now
     expect(a.soft).toContain('there are no bullets; write one per evidence item you use')
   })
 
@@ -1035,5 +1035,22 @@ describe('selected activities are bullets, not summary text', () => {
   it('the prompt says the summary never draws on the activities listed as bullet evidence', () => {
     const p = experiencePrompt(ctx(), empOf(3))
     expect(p).toMatch(/summary[^\n]*never[^\n]*activit/i)
+  })
+})
+
+describe('filler summaries', () => {
+  const emp = (overview: string) => ({ employer: { company: 'Megarom' }, overview }) as never
+  it('rejects a summary of generic words only, and keeps one with a figure, a proper noun or an overview word', () => {
+    const filler = 'Communications role covering how game launches and campaigns reached their audiences.'
+    expect(isGenericSummary(filler, emp(''))).toBe(true)
+    expect(isGenericSummary('Communications for 12 game launches a year.', emp(''))).toBe(false)
+    expect(isGenericSummary('Communications for Nintendo and Sony titles.', emp(''))).toBe(false)
+    expect(isGenericSummary('Communications for a Central European games publisher.', emp('A games publisher and distributor across Central Europe.'))).toBe(false)
+  })
+  it('drops a filler summary, renders no summary line and tells the owner what to add', async () => {
+    const { result } = run([{ ...good, summary: 'Communications role covering how game launches and campaigns reached their audiences.' }])
+    const r = await result
+    expect(r.summary).toBe('')
+    expect(r.notes.join('\n')).toMatch(/too little overview text for a summary: add a role overview in your profile/)
   })
 })

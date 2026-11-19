@@ -35,6 +35,8 @@ export type EmployerEvidence = {
   projects: ProjectEvidence[]
   /** Selected activities no longer in the profile (or no longer under this employer). */
   missing: number
+  /** The roles' own overview text (their notes' body), contact-scrubbed, oldest role first; '' when the profile has none. What the summary may be drawn from. */
+  overview?: string
 }
 
 export type CapabilityEvidence = {
@@ -147,6 +149,8 @@ export function evidenceFromVault(vault: Vault, selection: CvSelection, now: Dat
   const byActivity = new Map<string, CandidateActivity>()
   for (const emp of buildCandidates(vault).employers) for (const a of emp.activities) byActivity.set(a.id, a)
 
+  const scrub = makeContactScrubber(vault.identity.props.contact)
+  const clean = (t: string) => scrub(stripWikilinks(t)).trim()
   const employers = selection.employers.map((employer): EmployerEvidence => {
     const roleIds = new Set(employer.roles.map((r) => r.experienceId))
     const activities: CandidateActivity[] = []
@@ -156,12 +160,11 @@ export function evidenceFromVault(vault: Vault, selection: CvSelection, now: Dat
       if (a && roleIds.has(a.experienceId)) activities.push(a)
       else missing++
     }
-    return { employer, activities, projects: [], missing }
+    const overview = [...employer.roles].reverse().map((r) => vault.notes.get(r.experienceId)).flatMap((n) => (n?.type === 'experience' && n.body ? [clean(n.body)] : [])).filter(Boolean).join('\n')
+    return { employer, activities, projects: [], missing, overview }
   })
 
   // Selected projects ride along with the employer they belong to. None is dropped silently: an unroutable one is reported.
-  const scrub = makeContactScrubber(vault.identity.props.contact)
-  const clean = (t: string) => scrub(stripWikilinks(t)).trim()
   const unroutedProjects: Evidence['unroutedProjects'] = []
   const unresolved: Evidence['unresolved'] = []
   for (const { id } of selection.projects) {

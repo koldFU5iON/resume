@@ -204,6 +204,14 @@ export function projectNameKey(name: string): string {
   return (words.length > 0 ? words : all).join(' ')
 }
 
+/** Words of a project name that are generic (demo, campaign, programme...): they never identify the project on their own. */
+const GENERIC_NAME_WORDS = new Set(['the', 'a', 'an', 'of', 'for', 'and', 'in', 'on', 'to', 'demo', 'campaign', 'programme', 'program', 'project', 'initiative', 'launch', 'case', 'study'])
+
+/** The words of a project name that identify it (name words minus generic ones, years and versions); empty when none remain. */
+export function distinctiveTokens(name: string): string[] {
+  return normalised(projectNameKey(name)).filter((w) => !GENERIC_NAME_WORDS.has(w) && w.length > 1)
+}
+
 /** Index (in `normalised(text)`) of the first place the whole phrase appears, or -1. */
 export function phraseIndex(text: string, phrase: string): number {
   const words = normalised(text)

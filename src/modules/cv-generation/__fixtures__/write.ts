@@ -20,7 +20,7 @@ export function writeVaultSource(opts: { projects?: object[] } = {}) {
   const src = vaultSource()
   const base = src.experiences[0]
   const role = (id: string, company: string, title: string, start: string, end: string | null, acts: Array<[string, string, string | null]>) => ({
-    ...base, id, company, role: title, startDate: d(start), endDate: end ? d(end) : null, summary: '',
+    ...base, id, company, role: title, startDate: d(start), endDate: end ? d(end) : null, summary: title.startsWith('Snr.') ? 'Release and planning for the platform org.' : '',
     skills: [],
     activities: acts.map(([aid, desc, impact], i) => ({
       ...base.activities[0], id: aid, experienceId: id, description: desc, impact, highlighted: false, order: i, kind: 'achievement', skills: [],
@@ -46,6 +46,10 @@ export function writeVaultSource(opts: { projects?: object[] } = {}) {
     cap('sk4', 'Risk management', 'skill'),
     cap('sk5', 'Budgeting', 'skill'),
     cap('sk6', 'Dependency mapping', 'skill', { name: 'Dependency mapping' }),
+    cap('sk7', 'Vendor negotiation', 'skill'),
+    cap('sk8', 'Capacity planning', 'skill'),
+    cap('sk9', 'Incident response', 'skill'),
+    cap('sk10', 'Process design', 'skill'),
     cap('tl1', 'Jira', 'tool'),
     cap('tl2', 'Tableau', 'tool'),
     cap('cp1', 'Cross-functional leadership', 'competency'),
@@ -54,7 +58,7 @@ export function writeVaultSource(opts: { projects?: object[] } = {}) {
   // Evidence links make skills proven; Tableau and Change management stay claimed.
   const act = src.experiences[0].activities as Array<{ skills: unknown[] }>
   act[0].skills = [{ skillId: 'sk1', status: 'confirmed' }, { skillId: 'cp1', status: 'confirmed' }, { skillId: 'tl1', status: 'confirmed' }]
-  act[1].skills = [{ skillId: 'sk2', status: 'confirmed' }, { skillId: 'sk3', status: 'confirmed' }, { skillId: 'sk4', status: 'confirmed' }, { skillId: 'sk5', status: 'confirmed' }, { skillId: 'sk6', status: 'confirmed' }]
+  act[1].skills = [{ skillId: 'sk2', status: 'confirmed' }, { skillId: 'sk3', status: 'confirmed' }, { skillId: 'sk4', status: 'confirmed' }, { skillId: 'sk5', status: 'confirmed' }, { skillId: 'sk6', status: 'confirmed' }, { skillId: 'sk7', status: 'confirmed' }, { skillId: 'sk8', status: 'confirmed' }, { skillId: 'sk9', status: 'confirmed' }, { skillId: 'sk10', status: 'confirmed' }]
   src.educations = [
     { id: 'we1', profileId: 'p1', institution: 'Example University', qualification: 'MSc', field: 'Supply chain', startDate: d('2012-09'), endDate: d('2014-06'), grade: null, notes: null, tags: '[]', createdAt: new Date(0), updatedAt: new Date(0) },
     { id: 'we2', profileId: 'p1', institution: 'Open College', qualification: 'MBA', field: null, startDate: d('2025-09'), endDate: null, grade: null, notes: null, tags: '[]', createdAt: new Date(0), updatedAt: new Date(0) },
@@ -81,7 +85,7 @@ export function writeSelection(vault: Vault = writeVault(), over: Partial<Select
   const out: SelectOutput = {
     employers: [{ id: UNITY, relevance: 5, reason: 'current' }, { id: BLIZZARD, relevance: 3, reason: '' }],
     activities: pick('ua1', 'ua2', 'ua3', 'ba1'),
-    skills: pick('sk1', 'sk2', 'sk3', 'sk4', 'sk5', 'sk6'),
+    skills: pick('sk1', 'sk2', 'sk3', 'sk4', 'sk5', 'sk6', 'sk7', 'sk8', 'sk9', 'sk10'),
     tools: pick('tl1', 'tl2'),
     competencies: pick('cp1', 'cp2'),
     certifications: pick('wc1', 'wc2'),

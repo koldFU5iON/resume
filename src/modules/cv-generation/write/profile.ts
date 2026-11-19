@@ -24,8 +24,8 @@ import { CV_GENERATION_FEATURES, MAX_OUTPUT_TOKENS, TEMPERATURE, TIME_BUDGET_MS 
 import { COMPETENCY_LABEL_MAX_WORDS, COMPETENCY_LABEL_MIN_WORDS, COMPETENCY_MAX_LABELS, COMPETENCY_MIN_LABELS, HEADLINE_MAX_WORDS, PROFILE_MAX_FIGURES, PROFILE_MAX_WORDS, PROFILE_SENTENCES, PROFILE_TARGET_MIN_WORDS } from './limits'
 import { yearsPhrase } from './years'
 import { splitSentences } from './bullets'
-import { claimedHits, competencyLabelProblem, contentStems, credentialProblems, distinctNotableFigures, headlineTitleProblem, introducedNames, labelGroundedIn, labelReflectsCompetency, selfDescriptions, sharedFigures, unsupportedFigures, wordCount } from './checks'
-import { evidenceTexts, figureIgnoredNames, type CapabilityEvidence } from './evidence'
+import { claimedHits, competencyLabelProblem, contentStems, normalised, credentialProblems, distinctNotableFigures, headlineTitleProblem, introducedNames, labelGroundedIn, labelReflectsCompetency, selfDescriptions, sharedFigures, unsupportedFigures, wordCount } from './checks'
+import { evidenceTexts, figureIgnoredNames, type CapabilityEvidence, type Evidence } from './evidence'
 import { plainFeedback, plainLine, plainReasons, shortenToWords, type PlainOptions } from './plain'
 import { briefText, data, requirementsBlock } from './prompt'
 import { renderNameGroups } from './render'
@@ -106,23 +106,54 @@ export function dropCopiedSentences(profile: string, bullets: readonly string[])
   return { profile: sentences.filter((_, i) => !copies[i]).join(' '), dropped: sentences.filter((_, i) => copies[i]), kept: [] }
 }
 
+/** The role titles and overview text the years phrase and the profile's field are checked against. */
+function rolesBlock(evidence: { employers: ReadonlyArray<{ overview?: string }>; profileTitles: readonly string[] } | undefined): string {
+  if (!evidence) return ''
+  const overviews = evidence.employers.map((e) => (e.overview ?? '').trim()).filter(Boolean).map((o) => `- ${o.replace(/\s+/g, ' ').slice(0, 300)}`)
+  // Titles stay out of the prompt (the writer never sees titles, names or dates); the overviews say what the field is. Code still checks the years sentence against the titles.
+  return overviews.join('\n')
+}
+
+/**
+ * The sentence that carries the years phrase must not make domain claims the
+ * candidate's roles do not show: a word of the job's requirements that appears
+ * in that sentence but in none of the role titles, overviews or evidence is the
+ * job's domain, not the candidate's ("20+ years ... for developers"). Null when fine. Pure.
+ */
+export function yearsClaimProblem(
+  profile: string,
+  years: number,
+  requirementText: string,
+  evidence: Pick<Evidence, 'employers' | 'profileTitles'>,
+): string | null {
+  const phrase = yearsPhrase(years)
+  const sentence = splitSentences(profile).find((s) => s.includes(phrase))
+  if (!sentence) return null
+  const own = contentStems([...evidence.profileTitles, ...evidence.employers.flatMap((e) => [e.overview ?? '', ...evidenceTexts(e)])].join('\n'))
+  const asked = contentStems(requirementText)
+  const claimed = [...new Set(normalised(sentence).filter((w) => w.length >= 4 && asked.has(w.slice(0, 5)) && !own.has(w.slice(0, 5))))]
+  return claimed.length > 0 ? `the sentence with "${phrase}" claims the job's domain (${claimed.join(', ')}) for the whole career, which the roles do not show; describe the field the roles show and put the target domain in a separate clause ("now focused on ...")` : null
+}
+
 export function profilePrompt(
-  ctx: Pick<WriteContext, 'brief' | 'strategy' | 'yearsOfExperience'>,
+  ctx: Pick<WriteContext, 'brief' | 'strategy' | 'yearsOfExperience'> & { evidence?: Pick<Evidence, 'employers' | 'profileTitles'> },
   digest: string,
   competencies: readonly CapabilityEvidence[],
   maxLabels: number,
   minLabels = 0,
 ): string {
   const used = distinctNotableFigures(digest)
+  const roles = rolesBlock(ctx.evidence)
   const years = ctx.yearsOfExperience
   const yearsRule = typeof years === 'number' && years > 0
-    ? `\n- Years of experience: the first sentence states exactly "${yearsPhrase(years)}" (those words, in the first person: "I've spent ${yearsPhrase(years)} ..."), and no other number of years anywhere.`
+    ? `\n- Years of experience: the first sentence states exactly "${yearsPhrase(years)}" (those words, in the first person: "I've spent ${yearsPhrase(years)} ..."), and no other number of years anywhere. The years phrase must describe the candidate's ACTUAL field as their roles and employers show it (see "The candidate's roles" above), for example "${yearsPhrase(years)} in communications, PR and marketing in games and technology", never the target role's domain unless the roles show that domain for the whole span. Put the target role or domain in a separate clause ("now focused on ...").`
     : '\n- Do not state a number of years of experience.'
   return [
     '# Brief',
     briefText(ctx.brief),
     '# Job requirements\n\nFor emphasis only. They are not facts about the candidate. Use their key terms (what the company or product is, the domain, the audience) to say who the candidate is FOR THIS ROLE.',
     data('job_requirements', requirementsBlock(ctx.strategy)),
+    ...(roles ? ['# The candidate\'s roles\n\nRole overviews, for stating the candidate\'s field. Not for copying.', data('roles', roles)] : []),
     '# The experience section as written\n\nEverything you claim must be visible here.',
     data('experience', digest || '(no experience bullets)'),
     `# Competencies chosen for this CV\n\nThe candidate's own competencies for this role: use their wording where it fits. Claim nothing the experience section does not support.`,
@@ -230,6 +261,8 @@ export function analyseProfile(
   if (typeof ctx.yearsOfExperience === 'number' && ctx.yearsOfExperience > 0) {
     const phrase = yearsPhrase(ctx.yearsOfExperience)
     const wrong = [...profile.matchAll(/\b(\d{1,2})(\+?)\s*(?:years|yrs)\b/gi)].filter((m) => Number(m[1]) !== ctx.yearsOfExperience || m[2] !== '+').map((m) => m[0])
+    const claim = yearsClaimProblem(profile, ctx.yearsOfExperience, ctx.requirementText, ctx.evidence)
+    if (claim) problem(claim, 'years phrase attached to the target domain')
     if (wrong.length > 0) problem(`state the years of experience exactly as "${phrase}" (those words, no other number of years): found ${wrong.map((w) => `"${w}"`).join(', ')}`, 'years phrase not exact')
   }
   const selfDescribed = selfDescriptions(profile)
