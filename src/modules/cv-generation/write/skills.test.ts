@@ -8,7 +8,7 @@ import { extractJSON } from '@/modules/llm/extract-json'
 import { scripted, writeSelection, writeVault } from '../__fixtures__/write'
 import { buildBriefFor } from '../__fixtures__/gathered'
 import { evidenceFromVault, type CapabilityEvidence } from './evidence'
-import { codeOrder, skillsPrompt, validateGroups, writeSkills } from './skills'
+import { cleanSkills, codeOrder, nearDuplicate, skillsPrompt, validateGroups, writeSkills } from './skills'
 import { requirementText } from './prompt'
 import type { WriteContext } from './types'
 
@@ -91,6 +91,33 @@ describe('codeOrder', () => {
   })
 })
 
+describe('skills: near-duplicates, competency and tool overlap, relevance order', () => {
+  it('merges near-duplicate skills, keeping the evidence-backed and more specific one, and says so', () => {
+    expect(nearDuplicate('Strategic communications', 'Communications Strategy')).toBe(true)
+    expect(nearDuplicate('Communications', 'Strategic communications')).toBe(true)
+    expect(nearDuplicate('Roadmapping', 'Budgeting')).toBe(false)
+    const r = cleanSkills([cap('Strategic communications', true), cap('Communications Strategy'), cap('Roadmapping')], { competencies: [], tools: [] })
+    expect(r.skills.map((s) => s.name)).toEqual(['Communications Strategy', 'Roadmapping'])
+    expect(r.notes).toEqual(['Merged duplicate skills Strategic communications + Communications Strategy.'])
+  })
+  it('drops a skill that is just a competency label or a tool name', () => {
+    const r = cleanSkills([cap('Change management'), cap('Jira'), cap('Roadmapping')], { competencies: ['Change management'], tools: ['Jira'] })
+    expect(r.skills.map((s) => s.name)).toEqual(['Roadmapping'])
+    expect(r.notes).toHaveLength(2)
+  })
+  it('orders by relevance to the brief and job terms first, then evidence-backed', () => {
+    expect(codeOrder([cap('Budgeting'), cap('Roadmapping', true), cap('Delivery planning')], 'Delivery roadmapping').flatMap((g) => g.names)).toEqual(['Delivery planning', 'Roadmapping', 'Budgeting'])
+  })
+  it('8 skills render as ONE plain list with no model call (two groups of 2 and 6 were a real run)', async () => {
+    const eight = ['Automation', 'Integration design', 'Campaign planning', 'Media relations', 'Budgeting', 'Roadmapping', 'Event planning', 'Vendor negotiation'].map((n) => cap(n))
+    const r = await writeSkills(ctx({ evidence: { ...evidence, skills: eight, tools: [] } }), instructions)
+    expect(mockJSON).not.toHaveBeenCalled()
+    expect(r.skills).toHaveLength(1)
+    expect(r.skills[0].label).toBeNull()
+    expect(r.skills[0].names).toHaveLength(8)
+  })
+})
+
 describe('writeSkills', () => {
   const six = ['Release management', 'Stakeholder management', 'Roadmapping', 'Risk management', 'Budgeting', 'Dependency mapping']
 
@@ -103,8 +130,8 @@ describe('writeSkills', () => {
     const r = await writeSkills(ctx(), instructions)
     expect(s.calls).toHaveLength(1)
     expect(s.calls[0].opts).toMatchObject({ role: 'fast', feature: 'cv-gen-write-skills', attribution: { jobApplicationId: 'job-1', runId: 'run-1' } })
-    expect(r.skillsMarkdown).toBe('**Delivery**\n\n:::skills\n- Release management\n- Roadmapping\n- Dependency mapping\n:::\n\n**Governance**\n\n:::skills\n- Stakeholder management\n- Risk management\n- Budgeting\n:::')
-    expect(r.toolsMarkdown).toBe(':::inline-list\n- Tableau\n- Jira\n:::') // the claimed tool is allowed in the Tools list
+    expect(r.skillsMarkdown).toBe('**Delivery**\n\n:::skills\n- Release management\n- Roadmapping\n- Dependency mapping\n:::\n\n**Governance**\n\n:::skills\n- Stakeholder management\n- Risk management\n- Budgeting\n- Vendor negotiation\n- Capacity planning\n- Incident response\n- Process design\n:::')
+    expect(r.toolsMarkdown).toBe(':::inline-list\n- Jira\n- Tableau\n:::') // under 6 tools: one list ordered by code, evidence-backed first; a claimed tool is still allowed
     expect(r.model).toBe('claude-sonnet-5-5')
   })
 

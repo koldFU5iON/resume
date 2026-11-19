@@ -333,7 +333,7 @@ describe('runWrite', () => {
     const out = {
       employers: [UNITY, BLIZZARD, 'alpha-labs', 'beta-labs'].map((id) => ({ id, relevance: 4 as number | undefined, reason: '' })),
       activities: ['ua1', 'ba1', 'xa0', 'xa1'].map((id) => ({ id, reason: '' })),
-      skills: ['sk1', 'sk2', 'sk3', 'sk4', 'sk5', 'sk6'].map((id) => ({ id, reason: '' })), tools: [], competencies: [], certifications: [], education: [], projects: [], emphasise: [],
+      skills: ['sk1', 'sk2', 'sk3', 'sk4', 'sk5', 'sk6', 'sk7', 'sk8', 'sk9', 'sk10'].map((id) => ({ id, reason: '' })), tools: [], competencies: [], certifications: [], education: [], projects: [], emphasise: [],
     }
     const sel = enforceSelection(out, buildCandidates(vault), buildBriefFor({ budgets: { experiences: 4, skills: 12, tools: 10, competencies: 6, certifications: 4, education: 3, projects: 2 } })).selection
     expect(sel.employers.filter((e) => !e.headerOnly)).toHaveLength(4)
