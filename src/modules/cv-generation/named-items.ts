@@ -63,6 +63,13 @@ export function matchesName(text: string, name: string): boolean {
   return present >= (want.length <= 3 ? want.length : Math.floor(want.length / 2) + 1)
 }
 
+/** How many of the name's words the text carries (0 when it does not match at all). */
+export function matchedWords(text: string, name: string): number {
+  if (!matchesName(text, name)) return 0
+  const have = new Set(nameTokens(text))
+  return nameTokens(name).filter((w) => have.has(w)).length
+}
+
 /** The lead-with and emphasise items as one list, de-duplicated by name (an item in both is emphasise). */
 export function namedItems(brief: { leadWith?: readonly BriefItem[]; emphasise?: ReadonlyArray<BriefItem> }): NamedItem[] {
   const out: NamedItem[] = (brief.emphasise ?? []).map((e) => ({ name: e.name, framing: e.framing, kind: 'emphasise' }))

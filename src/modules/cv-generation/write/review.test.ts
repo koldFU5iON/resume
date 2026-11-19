@@ -21,7 +21,7 @@ import { experiencePrompt } from './experience'
 import { PROJECT_EVIDENCE_MAX_CHARS, capProjectText } from './limits'
 import { renderEmployerEntry } from './render'
 import {
-  applyEdits, renderExperience, reviewDoc, reviewPrompt, runReview, splitExperience, toConcernRecords, writeBack, type ApplyContext, type ReviewPromptInput,
+  REVIEW_SUMMARY_EVIDENCE_MAX, applyEdits, renderExperience, reviewDoc, reviewPrompt, runReview, splitExperience, toConcernRecords, writeBack, type ApplyContext, type ReviewPromptInput,
 } from './review'
 import type { WrittenSection } from './types'
 import { leads } from '../__fixtures__/candidates'
@@ -162,6 +162,18 @@ describe('reviewPrompt', () => {
     expect(len).toBeLessThanOrEqual('Big: '.length + PROJECT_EVIDENCE_MAX_CHARS + 1)
   })
 
+  it('lists the employer\'s selected activities that no bullet cites as labelled evidence for its summary, capped', () => {
+    const asm = assembled({ unity: UNITY_BULLETS.slice(0, 2) }) // ua3 is selected but not cited
+    const out = reviewPrompt(input({ assembled: asm }), reviewDoc(asm, selection, evidence))
+    expect(out.prompt).toMatch(/summary evidence[^\n]*\n\s+S\d+ \(activity\): \S+: Shipped 12 titles on schedule/)
+    expect(out.labels.some((l) => l.id === 'ua3')).toBe(true)
+    const many = evidenceFromVault(vault, selection)
+    const u = many.employers.find((e) => e.employer.key === UNITY)!
+    u.activities = Array.from({ length: 20 }, (_, i) => ({ ...u.activities[0], id: `x${i}`, text: `Extra ${i}`, impact: null }))
+    const capped = reviewPrompt(input({ evidence: many, assembled: asm }), reviewDoc(asm, selection, many))
+    expect(capped.prompt.match(/\(activity\): \S+: Extra/g) ?? []).toHaveLength(REVIEW_SUMMARY_EVIDENCE_MAX)
+  })
+
   it('shows an activity whole, as the writer sees it', () => {
     const long = evidenceFromVault(vault, selection)
     long.employers[0].activities[0] = { ...long.employers[0].activities[0], text: 'word '.repeat(200).trim(), impact: null }
@@ -225,6 +237,8 @@ describe('applyEdits: edits applied only after the checks', () => {
     ['a figure that the entry already states', 'Cut release time by 40%.', /repeats a figure already stated in this entry or the profile/],
   ])('discards a replace with %s, naming why', (_n, text, why) => {
     const doc = freshDoc()
+    // These two reuse figures of the first bullet's evidence, so the bullet must cite it for the check under test to be reached.
+    if (/40%/.test(text)) doc.experience.get(U)!.bullets[2].sources = [{ id: 'ua1', kind: 'activity', snippet: '' }]
     const r = applyEdits(doc, [edit(U, 'b3', 'replace', text)], actx())
     expect(r.applied).toEqual([])
     expect(r.discarded).toHaveLength(1)
@@ -471,10 +485,18 @@ describe('applyEdits: summary removal, the profile paragraph and provenance (rev
     expect(b).toMatchObject({ editedByReview: true, sources: [] })
   })
 
-  it('logs when a figure is in the employer\'s evidence but not in the evidence the bullet cited', () => {
+  it('rejects a bullet edit whose figure is only in evidence the bullet does not cite', () => {
     const r = applyEdits(freshDoc(), [edit(U, 'b2', 'replace', 'Ran planning that shipped 12 titles.')], actx())
+    expect(r.applied).toEqual([])
+    expect(r.discarded[0].why).toMatch(/12 is not in the evidence this bullet cited/)
+  })
+
+  it('lets a summary edit use a figure from any selected evidence of the employer, cited or not', () => {
+    const asm = assembled({ unity: UNITY_BULLETS.slice(0, 2) }) // ua3 (12 titles) is selected but cited by no bullet
+    const doc = reviewDoc(asm, selection, evidence)
+    const r = applyEdits(doc, [edit(U, 'summary', 'replace', 'Ran platform planning and shipped 12 titles.')], actx())
     expect(r.discarded).toEqual([])
-    expect(r.applied[0].note).toMatch(/12 is not in the evidence this bullet cited/)
+    expect(r.applied).toHaveLength(1)
   })
 })
 

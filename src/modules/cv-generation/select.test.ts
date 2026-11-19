@@ -15,7 +15,7 @@ import {
   MAX_TOTAL_BULLETS, MIN_ACTIVITIES_PER_EMPLOYER, TOTAL_ACTIVITY_BUDGET,
 } from './caps'
 
-const FLOOR_TOOLS = 10
+const FLOOR_TOOLS = 6
 import { candidatesToPrompt, type Candidates } from './candidates'
 import { matchesName, nameTokens } from './named-items'
 import {
@@ -265,9 +265,9 @@ describe('enforceSelection', () => {
       }
       const { selection: s } = enforceSelection(out, c, brief)
       const counts = s.employers.filter((e) => !e.headerOnly).map((e) => e.bullets.length)
-      expect(counts[0]).toBe(MAX_ACTIVITIES_PER_EMPLOYER)
+      expect(counts[0]).toBe(8) // Unity has three roles: the layered-employer cap
       for (const n of counts.slice(1)) expect(n).toBeGreaterThanOrEqual(MIN_ACTIVITIES_PER_EMPLOYER)
-      for (const n of counts) expect(n).toBeLessThanOrEqual(MAX_ACTIVITIES_PER_EMPLOYER)
+      for (const n of counts.slice(1)) expect(n).toBeLessThanOrEqual(MAX_ACTIVITIES_PER_EMPLOYER)
       expect(counts.reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(TOTAL_ACTIVITY_BUDGET)
     })
 
@@ -436,10 +436,10 @@ describe('enforceSelection', () => {
     expect(r.selection.skills).toHaveLength(12)
     expect(r.selection.skills[0].id).toBe('s1')
     expect(r.selection.skills.map((s) => s.id)).not.toContain('s3')
-    expect(r.selection.tools).toHaveLength(10)
+    expect(r.selection.tools).toHaveLength(6)
     expect(r.selection.competencies).toHaveLength(8) // topped up to the floor
     expect(r.notes.join(' ')).toContain('picked no skills')
-    expect(enforceSelection(empty, c, { budgets: { ...brief.budgets, tools: 0 } }).selection.tools).toHaveLength(10) // a request below the floor reads as the floor
+    expect(enforceSelection(empty, c, { budgets: { ...brief.budgets, tools: 0 } }).selection.tools).toHaveLength(6) // a request below the floor reads as the floor
   })
 
   it('keeps the newest education when the model picked none', () => {
@@ -479,6 +479,11 @@ describe('SelectOutputSchema', () => {
     const parsed = SelectOutputSchema.parse({ skills: [{ id: 's0', reason: 'x'.repeat(500) }] })
     expect(parsed.employers).toEqual([])
     expect(parsed.skills[0].reason).toHaveLength(100)
+  })
+
+  it('cuts a reason to 8 words in code, without failing', () => {
+    const parsed = SelectOutputSchema.parse({ skills: [{ id: 's0', reason: 'Shows delivery of the platform migration across nine teams, with figures, for the role' }] })
+    expect(parsed.skills[0].reason).toBe('Shows delivery of the platform migration across nine')
   })
 
   it('validates relevance: rounded and clamped to 1-5, missing or junk reads as none given', () => {
@@ -827,6 +832,91 @@ describe('lead-with and emphasise items are searched in ALL candidates', () => {
   })
 })
 
+describe('tools and skills top-up does not pad with claimed-only items', () => {
+  it('tops tools up to the floor of 6 with evidence-backed ones, and a claimed-only tool only when the job names it', () => {
+    const c = bigCandidates(2, 4)
+    c.tools = [
+      ...['Figma', 'Jira', 'Notion'].map((l, i) => ({ id: `tp${i}`, label: l, detail: null, proven: true })),
+      ...['Slack', 'Meltwater', 'Claude', 'Workato'].map((l, i) => ({ id: `tc${i}`, label: l, detail: null, proven: false })),
+    ]
+    const r = enforceSelection({ ...empty, employers: epick(['co-0', 4]) }, c, brief, 'model', { requirementTerms: ['workato'] })
+    expect(r.selection.tools.map((t) => t.id)).toEqual(['tp0', 'tp1', 'tp2', 'tc3'])
+  })
+})
+
+describe('name pin quality and the layered-employer cap', () => {
+  it('pins the better of several matches: more words, then a figure, never a bland short one', () => {
+    const c = realistic()
+    const unity = c.employers[0]
+    unity.activities[27].text = 'Develop and maintain customer facing activities as part of Made With Unity program'
+    unity.activities[27].text = 'Made With Unity customer programme'
+    unity.activities[28].text = 'Grew the Made With Unity program to 40 studios across Europe and Asia, with a quarterly showcase for each'
+    unity.activities[26].text = 'Develop and maintain customer facing activities as part of the Made With Unity program for studios'
+    const b = buildBriefFor({ leadWith: [{ name: 'Made With Unity', framing: 'x' }], emphasise: [] })
+    const r = enforceSelection({ ...empty, employers: epick([unity.key, 5]), activities: pick('u-a0', 'u-a1') }, c, b)
+    const ids = r.selection.employers.find((e) => e.key === unity.key)!.bullets.map((x) => x.id)
+    expect(ids[0]).toBe('u-a28')
+    expect(ids).not.toContain('u-a27')
+  })
+
+  it('lets an employer with three or more roles show up to 8 bullets, others stay at 6', () => {
+    const c = realistic()
+    const unity = c.employers[0]
+    const r = enforceSelection({ ...empty, employers: epick([unity.key, 5], ['co-1', 1]), activities: pick(...unity.activities.map((a) => a.id)) }, c, buildBriefFor({ leadWith: [], emphasise: [] }))
+    expect(bulletsOf(r.selection, unity.key)).toBe(8)
+    expect(r.selection.employers.reduce((n, e) => n + e.bullets.length, 0)).toBeLessThanOrEqual(MAX_TOTAL_BULLETS)
+    for (const e of r.selection.employers) if (e.key !== unity.key) expect(e.bullets.length).toBeLessThanOrEqual(MAX_ACTIVITIES_PER_EMPLOYER)
+  })
+})
+
+describe('thin lead-with projects', () => {
+  it('keeps every brief-named thin project (even past 2) and sorts them before an unnamed thin pick; says so only when they would have displaced', () => {
+    const c = bigCandidates(2, 4)
+    c.projects = ['A One', 'B Two', 'C Three', 'D Four'].map((l, i) => ({ id: `t${i}`, label: l, detail: null, proven: true, thin: true }))
+    const b = buildBriefFor({ leadWith: ['A One', 'B Two', 'C Three'].map((n) => ({ name: n, framing: n })), emphasise: [] })
+    const r = enforceSelection({ ...empty, employers: epick(['co-0', 4]), projects: pick('t3', 't0', 't1', 't2') }, c, b)
+    expect(r.selection.projects.map((p) => p.id)).toEqual(['t0', 't1', 't2'])
+    expect(r.notes.join(' ')).not.toMatch(/only a title/) // no substantive project to displace
+  })
+
+  it('says claimed-only tools were left out on purpose', () => {
+    const c = bigCandidates(2, 4)
+    c.tools = ['A', 'B'].map((l, i) => ({ id: `tx${i}`, label: l, detail: null, proven: true })).concat(['Slack', 'Office'].map((l, i) => ({ id: `ty${i}`, label: l, detail: null, proven: false })))
+    const r = enforceSelection({ ...empty, employers: epick(['co-0', 4]) }, c, brief)
+    expect(r.notes.join(' ')).toMatch(/Left 2 claimed-only tools out on purpose/)
+  })
+})
+
+describe('thin projects do not use project slots', () => {
+  const mk = () => {
+    const c = bigCandidates(2, 4)
+    c.projects = [
+      { id: 'pt1', label: 'WAIC 2022 Keynote', detail: null, proven: true, thin: true },
+      { id: 'pt2', label: 'Enemies Demo Campaign', detail: null, proven: true, thin: true },
+      { id: 'ps1', label: '17th Unity Awards', detail: 'Ran the awards: 40 entries, 12 studios, 3 countries', proven: true },
+      { id: 'ps2', label: 'Other substantive', detail: 'A long description of real work with an outcome and numbers 10%', proven: true },
+      { id: 'ps3', label: 'Third substantive', detail: 'Another long description of real work with an outcome', proven: true },
+    ]
+    return c
+  }
+  const b = buildBriefFor({ leadWith: [{ name: 'WAIC 2022 Keynote', framing: 'keynote' }, { name: 'Enemies Demo Campaign', framing: 'demo' }], emphasise: [] })
+
+  it('keeps a substantive project when two thin ones are named, and still keeps the thin ones for the concern', () => {
+    const r = enforceSelection({ ...empty, employers: epick(['co-0', 4]), projects: pick('pt1', 'pt2', 'ps1') }, mk(), b)
+    const ids = r.selection.projects.map((p) => p.id)
+    expect(ids).toContain('ps1')
+    expect(ids).toEqual(expect.arrayContaining(['pt1', 'pt2']))
+    expect(r.selection.dropped.some((d) => d.id === 'ps1')).toBe(false)
+  })
+
+  it('fills the project cap with substantive projects first', () => {
+    const r = enforceSelection({ ...empty, employers: epick(['co-0', 4]), projects: pick('pt1', 'pt2', 'ps1', 'ps2', 'ps3') }, mk(), b)
+    const ids = r.selection.projects.map((p) => p.id)
+    expect(ids.filter((i) => i.startsWith('ps'))).toEqual(['ps1', 'ps2'])
+  })
+
+})
+
 describe('the select prompt: emphasise and budgets', () => {
   it('passes the emphasise list and asks for supporting evidence for each item where candidates exist', () => {
     const text = selectPrompt(buildBriefFor({ emphasise: [em('Platform migration', 'core'), em('Vendor management', 'core')] }), bigCandidates(2, 2))
@@ -944,7 +1034,7 @@ describe('volume floors', () => {
     const out: SelectOutput = { ...empty, employers: epick(['co-0', 3]), skills: pick('s3'), tools: pick('t0'), competencies: pick('c4', 'c5', 'c6'), certifications: pick('ce1', 'ce2'), education: [], projects: [] }
     const { selection: s, notes } = enforceSelection(out, c, { budgets: { ...brief.budgets, ...four } })
     expect(s.skills).toHaveLength(12)
-    expect(s.tools).toHaveLength(10)
+    expect(s.tools).toHaveLength(6)
     expect(s.competencies).toHaveLength(8)
     expect(s.certifications).toHaveLength(6)
     expect(s.education).toHaveLength(1)
@@ -975,7 +1065,7 @@ describe('volume floors', () => {
   it('tells the model the floored numbers, not the small ones it may have been given', () => {
     const b = CvBriefSchema.parse({ ...buildBriefFor(), budgets: { experiences: 1, skills: 2, tools: 2, competencies: 2, certifications: 1, education: 0, projects: 0 } })
     const text = selectPrompt(b, bigCandidates(2, 2))
-    expect(text).toContain('Employers with bullets 4, skills 12, tools 10, competencies 8, certifications 6, education 1, projects 0')
+    expect(text).toContain('Employers with bullets 4, skills 12, tools 6, competencies 8, certifications 6, education 1, projects 0')
   })
 })
 
@@ -1170,11 +1260,10 @@ describe('figure-rich evidence', () => {
     const out = { ...withModel(c, []), emphasise: [] }
     const { selection: s } = enforceSelection(out, c, brief2)
     const kept = s.employers.find((e) => e.key === 'co-0')!.bullets
-    // e0a0 is pinned by name (the model picked nothing for it); the free slot goes to a figure-rich match, not a plain activity.
-    expect(kept.map((b) => b.id)).toContain('e0a0')
-    const topUp = kept.find((b) => b.id !== 'e0a0')!
-    expect(['e0a5', 'e0a6']).toContain(topUp.id)
-    expect(topUp.reason).toContain('states a figure and matches a brief item')
+    // The pin by name prefers a figure-rich match over the short plain one (e0a0); the free slot goes to the other figure-rich match.
+    expect(kept.map((b) => b.id)).not.toContain('e0a0')
+    expect(kept.map((b) => b.id)).toEqual(expect.arrayContaining(['e0a5', 'e0a6']))
+    expect(kept[0].reason).toContain('Named in the brief')
   })
 
   it('never swaps out an activity pinned by name, and leaves things alone when no brief item is named', () => {

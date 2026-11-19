@@ -101,7 +101,7 @@ Phase 4b added no migration. Never use `db:push`; see AGENTS.md.
 | Select | `cv-gen-select` | `fast` | `TEMPERATURE.select` 0 |
 | Experience writer | `cv-gen-write-experience` | `default` | 0.4 |
 | Skills grouping | `cv-gen-write-skills` | `fast` | 0.2 |
-| Filler bullet | A bullet that is a near-verbatim copy of the summary (at least 85% of its content word-stems in the summary, 3+ content words, no figure) is dropped and logged; never the last bullet. | `write/bullets.ts` (`repeatsSummary`) |
+| Filler bullet | A bullet that is a near-verbatim copy of the summary (at least 85% of its content word-stems in the summary, 3+ content words, no figure) is **kept**: the summary loses the repeated sentence (or, in a one-sentence summary, the repeated clause) and a note says so; when the summary has nothing else to keep, both stay and a note says so. The bullet count is never reduced by this check. | `write/bullets.ts` (`repeatsSummary`, `dedupeSummary`) |
 | Profile writer | `cv-gen-write-profile` | `default` | 0.4 |
 | Review | `cv-gen-review` | `analysis` | 0.1 |
 
@@ -128,19 +128,26 @@ Phase 4b added no migration. Never use `db:push`; see AGENTS.md.
 | Employers with bullets | 4 | 4 | `MIN_EMPLOYERS_WITH_BULLETS`, `MAX_EMPLOYERS` |
 | Header-only employers | n/a (all the rest, most recent first) | 4, further ones dropped (`over_cap`) | `MAX_HEADER_ONLY_EMPLOYERS` |
 | Bullets in total | about 17 (`TOTAL_ACTIVITY_BUDGET`; the split fills it whenever supply allows; aim 16-18) | 20 | `MAX_TOTAL_BULLETS` |
-| Bullets per employer | 2 (fewer only if it has fewer activities) | 6 | `MIN_ACTIVITIES_PER_EMPLOYER`, `MAX_ACTIVITIES_PER_EMPLOYER` |
+| Bullets per employer | 2 (fewer only if it has fewer activities) | 6; 8 for an employer with 3 or more roles in the profile | `MIN_ACTIVITIES_PER_EMPLOYER`, `MAX_ACTIVITIES_PER_EMPLOYER`, `MAX_ACTIVITIES_LAYERED_EMPLOYER`, `maxActivitiesFor` |
 | Skills | 12 | 12 | `MAX_SKILLS` |
-| Tools | 10 | 10 | `MAX_TOOLS` |
+| Tools | 6 | 10 | `MIN_TOOLS`, `MAX_TOOLS` |
 | Competencies | 8 | 8 | `MAX_COMPETENCIES` |
 | Certifications | 6 | 6 | `MAX_CERTIFICATIONS` |
 | Education | 1 | 3 | `MAX_EDUCATION` |
-| Projects | 0 | 2 | `MAX_PROJECTS` |
+| Projects | 0 | 2 substantive; thin (title-only) projects never use a slot | `MAX_PROJECTS` |
 
 `FLAT_FLOORS` / `MIN_EMPLOYERS_WITH_BULLETS` give the floors (`BUDGET_FLOORS`), `FLAT_CAPS` / `BUDGET_CAPS` the ceilings, and `clampBudgetValue(section, n)` clamps into `[floor, ceiling]`. A floor is met only as far as the profile has items (a profile with 5 certifications shows 5). An expired certification the model picked is left off the selection (log note), like the top-up. Projects keep a floor of 0: a project with no bearing on the job is not padding. Where the floors are applied:
 
 - **In the Brief schema** (`budget()`, `schema.ts`): a stored or model-written budget outside the range reads as the nearest end (a stored Brief that asked for 3 certifications reads as 6). The CV body soft limit `CV_BODY_WORDS_SOFT_LIMIT` (1,000 words, about 2.5 pages; at the ceilings the body can legitimately pass 900: 20 bullets x 25 = 500, 4 summaries x 40 = 160, profile 110, labels, skills, tools, certifications, education and Earlier Experience about 210) remains the guard against a CV that runs long.
 - **In Select** (`enforceSelection`): budgets are clamped again; a flat list the model left shorter than its floor is **topped up by rule** (`topUpOrder`: evidence-backed first, then brief and requirement term matches, then profile order; certifications by `rankCertifications`, never an expired one) with the reason "Chosen by rule: the model picked too few" and a log note. Employers with bullets are filled by recency when the model picked fewer than 4 (existing rule). `allocateBullets` clamps its total to `MAX_TOTAL_BULLETS`.
 - **The Brief prompt** (`cv-gen-brief.md`) proposes budgets in these ranges; the Select prompt (`cv-gen-select.md`) tells the model each budget is a floor to fill, projects excepted.
+
+**Calibration 2** (`fix/cv-gen-calibration-2`, after a second real run):
+
+- **Thin projects use no project slot.** A candidate project with only a title (`CandidateItem.thin`, from `isThinProject` over description and highlights) is kept on the selection beyond the cap (at most `MAX_PROJECTS` of them, so the thin-project coach concern still fires) while substantive projects fill the cap of 2 first. Before, two thin named projects cut the figure-rich "17th Unity Awards".
+- **Name pins pick the best match.** Of several candidates that match a lead-with or emphasise name: more matched words (`matchedWords`), then a figure or outcome, then longer text; one under `MIN_PIN_WORDS` (8) is taken only when nothing longer matches.
+- **Top-ups do not pad.** The tools floor is 6 (ceiling 10; the model may pick up to 10). A code top-up of skills or tools takes evidence-backed items first and a claimed-only one only when the brief or the job's requirements name it; the floor is met only as far as that allows.
+- **Select reasons** are at most `REASON_MAX_WORDS` (8) words: the prompt asks, `trimReason` cuts a longer one and never fails. The output caps (`select` 8,000, retry 16,000 tokens) stay: about 60 picks at roughly 35 tokens each is about 2,000 tokens, so there is room for 4 employers and 17 to 20 bullets.
 
 `MAX_RECORDED_DROPPED` 300 bounds the stored dropped list (`droppedTotal` and `notSelectedTotal` keep the true counts). A header-only employer is never scored; a missing relevance score is `MIN_RELEVANCE` in a model run and derived from brief and requirement term matches in a rules run; a bad stored relevance reads as 3. A long-tenure employer (an 8-year role) is no longer reduced to a title line because the Brief asked for fewer employers: it gets 2-3 bullets by relevance, and only the employers beyond the 4 stay header-only.
 
@@ -209,6 +216,8 @@ Policy: **soft** means one retry with the specific problems listed, then accept 
 `write/review.ts`, prompt `src/lib/prompts/cv-gen-review.md`, `REVIEW_LIMITS` (`schema.ts`). ONE call (`completeValidated`, role `analysis`, 3,000 output tokens, retry 6,000, 60 s). Skippable per run (`review: false`).
 
 **Input** (lean: no header, no name, no contact detail, no whole profile): the user's writing rules and the review prompt as the system message; as the user message the Brief (hidden question, positioning, tone, emphasise, play down, lead with), the job's requirement terms, the profile's claimed names (`maxClaimedNames` 40), in-progress credentials, Select's uncovered emphasise items, and the CV: each experience entry with its section id (`experience:<key>`), role line, current/finished flag, summary, each bullet with an id (`b1`...) and the evidence it was written from as labelled snippets (`S1`...). Evidence text is built by `activityPromptText` / `projectPromptText` (`write/evidence.ts`), the same text the writer saw (activities whole, projects capped at 1,200 characters), so a figure the writer rightly took cannot look unsupported. Only cited items are sent, once each. Certifications, education, languages, Earlier Experience, competencies, skills and tools are read-only context or not sent.
+
+**Summary evidence.** Under each experience entry the prompt also lists, labelled (S#) like the bullets' evidence and with the same text the writer saw (`activityPromptText`), up to `REVIEW_SUMMARY_EVIDENCE_MAX` (8) of that employer's selected activities that no bullet cites. A figure in a summary that is in any of them is supported (a false 'no evidence' concern about a Blizzard budget, from an activity the writer put in the summary, led to this). Cost: up to about 40 tokens per activity, so 0 to about 300 tokens per employer in practice (about 1,300 at the 4-employer worst case) on a prompt of several thousand.
 
 **Output**: `edits` (at most `maxEdits` 8: target `{ sectionId, bulletId? }`, action `replace` | `remove`, `newText` <= `newTextChars` 800, `reason`) and `concerns` (at most `maxConcerns` 5: kind in `CONCERN_KINDS` = `evidence_gap`, `metric_conflict`, `claimed_in_bullet`, `weak_proof`, `other`; title <= 80, why <= 200, question <= 200, `refs` = evidence labels). The answer is parsed item by item (`ReviewOutputSchema`): one malformed edit or concern is dropped and counted, not the answer; only a non-object answer retries. An unknown concern kind reads as `other`.
 
@@ -377,4 +386,5 @@ The legacy generator (`createAndGenerateCV` in `src/modules/cv/actions.ts`, `src
 | 4a | #422 and fixes (`fix/cv-gen-review-evidence`, `fix/cv-gen-leadwith-thin`) | Reuse, Review, Land, concerns stored, evidence fidelity, thin lead-with, word-cap shortening. |
 | 4b | this PR | Menu switch, writing desk entry point, 409 Open/Discard, concerns panel and coach handoff, always-visible nav entry, retirement banners, this document. |
 | Calibration | `feat/cv-gen-volume` | Volume floors under the Brief's budgets (4 employers with bullets, about 17 bullets, 8 competencies, 6 certifications, 12 skills, 10 tools; ceilings in section 6), certification weak rule only when the section is full, certification order (relevant, in progress, recent), competency labels up to the budget (min 6), first-person profile (4-6 sentences, 110 words), lead-with and emphasise items as `{ name, framing }` matched by name, figure-rich evidence tiebreak; `SELECTION_PIPELINE_VERSION` 2; no migration. The years-of-experience opener is pending the owner's decision. |
+| Calibration 2 | `fix/cv-gen-calibration-2` | Thin projects use no slot, summary never eats bullets, name-pin quality, layered-employer cap 8, tools floor 6 with no claimed-only padding, Select reasons at most 8 words, Review sees summary evidence (a bullet edit may use only figures its own cited evidence states; a summary edit any selected evidence of the employer); `SELECTION_PIPELINE_VERSION` 3; no migration. |
 | 5 | pending | Remove the legacy generator (list above). |

@@ -16,6 +16,7 @@ Propose an edit only when it is needed, and at most the limit. Each edit targets
 What an edit may do:
 
 - **Remove or reword any claim the supplied evidence does not support.** A bullet states what its evidence snippets state: no other figure, tool, scope, team size or result. If part of a bullet goes beyond its evidence, reword it to what the evidence supports, or remove it.
+- **A summary's evidence** is every snippet listed under its entry: the ones cited by its bullets and the ones under "summary evidence" (the employer's other selected activities, which the writer also saw). A figure or scope claim in a summary that appears in any of them is supported: cite its label in a concern or leave it alone; never call it unsupported or cut it for that reason.
 - **Fix repetition across sections.** The same figure or achievement in the profile, a summary and a bullet: keep it where it fits best and reword or remove the others.
 - **Fix voice.** No first person ("I", "my", "we") in bullets and summaries; the profile paragraph alone is written in the first person and stays so. Completed achievements and measured results are past tense, even in the current role; a finished role is past tense throughout. Plain text only.
 - **Cover the brief.** When the brief says to lead with or emphasise something the evidence does cover but the text buries, reword the relevant bullet to lead with it. Never to add something the evidence does not say.

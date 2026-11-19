@@ -40,6 +40,11 @@ export const MAX_TOTAL_BULLETS = 20
 /** Fewest and most bullets one employer may show (fewer only if it has fewer activities). */
 export const MIN_ACTIVITIES_PER_EMPLOYER = 2
 export const MAX_ACTIVITIES_PER_EMPLOYER = 6
+/** An employer with at least this many roles in the profile (a long, layered tenure such as the current one) may show up to MAX_ACTIVITIES_LAYERED_EMPLOYER. */
+export const LAYERED_EMPLOYER_MIN_ROLES = 3
+export const MAX_ACTIVITIES_LAYERED_EMPLOYER = 8
+/** The most bullets an employer with `roles` roles may show. */
+export const maxActivitiesFor = (roles: number): number => (roles >= LAYERED_EMPLOYER_MIN_ROLES ? MAX_ACTIVITIES_LAYERED_EMPLOYER : MAX_ACTIVITIES_PER_EMPLOYER)
 
 /** The 1-5 scale of the Select model's per-employer relevance score. */
 export const MIN_RELEVANCE = 1
@@ -50,6 +55,8 @@ export const NEUTRAL_RELEVANCE = Math.round((MIN_RELEVANCE + MAX_RELEVANCE) / 2)
 /** Hard ceilings per flat section (the Brief and Select can never exceed them). */
 export const MAX_SKILLS = 12
 export const MAX_TOOLS = 10
+/** Tools floor: a code top-up stops here; the model may go up to MAX_TOOLS. */
+export const MIN_TOOLS = 6
 export const MAX_COMPETENCIES = 8
 export const MAX_CERTIFICATIONS = 6
 /** All education, but never more than this many entries. */
@@ -81,7 +88,7 @@ export const FLAT_CAPS: Record<FlatSection, number> = {
 export const MIN_EMPLOYERS_WITH_BULLETS = 4
 export const FLAT_FLOORS: Record<FlatSection, number> = {
   skills: MAX_SKILLS,
-  tools: MAX_TOOLS,
+  tools: MIN_TOOLS,
   competencies: MAX_COMPETENCIES,
   certifications: MAX_CERTIFICATIONS,
   education: 1,
@@ -113,6 +120,8 @@ export type BulletClaim = {
   relevance: number
   /** Activities this employer can show: what the model picked (topped up to the minimum) or has. */
   supply: number
+  /** This employer's own ceiling (maxActivitiesFor); the option `max` when absent. */
+  max?: number
 }
 
 /**
@@ -133,7 +142,7 @@ export function allocateBullets(
   const min = opts.min ?? MIN_ACTIVITIES_PER_EMPLOYER
   const max = opts.max ?? MAX_ACTIVITIES_PER_EMPLOYER
   const n = claims.length
-  const hi = claims.map((c) => Math.max(0, Math.min(max, c.supply)))
+  const hi = claims.map((c) => Math.max(0, Math.min(c.max ?? max, c.supply)))
   let lo = claims.map((c, i) => Math.min(min, hi[i]))
   // Floors that do not fit the total (more employers than the budget allows): keep the most relevant ones.
   if (lo.reduce((a, b) => a + b, 0) > total) {

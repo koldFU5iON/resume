@@ -30,9 +30,12 @@ import {
   BUDGET_FLOORS,
   FLAT_SECTIONS,
   MAX_ACTIVITIES_PER_EMPLOYER,
+  MAX_ACTIVITIES_LAYERED_EMPLOYER,
+  LAYERED_EMPLOYER_MIN_ROLES,
   MAX_EMPLOYERS,
   MAX_TOTAL_BULLETS,
   MAX_HEADER_ONLY_EMPLOYERS,
+  MAX_PROJECTS,
   MAX_RECORDED_DROPPED,
   MAX_RELEVANCE,
   MIN_ACTIVITIES_PER_EMPLOYER,
@@ -41,11 +44,12 @@ import {
   TOTAL_ACTIVITY_BUDGET,
   allocateBullets,
   clampBudgetValue,
+  maxActivitiesFor,
   type FlatSection,
 } from './caps'
 import { candidatesToPrompt, labelIndex, type Candidates, type CandidateActivity, type CandidateEmployer, type CandidateItem } from './candidates'
 import { relatedEmployerNotes } from './employers'
-import { matchesName, nameTokens, namedItems, type NamedItem } from './named-items'
+import { matchedWords, matchesName, nameTokens, namedItems, type NamedItem } from './named-items'
 import { figuresIn } from './write/checks'
 import type { GatherResult } from './gather'
 import type { Strategy } from './strategy'
@@ -70,9 +74,16 @@ type Gathered = Extract<GatherResult, { ok: true }>
 
 // ── What the model returns ──────────────────────────────────────────────────
 
+/** A pick's reason is at most this many words: the model is asked for it, and code cuts a longer one (never fails on it). */
+export const REASON_MAX_WORDS = 8
 const REASON_MAX = 100
-const reason = z.string().default('').describe(`A few words: what this item shows for the role (at most ${REASON_MAX} characters)`)
-  .transform((v) => v.trim().slice(0, REASON_MAX).trim())
+/** A reason cut to REASON_MAX_WORDS words and REASON_MAX characters. Pure. */
+export function trimReason(v: string): string {
+  const words = v.trim().split(/\s+/).filter(Boolean).slice(0, REASON_MAX_WORDS).join(' ')
+  return words.slice(0, REASON_MAX).replace(/[\s,;:–—-]+$/, '').trim()
+}
+const reason = z.string().default('').describe(`At most ${REASON_MAX_WORDS} words: what this item shows for the role`)
+  .transform(trimReason)
 const PickSchema = z.object({ id: z.string(), reason })
 const list = () => z.array(PickSchema).default([])
 
@@ -85,7 +96,7 @@ export const SelectOutputSchema = z.object({
   employers: z.array(z.object({ id: z.string(), relevance, reason })).default([])
     .describe('Employers to show with bullets, best first, the current employer first; id is the employer id in square brackets'),
   activities: z.array(z.object({ id: z.string(), reason })).default([])
-    .describe(`Activities to keep, best first within each employer (up to ${MAX_ACTIVITIES_PER_EMPLOYER} per employer)`),
+    .describe(`Activities to keep, best first within each employer (up to ${MAX_ACTIVITIES_LAYERED_EMPLOYER} per employer, ${MAX_ACTIVITIES_PER_EMPLOYER} unless it has ${LAYERED_EMPLOYER_MIN_ROLES}+ roles)`),
   skills: list(),
   tools: list(),
   competencies: list(),
@@ -142,7 +153,7 @@ export function selectPrompt(brief: CvBrief, cands: Candidates, strategy?: Pick<
   }
   sections.push(
     `# Budgets (fill them: code tops a short list up to the floor, and cuts picks over the budget)\n\nEmployers with bullets ${employersWithBullets(brief)}, skills ${b.skills}, tools ${b.tools}, competencies ${b.competencies}, certifications ${b.certifications}, education ${b.education}, projects ${b.projects}. Employers you do not pick are still listed on the CV as a title line with no bullets (up to ${MAX_HEADER_ONLY_EMPLOYERS}), so do not spend a pick on an employer only to keep it visible. Pick as many items as the budget allows when the profile has them, best first; an item with no bearing on the job goes last, not first. Projects are the exception: pick one only when it helps this job.`,
-    `# Bullets\n\n${TOTAL_ACTIVITY_BUDGET} activities in all (at most ${MAX_TOTAL_BULLETS}) across the employers with bullets, split in proportion to the relevance score (${MIN_RELEVANCE}-${MAX_RELEVANCE}) you give each employer, with at least ${MIN_ACTIVITIES_PER_EMPLOYER} and at most ${MAX_ACTIVITIES_PER_EMPLOYER} for each. Code applies the split after you answer. Give every employer you pick a relevance score (${MAX_RELEVANCE} = central to the role, 3 = supports the story but not central, ${MIN_RELEVANCE} = barely relevant), and list up to ${MAX_ACTIVITIES_PER_EMPLOYER} activities for it, best first: the first ones are kept if the split gives the employer fewer. Recency does not set the split: an older employer that answers the brief better gets more bullets than a recent one that does not.`,
+    `# Bullets\n\n${TOTAL_ACTIVITY_BUDGET} activities in all (at most ${MAX_TOTAL_BULLETS}) across the employers with bullets, split in proportion to the relevance score (${MIN_RELEVANCE}-${MAX_RELEVANCE}) you give each employer, with at least ${MIN_ACTIVITIES_PER_EMPLOYER} and at most ${MAX_ACTIVITIES_PER_EMPLOYER} for each (${MAX_ACTIVITIES_LAYERED_EMPLOYER} for an employer with ${LAYERED_EMPLOYER_MIN_ROLES} or more roles). Code applies the split after you answer. Give every employer you pick a relevance score (${MAX_RELEVANCE} = central to the role, 3 = supports the story but not central, ${MIN_RELEVANCE} = barely relevant), and list up to ${MAX_ACTIVITIES_LAYERED_EMPLOYER} activities for it, best first: the first ones are kept if the split gives the employer fewer. Recency does not set the split: an older employer that answers the brief better gets more bullets than a recent one that does not.`,
   )
   if (required.length === 1) {
     sections.push(`# Current employer\n\n[${required[0].key}] ${required[0].label}. It must be included in \`employers\` (list it first) and counts toward the employer budget.`)
@@ -354,7 +365,10 @@ export function enforceSelection(
     const hits = bulletCands
       .flatMap((e) => e.activities.map((a, idx) => ({ a, key: e.key, idx })))
       .filter((h) => matchesName(textOf(h.a), n.name) && !pickedActs.has(h.a.id))
-      .sort((x, y) => activityRank(y.a) - activityRank(x.a) || x.idx - y.idx)
+      .map((h) => ({ ...h, words: matchedWords(textOf(h.a), n.name), len: textOf(h.a).trim().split(/\s+/).length }))
+    // Several candidates match: more matched words, then a figure or outcome, then longer text; a bland short one (under MIN_PIN_WORDS) only when nothing longer matches.
+    if (hits.some((h) => h.len >= MIN_PIN_WORDS)) hits.splice(0, hits.length, ...hits.filter((h) => h.len >= MIN_PIN_WORDS))
+    hits.sort((x, y) => y.words - x.words || Number(hasOutcome(y.a)) - Number(hasOutcome(x.a)) || y.len - x.len || activityRank(y.a) - activityRank(x.a) || x.idx - y.idx)
     const proj = cands.projects.find((c) => !pickedProjects.has(c.id) && matchesName(projText(c), n.name))
     const best = hits[0]
     if (best) {
@@ -372,7 +386,7 @@ export function enforceSelection(
   // what the model picked for it, topped up by rule to the minimum.
   const supply = (e: (typeof bulletEmployers)[number]) =>
     Math.max((byEmployer.get(e.key) ?? []).length, Math.min(MIN_ACTIVITIES_PER_EMPLOYER, e.activities.length))
-  const split = allocateBullets(bulletEmployers.map((e) => ({ relevance: relevanceOf(e.key), supply: supply(e) })), { total: Math.min(MAX_TOTAL_BULLETS, TOTAL_ACTIVITY_BUDGET) })
+  const split = allocateBullets(bulletEmployers.map((e) => ({ relevance: relevanceOf(e.key), supply: supply(e), max: maxActivitiesFor(e.roles.length) })), { total: Math.min(MAX_TOTAL_BULLETS, TOTAL_ACTIVITY_BUDGET) })
   const bullets = new Map<string, SelectedActivity[]>()
   const keptActIds = new Set<string>()
   let toppedUp = 0
@@ -461,8 +475,22 @@ export function enforceSelection(
     const live = picks.filter((p) => !expiredIds.has(p.id))
     for (const p of picks) if (expiredIds.has(p.id)) dropReason.set(p.id, 'not_selected')
     if (live.length < picks.length) notes.push(`Left out ${countOf(picks.length - live.length, 'expired certification')} the model picked: ${picks.filter((p) => expiredIds.has(p.id)).map((p) => labels.get(p.id) ?? p.id).join(', ')}.`)
-    let kept = live.slice(0, limit)
-    for (const p of live.slice(limit)) dropReason.set(p.id, 'over_cap')
+    // Thin projects (a title only) write no bullet, so they never use a project slot: substantive ones fill the
+    // cap first. Thin ones the brief leads with come first and ALL stay (each needs its thin-project concern);
+    // other thin picks fill what is left of MAX_PROJECTS, so they never crowd out a named one.
+    const thinIds = new Set(s === 'projects' ? cands.projects.filter((c) => c.thin).map((c) => c.id) : [])
+    const solid = live.filter((p) => !thinIds.has(p.id))
+    const thinAll = live.filter((p) => thinIds.has(p.id))
+    const isLead = (id: string) => {
+      const c = cands.projects.find((x) => x.id === id)
+      return !!c && named.some((n) => n.kind === 'lead-with' && matchesName(projText(c), n.name))
+    }
+    const thinNamed = thinAll.filter((p) => isLead(p.id))
+    const thin = [...thinNamed, ...thinAll.filter((p) => !isLead(p.id)).slice(0, Math.max(0, MAX_PROJECTS - thinNamed.length))]
+    let kept = [...solid.slice(0, limit), ...thin]
+    for (const p of solid.slice(limit)) dropReason.set(p.id, 'over_cap')
+    for (const p of thinAll) if (!thin.includes(p)) dropReason.set(p.id, 'over_cap')
+    if (solid.length > 0 && thin.length > 0 && solid.length + thin.length > limit) notes.push(`${thin.map((p) => labels.get(p.id) ?? p.id).join(', ')} ${thin.length === 1 ? 'has' : 'have'} only a title: kept for the coach note without using a project slot.`)
     const want = Math.min(BUDGET_FLOORS[s], limit, cands[s].length)
     if (kept.length < want) {
       const taken = new Set(kept.map((k) => k.id))
@@ -472,6 +500,10 @@ export function enforceSelection(
       if (had === 0 && s === 'education') notes.push('The model picked no education; kept the most recent entries.')
       else if (had === 0 && (s === 'skills' || s === 'tools')) notes.push(`The model picked no ${s}; chose ${kept.length} by rule (evidence-backed first).`)
       else notes.push(`Topped up ${s} to ${kept.length} by rule (the minimum is ${want}): the model picked ${had}.`)
+      if ((s === 'skills' || s === 'tools') && kept.length < want) {
+        const skipped = cands[s].filter((c) => !c.proven && !kept.some((k) => k.id === c.id)).length
+        if (skipped > 0) notes.push(`Left ${countOf(skipped, `claimed-only ${s === 'tools' ? 'tool' : 'skill'}`)} out on purpose: the brief and the job do not name ${skipped === 1 ? 'it' : 'them'}, so the list stays at ${kept.length}.`)
+      }
     }
     flat[s] = kept.map((p) => item(p.id, p.reason))
     for (const k of kept) keptFlat.add(k.id)
@@ -563,6 +595,9 @@ function employerCarries(e: Pick<CandidateEmployer, 'company'>, name: string): b
   return matchesName(e.company, name)
 }
 
+/** A name pin never takes an activity shorter than this many words when a longer one matches. */
+const MIN_PIN_WORDS = 8
+
 /** At most this many kept activities per employer are swapped for a figure-rich match that was left out. */
 const MAX_FIGURE_SWAPS_PER_EMPLOYER = 2
 
@@ -608,9 +643,11 @@ export function rankCertifications(items: readonly CandidateItem[], terms: reado
 function topUpOrder(section: FlatSection, items: readonly CandidateItem[], terms: readonly string[], now: Date): CandidateItem[] {
   if (section === 'certifications') return rankCertifications(items, terms, now).filter((c) => !c.expired)
   if (section === 'skills' || section === 'tools' || section === 'competencies') {
-    // Evidence-backed first, then ones that match the brief, then profile order. A CV with few skills reads as unfinished.
-    return items
-      .map((c, idx) => ({ c, idx, m: matches(`${c.label} ${c.detail ?? ''}`, terms).length }))
+    // Evidence-backed first, then ones that match the brief, then profile order. A claimed-only skill or tool
+    // (no evidence in an activity or project) pads a list only when the brief or the job's requirements name it.
+    const scored = items.map((c, idx) => ({ c, idx, m: matches(`${c.label} ${c.detail ?? ''}`, terms).length }))
+    return scored
+      .filter(({ c, m }) => section === 'competencies' || c.proven || m > 0)
       .sort((x, y) => Number(y.c.proven) - Number(x.c.proven) || y.m - x.m || x.idx - y.idx)
       .map(({ c }) => c)
   }

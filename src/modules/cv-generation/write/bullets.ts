@@ -150,6 +150,61 @@ export function repeatsSummary(bullet: string, summary: string): boolean {
   return b.filter((w) => s.has(w)).length / b.length >= 0.85
 }
 
+const ABBREVIATIONS = /\b(?:Inc|Ltd|Co|Corp|Dr|Mr|Ms|Mrs|St|vs|etc|e\.g|i\.e|[A-Z])\./g
+const DOT = '\u0001'
+
+/** Sentences of a text; a dot after an abbreviation ("Inc.", "e.g.", "vs.", a single capital) does not end one. Pure. */
+export function splitSentences(text: string): string[] {
+  const guarded = text.replace(ABBREVIATIONS, (m) => m.slice(0, -1) + DOT)
+  return guarded.split(/(?<=[.!?])\s+/).map((t) => t.split(DOT).join('.').trim()).filter(Boolean)
+}
+
+/** How many of the unit's content words (stems) the bullet carries, as a share; 0 for a unit with fewer than 2 content words. */
+function coverage(unit: string, bullet: string): number {
+  const u = [...contentStems(unit)]
+  if (u.length < 2) return 0
+  const b = contentStems(bullet)
+  return u.filter((w) => b.has(w)).length / u.length
+}
+
+/** A unit is removed only when the bullet covers at least this share of ITS content words. */
+export const SUMMARY_UNIT_COVERED = 0.7
+
+/**
+ * A summary freed of what a bullet already says. The bullet is always kept.
+ * The summary loses a whole SENTENCE the bullet covers (at least 70% of the
+ * sentence's content words are in the bullet), as long as another sentence is
+ * left. A one-sentence summary loses only a trailing participle clause
+ * (", directing ...") that the bullet covers, never a piece of a number or a
+ * list, and only when a full clause remains. Otherwise both stay: `unresolved`
+ * (nothing could be removed), or `partial` (something was removed but the
+ * summary still overlaps the bullet). Pure.
+ */
+export function dedupeSummary(summary: string, bullets: readonly string[]): { summary: string; removed: string[]; unresolved: string[]; partial: string[] } {
+  let current = summary
+  const removed: string[] = []
+  const unresolved: string[] = []
+  const partial: string[] = []
+  for (const bullet of bullets) {
+    if (!repeatsSummary(bullet, current)) continue
+    const sentences = splitSentences(current)
+    let next: string | null = null
+    let cut = ''
+    if (sentences.length > 1) {
+      const best = sentences.map((u, i) => ({ u, i, c: coverage(u, bullet) })).filter((x) => x.c >= SUMMARY_UNIT_COVERED).sort((x, y) => y.c - x.c || x.i - y.i)[0]
+      if (best) { cut = best.u; next = sentences.filter((_, i) => i !== best.i).join(' ') }
+    } else if (sentences.length === 1) {
+      const m = sentences[0].replace(/[.!?]+$/, '').match(/^(.*\S)[;,]\s+([a-z]+(?:ing|ed)\b[^;,]*)$/)
+      if (m && m[1].trim().split(/\s+/).length >= 3 && coverage(m[2], bullet) >= SUMMARY_UNIT_COVERED) { cut = m[2]; next = `${m[1]}.` }
+    }
+    if (next === null) { unresolved.push(bullet); continue }
+    removed.push(cut)
+    current = next
+    if (repeatsSummary(bullet, current)) partial.push(bullet)
+  }
+  return { summary: current, removed, unresolved, partial }
+}
+
 export function shortened(text: string, max = 80): string {
   const t = text.replace(/\s+/g, ' ').trim()
   return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t
