@@ -20,7 +20,7 @@ describe('caps', () => {
 
   it('has floors the Brief may raise but never go below, each within its ceiling', () => {
     expect(MIN_EMPLOYERS_WITH_BULLETS).toBe(4)
-    expect(FLAT_FLOORS).toEqual({ skills: 12, tools: 10, competencies: 8, certifications: 6, education: 1, projects: 0 })
+    expect(FLAT_FLOORS).toEqual({ skills: 12, tools: 6, competencies: 8, certifications: 6, education: 1, projects: 0 })
     for (const s of Object.keys(BUDGET_CAPS) as Array<keyof typeof BUDGET_CAPS>) expect(BUDGET_FLOORS[s]).toBeLessThanOrEqual(BUDGET_CAPS[s])
     expect(TOTAL_ACTIVITY_BUDGET).toBeGreaterThanOrEqual(16)
     expect(TOTAL_ACTIVITY_BUDGET).toBeLessThanOrEqual(18)
@@ -35,7 +35,7 @@ describe('caps', () => {
     expect(clampBudgetValue('education', 2)).toBe(2)
     expect(clampBudgetValue('projects', 0)).toBe(0)
     expect(clampBudgetValue('projects', 9)).toBe(2)
-    expect(clampBudgetValue('tools', Number.NaN)).toBe(10)
+    expect(clampBudgetValue('tools', Number.NaN)).toBe(6)
   })
 })
 

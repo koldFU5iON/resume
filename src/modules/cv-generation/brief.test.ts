@@ -44,12 +44,12 @@ describe('CvBriefSchema', () => {
     expect(b.hiddenQuestion).toBe('Can they ship a platform migration?')
     expect(b.leadWith).toHaveLength(4)
     // Too high comes down to the ceiling, too low comes up to the floor (caps.ts).
-    expect(b.budgets).toEqual({ experiences: 4, skills: 12, tools: 10, competencies: 8, certifications: 6, education: 3, projects: 2 })
+    expect(b.budgets).toEqual({ experiences: 4, skills: 12, tools: 6, competencies: 8, certifications: 6, education: 3, projects: 2 })
   })
 
   it('never goes below the floors: a stored brief with small numbers reads as the floors', () => {
     const small = { experiences: 1, skills: 3, tools: 2, competencies: 5, certifications: 3, education: 0, projects: 0 }
-    expect(CvBriefSchema.parse({ ...goodBrief, budgets: small }).budgets).toEqual({ experiences: 4, skills: 12, tools: 10, competencies: 8, certifications: 6, education: 1, projects: 0 })
+    expect(CvBriefSchema.parse({ ...goodBrief, budgets: small }).budgets).toEqual({ experiences: 4, skills: 12, tools: 6, competencies: 8, certifications: 6, education: 1, projects: 0 })
   })
 
   it('reads the old string shape of lead-with and emphasise, deriving the name', () => {

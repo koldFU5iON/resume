@@ -626,9 +626,11 @@ export function rankCertifications(items: readonly CandidateItem[], terms: reado
 function topUpOrder(section: FlatSection, items: readonly CandidateItem[], terms: readonly string[], now: Date): CandidateItem[] {
   if (section === 'certifications') return rankCertifications(items, terms, now).filter((c) => !c.expired)
   if (section === 'skills' || section === 'tools' || section === 'competencies') {
-    // Evidence-backed first, then ones that match the brief, then profile order. A CV with few skills reads as unfinished.
-    return items
-      .map((c, idx) => ({ c, idx, m: matches(`${c.label} ${c.detail ?? ''}`, terms).length }))
+    // Evidence-backed first, then ones that match the brief, then profile order. A claimed-only skill or tool
+    // (no evidence in an activity or project) pads a list only when the brief or the job's requirements name it.
+    const scored = items.map((c, idx) => ({ c, idx, m: matches(`${c.label} ${c.detail ?? ''}`, terms).length }))
+    return scored
+      .filter(({ c, m }) => section === 'competencies' || c.proven || m > 0)
       .sort((x, y) => Number(y.c.proven) - Number(x.c.proven) || y.m - x.m || x.idx - y.idx)
       .map(({ c }) => c)
   }

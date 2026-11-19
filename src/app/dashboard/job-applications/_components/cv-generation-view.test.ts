@@ -226,7 +226,7 @@ describe("briefRows", () => {
     expect(rows[2].items).toEqual([{ text: "Release management", strong: true, note: "core of the role" }])
     expect(rows[1].items?.some((i) => i.strong)).toBe(false)
     expect(JSON.stringify(rows[2].items)).not.toContain("Release management: core")
-    expect(rows[5].text).toBe("Employers with bullets 4 · skills 12 · tools 10 · competencies 8 · certifications 6 · education 2 · projects 1")
+    expect(rows[5].text).toBe("Employers with bullets 4 · skills 12 · tools 6 · competencies 8 · certifications 6 · education 2 · projects 1")
   })
 })
 

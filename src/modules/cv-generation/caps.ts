@@ -55,6 +55,8 @@ export const NEUTRAL_RELEVANCE = Math.round((MIN_RELEVANCE + MAX_RELEVANCE) / 2)
 /** Hard ceilings per flat section (the Brief and Select can never exceed them). */
 export const MAX_SKILLS = 12
 export const MAX_TOOLS = 10
+/** Tools floor: a code top-up stops here; the model may go up to MAX_TOOLS. */
+export const MIN_TOOLS = 6
 export const MAX_COMPETENCIES = 8
 export const MAX_CERTIFICATIONS = 6
 /** All education, but never more than this many entries. */
@@ -86,7 +88,7 @@ export const FLAT_CAPS: Record<FlatSection, number> = {
 export const MIN_EMPLOYERS_WITH_BULLETS = 4
 export const FLAT_FLOORS: Record<FlatSection, number> = {
   skills: MAX_SKILLS,
-  tools: MAX_TOOLS,
+  tools: MIN_TOOLS,
   competencies: MAX_COMPETENCIES,
   certifications: MAX_CERTIFICATIONS,
   education: 1,

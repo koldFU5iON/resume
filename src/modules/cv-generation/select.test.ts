@@ -15,7 +15,7 @@ import {
   MAX_TOTAL_BULLETS, MIN_ACTIVITIES_PER_EMPLOYER, TOTAL_ACTIVITY_BUDGET,
 } from './caps'
 
-const FLOOR_TOOLS = 10
+const FLOOR_TOOLS = 6
 import { candidatesToPrompt, type Candidates } from './candidates'
 import { matchesName, nameTokens } from './named-items'
 import {
@@ -436,10 +436,10 @@ describe('enforceSelection', () => {
     expect(r.selection.skills).toHaveLength(12)
     expect(r.selection.skills[0].id).toBe('s1')
     expect(r.selection.skills.map((s) => s.id)).not.toContain('s3')
-    expect(r.selection.tools).toHaveLength(10)
+    expect(r.selection.tools).toHaveLength(6)
     expect(r.selection.competencies).toHaveLength(8) // topped up to the floor
     expect(r.notes.join(' ')).toContain('picked no skills')
-    expect(enforceSelection(empty, c, { budgets: { ...brief.budgets, tools: 0 } }).selection.tools).toHaveLength(10) // a request below the floor reads as the floor
+    expect(enforceSelection(empty, c, { budgets: { ...brief.budgets, tools: 0 } }).selection.tools).toHaveLength(6) // a request below the floor reads as the floor
   })
 
   it('keeps the newest education when the model picked none', () => {
@@ -827,6 +827,18 @@ describe('lead-with and emphasise items are searched in ALL candidates', () => {
   })
 })
 
+describe('tools and skills top-up does not pad with claimed-only items', () => {
+  it('tops tools up to the floor of 6 with evidence-backed ones, and a claimed-only tool only when the job names it', () => {
+    const c = bigCandidates(2, 4)
+    c.tools = [
+      ...['Figma', 'Jira', 'Notion'].map((l, i) => ({ id: `tp${i}`, label: l, detail: null, proven: true })),
+      ...['Slack', 'Meltwater', 'Claude', 'Workato'].map((l, i) => ({ id: `tc${i}`, label: l, detail: null, proven: false })),
+    ]
+    const r = enforceSelection({ ...empty, employers: epick(['co-0', 4]) }, c, brief, 'model', { requirementTerms: ['workato'] })
+    expect(r.selection.tools.map((t) => t.id)).toEqual(['tp0', 'tp1', 'tp2', 'tc3'])
+  })
+})
+
 describe('name pin quality and the layered-employer cap', () => {
   it('pins the better of several matches: more words, then a figure, never a bland short one', () => {
     const c = realistic()
@@ -999,7 +1011,7 @@ describe('volume floors', () => {
     const out: SelectOutput = { ...empty, employers: epick(['co-0', 3]), skills: pick('s3'), tools: pick('t0'), competencies: pick('c4', 'c5', 'c6'), certifications: pick('ce1', 'ce2'), education: [], projects: [] }
     const { selection: s, notes } = enforceSelection(out, c, { budgets: { ...brief.budgets, ...four } })
     expect(s.skills).toHaveLength(12)
-    expect(s.tools).toHaveLength(10)
+    expect(s.tools).toHaveLength(6)
     expect(s.competencies).toHaveLength(8)
     expect(s.certifications).toHaveLength(6)
     expect(s.education).toHaveLength(1)
@@ -1030,7 +1042,7 @@ describe('volume floors', () => {
   it('tells the model the floored numbers, not the small ones it may have been given', () => {
     const b = CvBriefSchema.parse({ ...buildBriefFor(), budgets: { experiences: 1, skills: 2, tools: 2, competencies: 2, certifications: 1, education: 0, projects: 0 } })
     const text = selectPrompt(b, bigCandidates(2, 2))
-    expect(text).toContain('Employers with bullets 4, skills 12, tools 10, competencies 8, certifications 6, education 1, projects 0')
+    expect(text).toContain('Employers with bullets 4, skills 12, tools 6, competencies 8, certifications 6, education 1, projects 0')
   })
 })
 
