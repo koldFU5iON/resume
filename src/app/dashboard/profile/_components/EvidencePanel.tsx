@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { Pencil, Plus, Trash2 } from 'lucide-react'
+import { ArrowRightLeft, Pencil, Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -12,7 +12,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { createActivity, deleteActivity, updateActivity } from '@/modules/profile/actions'
+import { createActivity, deleteActivity, moveActivity, updateActivity, type ActivityOwner } from '@/modules/profile/actions'
 import type { ExtractionOwner } from '@/modules/profile/extract'
 import { noteHref } from '@/modules/profile/note-index'
 import { combineImpact, parseResult } from '@/modules/profile/result'
@@ -39,11 +39,13 @@ const ROW_ACTIONS = 'flex shrink-0 gap-0.5 opacity-0 transition-opacity group-ho
  * it (after asking), and extract more from the note. A role also shows what
  * its projects own, read-only, each under a link to that project.
  */
-export function EvidencePanel({ owner, activities: initial, skills, fromProjects = [] }: {
+export function EvidencePanel({ owner, activities: initial, skills, fromProjects = [], moveTargets = [] }: {
   owner: ExtractionOwner
   activities: RoleActivity[]
   skills: { id: string; name: string }[]
   fromProjects?: Group[]
+  /** Where an item of evidence can be moved: the role's projects, or this project's role and sibling projects. */
+  moveTargets?: { owner: ActivityOwner; label: string }[]
 }) {
   const noun = 'projectId' in owner ? 'project' : 'role'
   const [activities, setActivities] = useState(initial)
@@ -64,6 +66,8 @@ export function EvidencePanel({ owner, activities: initial, skills, fromProjects
   const [resPeriod, setResPeriod] = useState('')
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState<RoleActivity | null>(null)
+  const [moving, setMoving] = useState<RoleActivity | null>(null)
+  const [moveTo, setMoveTo] = useState(0)
 
   function openForm(activity: RoleActivity | 'new') {
     setEditing(activity)
@@ -117,6 +121,22 @@ export function EvidencePanel({ owner, activities: initial, skills, fromProjects
     }
   }
 
+  async function confirmMove() {
+    const target = moving
+    const to = moveTargets[moveTo]
+    if (!target || !to) return
+    setMoving(null)
+    const before = activities
+    setActivities(prev => prev.filter(a => a.id !== target.id))
+    try {
+      await moveActivity(target.id, to.owner)
+      toast.success(`Moved to ${to.label}.`)
+    } catch {
+      setActivities(before)
+      toast.error('Could not move the evidence. It is still where it was.')
+    }
+  }
+
   const achievements = activities.filter(a => a.kind === RoleActivityKind.Achievement).length
   const responsibilities = activities.length - achievements
 
@@ -142,6 +162,11 @@ export function EvidencePanel({ owner, activities: initial, skills, fromProjects
                 <Button variant="ghost" size="icon" className="size-7 max-md:size-11" onClick={() => openForm(activity)} aria-label={`Edit: ${activity.description.slice(0, 60)}`}>
                   <Pencil size={13} />
                 </Button>
+                {moveTargets.length > 0 && (
+                  <Button variant="ghost" size="icon" className="size-7 max-md:size-11" onClick={() => { setMoveTo(0); setMoving(activity) }} aria-label={`Move: ${activity.description.slice(0, 60)}`}>
+                    <ArrowRightLeft size={13} />
+                  </Button>
+                )}
                 <Button variant="ghost" size="icon" className="size-7 max-md:size-11 hover:text-destructive" onClick={() => setDeleting(activity)} aria-label={`Delete: ${activity.description.slice(0, 60)}`}>
                   <Trash2 size={13} />
                 </Button>
@@ -226,6 +251,28 @@ export function EvidencePanel({ owner, activities: initial, skills, fromProjects
           </ul>
         </section>
       ))}
+
+      <AlertDialog open={moving !== null} onOpenChange={open => { if (!open) setMoving(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Move this evidence</AlertDialogTitle>
+            <AlertDialogDescription>
+              &ldquo;{moving?.description.slice(0, 140)}{(moving?.description.length ?? 0) > 140 ? '…' : ''}&rdquo; keeps its text, result and links to your capabilities.
+              An outcome belongs to the project or campaign that produced it.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-1">
+            <Label htmlFor="evidence-move-to" className="text-xs text-muted-foreground">Move to</Label>
+            <select id="evidence-move-to" className={selectClass} value={moveTo} onChange={e => setMoveTo(Number(e.target.value))}>
+              {moveTargets.map((t, i) => <option key={i} value={i}>{t.label}</option>)}
+            </select>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="max-md:h-11">Cancel</AlertDialogCancel>
+            <AlertDialogAction className="max-md:h-11" onClick={() => void confirmMove()}>Move</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={deleting !== null} onOpenChange={open => { if (!open) setDeleting(null) }}>
         <AlertDialogContent>

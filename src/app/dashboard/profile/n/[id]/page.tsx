@@ -66,6 +66,7 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
         <ProjectNote
           project={project}
           parent={role ? { id: role.id, title: `${role.role}, ${role.company}` } : null}
+          siblings={role ? profile.projects.filter(p => p.experienceId === role.id && p.id !== project.id && p.status !== 'archived').map(p => ({ id: p.id, name: p.name })) : []}
           roles={profile.experiences.map(e => ({ id: e.id, label: `${e.role}, ${e.company}` }))}
           skills={skills}
           links={links?.capabilities ?? []}

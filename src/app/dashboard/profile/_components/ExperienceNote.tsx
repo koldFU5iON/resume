@@ -59,6 +59,7 @@ export function ExperienceNote({ experience, skills, projects, links, pending }:
                   activities={experience.activities}
                   skills={skills}
                   fromProjects={projects.map(p => ({ id: p.id, name: p.name, activities: p.activities ?? [] }))}
+                  moveTargets={projects.filter(p => p.status !== 'archived').map(p => ({ owner: { projectId: p.id }, label: `Project: ${p.name}` }))}
                 />
               ),
             },

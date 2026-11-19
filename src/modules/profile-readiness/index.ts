@@ -6,7 +6,7 @@
 import type { Vault } from '@/modules/profile-map/types'
 import {
   checkCapabilities, checkCertifications, checkConflictingFigures, checkContact, checkDuplicateProjects,
-  checkEducation, checkEvidenceQuality, checkExperienceDates, checkExperienceEvidence, checkRoleOverview, checkThinNarratives,
+  checkEducation, checkEvidenceQuality, checkExperienceDates, checkExperienceEvidence, checkOutcomeProjects, checkRoleOverview, checkThinNarratives,
 } from './checks'
 import type { Candidate, ReadinessReport } from './schema'
 
@@ -26,6 +26,7 @@ export function checkProfileReadiness(vault: Vault, now: Date): ReadinessReport 
     ...checkRoleOverview(vault, now),
     ...checkEvidenceQuality(vault),
     ...checkConflictingFigures(vault),
+    ...checkOutcomeProjects(vault),
     ...checkCapabilities(vault),
     ...checkContact(vault),
   ]
