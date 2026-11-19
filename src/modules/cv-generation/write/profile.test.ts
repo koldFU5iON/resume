@@ -574,3 +574,19 @@ describe('ungrounded competency labels', () => {
     expect(r.notes.join(' ')).toMatch(/Dropped from Core Competencies because your profile does not back them: Blockchain tokenomics design, Quantum finance modelling/)
   })
 })
+
+describe('profile call output cap', () => {
+  it('leaves room for the worst-case answer several times over (thinking tokens count against the cap)', async () => {
+    const { MAX_OUTPUT_TOKENS } = await import('../schema')
+    const { PROFILE_MAX_WORDS, HEADLINE_MAX_WORDS, COMPETENCY_MAX_LABELS, COMPETENCY_LABEL_MAX_WORDS } = await import('./limits')
+    const worst = JSON.stringify({
+      profile: Array(PROFILE_MAX_WORDS).fill('implementation').join(' '),
+      headline: Array(HEADLINE_MAX_WORDS).fill('strategist').join(' '),
+      competencies: Array(COMPETENCY_MAX_LABELS).fill(Array(COMPETENCY_LABEL_MAX_WORDS).fill('capability').join(' ')),
+    })
+    const estimate = Math.ceil(worst.length / 4)
+    expect(estimate).toBeLessThan(700)
+    expect(MAX_OUTPUT_TOKENS.writeProfile).toBeGreaterThanOrEqual(estimate * 4)
+    expect(MAX_OUTPUT_TOKENS.writeProfileRetry).toBeGreaterThan(MAX_OUTPUT_TOKENS.writeProfile)
+  })
+})

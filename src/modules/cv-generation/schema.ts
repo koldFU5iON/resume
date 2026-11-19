@@ -149,9 +149,14 @@ export const MAX_OUTPUT_TOKENS = {
   /** Skills grouping: names only. */
   writeSkills: 1_500,
   writeSkillsRetry: 3_000,
-  /** Profile, headline and competencies. */
-  writeProfile: 1_500,
-  writeProfileRetry: 3_000,
+  /**
+   * Profile, headline and competencies. The answer itself is about 300 tokens
+   * (110 words, a headline, 8 labels), but the default role may be a model that
+   * thinks first and thinking counts against the cap: 1,500 was cut off in a
+   * real run (2.5k out, retried).
+   */
+  writeProfile: 4_000,
+  writeProfileRetry: 8_000,
   /** Review: at most 8 edits and 5 concerns, each short. */
   review: 3_000,
   reviewRetry: 6_000,
