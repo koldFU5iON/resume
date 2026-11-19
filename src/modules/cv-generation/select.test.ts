@@ -827,6 +827,40 @@ describe('lead-with and emphasise items are searched in ALL candidates', () => {
   })
 })
 
+describe('thin projects do not use project slots', () => {
+  const mk = () => {
+    const c = bigCandidates(2, 4)
+    c.projects = [
+      { id: 'pt1', label: 'WAIC 2022 Keynote', detail: null, proven: true, thin: true },
+      { id: 'pt2', label: 'Enemies Demo Campaign', detail: null, proven: true, thin: true },
+      { id: 'ps1', label: '17th Unity Awards', detail: 'Ran the awards: 40 entries, 12 studios, 3 countries', proven: true },
+      { id: 'ps2', label: 'Other substantive', detail: 'A long description of real work with an outcome and numbers 10%', proven: true },
+      { id: 'ps3', label: 'Third substantive', detail: 'Another long description of real work with an outcome', proven: true },
+    ]
+    return c
+  }
+  const b = buildBriefFor({ leadWith: [{ name: 'WAIC 2022 Keynote', framing: 'keynote' }, { name: 'Enemies Demo Campaign', framing: 'demo' }], emphasise: [] })
+
+  it('keeps a substantive project when two thin ones are named, and still keeps the thin ones for the concern', () => {
+    const r = enforceSelection({ ...empty, employers: epick(['co-0', 4]), projects: pick('pt1', 'pt2', 'ps1') }, mk(), b)
+    const ids = r.selection.projects.map((p) => p.id)
+    expect(ids).toContain('ps1')
+    expect(ids).toEqual(expect.arrayContaining(['pt1', 'pt2']))
+    expect(r.selection.dropped.some((d) => d.id === 'ps1')).toBe(false)
+  })
+
+  it('fills the project cap with substantive projects first', () => {
+    const r = enforceSelection({ ...empty, employers: epick(['co-0', 4]), projects: pick('pt1', 'pt2', 'ps1', 'ps2', 'ps3') }, mk(), b)
+    const ids = r.selection.projects.map((p) => p.id)
+    expect(ids.filter((i) => i.startsWith('ps'))).toEqual(['ps1', 'ps2'])
+  })
+
+  it('leaves out a thin project the brief does not name', () => {
+    const r = enforceSelection({ ...empty, employers: epick(['co-0', 4]), projects: pick('pt1', 'ps1') }, mk(), buildBriefFor({ leadWith: [], emphasise: [] }))
+    expect(r.selection.projects.map((p) => p.id)).toEqual(['ps1'])
+  })
+})
+
 describe('the select prompt: emphasise and budgets', () => {
   it('passes the emphasise list and asks for supporting evidence for each item where candidates exist', () => {
     const text = selectPrompt(buildBriefFor({ emphasise: [em('Platform migration', 'core'), em('Vendor management', 'core')] }), bigCandidates(2, 2))

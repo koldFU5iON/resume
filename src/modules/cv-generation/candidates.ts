@@ -20,6 +20,7 @@ import type { Vault } from '@/modules/profile-map/types'
 import { FLAT_SECTIONS, type FlatSection } from './caps'
 import { countOf } from './text'
 import { employerPeriod, groupEmployers, type EmployerGroup } from './employers'
+import { isThinProject } from './write/limits'
 import { ALREADY_MARKED, certificationStatus, educationStatus, isClaimedCapability } from './write/status'
 
 export type CandidateActivity = {
@@ -54,6 +55,8 @@ export type CandidateItem = {
   inProgress?: boolean
   /** Certifications only: the expiry date has passed, so the CV leaves it out. */
   expired?: boolean
+  /** Projects only: only a title, no text to write from (limits.ts isThinProject). */
+  thin?: boolean
 }
 
 export type Candidates = { employers: CandidateEmployer[] } & Record<FlatSection, CandidateItem[]>
@@ -136,6 +139,7 @@ export function buildCandidates(vault: Vault, now: Date = new Date()): Candidate
         label: n.props.name,
         detail: oneLine(text(n.props.description), LABEL_MAX) || null,
         proven: true,
+        thin: isThinProject({ name: n.props.name, text: [n.props.description, ...n.props.highlights].map((t) => text(t)).join('\n') }),
       })),
   }
 }

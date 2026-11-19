@@ -33,6 +33,7 @@ import {
   MAX_EMPLOYERS,
   MAX_TOTAL_BULLETS,
   MAX_HEADER_ONLY_EMPLOYERS,
+  MAX_PROJECTS,
   MAX_RECORDED_DROPPED,
   MAX_RELEVANCE,
   MIN_ACTIVITIES_PER_EMPLOYER,
@@ -461,8 +462,21 @@ export function enforceSelection(
     const live = picks.filter((p) => !expiredIds.has(p.id))
     for (const p of picks) if (expiredIds.has(p.id)) dropReason.set(p.id, 'not_selected')
     if (live.length < picks.length) notes.push(`Left out ${countOf(picks.length - live.length, 'expired certification')} the model picked: ${picks.filter((p) => expiredIds.has(p.id)).map((p) => labels.get(p.id) ?? p.id).join(', ')}.`)
-    let kept = live.slice(0, limit)
-    for (const p of live.slice(limit)) dropReason.set(p.id, 'over_cap')
+    // Thin projects (a title only) write no bullet, so they never use a project slot:
+    // substantive ones fill the cap first; a thin one is kept beyond it only when the brief names it
+    // (the thin-project concern needs it), and left out otherwise.
+    const thinIds = new Set(s === 'projects' ? cands.projects.filter((c) => c.thin).map((c) => c.id) : [])
+    const solid = live.filter((p) => !thinIds.has(p.id))
+    const thin = live.filter((p) => thinIds.has(p.id))
+    const thinNamed = thin.filter((p) => {
+      const c = cands.projects.find((x) => x.id === p.id)!
+      return named.some((n) => matchesName(projText(c), n.name))
+    })
+    for (const p of thin) if (!thinNamed.includes(p)) dropReason.set(p.id, 'not_selected')
+    let kept = [...solid.slice(0, limit), ...thinNamed.slice(0, MAX_PROJECTS)]
+    for (const p of solid.slice(limit)) dropReason.set(p.id, 'over_cap')
+    for (const p of thinNamed.slice(MAX_PROJECTS)) dropReason.set(p.id, 'over_cap')
+    if (thinNamed.length > 0) notes.push(`${thinNamed.map((p) => labels.get(p.id) ?? p.id).join(', ')} ${thinNamed.length === 1 ? 'has' : 'have'} only a title: kept for the coach note, not counted toward the project limit.`)
     const want = Math.min(BUDGET_FLOORS[s], limit, cands[s].length)
     if (kept.length < want) {
       const taken = new Set(kept.map((k) => k.id))
