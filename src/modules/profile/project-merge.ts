@@ -4,6 +4,8 @@
 // from the UI; finding pairs never writes.
 
 import { prisma } from '@/lib/db'
+import { lockRow } from './activity-roles'
+import { belongsToProject } from './ownership'
 import { normalizeName } from '@/modules/profile-map/format'
 
 /** Bodies match when their first this-many normalised characters do. */
@@ -113,18 +115,23 @@ const isEmpty = (v: string | Date | null | undefined) => v == null || v === ''
 export async function mergeProjects(profileId: string, { keepId, removeId, body }: MergeProjectsInput): Promise<void> {
   if (keepId === removeId) throw new Error('Choose two different projects')
   await prisma.$transaction(async (tx) => {
+    // Locked in a fixed order, so two merges of the same pair cannot deadlock.
+    for (const id of [keepId, removeId].sort()) await lockRow(tx, 'Project', id, profileId)
     const projects = await tx.project.findMany({
       where: { id: { in: [keepId, removeId] }, profileId },
-      include: { activities: { orderBy: { order: 'asc' }, select: { id: true, description: true, order: true, result: true } } },
+      include: { activities: { orderBy: { order: 'asc' }, select: { id: true, description: true, order: true, result: true, experienceId: true } } },
     })
     const keep = projects.find((p) => p.id === keepId)
     const remove = projects.find((p) => p.id === removeId)
     if (!keep || !remove) throw new Error('Project not found')
 
-    const existing = new Map(keep.activities.map((a) => [normalizeName(a.description), a]))
+    // An item is a duplicate only when the same role holds both: both read as their project's evidence, or both
+    // carry the same other role. Otherwise it is a different role's evidence and is moved, never merged away.
+    const holder = (a: { experienceId: string | null }, role: string | null) => (belongsToProject(a, role) ? 'project' : a.experienceId)
+    const existing = new Map(keep.activities.map((a) => [`${holder(a, keep.experienceId)}|${normalizeName(a.description)}`, a]))
     let nextOrder = keep.activities.reduce((max, a) => Math.max(max, a.order), -1) + 1
     for (const activity of remove.activities) {
-      const twin = existing.get(normalizeName(activity.description))
+      const twin = existing.get(`${holder(activity, remove.experienceId)}|${normalizeName(activity.description)}`)
       if (twin) {
         // A result on the duplicate is not lost when the kept item has none.
         if (activity.result != null && twin.result == null) {
@@ -139,7 +146,16 @@ export async function mergeProjects(profileId: string, { keepId, removeId, body 
         }
         continue
       }
-      await tx.roleActivity.update({ where: { id: activity.id }, data: { projectId: keepId, order: nextOrder++ } })
+      if (belongsToProject(activity, remove.experienceId)) {
+        // The project's own evidence takes the kept project's role.
+        await tx.roleActivity.update({ where: { id: activity.id }, data: { projectId: keepId, experienceId: keep.experienceId, order: nextOrder++ } })
+      } else if (activity.experienceId === keep.experienceId) {
+        // Another role's evidence whose role is the kept project's: the label is consistent there.
+        await tx.roleActivity.update({ where: { id: activity.id }, data: { projectId: keepId, order: nextOrder++ } })
+      } else {
+        // Another role's own evidence: it keeps its role and loses the label, so it never disagrees with the project it sits in.
+        await tx.roleActivity.update({ where: { id: activity.id }, data: { projectId: null } })
+      }
     }
 
     const skills = await tx.projectSkill.findMany({ where: { projectId: removeId }, select: { skillId: true } })

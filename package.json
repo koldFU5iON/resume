@@ -20,6 +20,7 @@
     "profile:backfill-report": "tsx scripts/profile-model-backfill-report.ts",
     "profile:backfill-apply": "tsx scripts/profile-model-backfill-apply.ts",
     "profile:golden-check": "tsx scripts/profile-model-golden-check.ts",
+    "profile:roles-check": "tsx scripts/profile-roles-integration-check.ts",
     "pdf:fixtures": "tsx scripts/render-writing-desk-pdf-fixtures.tsx"
   },
   "prisma": {
