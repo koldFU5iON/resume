@@ -19,7 +19,10 @@ const FILLER = new Set(['the', 'and', 'for', 'with', 'that', 'this', 'from', 'yo
 const YEAR_OR_ORDINAL = /^(?:(?:19|20)\d{2}|\d+(?:st|nd|rd|th))$/
 
 /** Single-word names this generic match nothing in a running text: they need a short, title-like text (a project label, a company), see `matchesName`. */
-const GENERIC_NAMES = new Set(['marketing', 'communication', 'product', 'program', 'programme', 'team', 'management', 'strategy', 'launch', 'design', 'engineering', 'sales', 'operation', 'delivery', 'content', 'brand', 'growth', 'project', 'platform'])
+const GENERIC_WORDS = (['marketing', 'communication', 'product', 'program', 'programme', 'team', 'management', 'strategy', 'launch', 'design', 'engineering', 'sales', 'operation', 'delivery', 'content', 'brand', 'growth', 'project', 'platform'])
+
+/** `GENERIC_WORDS` as stems (the comparison is on stems). */
+const GENERIC_NAMES = new Set(GENERIC_WORDS.map((w) => stem(w)))
 
 /** The longest text (in words) a single generic name may match: a label, not a sentence. */
 const GENERIC_MAX_TEXT_WORDS = 3
