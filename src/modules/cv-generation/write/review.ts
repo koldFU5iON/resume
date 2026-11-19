@@ -363,7 +363,7 @@ export function entryRuleProblem(
   const all = (e: { summary: string; bullets: readonly string[] }) => [e.summary, ...e.bullets].join('\n')
   for (const p of emp.projects) {
     if (isThin(p)) continue // a project with no text may always go: it has no evidence to protect
-    // A review rewording may keep the project by its distinctive words only ("the Enemies ... demo"); that still reflects it.
+    // A review rewording may keep the project by its distinctive words only ("the portal ... redesign"); that still reflects it.
     const reflected = (e: { summary: string; bullets: readonly string[] }) => projectReflected(all(e), p) || (distinctiveTokens(p.name).length > 0 && distinctiveTokens(p.name).every((t) => normalised(all(e)).includes(t)))
     if (reflected(before) && !reflected(after)) return `it leaves the selected project "${p.name}" out of the entry`
   }

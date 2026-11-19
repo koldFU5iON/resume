@@ -13,14 +13,14 @@
  * generator's "merge repeated employers" setting, which is only a prompt
  * instruction and has no code to reuse). The match is exact after
  * normalisation: case, accents, punctuation, spacing, a leading "the" and a
- * trailing legal suffix (Ltd, Inc, GmbH...) are ignored; "Unity" and "Unity
+ * trailing legal suffix (Ltd, Inc, GmbH...) are ignored; "Acme Cloud" and "Acme Cloud
  * Technologies" stay two employers (`relatedEmployerNotes` says so in the log).
  * Roles that are not adjacent (A, then B, then A again) are still one employer;
  * each role keeps its own dates in `roles`.
  *
  * DATES: an employer's dates are its `stints`, never a single overall span. A
- * returnee (Unity 2015-17, Blizzard 2017-19, Unity 2019-present) must not read
- * as "Unity 2015-present" next to Blizzard 2017-2019. A stint is a run of the
+ * returnee (Acme Cloud 2015-17, Globex 2017-19, Acme Cloud 2019-present) must not read
+ * as "Acme Cloud 2015-present" next to Globex 2017-2019. A stint is a run of the
  * employer's roles whose dates touch, overlap or sit within STINT_GAP_MONTHS of
  * each other; `start` / `end` stay on the group only as bounds for ordering.
  */
@@ -68,8 +68,8 @@ export type EmployerGroup = {
 /**
  * Trailing words that are not part of the name. 'company' is here ("The Walt
  * Disney Company" = "Walt Disney"). 'software', 'technologies', 'group' and the
- * like are NOT: "Unity Software" and "Acme Software" are not safely the same
- * company as "Unity" and "Acme", and the owner decided "Unity" and "Unity
+ * like are NOT: "Acme Cloud Software" and "Orbit Software" are not safely the same
+ * company as "Acme Cloud" and "Orbit", and the owner decided "Acme Cloud" and "Acme Cloud
  * Technologies" stay apart; `relatedEmployerNotes` flags such pairs instead.
  */
 const LEGAL_SUFFIXES = new Set(['inc', 'incorporated', 'ltd', 'limited', 'llc', 'plc', 'corp', 'corporation', 'gmbh', 'co', 'company', 'ag', 'bv', 'sa', 'srl', 'pty'])
@@ -101,7 +101,7 @@ export function normaliseEmployerName(name: string): string {
 
 /**
  * Log notes for employers whose names look related but were kept apart: one
- * name's words are all among the other's ("Unity" and "Unity Technologies").
+ * name's words are all among the other's ("Acme Cloud" and "Acme Cloud Technologies").
  * Pure; at most `max` pairs are named.
  */
 export function relatedEmployerNotes(companies: readonly string[], max = 3): string[] {
@@ -166,7 +166,7 @@ export function mergeStints(ranges: ReadonlyArray<{ start: string; end: string |
 }
 
 /**
- * The progression sub-line, oldest title first: "Two roles at Unity
+ * The progression sub-line, oldest title first: "Two roles at Acme Cloud
  * (2015–2017, 2019–present): Program Manager → Senior Program Manager". The
  * dates are the employer's stints, so a gap is never hidden. Adjacent repeats
  * of one title are shown once and the count is of the titles shown, so the
@@ -222,7 +222,7 @@ export const LATEST_TITLE_END_TOLERANCE_MONTHS = 6
  * Why not the end date first: roles in a promotion chain often share or overlap
  * end dates (one "left the company" date entered on each, or an earlier role
  * left open a month longer), and then the end date picks the oldest title
- * (Megarom: Co-ordinator, Executive, Manager showed the Co-ordinator title).
+ * (Initech: Co-ordinator, Executive, Manager showed the Co-ordinator title).
  * Exported for tests.
  */
 export function laterRole(a: RoleInput, b: RoleInput): number {

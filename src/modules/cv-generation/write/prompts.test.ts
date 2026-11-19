@@ -99,12 +99,13 @@ describe('the writer prompts, after the review fixes', () => {
       expect(t).not.toMatch(/the present tense for their current role/)
     })
 
-    it('phase 3c: a lead-with project gets an own bullet, others merge, a play-down item is never a bullet of its own', () => {
+    it('phase 3c: every project with text gets an own bullet and is never merged into an unrelated one, a play-down item is never a bullet of its own', () => {
       const t = read('cv-gen-write-experience')
-      expect(t).toMatch(/\*\*LEAD WITH\*\* gets an own bullet/)
+      expect(t).toMatch(/every project that has text to write from gets an own bullet/)
+      expect(t).toMatch(/\*\*LEAD WITH\*\*/)
       expect(t).toMatch(/starts with the project's name/)
       expect(t).toMatch(/not a trailing clause/)
-      expect(t).toMatch(/does not get a bullet of its own/)
+      expect(t).toMatch(/Never merge a project into a bullet about an unrelated activity/)
       expect(t).toMatch(/Play down.*at most as a short clause inside another bullet.*never a bullet of its own/)
     })
 

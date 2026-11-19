@@ -643,7 +643,7 @@ function claimedBy(claims: Map<string, string[]>, n: Pick<NamedItem, 'name' | 'f
   return [...(claims.get(n.name.trim().toLowerCase()) ?? []), ...(claims.get(n.framing.trim().toLowerCase()) ?? [])]
 }
 
-/** An employer that carries the item's name in its company name: the item is the employer itself ("Unity"). */
+/** An employer that carries the item's name in its company name: the item is the employer itself ("Acme Cloud"). */
 function employerCarries(e: Pick<CandidateEmployer, 'company'>, name: string): boolean {
   return matchesName(e.company, name)
 }

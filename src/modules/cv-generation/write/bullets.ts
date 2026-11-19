@@ -95,7 +95,7 @@ export function leadWithStanding(bullets: readonly string[], project: Pick<LeadW
     const words = normalised(b)
     const half = Math.floor(words.length / 2)
     const at = phraseIndex(b, project.key)
-    // A rewording may drop the generic words of the name ("Enemies Demo Campaign" -> "the Enemies digital human tech demo").
+    // A rewording may drop the generic words of the name ("Customer Portal Redesign" -> "the portal redesign demo").
     const tokenAt = tokens.length > 0 && tokens.every((t) => words.includes(t)) ? Math.max(...tokens.map((t) => words.indexOf(t))) : -1
     if (at < 0 && tokenAt < 0) continue
     named = true
