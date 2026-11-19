@@ -378,3 +378,46 @@ The legacy generator (`createAndGenerateCV` in `src/modules/cv/actions.ts`, `src
 | 4b | this PR | Menu switch, writing desk entry point, 409 Open/Discard, concerns panel and coach handoff, always-visible nav entry, retirement banners, this document. |
 | Calibration | `feat/cv-gen-volume` | Volume floors under the Brief's budgets (4 employers with bullets, about 17 bullets, 8 competencies, 6 certifications, 12 skills, 10 tools; ceilings in section 6), certification weak rule only when the section is full, certification order (relevant, in progress, recent), competency labels up to the budget (min 6), first-person profile (4-6 sentences, 110 words), lead-with and emphasise items as `{ name, framing }` matched by name, figure-rich evidence tiebreak; `SELECTION_PIPELINE_VERSION` 2; no migration. The years-of-experience opener is pending the owner's decision. |
 | 5 | pending | Remove the legacy generator (list above). |
+
+---
+
+## 20. Profile readiness
+
+Many CV problems are profile data problems: a project that is only a title, the same project entered twice, a certification with its status typed into the name, figures sitting in prose. The generator cannot fix thin data, so the app says so **before** a paid run. The check is general (it looks at the shape of the data, never at one person's), costs nothing (no model call, no database beyond the one vault load the page already caches) and **never blocks generating**.
+
+Code: `src/modules/profile-readiness/` (`schema.ts`, `checks.ts`, `index.ts`). `checkProfileReadiness(vault, now)` is a pure function over the loaded vault. It returns `{ findings, total, fixCount }`: findings sorted by severity (`fix` before `consider`), then by impact, capped at `MAX_FINDINGS` (25) with the true `total`. A finding is `{ id, kind, severity, noteId?, noteType?, title, message, suggestion, editHref? }`. `editHref` comes from `vaultNoteHref` (the profile note's page, the Records pages, or the Overview). Messages quote only the owner's own titles and figures; contact details are never read into a message or a log (`contact_missing` names the field, never the value).
+
+**Severities.** `fix`: the generator has nothing to work from, or the data is wrong. `consider`: worth a look, may be intended; phrased as a question where it can misfire.
+
+| Kind | Severity | Fires when |
+|---|---|---|
+| `thin_narrative` | fix | A project or role whose text (body, highlights, its own evidence), minus its own name and punctuation, is under `THIN_PROJECT_MIN_CHARS` (80, `write/limits.ts`: the same test the writer uses) |
+| `duplicate_project` | fix | Two projects with the same normalised name, name similarity at least `DUPLICATE_NAME_SIMILARITY` (0.8), or descriptions of at least `DUPLICATE_TEXT_MIN_WORDS` (8) content words with similarity at least `DUPLICATE_TEXT_SIMILARITY` (0.7) |
+| `cert_no_issuer` | fix | A certification with no issuer |
+| `cert_status_in_name` | fix | "in progress", "ongoing", "pending", "expected", "planned" and similar in the name. The profile has no status field: a future issue date is what marks a certification in progress (`write/status.ts`) |
+| `cert_in_progress_no_date` | consider | Status wording in the name and no issue date |
+| `cert_expired` | consider | Expired by `certificationStatus` and still listed |
+| `education_dates_reversed` | fix | End before start |
+| `education_undated` | consider | No end date and a start older than `EDUCATION_RECENT_START_YEARS` (6), so the CV claims neither completion nor progress |
+| `experience_dates_reversed` | fix | End before start |
+| `concurrent_roles` | consider | Roles at different employers overlapping at least `CONCURRENT_MIN_OVERLAP_MONTHS` (3); "ran alongside, show it as concurrent or confirm the dates" |
+| `employment_gap` | consider | More than `EMPLOYMENT_GAP_MONTHS` (12) between the latest end so far and the next start |
+| `experience_no_evidence` | fix | A role with no evidence of its own or under its projects (not raised when it is already `thin_narrative`) |
+| `unmeasured_achievements` | consider | At least `UNMEASURED_MIN_COUNT` (3) achievements and `UNMEASURED_MIN_SHARE` (50%) with no impact and no digit; the weakest `LIST_LIMIT` (5) are listed |
+| `filler_responsibility` | consider | Responsibilities under `FILLER_RESPONSIBILITY_WORDS` (6) words |
+| `long_activity` | consider | An activity over `LONG_ACTIVITY_WORDS` (60) words |
+| `conflicting_figures` | consider | Two evidence items under one employer sharing at least `CONFLICT_SHARED_WORDS` (3) content words, both with figures and no figure in common (years ignored); at most `CONFLICT_MAX_FINDINGS` (3). Phrased as a question; expect false positives |
+| `claimed_only_capabilities` | consider | At least `CLAIMED_ONLY_MIN` (3) skills or tools with no evidence, listed |
+| `unlinked_evidence` | consider | At least `UNLINKED_EVIDENCE_MIN` (3) items and `UNLINKED_EVIDENCE_MIN_SHARE` (50%) of evidence linked to no capability; points at "Suggest links" (the AI link suggestions on the profile overview) |
+| `unlisted_capability` | consider | A `[[wikilink]]` in a note names something that is not a capability |
+| `contact_missing` | fix when email is missing, else consider | Email, phone or LinkedIn missing |
+| `location_missing` | consider | No location |
+| `right_to_work_not_shown` | consider | The search preferences hold citizenship or visa data, which the CV header cannot show yet (there is no right-to-work field; none was added) |
+
+There is deliberately no spell-check and no date-format check.
+
+**Where it shows.** The CV generation page loads the vault (`loadVault`, cached per request) and runs the check in the page loader. The `ReadinessPanel` (`cv-generation/_components/readiness-panel.tsx`) sits in the right column under the run controls and in the empty state: a heading with the counts, a preview of the top titles when collapsed, and every finding (message, suggestion, "Edit in profile") when open. The writing desk's "Generate CV for this job" shows a one-line hint with the `fix` count, linking to `#profile-readiness`, only on an empty CV document (the only time that entry shows; the vault is not loaded otherwise).
+
+**Generality suite.** `src/modules/profile-readiness/__fixtures__/profiles.ts` builds synthetic vaults of different shapes: `cleanProfile` (must give zero `fix` findings), `earlyCareer`, `longCareer` (concurrent roles and a gap), `careerChanger` and `messyImport` (duplicates, status in names, empty narratives). Reuse them in any test that must hold for "any user's profile" rather than writing another one-person fixture. Every name and figure in them is invented.
+
+**Adding a check.** Write a small pure function in `checks.ts`, give it named thresholds, add its kind to `READINESS_KINDS`, call it in `checkProfileReadiness`, and test it against the fixtures, including that the clean profile stays quiet.

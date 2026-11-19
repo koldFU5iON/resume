@@ -82,6 +82,7 @@ src/
     llm/                    ← provider-agnostic LLM layer (client.ts, actions.ts, errors.ts)
     onboarding/             ← lightweight job-search context captured in UserSettings
     profile/                ← career profile queries/mutations (read via parseJsonField for legacy tags)
+    profile-readiness/      ← pure pre-generation check of thin/inconsistent profile data (no LLM); see docs/cv-generation.md §20
   app/
     api/                    ← thin route handlers only: validate → call module → return JSON
     (auth)/                 ← sign-in / sign-up route group (skips dashboard chrome)

@@ -15,6 +15,14 @@ describe("GenerateCvForJob (writing desk entry point)", () => {
     expect(html).not.toContain("View last generation")
   })
 
+  it("hints at profile readiness only when there are fix findings, linking to the panel", () => {
+    expect(renderToStaticMarkup(<GenerateCvForJob jobId="job1" hasCvGeneration={false} />)).not.toContain("limit the CV")
+    const html = renderToStaticMarkup(<GenerateCvForJob jobId="job1" hasCvGeneration={false} readinessFixCount={3} />)
+    expect(html).toContain("3 things in your profile limit the CV.")
+    expect(html).toContain('href="/dashboard/job-applications/view/job1/cv-generation#profile-readiness"')
+    expect(renderToStaticMarkup(<GenerateCvForJob jobId="job1" hasCvGeneration={false} readinessFixCount={1} />)).toContain("1 thing in your profile limits the CV.")
+  })
+
   it("adds 'View last generation' (to the progress page) when a run exists", () => {
     const html = renderToStaticMarkup(<GenerateCvForJob jobId="job1" hasCvGeneration />)
     expect(html).toContain("View last generation")

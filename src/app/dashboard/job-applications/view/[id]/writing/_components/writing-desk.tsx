@@ -58,11 +58,14 @@ export function WritingDesk({
   desk,
   sourceCVs,
   hasCvGeneration = false,
+  readinessFixCount = 0,
 }: {
   desk: WritingDeskWithJob
   sourceCVs: WritingDeskSourceOption[]
   /** The job already has a CV generation run: "View last generation" is offered. */
   hasCvGeneration?: boolean
+  /** Profile readiness "fix" findings, for the hint under Generate CV (0 when not checked). */
+  readinessFixCount?: number
 }) {
   const recoveryKey = `writing-desk-recovery-${desk.id}`
   const [name, setName] = useState(desk.name)
@@ -360,7 +363,7 @@ export function WritingDesk({
             <div className="mb-4 space-y-2 rounded-md border bg-muted/30 px-4 py-3.5">
               <p className="text-sm font-medium">Start this CV from your profile</p>
               <p className="text-xs text-muted-foreground">The writing desk picks the evidence that fits this job, writes the CV and saves it as a draft here. You accept or discard it; nothing live is overwritten. Or just start typing below.</p>
-              <GenerateCvForJob jobId={desk.jobApplication.id} hasCvGeneration={hasCvGeneration} />
+              <GenerateCvForJob jobId={desk.jobApplication.id} hasCvGeneration={hasCvGeneration} readinessFixCount={readinessFixCount} />
             </div>
           )}
           {mode === "markdown"
