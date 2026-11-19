@@ -475,16 +475,22 @@ export function enforceSelection(
     const live = picks.filter((p) => !expiredIds.has(p.id))
     for (const p of picks) if (expiredIds.has(p.id)) dropReason.set(p.id, 'not_selected')
     if (live.length < picks.length) notes.push(`Left out ${countOf(picks.length - live.length, 'expired certification')} the model picked: ${picks.filter((p) => expiredIds.has(p.id)).map((p) => labels.get(p.id) ?? p.id).join(', ')}.`)
-    // Thin projects (a title only) write no bullet, so they never use a project slot:
-    // substantive ones fill the cap first; the thin ones the model or the brief picked stay on the
-    // selection beyond it (at most MAX_PROJECTS of them), so the thin-project note still fires.
+    // Thin projects (a title only) write no bullet, so they never use a project slot: substantive ones fill the
+    // cap first. Thin ones the brief leads with come first and ALL stay (each needs its thin-project concern);
+    // other thin picks fill what is left of MAX_PROJECTS, so they never crowd out a named one.
     const thinIds = new Set(s === 'projects' ? cands.projects.filter((c) => c.thin).map((c) => c.id) : [])
     const solid = live.filter((p) => !thinIds.has(p.id))
-    const thin = live.filter((p) => thinIds.has(p.id))
-    let kept = [...solid.slice(0, limit), ...thin.slice(0, MAX_PROJECTS)]
+    const thinAll = live.filter((p) => thinIds.has(p.id))
+    const isLead = (id: string) => {
+      const c = cands.projects.find((x) => x.id === id)
+      return !!c && named.some((n) => n.kind === 'lead-with' && matchesName(projText(c), n.name))
+    }
+    const thinNamed = thinAll.filter((p) => isLead(p.id))
+    const thin = [...thinNamed, ...thinAll.filter((p) => !isLead(p.id)).slice(0, Math.max(0, MAX_PROJECTS - thinNamed.length))]
+    let kept = [...solid.slice(0, limit), ...thin]
     for (const p of solid.slice(limit)) dropReason.set(p.id, 'over_cap')
-    for (const p of thin.slice(MAX_PROJECTS)) dropReason.set(p.id, 'over_cap')
-    if (thin.length > 0) notes.push(`${thin.slice(0, MAX_PROJECTS).map((p) => labels.get(p.id) ?? p.id).join(', ')} ${thin.length === 1 ? 'has' : 'have'} only a title: kept for the coach note, not counted toward the project limit.`)
+    for (const p of thinAll) if (!thin.includes(p)) dropReason.set(p.id, 'over_cap')
+    if (solid.length > 0 && thin.length > 0 && solid.length + thin.length > limit) notes.push(`${thin.map((p) => labels.get(p.id) ?? p.id).join(', ')} ${thin.length === 1 ? 'has' : 'have'} only a title: kept for the coach note without using a project slot.`)
     const want = Math.min(BUDGET_FLOORS[s], limit, cands[s].length)
     if (kept.length < want) {
       const taken = new Set(kept.map((k) => k.id))
@@ -494,6 +500,10 @@ export function enforceSelection(
       if (had === 0 && s === 'education') notes.push('The model picked no education; kept the most recent entries.')
       else if (had === 0 && (s === 'skills' || s === 'tools')) notes.push(`The model picked no ${s}; chose ${kept.length} by rule (evidence-backed first).`)
       else notes.push(`Topped up ${s} to ${kept.length} by rule (the minimum is ${want}): the model picked ${had}.`)
+      if ((s === 'skills' || s === 'tools') && kept.length < want) {
+        const skipped = cands[s].filter((c) => !c.proven && !kept.some((k) => k.id === c.id)).length
+        if (skipped > 0) notes.push(`Left ${countOf(skipped, `claimed-only ${s === 'tools' ? 'tool' : 'skill'}`)} out on purpose: the brief and the job do not name ${skipped === 1 ? 'it' : 'them'}, so the list stays at ${kept.length}.`)
+      }
     }
     flat[s] = kept.map((p) => item(p.id, p.reason))
     for (const k of kept) keptFlat.add(k.id)

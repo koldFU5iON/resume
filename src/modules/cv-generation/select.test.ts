@@ -869,6 +869,24 @@ describe('name pin quality and the layered-employer cap', () => {
   })
 })
 
+describe('thin lead-with projects', () => {
+  it('keeps every brief-named thin project (even past 2) and sorts them before an unnamed thin pick; says so only when they would have displaced', () => {
+    const c = bigCandidates(2, 4)
+    c.projects = ['A One', 'B Two', 'C Three', 'D Four'].map((l, i) => ({ id: `t${i}`, label: l, detail: null, proven: true, thin: true }))
+    const b = buildBriefFor({ leadWith: ['A One', 'B Two', 'C Three'].map((n) => ({ name: n, framing: n })), emphasise: [] })
+    const r = enforceSelection({ ...empty, employers: epick(['co-0', 4]), projects: pick('t3', 't0', 't1', 't2') }, c, b)
+    expect(r.selection.projects.map((p) => p.id)).toEqual(['t0', 't1', 't2'])
+    expect(r.notes.join(' ')).not.toMatch(/only a title/) // no substantive project to displace
+  })
+
+  it('says claimed-only tools were left out on purpose', () => {
+    const c = bigCandidates(2, 4)
+    c.tools = ['A', 'B'].map((l, i) => ({ id: `tx${i}`, label: l, detail: null, proven: true })).concat(['Slack', 'Office'].map((l, i) => ({ id: `ty${i}`, label: l, detail: null, proven: false })))
+    const r = enforceSelection({ ...empty, employers: epick(['co-0', 4]) }, c, brief)
+    expect(r.notes.join(' ')).toMatch(/Left 2 claimed-only tools out on purpose/)
+  })
+})
+
 describe('thin projects do not use project slots', () => {
   const mk = () => {
     const c = bigCandidates(2, 4)
