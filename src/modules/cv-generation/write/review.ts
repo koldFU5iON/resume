@@ -43,7 +43,7 @@ import {
   claimedHits, credentialProblems, distinctiveTokens, distinctNotableFigures, figuresIn, introducedNames, normalised, projectReflected, repeatedFigures, selfDescriptions,
   unsupportedFigures, unsupportedProperNouns, unsupportedQualitative, wordCount,
 } from './checks'
-import { activityPromptText, evidenceTexts, figureIgnoredNames, projectPromptText, type EmployerEvidence, type Evidence } from './evidence'
+import { activityPromptText, evidenceTexts, figureIgnoredNames, summaryEvidenceTexts, projectPromptText, type EmployerEvidence, type Evidence } from './evidence'
 import { negationDrift, scopeDrift } from './fidelity'
 import { BULLET_MAX_WORDS, PROFILE_MAX_FIGURES, PROFILE_MAX_WORDS, SUMMARY_MAX_WORDS } from './limits'
 import { plainLine, plainProblems, plainReasons } from './plain'
@@ -197,6 +197,8 @@ export function reviewPrompt(input: ReviewPromptInput, doc: ReviewDoc): { prompt
           lines.push(`  ${r.label} (${r.kind}): ${r.snippet}`)
         }
       }
+      // The role overview (capped, as the writer saw it) is evidence for the summary's scope facts and figures.
+      if (ex.emp?.overview?.trim()) lines.push(`summary scope source (the role overview; a summary figure or scope claim may rest on it, a bullet may not): ${ex.emp.overview.trim()}`)
       cv.push(lines.join('\n'))
     } else if (s.kind === 'profile' && doc.profile) {
       cv.push(`## profile\n${doc.profile.paragraph || '(none)'}`)
@@ -283,7 +285,8 @@ export function recheckText(
     const wrong = [...text.matchAll(/\b(\d{1,2})(\+?)\s*(?:years|yrs)\b/gi)].filter((m) => years === null || Number(m[1]) !== years || m[2] !== '+').map((m) => m[0])
     if (wrong.length > 0) return { why: years === null ? `states a number of years of experience (${wrong.join(', ')}), which is not supported` : `changes the years of experience: state exactly "${yearsPhrase(years)}" or no number of years (found ${wrong.join(', ')})` }
   }
-  const unsupported = unsupportedFigures(text, years === null ? texts : [...texts, `${years} years of experience`], names)
+  const figureTexts = kind === 'summary' && emp ? summaryEvidenceTexts(emp) : texts
+  const unsupported = unsupportedFigures(text, years === null ? figureTexts : [...figureTexts, `${years} years of experience`], names)
   if (unsupported.length > 0) return { why: `figures not in the employer's evidence: ${unsupported.join(', ')}` }
   const notes: string[] = []
   // A bullet states what ITS evidence states: a figure only in the employer's other evidence is rejected.

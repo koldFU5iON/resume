@@ -156,6 +156,24 @@ export function buildCandidates(vault: Vault, now: Date = new Date()): Candidate
   }
 }
 
+/** An activity under this many words with no figure and no result wording says what was done, not what came of it. */
+export const APPROACH_ONLY_MAX_WORDS = 18
+
+const RESULT_WORDING = /\b(?:reduced|increased|grew|cut|saved|delivered|generated|launched|achieved|won|drove|scaled|doubled|tripled|halved|improved|boosted|accelerated|exceeded|surpassed|secured|earned|raised|expanded|eliminated|enabled|unlocked|resulting|resulted|led to|from\s+\S+\s+to)\b/i
+
+/**
+ * An approach-only activity: it states how the work was run, with no number,
+ * no impact line and no result or outcome wording, and is short. It is the
+ * weakest evidence for a bullet: Select leaves it out while an employer has
+ * enough stronger items (caps: MIN_BULLETS_BEFORE_APPROACH_ONLY). Pure.
+ */
+export function isApproachOnly(a: Pick<CandidateActivity, 'text' | 'impact'>): boolean {
+  if (a.impact?.trim()) return false
+  if (/\d/.test(a.text)) return false
+  if (RESULT_WORDING.test(a.text)) return false
+  return a.text.trim().split(/\s+/).filter(Boolean).length < APPROACH_ONLY_MAX_WORDS
+}
+
 /** A short label for an activity in lists and logs. */
 export function activityLabel(a: Pick<CandidateActivity, 'text'>): string {
   return oneLine(a.text, LABEL_MAX)

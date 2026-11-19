@@ -26,8 +26,12 @@ describe('leadWithProjects', () => {
 })
 
 describe('bulletAllowance', () => {
-  it('is the allocation, and a project the brief does not lead with adds nothing', () => {
-    expect(bulletAllowance(emp(6, [{ name: 'Unity Awards 2025' }]), brief({ leadWith: leads(['Platform migration delivery']) }))).toBe(6)
+  it('adds one own bullet for every substantive project, led with or not', () => {
+    expect(bulletAllowance(emp(6, [{ name: 'Awards Programme 2025' }]), brief({ leadWith: leads(['Platform migration delivery']) }))).toBe(7)
+    expect(bulletAllowance(emp(6, [{ name: 'Awards Programme 2025' }, { name: 'Keynote Event' }]), brief())).toBe(8)
+  })
+  it('a thin project adds nothing', () => {
+    expect(bulletAllowance(emp(6, [{ name: 'Awards Programme 2025', text: '' }]), brief())).toBe(6)
   })
   it('allows one more bullet for a lead-with project', () => {
     expect(LEAD_WITH_PROJECT_EXTRA_BULLETS).toBe(1)

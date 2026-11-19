@@ -93,6 +93,34 @@ export function capProjectText(text: string, max: number = PROJECT_EVIDENCE_MAX_
   return `${(at > max / 2 ? cut.slice(0, at) : cut).trimEnd()}…`
 }
 
+/** The most characters of a role overview sent to a writer (and shown to Review as the summary's evidence). Longer overviews are cut at a sentence, else a word, boundary. */
+export const OVERVIEW_MAX_CHARS = 600
+
+/**
+ * A role overview as a writer sees it: repeated lines and sentences (several roles at one employer often share one) removed, then cut to `max`
+ * characters at the last sentence end that fits, else at a word boundary with an ellipsis. Pure.
+ */
+export function capOverview(text: string, max: number = OVERVIEW_MAX_CHARS): string {
+  const seen = new Set<string>()
+  const units: string[] = []
+  for (const line of text.split(/\n+/)) {
+    for (const sentence of line.split(/(?<=[.!?])\s+/)) {
+      const t = sentence.replace(/\s+/g, ' ').trim()
+      const key = t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
+      if (!key || seen.has(key)) continue
+      seen.add(key)
+      units.push(t)
+    }
+  }
+  const all = units.join(' ')
+  if (all.length <= max) return all
+  const cut = all.slice(0, max)
+  const sentenceEnd = Math.max(...['. ', '! ', '? '].map((m) => cut.lastIndexOf(m)))
+  if (sentenceEnd > max / 3) return cut.slice(0, sentenceEnd + 1)
+  const at = cut.search(/\s\S*$/)
+  return `${(at > max / 2 ? cut.slice(0, at) : cut).trimEnd()}…`
+}
+
 /**
  * A project whose text (description and highlights), once its own name and the
  * punctuation around it are taken away, is shorter than this has no evidence to

@@ -42,13 +42,14 @@ import {
   MAX_RECORDED_DROPPED,
   MAX_RELEVANCE,
   MIN_ACTIVITIES_PER_EMPLOYER,
+  MIN_BULLETS_BEFORE_APPROACH_ONLY,
   MIN_RELEVANCE,
   NEUTRAL_RELEVANCE,
   allocateByRecency,
   clampBudgetValue,
   type FlatSection,
 } from './caps'
-import { candidatesToPrompt, labelIndex, type Candidates, type CandidateActivity, type CandidateEmployer, type CandidateItem } from './candidates'
+import { isApproachOnly, candidatesToPrompt, labelIndex, type Candidates, type CandidateActivity, type CandidateEmployer, type CandidateItem } from './candidates'
 import { relatedEmployerNotes } from './employers'
 import { matchedWords, matchesName, nameTokens, namedItems, type NamedItem } from './named-items'
 import { figuresIn } from './write/checks'
@@ -180,7 +181,7 @@ export function selectPrompt(brief: CvBrief, cands: Candidates, strategy?: Pick<
   }
   sections.push(
     `# Budgets (ceilings: pick no more than these, and fewer when little is relevant)\n\nEmployers with bullets ${employersWithBullets(brief)}, skills ${b.skills}, tools ${b.tools}, competencies ${b.competencies}, certifications ${b.certifications}, education ${b.education}, projects ${b.projects}. Employers you do not pick are still listed on the CV as a title line with no bullets (up to ${MAX_HEADER_ONLY_EMPLOYERS}), so do not spend a pick on an employer only to keep it visible. Pick only items that are relevant to this job, best first. You may return fewer than a budget, or none; code never pads a list to reach a count. An item with no bearing on the job is left out, not put last.`,
-    `# Bullets\n\nBullets are set by recency, in code, after you answer: the current or most recent employer shows ${CURRENT_BAND.min}-${CURRENT_BAND.max} (up to ${CURRENT_LAYERED_BAND.max} when the profile holds ${LAYERED_EMPLOYER_MIN_ROLES}+ roles there), the previous one ${PREVIOUS_BAND.min}-${PREVIOUS_BAND.max}, older ones ${OLDER_BAND.min}-${OLDER_BAND.max} (${OLD_BAND.min}-${OLD_BAND.max} when they ended over ten years ago), at most ${MAX_TOTAL_BULLETS} in all, and fewer when the employer has less evidence. Never pad: list only activities that state what was done AND a result, scope or figure. Give every employer you pick a relevance score (${MAX_RELEVANCE} = central to the role, 3 = supports the story but not central, ${MIN_RELEVANCE} = barely relevant): a 4-5 earns one more bullet, a 1-2 one fewer, and it never reorders recency. For each employer list the activities best first, up to the most its band allows: the first ones are kept if the band gives the employer fewer.`,
+    `# Bullets\n\nBullets are set by recency, in code, after you answer: the current or most recent employer shows ${CURRENT_BAND.min}-${CURRENT_BAND.max} (up to ${CURRENT_LAYERED_BAND.max} when the profile holds ${LAYERED_EMPLOYER_MIN_ROLES}+ roles there), the previous one ${PREVIOUS_BAND.min}-${PREVIOUS_BAND.max}, older ones ${OLDER_BAND.min}-${OLDER_BAND.max} (${OLD_BAND.min}-${OLD_BAND.max} when they ended over ten years ago), at most ${MAX_TOTAL_BULLETS} in all, and fewer when the employer has less evidence. Never pad: list only activities that state what was done AND a result, scope or figure; an activity that only says how work was run, with no figure or outcome, is picked only when the employer has nothing stronger (code leaves such items out above 3 bullets). Give every employer you pick a relevance score (${MAX_RELEVANCE} = central to the role, 3 = supports the story but not central, ${MIN_RELEVANCE} = barely relevant): a 4-5 earns one more bullet, a 1-2 one fewer, and it never reorders recency. For each employer list the activities best first, up to the most its band allows: the first ones are kept if the band gives the employer fewer.`,
   )
   if (required.length === 1) {
     sections.push(`# Current employer\n\n[${required[0].key}] ${required[0].label}. It must be included in \`employers\` (list it first) and counts toward the employer budget.`)
@@ -412,8 +413,13 @@ export function enforceSelection(
 
   // Bullets: a total budget split by relevance. What an employer can supply is
   // what the model picked for it, topped up by rule to the minimum.
+  // Allotted bullets are CEILINGS: an approach-only activity (no figure, no result wording) is not supply unless the employer would
+  // otherwise show fewer than MIN_BULLETS_BEFORE_APPROACH_ONLY. Pinned and brief-named picks are never approach-only here.
+  const actById = new Map(cands.employers.flatMap((e) => e.activities.map((a) => [a.id, a] as const)))
+  const isProtected = (id: string, reason: string) => reason.startsWith('Named in the brief') || claimedIds.has(id) || named.some((n) => matchesName(textOf(actById.get(id)!), n.name))
+  const weakPick = (p: { id: string; reason: string }) => isApproachOnly(actById.get(p.id)!) && !isProtected(p.id, p.reason)
   const supply = (e: (typeof bulletEmployers)[number]) =>
-    Math.max((byEmployer.get(e.key) ?? []).length, Math.min(MIN_ACTIVITIES_PER_EMPLOYER, e.activities.length))
+    Math.max((byEmployer.get(e.key) ?? []).filter((p) => !weakPick(p)).length, Math.min(MIN_BULLETS_BEFORE_APPROACH_ONLY, e.activities.length))
   const split = allocateByRecency(bulletEmployers.map((e) => ({
     relevance: relevanceOf(e.key),
     supply: supply(e),
@@ -424,9 +430,12 @@ export function enforceSelection(
   const bullets = new Map<string, SelectedActivity[]>()
   const keptActIds = new Set<string>()
   let toppedUp = 0
+  const approachNotes: string[] = []
   bulletEmployers.forEach((e, i) => {
     const limit = split[i]
-    const picks = byEmployer.get(e.key) ?? []
+    const allPicks = byEmployer.get(e.key) ?? []
+    const picks = allPicks.filter((p) => !weakPick(p))
+    const weakPicks = allPicks.filter(weakPick)
     const kept: SelectedActivity[] = picks.slice(0, limit).map((p) => ({ ...item(p.id, p.reason), experienceId: experienceOf.get(p.id)! }))
     for (const p of picks.slice(limit)) dropReason.set(p.id, 'over_cap')
     // Figure-rich evidence that names a brief item beats a pick without either
@@ -436,7 +445,7 @@ export function enforceSelection(
       const taken = new Set(kept.map((k) => k.id))
       const extra = e.activities
         .map((a, idx) => ({ a, idx }))
-        .filter(({ a }) => !taken.has(a.id))
+        .filter(({ a }) => !taken.has(a.id) && !isApproachOnly(a))
         .sort((x, y) => Number(strong(y.a)) - Number(strong(x.a)) || activityRank(y.a) - activityRank(x.a) || x.idx - y.idx)
         .slice(0, limit - kept.length)
       for (const { a } of extra) kept.push({ ...item(a.id, strong(a) ? 'Chosen by rule: states a figure and matches a brief item' : 'Chosen by rule: the model picked too few for this employer'), experienceId: a.experienceId })
@@ -464,9 +473,24 @@ export function enforceSelection(
       swaps++
       notes.push(`Kept “${labels.get(a.id) ?? a.id}” instead of “${out.label}” for ${e.company}: it states a figure and matches a brief item.`)
     }
+    // Approach-only fill: only while the employer would show fewer than the minimum (the model's own weak picks first, then the best-ranked others).
+    const floor = Math.min(MIN_BULLETS_BEFORE_APPROACH_ONLY, limit)
+    if (kept.length < floor) {
+      const taken = new Set(kept.map((k) => k.id))
+      const order = [...weakPicks.map((p) => p.id), ...e.activities.filter((a) => !weakPicks.some((p) => p.id === a.id)).sort((x, y) => activityRank(y) - activityRank(x)).map((a) => a.id)].filter((id) => !taken.has(id) && isApproachOnly(actOf.get(id)!))
+      for (const id of order.slice(0, floor - kept.length)) {
+        kept.push({ ...item(id, 'Chosen by rule: the employer has too little stronger evidence'), experienceId: actOf.get(id)!.experienceId })
+        dropReason.delete(id)
+      }
+    }
+    const keptIds = new Set(kept.map((k) => k.id))
+    for (const p of weakPicks) if (!keptIds.has(p.id)) dropReason.set(p.id, 'over_cap')
+    const leftOut = e.activities.filter((a) => !keptIds.has(a.id) && isApproachOnly(a) && !isProtected(a.id, ''))
+    if (leftOut.length > 0) approachNotes.push(`${e.company}: left out ${countOf(leftOut.length, 'approach-only activity', 'approach-only activities')} (no figure or result stated): ${leftOut.slice(0, 4).map((a) => `“${labels.get(a.id) ?? a.id}”`).join(', ')}${leftOut.length > 4 ? ', …' : ''}.`)
     for (const k of kept) keptActIds.add(k.id)
     bullets.set(e.key, kept)
   })
+  if (approachNotes.length > 0) notes.push(`Allotted bullets are ceilings; activities that state only what was done, with no figure or result, were left out while stronger evidence fills the employer (fewer than ${MIN_BULLETS_BEFORE_APPROACH_ONLY} bullets would show them). ${approachNotes.join(' ')}`)
   if (toppedUp > 0) {
     notes.push(`Topped up ${countOf(toppedUp, 'employer')} to its bullet allowance by rule (activities that state a figure and match the brief first, then highlighted and achievement ones): the model picked fewer.`)
   }

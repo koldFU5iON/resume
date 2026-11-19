@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { EXPERIENCE_TOKENS, PROJECT_EVIDENCE_MAX_CHARS, THIN_PROJECT_MIN_CHARS, capProjectText, experienceTokenCaps, isThinProject } from './limits'
+import { EXPERIENCE_TOKENS, PROJECT_EVIDENCE_MAX_CHARS, THIN_PROJECT_MIN_CHARS, OVERVIEW_MAX_CHARS, capOverview, capProjectText, experienceTokenCaps, isThinProject } from './limits'
 
 describe('experienceTokenCaps', () => {
   it('scales with the bullet allowance and the retry is larger', () => {
@@ -52,5 +52,26 @@ describe('isThinProject', () => {
   it('the threshold is on the characters beyond the name', () => {
     expect(isThinProject({ name: N, text: 'x'.repeat(THIN_PROJECT_MIN_CHARS - 1) })).toBe(true)
     expect(isThinProject({ name: N, text: 'x'.repeat(THIN_PROJECT_MIN_CHARS) })).toBe(false)
+  })
+})
+
+describe('capOverview', () => {
+  it('leaves a short overview as it is', () => {
+    expect(capOverview('Runs a team of 12.')).toBe('Runs a team of 12.')
+  })
+  it('removes repeated lines and sentences (roles at one employer often share text)', () => {
+    expect(capOverview('Leads launches. Owns the roadmap.\nLeads launches.\nowns the roadmap!')).toBe('Leads launches. Owns the roadmap.')
+  })
+  it('cuts a long overview at the last sentence that fits', () => {
+    const long = Array.from({ length: 40 }, (_, i) => `Sentence number ${i} says something.`).join(' ')
+    const out = capOverview(long)
+    expect(out.length).toBeLessThanOrEqual(OVERVIEW_MAX_CHARS)
+    expect(out.endsWith('.')).toBe(true)
+    expect(long.startsWith(out)).toBe(true)
+  })
+  it('cuts one very long sentence at a word with an ellipsis', () => {
+    const out = capOverview(`${'word '.repeat(300)}end`, 100)
+    expect(out.length).toBeLessThanOrEqual(101)
+    expect(out.endsWith('…')).toBe(true)
   })
 })
