@@ -19,7 +19,7 @@ export function thinProjectNote(name: string): string {
 }
 
 /** Whether a project of an employer's evidence is thin. */
-export const isThin = (p: Pick<ProjectEvidence, 'name' | 'text'>): boolean => isThinProject(p)
+export const isThin = (p: Pick<ProjectEvidence, 'name' | 'text' | 'thin'>): boolean => p.thin ?? isThinProject(p)
 
 /** The coach concerns for the thin projects the Brief leads with (kind weak_proof), in employer order. */
 export function thinProjectConcerns(evidence: Pick<Evidence, 'employers'>, brief: Pick<CvBrief, 'leadWith'>): ConcernRecord[] {

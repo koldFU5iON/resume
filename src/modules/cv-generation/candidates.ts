@@ -20,7 +20,7 @@ import type { Vault } from '@/modules/profile-map/types'
 import { FLAT_SECTIONS, type FlatSection } from './caps'
 import { countOf } from './text'
 import { employerPeriod, groupEmployers, type EmployerGroup } from './employers'
-import { isThinProject } from './write/limits'
+import { nearDuplicate, projectEvidenceText, RESULT_WORDING } from './project-evidence'
 import { ALREADY_MARKED, certificationStatus, educationStatus, isClaimedCapability, isDegreeLike } from './write/status'
 
 export type CandidateActivity = {
@@ -31,6 +31,8 @@ export type CandidateActivity = {
   text: string
   impact: string | null
   highlighted: boolean
+  /** Set when the activity is an achievement attached to a project (not to a role): the project it comes from. Its `experienceId` is the project's role. */
+  fromProject?: { id: string; name: string }
 }
 
 /** One employer: the profile's roles at one company, with all their activities (newest role first). */
@@ -61,7 +63,10 @@ export type CandidateItem = {
   thin?: boolean
 }
 
-export type Candidates = { employers: CandidateEmployer[] } & Record<FlatSection, CandidateItem[]>
+/** At most this many of a project's own achievements are offered to Select (figure-rich first). */
+export const MAX_PROJECT_ATOMS = 5
+
+export type Candidates = { employers: CandidateEmployer[]; /** Log notes about project achievements left out of the menu. */ projectAtomNotes?: string[] } & Record<FlatSection, CandidateItem[]>
 
 export function emptyCandidates(): Candidates {
   return { employers: [], skills: [], tools: [], competencies: [], certifications: [], education: [], projects: [] }
@@ -106,6 +111,35 @@ export function buildCandidates(vault: Vault, now: Date = new Date()): Candidate
     activities: [...g.roles].reverse().flatMap((r) => activitiesByRole.get(r.experienceId) ?? []),
   }))
 
+  // Achievements attached to a project compete as activities of the employer that owns the project's role.
+  // An independent project, or one whose role is unknown, keeps its text in the project candidate only.
+  const projectAtomNotes: string[] = []
+  const employerOfRole = new Map(employers.flatMap((e) => e.roles.map((r) => [r.experienceId, e] as const)))
+  const norm = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
+  for (const pn of notesOf(vault, 'project')) {
+    if (pn.props.status === 'archived' || !pn.props.experienceId) continue
+    const emp = employerOfRole.get(pn.props.experienceId)
+    if (!emp) continue
+    const have = new Set(emp.activities.map((a) => norm(a.text)))
+    const ids = new Set(emp.activities.map((a) => a.id))
+    const role = emp.activities.filter((a) => !a.fromProject)
+    let offered = 0
+    let leftOut = 0
+    for (const atom of projectEvidenceText(pn, vault).atoms) {
+      const full = `${atom.text} ${atom.impact ?? ''}`
+      if (!atom.text || ids.has(atom.id) || have.has(norm(atom.text)) || role.some((a) => nearDuplicate(`${a.text} ${a.impact ?? ''}`, full))) continue
+      if (offered >= MAX_PROJECT_ATOMS) { leftOut++; continue }
+      offered++
+      have.add(norm(atom.text))
+      ids.add(atom.id)
+      emp.activities.push({
+        id: atom.id, experienceId: pn.props.experienceId, kind: atom.kind, text: atom.text, impact: atom.impact,
+        highlighted: atom.highlighted, fromProject: { id: pn.id, name: pn.props.name },
+      })
+    }
+    if (leftOut > 0) projectAtomNotes.push(`${countOf(leftOut, 'achievement')} of the project “${pn.props.name}” left out of the menu (at most ${MAX_PROJECT_ATOMS} per project, figure-rich first).`)
+  }
+
   const caps = notesOf(vault, 'capability')
   const capItem = (n: (typeof caps)[number]): CandidateItem => ({
     id: n.id,
@@ -116,6 +150,7 @@ export function buildCandidates(vault: Vault, now: Date = new Date()): Candidate
 
   return {
     employers,
+    projectAtomNotes,
     skills: caps.filter((n) => n.props.kind === 'skill').map(capItem),
     tools: caps.filter((n) => n.props.kind === 'tool').map(capItem),
     competencies: caps.filter((n) => n.props.kind === 'competency').map(capItem),
@@ -151,7 +186,7 @@ export function buildCandidates(vault: Vault, now: Date = new Date()): Candidate
         label: n.props.name,
         detail: oneLine(text(n.props.description), LABEL_MAX) || null,
         proven: true,
-        thin: isThinProject({ name: n.props.name, text: [n.props.description, ...n.props.highlights].map((t) => text(t)).join('\n') }),
+        thin: projectEvidenceText(n, vault).thin,
       })),
   }
 }
@@ -159,7 +194,6 @@ export function buildCandidates(vault: Vault, now: Date = new Date()): Candidate
 /** An activity under this many words with no figure and no result wording says what was done, not what came of it. */
 export const APPROACH_ONLY_MAX_WORDS = 18
 
-const RESULT_WORDING = /\b(?:reduced|increased|grew|cut|saved|delivered|generated|launched|achieved|won|drove|scaled|doubled|tripled|halved|improved|boosted|accelerated|exceeded|surpassed|secured|earned|raised|expanded|eliminated|enabled|unlocked|resulting|resulted|led to|from\s+\S+\s+to)\b/i
 
 /**
  * An approach-only activity: it states how the work was run, with no number,
@@ -200,7 +234,7 @@ export function candidatesToPrompt(cands: Candidates): string {
     for (const a of e.activities) {
       const star = a.highlighted ? '⭐ ' : ''
       const asRole = e.roles.length > 1 ? `(as ${roleTitle.get(a.experienceId) ?? 'a role here'}) ` : ''
-      lines.push(`  - [${a.id}] ${asRole}${star}${a.kind}: ${a.text}${a.impact ? ` — ${a.impact}` : ''}`)
+      lines.push(`  - [${a.id}] ${asRole}${star}${a.kind}: ${a.text}${a.impact ? ` — ${a.impact}` : ''}${a.fromProject ? ` (from project ${a.fromProject.name})` : ''}`)
     }
   }
   const flat: Array<[FlatSection, string]> = [

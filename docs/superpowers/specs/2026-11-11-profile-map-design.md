@@ -43,7 +43,7 @@ Experience ──contains──► Project           Education / Certification /
 
 ## 3. Rules that tighten it up
 
-1. **One body per narrative.** Experience keeps `summary` as its body. Project collapses `description` + `notes` into one body; `description` becomes a derived one-line gist.
+1. **One body per narrative.** Experience keeps `summary` as its body. Project collapses `description` + `notes` into one body; `description` becomes a derived one-line gist. Consumers that need a project's text (CV generation, the readiness thin check) must read the body AND its attached evidence through `projectEvidenceText` (`src/modules/cv-generation/project-evidence.ts`), never `props.description` or `props.highlights` alone.
 2. **Evidence comes from the body; edits stay explicit.** Extraction proposes evidence atoms from the body, and the user accepts them (today's flow). Each atom keeps a pointer back to the narrative it came from. Re-extraction diffs against the existing atoms instead of duplicating them. A body edit never silently deletes accepted evidence.
 3. **Links are explicit and typed.** Link types: `contains` (experience→project), `demonstrates` (evidence→capability), `uses` (project→capability), `certifies` (certification→capability). They are stored in the existing junction tables; the four tables already cover all of these.
 4. **Optional `[[wikilinks]]` in bodies.** Writing `[[Kubernetes]]` in an experience or project body links to (or proposes) that capability. It is the Obsidian-native way to create links while writing. The existing `## Skills` heading parse keeps working as the other way in.

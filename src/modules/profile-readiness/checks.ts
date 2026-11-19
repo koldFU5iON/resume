@@ -5,6 +5,7 @@
 // "consider" checks: they are phrased as questions.
 
 import { certificationStatus, educationStatus } from '@/modules/cv-generation/write/status'
+import { projectEvidenceText } from '@/modules/cv-generation/project-evidence'
 import { isThinProject, THIN_PROJECT_MIN_CHARS } from '@/modules/cv-generation/write/limits'
 import { notesOf } from '@/modules/profile-map/build'
 import { formatMonth, normalizeName, oneLine } from '@/modules/profile-map/format'
@@ -110,7 +111,7 @@ const roleName = (e: ExperienceNote) => `${e.props.role} at ${e.props.company}`
 
 function thinNotes(vault: Vault): (ExperienceNote | ProjectNote)[] {
   const thin: (ExperienceNote | ProjectNote)[] = []
-  for (const p of notesOf(vault, 'project')) if (isThinProject({ name: p.props.name, text: narrativeText(vault, p) })) thin.push(p)
+  for (const p of notesOf(vault, 'project')) if (projectEvidenceText(p, vault).thin) thin.push(p)
   for (const e of notesOf(vault, 'experience')) if (isThinProject({ name: '', text: narrativeText(vault, e) })) thin.push(e)
   return thin
 }

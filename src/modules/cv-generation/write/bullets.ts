@@ -25,7 +25,8 @@ export const PROJECT_EXTRA_BULLETS = 1
 export const LEAD_WITH_PROJECT_EXTRA_BULLETS = PROJECT_EXTRA_BULLETS
 
 /** `text` is the project's evidence text; when given, a thin project (limits.ts) is recognised by it. */
-type ProjectRef = { id?: string; name: string; text?: string }
+type ProjectRef = { id?: string; name: string; text?: string; thin?: boolean }
+const thinOf = (p: ProjectRef): boolean => p.thin ?? (p.text !== undefined && isThinProject({ name: p.name, text: p.text }))
 
 /** A selected project the Brief names in `leadWith`, with the line that frames it. */
 export type LeadWithProject = { name: string; key: string; line: string }
@@ -51,7 +52,7 @@ export function thinLeadWithProjects(projects: readonly ProjectRef[], leadWith: 
 function matchLeads(projects: readonly ProjectRef[], leadWith: readonly BriefItem[], thin: boolean): LeadWithProject[] {
   const out: LeadWithProject[] = []
   for (const p of projects) {
-    if ((p.text !== undefined && isThinProject({ name: p.name, text: p.text })) !== thin) continue
+    if (thinOf(p) !== thin) continue
     const key = projectNameKey(p.name)
     if (!key) continue
     const lead = leadWith.find((l) => phraseIndex(l.framing, key) >= 0 || phraseIndex(l.name, key) >= 0)
@@ -61,8 +62,8 @@ function matchLeads(projects: readonly ProjectRef[], leadWith: readonly BriefIte
 }
 
 /** The selected projects that have enough text to write a bullet from (not thin, limits.ts isThinProject). */
-export function substantiveProjects<P extends { name: string; text?: string }>(projects: readonly P[]): P[] {
-  return projects.filter((p) => !(p.text !== undefined && isThinProject({ name: p.name, text: p.text })))
+export function substantiveProjects<P extends { name: string; text?: string; thin?: boolean }>(projects: readonly P[]): P[] {
+  return projects.filter((p) => !thinOf(p))
 }
 
 /**

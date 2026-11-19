@@ -45,7 +45,7 @@ export function evidenceRefs(emp: Pick<EmployerEvidence, 'activities' | 'project
       id: a.id,
       kind: 'activity',
       text: [a.text, a.impact ?? ''].filter(Boolean).join('\n'),
-      snippet: snippetOf(a.text),
+      snippet: snippetOf(a.fromProject ? `${a.fromProject.name}: ${a.text}` : a.text),
     })),
     ...emp.projects.map((p, i): EvidenceRef => ({
       label: `P${i + 1}`,
