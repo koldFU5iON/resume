@@ -1,6 +1,6 @@
 # Simplifying the profile model: roles own achievements, projects are labels
 
-**Date:** 2026-11-19 · **Status:** Proposal, for the owner's decision. Nothing here is built.
+**Date:** 2026-11-19 · **Status:** Approved in direction; decisions recorded in §12. Nothing here is built.
 **Builds on:** `2026-11-11-profile-map-design.md` (the vault), issue #440 and its PRs #442–#444, `docs/cv-generation.md` §20–21.
 **Constraint kept:** the CV generator stays general and is never tuned to one person's data. Profile data is never changed without the owner seeing it first.
 
@@ -69,7 +69,8 @@ Outcomes and results stop being a concept of their own. They are the `result` on
 
 The owner builds side projects (including this one) that have not "done anything yet". They should still appear, and never float free of any context.
 
-- Give each profile an experience of a new `type` (§6) such as `independent`, titled e.g. "Independent projects". Personal projects hang under it. It is created on demand and is never required.
+- Give each profile an experience of a new `type` (§6) such as `independent`, titled e.g. "Independent projects". Personal projects hang under it. It is created on demand and is never required. It is **timeless**: no start or end date is shown anywhere, and the date columns are not read for it.
+- **Position on the CV (decided): a Projects section after Experience.** Side work never reads as a job. Promoting selected independent work into Experience for a thin-history job is a possible later option, and would be a generator change.
 - It must **not** be treated as a job. Today `experience_dates_reversed`, `concurrent_roles`, `employment_gap`, `thin_narrative`, the employer progression line, header right-to-work and the CV's Experience section all read experiences as employment. A type flag lets each of them skip or specialise it.
 - In the CV it renders in a **Projects** section, not in Experience, and only when selected for the job.
 
@@ -80,7 +81,7 @@ External evidence (collected in the appendix, with its limits) supports achievem
 - **Achievements** are the evidence.
 - **Scope** is one or two lines of context that make the achievements legible (team size, remit, geography, budget). It is optional and is never selected as a bullet.
 
-Existing `kind = 'responsibility'` rows are not deleted. See open decision O2.
+Scope lives in the role's existing **Overview** text; there is no new column (decision O1). Existing `kind = 'responsibility'` rows that have content are **folded into the Overview** by a reviewed backfill and are not deleted, so nothing is lost and the owner can prune later (decision O2). The new extraction no longer produces responsibilities as peers of achievements (§9).
 
 ## 6. Data model changes
 
@@ -93,9 +94,13 @@ One migration per phase, each created with `npm run db:migrate -- --name <name>`
 - `RoleActivity.experienceId` becomes required. Backfill: a row with only `projectId` gets that project's `experienceId`. A row with both keeps both (the project label). The `projectId` column stays.
 - Add a database check that when `projectId` is set the activity's `experienceId` equals the project's `experienceId`, or enforce it in the action (a check across tables needs a trigger; the action guard already exists, so start there).
 
+**Data backfill (not a schema change), also a dry run first**
+
+- For each experience, the content of its `responsibility` rows is appended to the Overview text under a clear marker, in order, wording unchanged. The report shows every role's before and after for the owner to approve. The rows themselves stay until the owner chooses to remove them.
+
 **Not in migration A**
 
-- No new scope column yet. Scope reuses the existing role overview text (the `## Overview` section) until O1 is decided.
+- No new scope column (decision O1).
 - `kind` stays as is.
 
 **Rollback:** all changes are additive or tighten a constraint after a backfill. The backfill is run as a dry-run report first; the owner approves the list before the constraint is applied.
@@ -133,10 +138,17 @@ The question of a vector store came up. Position:
 
 ## 9. Capture flow (what the owner sees)
 
-1. Open a role. See its scope line, then its achievements grouped by project, then ungrouped ones.
-2. Add an achievement: text, optional result (measure, value, baseline, period, as in #442), optional project from a dropdown of that role's projects, with "new project" inline.
-3. Free-text import still proposes achievements from pasted notes. Accepting one asks only "which project, if any".
-4. Moving an achievement means changing its role, not choosing between a role and a project. The Move dialog from #443 reduces to a role picker plus the project dropdown.
+**Principle (decision O4): capture stays as easy as writing.** The owner writes freely in the role's note, Obsidian style. A clean-and-extract layer turns that into structured achievements, shown as a **draft** the owner can change before it counts as profile data.
+
+1. **Write.** Free text in the role's note. Nothing is required.
+2. **Extract and clean.** Today's extraction (`src/modules/profile/extract.ts`: local tag parser, then an LLM for untagged prose, suggestions held in memory, per-item accept, replace or skip, duplicate hints) is the starting point. It needs to change in these ways:
+   - Output achievements by default. Duty-like lines go to scope, not to a peer type. The prompt's "when ambiguous, prefer responsibility" is reversed.
+   - Propose, per achievement: a cleaned stand-alone first-person claim, a structured result (measure, value, baseline, period) where the text states one, and a project label from the role's projects, or a new project name. Never invent a figure.
+   - Check against **all** of the role's achievements, including project-labelled ones, so re-extracting does not duplicate (closes the #443 gap).
+3. **Draft.** Suggestions are saved as a draft attached to the note, so they survive leaving the page and a second run updates the draft instead of stacking. Each item shows the original wording beside the cleaned one. The owner edits, accepts, replaces or skips. Only accepted items become achievements. A draft is never read by the generator, the vault or readiness.
+4. **Edit later.** An accepted achievement has a form: text, optional result, optional project (dropdown of the role's projects, "new project" inline). Moving an achievement means changing its role; the Move dialog from #443 reduces to a role picker plus the project dropdown.
+
+The extraction runs on the owner's own LLM key and is started by the owner, as today. Running it automatically on save is a possible later option.
 
 Screens that shrink: the project note's own evidence list (it becomes a filtered view of the role's achievements), the Move dialog, and the ownership explanation text.
 
@@ -144,12 +156,13 @@ Screens that shrink: the project note's own evidence list (it becomes a filtered
 
 | PR | Content | Needs owner |
 |---|---|---|
-| 1 | Migration A with a **dry-run backfill report** (projects with no role, activities with only a project). No constraint tightened yet. | Approves the report |
-| 2 | Apply constraints, `type` flag, "Independent projects" creation, date/gap checks skip it | Decides names (O3) |
+| 1 | Migration A with a **dry-run backfill report** (projects with no role, activities with only a project, responsibilities to fold into Overview). No constraint tightened yet. | Approves the report |
+| 2 | Apply constraints and the Overview fold, `type` flag, "Independent projects" creation, date/gap checks skip it | Chooses the experience's name |
 | 3 | Achievement form: project dropdown, grouping on the role page, Move reduced to role picker; project note becomes a filtered view | None |
-| 4 | Vault build and readiness: remove `outcome_without_project`, add the link suggestion | None |
-| 5 | Generator: Select shortlist with handles; project name rule | **Lifts the generator pause** |
-| 6 | Optional embeddings spike | Decides after PR 5 |
+| 4 | **Clean-and-extract draft layer** (§9): extraction proposes cleaned achievements with result and project, a saved draft with edit, accept and skip, de-duplication against all the role's achievements | None (extraction prompts are profile capture, not generator prompts) |
+| 5 | Vault build and readiness: remove `outcome_without_project`, add the link suggestion; CV renders independent work in a Projects section | None |
+| 6 | Generator: Select shortlist with handles; project name rule | **Lifts the generator pause** |
+| 7 | Optional embeddings spike | Decides after PR 6 |
 
 Items 4, 5, 6 and 8 of #440 (inline date checks, `Project.product`, results section in the template, certification status) are not blocked by this and are mostly absorbed or made unnecessary: `Project.product` is not needed if the project label and an owner's wording are enough.
 
@@ -158,15 +171,15 @@ Items 4, 5, 6 and 8 of #440 (inline date checks, `Project.product`, results sect
 - **The independent experience leaks into employment logic.** Mitigated by the `type` flag and a test in each date/gap/employer check.
 - **Backfill guesses wrong.** Mitigated by the dry-run report and owner approval before any constraint.
 - **Extraction duplicates** (re-extracting a role recreates an achievement already labelled with a project). The label makes the check simple: compare against all of the role's achievements. This closes the gap left in #443.
-- **Two sources of truth.** The note markdown and the rows can still drift. This design does not solve that; it should be raised separately (§12, O4).
+- **Two sources of truth.** The note markdown and the rows can still drift. The draft layer (§9) narrows this: the note is where the owner writes, accepted rows are the profile data, and the draft is the visible bridge between them. A note edited after extraction does not silently change accepted rows.
 
-## 12. Open decisions
+## 12. Decisions (owner, 2026-11-19)
 
-- **O1. Where does scope live?** Reuse the role's Overview text, or add a short `scope` column. Recommendation: reuse Overview, no migration.
-- **O2. Existing responsibilities.** Keep as scope text, fold the useful ones into achievements, or hide. Needs the owner to look at their own rows.
-- **O3. Independent experience.** Name, and whether dates are shown or hidden in the CV.
-- **O4. Should the markdown note stay a capture surface?** If rows are the source of truth, the note could become an import-only view. Separate decision.
-- **O5. Verify the external advice.** The research below is thin and vendor-heavy. Worth one pass from a recruiter or hiring manager the owner trusts before dropping responsibilities from CVs entirely.
+- **O1. Where does scope live?** Reuse the role's Overview text. No new column.
+- **O2. Existing responsibilities.** Wrap any content into the main body (the Overview), so nothing is lost; unpick later. Done by a reviewed backfill (§6).
+- **O3. Independent experience.** Timeless (no dates shown). Positioned as a **Projects section after Experience**. The experience's name is still to choose.
+- **O4. Capture.** The note stays the capture surface. A clean-and-extract layer, built on the existing extraction, produces a draft the owner can change before anything counts (§9, PR 4).
+- **O5. External check.** Deferred. The owner may ask a recruiter later; the evidence below is thin and vendor-heavy. Responsibilities are demoted to scope, not deleted, so the decision is reversible.
 
 ## Appendix: external evidence and its limits
 
