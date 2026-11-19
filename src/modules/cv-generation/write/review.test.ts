@@ -258,9 +258,22 @@ describe('applyEdits: edits applied only after the checks', () => {
     expect(r.discarded[0].why).toMatch(/play-down item/)
   })
 
-  it('discards a profile edit that repeats a figure from the experience section, or uses a second figure', () => {
+  it('discards a bullet edit that adds a negation its cited evidence lacks', () => {
+    const r = applyEdits(freshDoc(), [edit(U, 'b1', 'replace', 'Cut platform release time by 40% with no handoffs across 8 teams.')], actx())
+    expect(r.applied).toEqual([])
+    expect(r.discarded[0].why).toMatch(/adds "no".*must not change the meaning/)
+  })
+
+  it('does not refuse a profile edit for dynamic pricing or proactive monitoring', () => {
+    const r = applyEdits(freshDoc(), [edit('profile', undefined, 'replace', 'I run release programmes for platform teams, from dynamic pricing to proactive monitoring.')], actx())
+    expect(r.discarded).toEqual([])
+  })
+
+  it('allows a profile edit to repeat a figure from the experience section, but not a personality claim', () => {
     const shared = applyEdits(freshDoc(), [edit('profile', undefined, 'replace', 'Cut release time by 40% for platform teams.')], actx())
-    expect(shared.discarded[0].why).toMatch(/repeats a figure the experience section already states/)
+    expect(shared.discarded).toEqual([])
+    const style = applyEdits(freshDoc(), [edit('profile', undefined, 'replace', 'I run release programmes for platform teams and I work best where roles are clear.')], actx())
+    expect(style.discarded[0].why).toMatch(/working-style or personality claim/)
   })
 
   it('keeps a profile edit in first person (the profile is written that way), but still refuses first person in a bullet or summary', () => {
@@ -458,11 +471,11 @@ describe('applyEdits: summary removal, the profile paragraph and provenance (rev
     expect(r.discarded[0].why).toMatch(/summary cannot be removed/)
   })
 
-  it('counts the profile paragraph when checking a bullet edit for a repeated figure (the order of the edits does not matter)', () => {
+  it('does not count the profile paragraph when checking a bullet edit for a repeated figure (the profile may repeat a bullet figure)', () => {
     const doc = reviewDoc(assembled({ profile: 'Delivery leader behind a title for 2M players.' }), selection, evidence)
     const r = applyEdits(doc, [edit(`experience:${BLIZZARD}`, 'b1', 'replace', 'Launched a live-service title for 2M players worldwide.')], actx())
-    expect(r.applied).toEqual([])
-    expect(r.discarded[0].why).toMatch(/repeats a figure already stated in this entry or the profile: 2M/)
+    expect(r.discarded).toEqual([])
+    expect(r.applied).toHaveLength(1)
   })
 
   it('marks a replaced bullet as edited by review and keeps its sources while it still states the figures it took from them', () => {

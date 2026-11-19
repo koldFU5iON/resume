@@ -38,6 +38,8 @@ import { fallbackExperience, writeExperience } from './experience'
 import { ASSEMBLE_RESERVE_MS, MIN_CALL_MS, WAVE2_MIN_START_MS, WAVE2_RESERVE_MS } from './limits'
 import { runPool } from './pool'
 import { experienceDigest, fallbackProfile, writeProfile } from './profile'
+import { statedYears } from './years'
+import { notesOf } from '@/modules/profile-map/build'
 import { requirementText } from './prompt'
 import { renderCertifications, renderEarlierExperience, renderEducation, renderLanguages } from './render'
 import { writeSkills } from './skills'
@@ -109,6 +111,8 @@ export async function runWrite(
     strategy,
     evidence,
     requirementText: requirementText(strategy),
+    // From the earliest role start across ALL employers, Earlier Experience ones included.
+    yearsOfExperience: statedYears(notesOf(vault, 'experience').map((e) => e.props.startDate), new Date()),
   }
   // Wave 1 stops early enough to leave wave 2 its time (but never gets less than half of what there is).
   const w1: WriteContext = { ...w, deadline: Math.max(writeDeadline - WAVE2_RESERVE_MS, startedAt + (writeDeadline - startedAt) / 2) }
@@ -229,7 +233,7 @@ export async function runWrite(
       profileOutcome = fallbackProfile(w, digest, 'There was not enough time left for the profile call.')
     } else {
       try {
-        profileOutcome = await writeProfile(w, digest, { ...rules, prompt: profilePrompt })
+        profileOutcome = await writeProfile(w, digest, { ...rules, prompt: profilePrompt }, evidence.employers.flatMap((e) => digests.get(e.employer.key)?.bullets ?? []))
       } catch (err) {
         if (!isTimeout(err)) {
           const u = spent(err)
@@ -252,7 +256,7 @@ export async function runWrite(
     headline = p.headline
 
     // Rendered by code, from the profile as stored.
-    const certs = renderCertifications(evidence.certifications, new Date(), brief.budgets.certifications)
+    const certs = renderCertifications(evidence.certifications, new Date())
     if (certs.markdown) keep({ id: 'certification', kind: 'certification', markdown: certs.markdown, log: logOf('certification', 'Certifications', { notes: ['Rendered by code from your profile, in relevance order, no model call.', ...certs.notes] }) })
     else if (certs.notes.length > 0) notes.push(...certs.notes)
     const edu = renderEducation(evidence.education)

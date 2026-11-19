@@ -117,10 +117,10 @@ describe('certification rank (the weak-certification rule)', () => {
     expect(ev.certifications.map((c) => [c.name, c.rank])).toEqual([['Product Marketing Course', 0]])
   })
 
-  it('carries no rank when code (not the model) chose the selection, so the rule does not apply', () => {
+  it('carries a rank for a code-chosen (fallback) selection too, so the weak-certification rule applies', () => {
     const vault = withCerts([{ id: 'ww', name: 'Product Marketing Course' }])
     const ev = evidenceFromVault(vault, sel(vault, ['wc1', 'ww'], { mode: 'fallback' }), now)
-    expect(ev.certifications.map((c) => c.rank)).toEqual([undefined, undefined])
+    expect(ev.certifications.map((c) => c.rank)).toEqual([0, 1])
   })
 })
 

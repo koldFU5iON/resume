@@ -961,3 +961,35 @@ describe('Phase 3d: per-bullet provenance', () => {
     expect(fb.provenance.map((b) => b.text)).toEqual(fb.bullets)
   })
 })
+
+describe('paraphrase fidelity (soft checks on each bullet, against the evidence it cites)', () => {
+  const withEvidence = (text: string, impact: string | null = null): EmployerEvidence => ({ ...unity, activities: [{ ...unity.activities[0], text, impact }, ...unity.activities.slice(1)] })
+  const bulletOf = (text: string, sources = ['E1']) => ({ summary: good.summary, bullets: [{ text, sources }] })
+
+  it('flags a negation the cited evidence does not contain (voluntary became "no mandate")', () => {
+    const emp = withEvidence('Program voluntarily adopted by the client partner team, driven entirely by demonstrated value rather than mandate')
+    const a = analyse(bulletOf('Program adopted by the client partner team with no mandate to surface upsell opportunities.'), ctx(), emp)
+    expect(a.soft.join(' ')).toMatch(/bullet 1 says "no".*its evidence does not/)
+    expect(a.why).toContain('meaning drift: negation in bullet 1')
+    expect(analyse(bulletOf('Program voluntarily adopted by the client partner team, driven by demonstrated value.'), ctx(), emp).soft.join(' ')).not.toMatch(/meaning/)
+  })
+
+  it('checks a bullet against the evidence it cites, not the whole entry', () => {
+    const emp = withEvidence('Cut release time with no downtime')
+    const a = analyse({ summary: good.summary, bullets: [{ text: 'Ran planning with no handoffs.', sources: ['E2'] }] }, ctx(), emp)
+    expect(a.soft.join(' ')).toMatch(/says "no"/)
+  })
+
+  it('flags a dropped scope qualifier: "Italy\'s largest" for "the territory\'s largest"', () => {
+    const emp = withEvidence("The territory's largest single commercial order")
+    const a = analyse(bulletOf("Closed Italy's largest single commercial order."), ctx(), emp)
+    expect(a.soft.join(' ')).toMatch(/bullet 1 keeps "largest" but drops "territory"/)
+    expect(a.why).toContain('scope qualifier dropped in bullet 1')
+    expect(analyse(bulletOf("Closed the territory's largest single commercial order."), ctx(), emp).soft.join(' ')).not.toMatch(/drops/)
+  })
+
+  it('flags a figure that loses "to date"', () => {
+    const emp = withEvidence('Sign-ups reached 14,000 to date')
+    expect(analyse(bulletOf('Grew sign-ups to 14,000.'), ctx(), emp).soft.join(' ')).toMatch(/drops "to date"/)
+  })
+})

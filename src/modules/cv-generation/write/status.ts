@@ -72,3 +72,18 @@ export function isClaimedCapability(vault: Vault, note: CapabilityNote, now: Dat
   })
   return certifiedOnlyInProgress(note.props.status, certifiers, now)
 }
+
+const DEGREE_WORDS = /\b(bachelor|master|doctor|degree|diploma|honou?rs|undergraduate|postgraduate|graduate (certificate|diploma)|pgce|b\.?sc|m\.?sc|b\.?a|m\.?a|b\.?eng|m\.?eng|b\.?ed|m\.?ed|llb|llm|mba|phd|dphil|hnd|hnc|associate|higher education|certhe|ncea|national certificate|baccalaur\w*|licenci\w+|laurea|a[- ]levels?|gcse|leaving certificate|high school|secondary school)\b/i
+const SHORT_COURSE_WORDS = /\b(certificate|certification|course|short course|bootcamp|boot camp|workshop|training|masterclass|summer school|programme|program)\b/i
+
+/**
+ * Whether an education entry is a degree or diploma (or another school or
+ * university qualification), as opposed to a short course or certificate. A
+ * short course is never shown under Education: it belongs under Certifications
+ * and only when relevant. An entry that names neither kind reads as a degree
+ * (the profile's own category is education). Pure.
+ */
+export function isDegreeLike(qualification: string): boolean {
+  if (DEGREE_WORDS.test(qualification)) return true
+  return !SHORT_COURSE_WORDS.test(qualification)
+}

@@ -34,7 +34,7 @@ describe('the writer prompt files', () => {
     const t = read('cv-gen-write-profile')
     expect(t).toContain('AFTER the experience section exists')
     expect(t).toContain('NOT a job title')
-    expect(t).toContain('Do not state a number of years of experience unless the limits section gives you one')
+    expect(t).toContain('Do not state a number of years of experience unless the limits section gives you the exact phrase')
     expect(t).toContain('Numbers verbatim')
   })
 })
@@ -110,11 +110,14 @@ describe('the writer prompts, after the review fixes', () => {
 
     it('the profile prompt: opens with positioning for this role, at most one figure none of them from the bullets, labels of 2 to 5 words, no pronouns', () => {
       const t = read('cv-gen-write-profile')
-      expect(t).toContain('Open with the positioning for THIS role')
-      expect(t).toMatch(/\*\*4 to 6 sentences\*\*/)
+      expect(t).toContain("names the target role or domain in the job ad's own terms")
+      expect(t).toMatch(/\*\*4 to 5 sentences, 70 to 90 words\*\*/)
       expect(t).toMatch(/hidden question/)
       expect(t).toMatch(/what kind of company or product it is/)
-      expect(t).toMatch(/at most ONE figure.*never a figure that already appears in the experience section/)
+      expect(t).toMatch(/up to TWO in the profile and headline together/i)
+      expect(t).toMatch(/second sentence gives the strongest result, with its figure/)
+      expect(t).toMatch(/never write unsupported claims about how the candidate works/)
+      expect(t).toMatch(/Do not restate a bullet's sentence nearly word for word|Do not restate a bullet/)
       expect(t).toMatch(/short noun-phrase labels\*\* of 2 to 5 words/)
       expect(t).toMatch(/no numbers, no sentences/)
       // First person is for the profile paragraph only; the headline and labels stay impersonal.
@@ -157,5 +160,35 @@ describe('the prompts, after the thin-project fix', () => {
 
   it('the experience prompt: a project marked NO EVIDENCE gets no bullet and no framing', () => {
     expect(read('cv-gen-write-experience')).toMatch(/NO EVIDENCE[^\n]*gets no bullet, no framing from the brief and no outcome/)
+  })
+})
+
+describe('round 3a prompt rules: paraphrase safety, no approach-only bullets, top of page 1', () => {
+  it('the experience writer rewords for brevity only, keeps scope qualifiers, and writes no approach-only bullet', () => {
+    const t = read('cv-gen-write-experience')
+    expect(t).toContain('Reword for brevity only')
+    expect(t).toMatch(/Never change who did what, whether something was voluntary or required/)
+    expect(t).toContain('"voluntarily adopted ... rather than mandate" into "with no mandate"')
+    expect(t).toContain('"the territory\'s largest order" is not "Italy\'s largest order"')
+    expect(t).toContain('Every bullet states what was done AND a result, a scope or a figure')
+    expect(t).toContain('write from the one with a figure or outcome')
+  })
+  it('the select prompt refuses approach-only bullets and prefers the item with a figure', () => {
+    const t = read('cv-gen-select')
+    expect(t).toContain('No approach-only bullets')
+    expect(t).toContain('pick the one with a figure or outcome, not both')
+  })
+  it('the review prompt compares meaning with evidence and checks the top third of page 1', () => {
+    const t = read('cv-gen-review')
+    expect(t).toContain('Fix meaning drift')
+    expect(t).toContain("Compare each bullet's meaning with the evidence snippets it cites")
+    expect(t).toContain('Check the top third of page 1')
+    expect(t).toContain('B2B2C reach gap')
+    expect(t).toContain('a phrase or sentence the profile and a bullet share')
+  })
+  it('the review prompt exempts the profile from the repeated-figure rule', () => {
+    const t = read('cv-gen-review')
+    expect(t).toContain('The profile is exempt')
+    expect(t).not.toContain('The same figure or achievement in the profile, a summary and a bullet')
   })
 })

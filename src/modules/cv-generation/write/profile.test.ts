@@ -8,7 +8,7 @@ import { extractJSON } from '@/modules/llm/extract-json'
 import { scripted, writeSelection, writeVault } from '../__fixtures__/write'
 import { buildBriefFor } from '../__fixtures__/gathered'
 import { evidenceFromVault } from './evidence'
-import { analyseProfile, experienceDigest, fallbackProfile, labelsFromSelected, maxCompetencyLabels, minCompetencyLabels, profilePrompt, writableCompetencies, writeProfile } from './profile'
+import { analyseProfile, copiesBullet, dropCopiedSentences, experienceDigest, fallbackProfile, labelsFromSelected, maxCompetencyLabels, minCompetencyLabels, profilePrompt, writableCompetencies, writeProfile } from './profile'
 import { requirementText } from './prompt'
 import type { WriteContext } from './types'
 
@@ -87,22 +87,22 @@ describe('writeProfile', () => {
     expect(r.headline).toBe(good.headline)
   })
 
-  it('shortens a profile over 110 words in code at a clause boundary, with a note and no retry', async () => {
-    const first = Array.from({ length: 100 }, (_, i) => `w${i}`).join(' ')
+  it('shortens a profile over 90 words in code at a clause boundary, with a note and no retry', async () => {
+    const first = Array.from({ length: 80 }, (_, i) => `w${i}`).join(' ')
     const long = { ...good, profile: `${first}, and then ${Array.from({ length: 20 }, (_, i) => `x${i}`).join(' ')}` }
     const { s, result } = run([long])
     const r = await result
     expect(s.calls).toHaveLength(1)
     expect(r.profileMarkdown).toBe(first)
-    expect(r.notes.join(' ')).toMatch(/Shortened the profile from 12\d to 100 words at a clause boundary \(limit 110\)/)
+    expect(r.notes.join(' ')).toMatch(/Shortened the profile from 10\d to 80 words at a clause boundary \(limit 90\)/)
   })
 
   it('keeps an over-long profile with no clause boundary as written, noted, without a retry', async () => {
-    const long = { ...good, profile: Array.from({ length: 125 }, (_, i) => `w${i}`).join(' ') }
+    const long = { ...good, profile: Array.from({ length: 105 }, (_, i) => `w${i}`).join(' ') }
     const { s, result } = run([long])
     const r = await result
     expect(s.calls).toHaveLength(1)
-    expect(r.notes.join(' ')).toMatch(/profile is 125 words, over the limit of 110/)
+    expect(r.notes.join(' ')).toMatch(/profile is 105 words, over the limit of 90/)
   })
 
   it('shortens an over-long headline at a clause boundary instead of retrying', async () => {
@@ -256,7 +256,7 @@ describe('writeProfile', () => {
     it('cuts a long positioning to the word limit and cleans it', () => {
       const long = `# ${Array.from({ length: 150 }, () => 'word').join(' ')} :::`
       const f = fallbackProfile({ ...base, brief: { ...base.brief, positioning: long } }, digest, 'No time.')
-      expect(f.profileMarkdown.split(' ')).toHaveLength(110)
+      expect(f.profileMarkdown.split(' ')).toHaveLength(90)
       expect(f.profileMarkdown).not.toMatch(/#|:::/)
     })
   })
@@ -280,8 +280,8 @@ describe('profilePrompt and helpers', () => {
   it('lists the limits, and only evidenced competencies are writable', () => {
     expect(writableCompetencies(evidence.competencies).map((c) => c.name)).toEqual(['Cross-functional leadership'])
     const p = profilePrompt(ctx(), digest, writableCompetencies(evidence.competencies), 6)
-    expect(p).toMatch(/at most 110 words/)
-    expect(p).toMatch(/4 to 6 sentences/)
+    expect(p).toMatch(/70 to 90 words/)
+    expect(p).toMatch(/4 to 5 sentences/)
     expect(p).toMatch(/at most 12 words/)
     expect(p).toMatch(/up to 6 labels.*2 to 5 words/)
   })
@@ -299,12 +299,22 @@ describe('profilePrompt and helpers', () => {
 
 describe('Phase 3b: no cross-section repetition, short competency labels, voice', () => {
   const allowed = { digest, competencies: writableCompetencies(evidence.competencies), maxLabels: 6 }
-  // The digest holds 40% (experience bullets); the profile must not restate it.
+  // The digest holds 40% (experience bullets): the profile MAY repeat it; the headline and labels may not.
   const repeating = { ...good, profile: 'Delivery leader who cut release time by 40% for platform organisations.' }
 
-  it('flags a figure that the profile shares with an experience bullet, naming it', () => {
+  it('lets the profile repeat a figure an experience bullet states', async () => {
     const a = analyseProfile(repeating, ctx(), allowed)
-    expect(a.soft.join(' ')).toMatch(/already appear in the experience bullets.*40%/)
+    expect(a.soft).toEqual([])
+    expect(a.repeatedFigures).toEqual([])
+    const { s, result } = run([repeating])
+    const r = await result
+    expect(s.calls).toHaveLength(1)
+    expect(r.profileMarkdown).toContain('40%')
+  })
+
+  it('still flags a bullet figure repeated in the headline, naming it', () => {
+    const a = analyseProfile({ ...good, headline: 'Release programmes with 40% faster delivery' }, ctx(), allowed)
+    expect(a.soft.join(' ')).toMatch(/already appear in the experience bullets.*headline or competencies.*40%/)
     expect(a.why).toContain('duplicate figure 40%')
     expect(a.repeatedFigures).toEqual(['40%'])
   })
@@ -316,24 +326,85 @@ describe('Phase 3b: no cross-section repetition, short competency labels, voice'
     expect(a.soft.join(' ')).toMatch(/already appear in the experience bullets/)
   })
 
-  it('retries once with the offending figure named, records why, then accepts with a log note (never fails)', async () => {
-    const { s, result } = run([repeating, repeating])
+  it('retries once on a headline figure that repeats a bullet, records why, then accepts with a log note (never fails)', async () => {
+    const bad = { ...good, headline: 'Release programmes with 40% faster delivery' }
+    const { s, result } = run([bad, bad])
     const r = await result
     expect(s.calls).toHaveLength(2)
     expect(s.calls[1].prompt).toMatch(/already appear in the experience bullets.*40%/)
     expect(r.retryReasons).toEqual(['duplicate figure 40%'])
     expect(r.notes.join(' ')).toMatch(/Accepted with a problem after the retry: these figures already appear in the experience bullets/)
-    expect(r.profileMarkdown).toContain('40%') // accepted as written
   })
 
-  it('accepts one figure the experience bullets do not use, and flags a second', () => {
-    // 2M players is in the selected evidence but not in this digest.
+  it('accepts up to two figures in the profile and flags a third', () => {
     const d = experienceDigest([{ summary: '', bullets: ['Shipped on schedule.'] }])
-    const one = analyseProfile({ ...good, profile: 'Delivery leader behind a launch for 2M players.' }, ctx(), { ...allowed, digest: d })
-    expect(one.soft.join(' ')).not.toMatch(/at most 1 figure/)
     const two = analyseProfile({ ...good, profile: 'Delivery leader behind a launch for 2M players that saved 40% of release time.' }, ctx(), { ...allowed, digest: d })
-    expect(two.soft.join(' ')).toMatch(/at most 1 figure.*drop: 40%/)
-    expect(two.why).toContain('more than 1 figure in the profile')
+    expect(two.soft.join(' ')).not.toMatch(/at most 2 figures/)
+    const three = analyseProfile({ ...good, profile: 'Delivery leader behind a launch for 2M players that saved 40% of release time and shipped 12 titles, up 300%.' }, ctx(), { ...allowed, digest: d })
+    expect(three.soft.join(' ')).toMatch(/at most 2 figures/)
+    expect(three.why).toContain('more than 2 figures in the profile')
+  })
+
+  it('flags working-style and personality claims, softly (one retry)', async () => {
+    const a = analyseProfile({ ...good, profile: 'Delivery leader. I work best where roles are clear and I am passionate about releases.' }, ctx(), allowed)
+    expect(a.soft.join(' ')).toMatch(/working-style or personality claims.*"I work best".*"I am passionate"/)
+    expect(a.why).toContain('unsupported self-description')
+    const clean = analyseProfile({ ...good, profile: 'I run release programmes in a platform organisation.' }, ctx(), allowed)
+    expect(clean.soft.filter((x) => /personality/.test(x))).toEqual([])
+    const { s, result } = run([{ ...good, profile: 'I thrive on release work for platform teams.' }, good])
+    await result
+    expect(s.calls).toHaveLength(2)
+  })
+
+  it('does not flag domain adjectives or activities as self-description', () => {
+    for (const p of ['I run dynamic pricing programmes for platform teams.', 'I built proactive monitoring for release health.', 'I ran highly motivated squads of 8 engineers.']) {
+      expect(analyseProfile({ ...good, profile: p }, ctx(), allowed).soft.filter((x) => /personality/.test(x)), p).toEqual([])
+    }
+    for (const p of ["I'm a natural team player.", 'I am proactive and dynamic.', "I'm a big-picture thinker."]) {
+      expect(analyseProfile({ ...good, profile: p }, ctx(), allowed).soft.join(' '), p).toMatch(/personality/)
+    }
+  })
+
+  it('flags a years statement that is not exactly the supplied phrase, but does not require one', () => {
+    const c = { ...ctx(), yearsOfExperience: 10 }
+    expect(analyseProfile({ ...good, profile: "I've spent 10 years on delivery." }, c, allowed).why).toContain('years phrase not exact')
+    expect(analyseProfile({ ...good, profile: "I've spent 12+ years on delivery." }, c, allowed).why).toContain('years phrase not exact')
+    expect(analyseProfile({ ...good, profile: "I've spent 10+ years on delivery." }, c, allowed).why).not.toContain('years phrase not exact')
+    expect(analyseProfile(good, c, allowed).why).not.toContain('years phrase not exact')
+  })
+
+  describe('copying a bullet', () => {
+    it('never drops the second (figure) sentence, and uses a higher threshold for a sentence with a figure', () => {
+      const bl = ['Cut platform release time by 40% across 8 teams.']
+      const p = 'I lead delivery for platform organisations. I cut platform release time by 40% across 8 teams. I run planning for large programmes. I mentor leads through growth. I coach managers.'
+      expect(dropCopiedSentences(p, bl).dropped).toEqual([]) // sentence 2 is the figure sentence: never dropped
+      const p3 = 'I lead delivery for platform organisations. I run planning for large programmes. I cut platform release time by 40% for the finance teams. I mentor leads. I coach managers.'
+      expect(dropCopiedSentences(p3, bl).dropped).toEqual([]) // a figure sentence needs a near-identical match (here 83%)
+      expect(copiesBullet('Cut platform release time by 40% across 8 teams.', bl)).toBe(true)
+    })
+    const bullets = ['Cut platform release time by 40% across 8 teams.', 'Shipped 12 titles on schedule.']
+    it('drops a profile sentence that restates a bullet, never the first, keeping at least three sentences', () => {
+      const p = 'I lead delivery for platform organisations. I run planning for large programmes. I cut platform release time by 40% across 8 teams. I mentor leads through growth.'
+      const r = dropCopiedSentences(p, bullets)
+      expect(r.profile).toBe('I lead delivery for platform organisations. I run planning for large programmes. I mentor leads through growth.')
+      expect(r.dropped).toEqual(['I cut platform release time by 40% across 8 teams.'])
+      // Dropping would leave only two sentences: nothing is dropped, and it is reported.
+      const short = dropCopiedSentences('I lead delivery for platform organisations. I run planning for programmes. I cut platform release time by 40% across 8 teams.', bullets)
+      expect(short.profile).toContain('cut platform release time')
+      expect(short.kept).toHaveLength(1)
+    })
+    it('does not call a short or merely related sentence a copy', () => {
+      expect(copiesBullet('I shipped on schedule.', bullets)).toBe(false)
+      expect(copiesBullet('I build platform release programmes for large organisations.', bullets)).toBe(false)
+    })
+    it('is applied by writeProfile, with a note', async () => {
+      const profile = 'I lead delivery for platform organisations. I run planning for large programmes. I cut platform release time by 40% across 8 teams. I mentor leads through growth.'
+      const s = scripted((t, sch) => extractJSON(t, sch as never), [{ ...good, profile }])
+      mockJSON.mockImplementation(s.impl as never)
+      const r = await writeProfile(ctx(), digest, instructions, bullets)
+      expect(r.profileMarkdown).not.toContain('release time')
+      expect(r.notes.join(' ')).toMatch(/Dropped 1 profile sentence that restated a bullet/)
+    })
   })
 
   it('does not count small numbers as a repeated figure', () => {
@@ -456,7 +527,7 @@ describe('Phase 3b: no cross-section repetition, short competency labels, voice'
 
   describe('voice', () => {
     it('allows first person in the profile paragraph: no retry, no note', async () => {
-      const mine = { ...good, profile: "I build release programmes that run on time. I've designed the planning cadence for platform organisations and I work best with my engineers close." }
+      const mine = { ...good, profile: "I build release programmes that run on time. I've designed the planning cadence for platform organisations with my engineers close." }
       const { s, result } = run([mine])
       const r = await result
       expect(s.calls).toHaveLength(1)
@@ -479,34 +550,34 @@ describe('Phase 3b: no cross-section repetition, short competency labels, voice'
 
   describe('the prompt', () => {
     const p = profilePrompt(ctx(), digest, writableCompetencies(evidence.competencies), 6)
-    it('opens with positioning for this role, in the brief language and the job key terms', () => {
-      expect(p).toMatch(/Open with the positioning for THIS role.*brief's positioning and hidden-question language and the job's key terms/)
-      expect(p).toMatch(/what the company or product is/)
+    it('opens with the target role or domain in the job ad terms, second sentence the strongest result', () => {
+      expect(p).toMatch(/FIRST sentence names the target role or domain in the job ad's own terms/)
+      expect(p).toMatch(/second gives the strongest result with its figure/)
+      expect(p).toMatch(/what kind of company or product it is/)
     })
-    it('allows one figure, and names the ones the experience section already uses', () => {
-      expect(p).toMatch(/at most 1 in the profile and headline together/)
-      expect(p).toMatch(/those are: 40%, 2M/)
+    it('allows two figures, repeating a bullet figure in the profile only', () => {
+      expect(p).toMatch(/at most 2 in the profile and headline together/)
+      expect(p).toMatch(/profile MAY repeat the strongest figure the experience section also states/)
+      expect(p).toMatch(/the experience section uses: 40%, 2M/)
     })
-    it('asks for the profile in first person, plain, with no slogans, and no pronouns in the headline or labels', () => {
-      expect(p).toMatch(/in the first person \("I build \.\.\.", "I've designed \.\.\."; here and nowhere else\)/)
-      expect(p).toMatch(/No slogans and no storyteller phrases/)
+    it('asks for 4-5 sentences, 70-90 words, first person, no copying and no personality claims', () => {
+      expect(p).toMatch(/4 to 5 sentences, 70 to 90 words, in the first person \("I build \.\.\.", "I've designed \.\.\."; here and nowhere else\)/)
+      expect(p).toMatch(/Never restate a bullet's sentence/)
+      expect(p).toMatch(/Never write unsupported working-style or personality claims/)
       expect(p).toMatch(/never a job title or seniority level; no first person/)
       expect(p).toMatch(/2 to 5 words, with no numbers and no sentence/)
     })
-    it('prefers a figure the experience section does not state, or none', () => {
-      expect(p).toMatch(/Lead with a figure only when it is NOT stated in the experience section/)
-      expect(p).toMatch(/prefer a different figure from the evidence, or none/)
-    })
-    it('says not to state years of experience while the number is unset (pending the owner)', () => {
+    it('says not to state years of experience when none is given (a career under 10 years)', () => {
       expect(p).toContain('Do not state a number of years of experience.')
-      expect(p).not.toMatch(/Open with how long/)
+      expect(p).not.toMatch(/stateS exactly/)
     })
-    it('asks for the years opener only when a number is given, and accepts that number as a supported figure', () => {
+    it('asks for the exact "N+ years" phrase only when a number is given, and accepts that number as a supported figure', () => {
       const withYears = profilePrompt({ ...ctx(), yearsOfExperience: 15 }, digest, writableCompetencies(evidence.competencies), 6)
-      expect(withYears).toMatch(/Open with how long the candidate has done this work: 15 years of experience/)
-      const a = analyseProfile({ ...good, profile: "I've spent 15 years turning programmes into predictable releases." }, { ...ctx(), yearsOfExperience: 15 }, allowed)
+      expect(withYears).toContain('states exactly "15+ years"')
+      expect(withYears).toContain('no other number of years')
+      const a = analyseProfile({ ...good, profile: "I've spent 15+ years turning programmes into predictable releases." }, { ...ctx(), yearsOfExperience: 15 }, allowed)
       expect(a.unsupported).toEqual([])
-      expect(analyseProfile({ ...good, profile: "I've spent 15 years turning programmes into predictable releases." }, ctx(), allowed).unsupported).toEqual(['15'])
+      expect(analyseProfile({ ...good, profile: "I've spent 15+ years turning programmes into predictable releases." }, ctx(), allowed).unsupported).toEqual(['15'])
     })
   })
 })
@@ -519,16 +590,16 @@ describe('competency labels up to the budget (floors)', () => {
     brief: buildBriefFor({ budgets: { experiences: 4, skills: 12, tools: 10, competencies: budget, certifications: 6, education: 3, projects: 2 } }),
   })
 
-  it('allows up to 8 labels, and asks for 6 to 8 when the profile has at least 6 competencies', () => {
+  it('allows up to 8 labels and asks for no minimum', () => {
     const c = withComps(names)
     expect(maxCompetencyLabels(c)).toBe(8)
-    expect(minCompetencyLabels(c, 8)).toBe(6)
-    const p = profilePrompt(c, digest, writableCompetencies(c.evidence.competencies), 8, 6)
-    expect(p).toMatch(/write 6 to 8 labels/)
+    expect(minCompetencyLabels(c, 8)).toBe(0)
+    const p = profilePrompt(c, digest, writableCompetencies(c.evidence.competencies), 8, 0)
+    expect(p).toMatch(/write up to 8 labels/)
     expect(p).toMatch(/chosen competencies above and the key terms of the job's requirements/)
   })
 
-  it('asks for no minimum when the profile has fewer than 6 competencies (it is not padded)', () => {
+  it('asks for no minimum with few competencies (it is not padded)', () => {
     const c = withComps(names.slice(0, 4))
     expect(minCompetencyLabels(c, 8)).toBe(0)
     expect(profilePrompt(c, digest, writableCompetencies(c.evidence.competencies), 8, 0)).toMatch(/write up to 8 labels/)
@@ -542,15 +613,13 @@ describe('competency labels up to the budget (floors)', () => {
     expect(r.competenciesMarkdown.split('\n').filter((l) => l.startsWith('- '))).toHaveLength(8)
   })
 
-  it('tops up to 6 from the selected competencies when the writer returned fewer, noting it, with no retry', async () => {
+  it('does not pad the labels: a writer that returned 5 gets 5, with no retry', async () => {
     const c = withComps(names)
     const { s, result } = run([{ ...good, competencies: names.slice(0, 5) }], c)
     const r = await result
     expect(s.calls).toHaveLength(1)
-    const lines = r.competenciesMarkdown.split('\n').filter((l) => l.startsWith('- '))
-    expect(lines).toHaveLength(6)
-    expect(lines[5]).toBe(`- ${names[5]}`)
-    expect(r.notes.join(' ')).toMatch(/had 5 competency labels; added 1 from your selected competencies to reach 6/)
+    expect(r.competenciesMarkdown.split('\n').filter((l) => l.startsWith('- '))).toHaveLength(5)
+    expect(r.notes.join(' ')).not.toMatch(/to reach/)
   })
 
   it('still names a selected competency that no label reflects', async () => {

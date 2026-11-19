@@ -77,23 +77,11 @@ describe('renderCertifications', () => {
   describe('weak certifications (no issuer, no date)', () => {
     const weak = (name: string, rank: number) => cert({ name, issueDate: null, expiryDate: null, issuer: null, rank })
 
-    it('skips one that Select did not rank first only when the section is already full without it, with a log note', () => {
-      const r = renderCertifications([cert({ rank: 0 }), weak('React Front-End Course', 1)], now, 1)
+    it('always skips one that Select did not rank first, with a log note, whatever else the section holds', () => {
+      const r = renderCertifications([cert({ rank: 0 }), weak('React Front-End Course', 1)], now)
       expect(r.markdown).toBe('- **PMP** — PMI (2018)')
-      expect(r.notes).toEqual(['"React Front-End Course" has no issuer and no date, and the section is full without it, so it was left out.'])
-    })
-
-    it('still shows it, by name, when the others would leave the section short of the budget', () => {
-      const r = renderCertifications([cert({ rank: 0 }), weak('React Front-End Course', 1)], now, 6)
-      expect(r.markdown).toBe('- **PMP** — PMI (2018)\n- **React Front-End Course**')
-      expect(r.notes).toEqual(['"React Front-End Course" has no issuer and no date; shown by name because the section would be short of 6 without it.'])
-    })
-
-    it('counts only the certifications that are not weak toward filling the budget', () => {
-      const certs = [cert({ rank: 0 }), cert({ name: 'ITIL', rank: 1 }), weak('Weak A', 2), weak('Weak B', 3)]
-      // Two solid ones fill a budget of 2: both weak ones go. With a budget of 3 they stay.
-      expect(renderCertifications(certs, now, 2).markdown).not.toContain('Weak')
-      expect(renderCertifications(certs, now, 3).markdown).toContain('Weak A')
+      expect(r.notes).toEqual(['"React Front-End Course" has no issuer and no date, so it was left out.'])
+      expect(renderCertifications([weak('Weak A', 2), weak('Weak B', 3)], now).markdown).toBe('')
     })
 
     it('keeps one that Select ranked first', () => {

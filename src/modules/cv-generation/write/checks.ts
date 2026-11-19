@@ -516,3 +516,28 @@ export function unsupportedQualitative(text: string, allowed: readonly string[])
   const mine = norm(text)
   return QUALITATIVE.filter((q) => mine.includes(norm(q)) && !hay.includes(norm(q)))
 }
+
+// ── Unsupported self-description (profile) ──────────────────────────────────
+
+/**
+ * Working-style and personality claims a CV cannot back from evidence ("I work
+ * best where...", "passionate", "a team player"). Best-effort and soft: the
+ * profile says what the candidate did and what came of it, not what they are
+ * like. Returns the phrases found, as written. Pure.
+ */
+const SELF_DESCRIPTION: RegExp[] = [
+  /\bI (?:work|operate|perform) (?:best|well|better)\b/gi,
+  /\bI do my best work\b/gi,
+  /\bI(?:'m| am) (?:at my best|happiest|(?:highly |very |deeply )?(?:passionate|driven|motivated|committed|proactive|dynamic|dedicated))\b/gi,
+  /\bI (?:thrive|love|enjoy|believe|care deeply)\b/gi,
+  /\bI(?:'m| am) (?:a|an) [^.!?]{0,40}?\b(?:player|thinker|starter|person|learner|achiever|go-getter|worker)\b/gi,
+  /\bpassionate (?:about|for)\b/gi,
+  // Identity phrases that say what someone is like, never an activity or a domain term ("dynamic pricing", "proactive monitoring" are not flagged).
+  /\b(?:team player|self-starter|go-getter|people person|natural leader|fast learner|quick learner|results-driven|detail-oriented|hard-?working|strong work ethic|innovative thinker)\b/gi,
+]
+
+export function selfDescriptions(text: string): string[] {
+  const found: string[] = []
+  for (const re of SELF_DESCRIPTION) for (const m of text.matchAll(re)) if (!found.includes(m[0])) found.push(m[0])
+  return found
+}

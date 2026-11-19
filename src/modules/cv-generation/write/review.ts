@@ -39,10 +39,11 @@ import type { Strategy } from '../strategy'
 import { isThin } from './thin'
 import { leadWithProjects, leadWithStanding, playDownBullets, shortened, wrongTenseLines } from './bullets'
 import {
-  claimedHits, credentialProblems, distinctNotableFigures, figuresIn, introducedNames, projectReflected, repeatedFigures, sharedFigures,
+  claimedHits, credentialProblems, distinctNotableFigures, figuresIn, introducedNames, projectReflected, repeatedFigures, selfDescriptions,
   unsupportedFigures, unsupportedProperNouns, unsupportedQualitative, wordCount,
 } from './checks'
 import { activityPromptText, evidenceTexts, figureIgnoredNames, projectPromptText, type EmployerEvidence, type Evidence } from './evidence'
+import { negationDrift, scopeDrift } from './fidelity'
 import { BULLET_MAX_WORDS, PROFILE_MAX_FIGURES, PROFILE_MAX_WORDS, SUMMARY_MAX_WORDS } from './limits'
 import { plainLine, plainProblems, plainReasons } from './plain'
 import { snippetOf } from './provenance'
@@ -277,6 +278,14 @@ export function recheckText(
     const off = unsupportedFigures(text, scope.cited, names)
     if (off.length > 0) return { why: `${off.join(', ')} ${off.length === 1 ? 'is' : 'are'} not in the evidence this bullet cited (${off.length === 1 ? 'it is' : 'they are'} in the employer's other evidence)` }
   }
+  // Meaning must not drift: no negation the evidence lacks, no superlative that loses its scope qualifier.
+  if (kind === 'bullet') {
+    const source = scope.cited.length > 0 ? scope.cited : texts
+    const neg = negationDrift(text, source.join('\n'))
+    if (neg.length > 0) return { why: `adds ${neg.map((n) => `"${n}"`).join(', ')}, which the evidence does not say (a rewording must not change the meaning)` }
+    const drift = scopeDrift(text, source)[0]
+    if (drift) return { why: `keeps "${drift.claim}" but drops "${drift.qualifier}", which the evidence attaches to it` }
+  }
 
   const unrequested = claimedHits(text, ctx.evidence.claimedNames, { evidenceText, requirementText: requirementText(ctx.strategy) }).filter((c) => !c.requested).map((c) => c.name)
   if (unrequested.length > 0) return { why: `names a tool or skill the profile lists without evidence and the job does not ask for: ${unrequested.join(', ')}` }
@@ -309,9 +318,10 @@ export function recheckText(
     const added = repeatedFigures([...scope.others, text], names).filter((f) => !before.has(f))
     if (added.length > 0) return { why: `repeats a figure already stated in this entry or the profile: ${added.join(', ')}` }
   } else {
-    const shared = sharedFigures(text, scope.others, names)
-    if (shared.length > 0) return { why: `repeats a figure the experience section already states: ${shared.join(', ')}` }
-    if (distinctNotableFigures(text, names).length > PROFILE_MAX_FIGURES) return { why: `uses more than ${PROFILE_MAX_FIGURES} notable figure` }
+    // The profile may repeat a figure a bullet states (the top of page 1 carries the best proof); it may not use more than PROFILE_MAX_FIGURES or make working-style claims.
+    if (distinctNotableFigures(text, names).length > PROFILE_MAX_FIGURES) return { why: `uses more than ${PROFILE_MAX_FIGURES} notable figures` }
+    const selfDescribed = selfDescriptions(text)
+    if (selfDescribed.length > 0) return { why: `makes a working-style or personality claim the evidence cannot back: ${selfDescribed.join(', ')}` }
   }
   return { text, notes }
 }
@@ -370,13 +380,12 @@ export function applyEdits(doc: ReviewDoc, edits: ReviewOutput['edits'], ctx: Ap
       if (!ex.emp) { discard('this entry has no evidence to check an edit against'); continue }
       const emp = ex.emp
       if (!bulletId) { discard('name a bullet ("b1"...) or "summary" to edit in an experience entry'); continue }
-      const profileText = doc.profile?.paragraph ?? ''
       const active = () => ex.bullets.filter((b) => !b.removed)
       const activeTexts = () => active().map((b) => b.text)
       if (bulletId.toLowerCase() === 'summary') {
         if (!ex.summary) { discard('the entry has no summary'); continue }
         if (e.action === 'remove') { discard('the summary cannot be removed (every entry keeps one): reword it instead'); continue }
-        const ok = recheckText('summary', proposed, ctx, { emp, current: ex.current, others: [...activeTexts(), profileText].filter(Boolean), old: ex.summary, cited: [] })
+        const ok = recheckText('summary', proposed, ctx, { emp, current: ex.current, others: activeTexts().filter(Boolean), old: ex.summary, cited: [] })
         if ('why' in ok) { discard(ok.why); continue }
         if (ok.text === ex.summary) { discard('the new text is the same as the old'); continue }
         const rule = entryRuleProblem(emp, ctx, { summary: ex.summary, bullets: activeTexts() }, { summary: ok.text, bullets: activeTexts() })
@@ -398,7 +407,7 @@ export function applyEdits(doc: ReviewDoc, edits: ReviewOutput['edits'], ctx: Ap
         continue
       }
       const ok = recheckText('bullet', proposed, ctx, {
-        emp, current: ex.current, others: [ex.summary, ...without, profileText].filter(Boolean), old: bullet.text, cited: citedTexts(emp, bullet.sources),
+        emp, current: ex.current, others: [ex.summary, ...without].filter(Boolean), old: bullet.text, cited: citedTexts(emp, bullet.sources),
       })
       if ('why' in ok) { discard(ok.why); continue }
       if (ok.text === bullet.text) { discard('the new text is the same as the old'); continue }

@@ -82,22 +82,16 @@ export type Rendered = {
  * without a date.
  *
  * Weak certification rule: one with NEITHER an issuer NOR a date cannot be
- * checked and says little, so it is skipped (log note) ONLY when there are
- * already enough other certifications to fill `budget` (the Brief's
- * certification budget). When the others would leave the section short of the
- * budget, the weak one still renders (name only). The first certification shown
- * (`rank` 0 among those rendered, in Select's relevance order) and one in
- * progress (no date by nature) are never skipped by this rule, and a
- * certification with an issuer or a date never is. `rank` is undefined for a
- * code-chosen (fallback) selection, so the rule does not apply there.
+ * checked and says little, so it is skipped (log note). The first certification
+ * shown (`rank` 0, Select's most relevant) and one in progress (no date by
+ * nature) are never skipped by this rule, and a certification with an issuer or
+ * a date never is. `rank` is undefined for a code-chosen (fallback) selection,
+ * so the rule does not apply there. Nothing is shown to fill a count.
  */
-export function renderCertifications(certs: readonly CertificationEvidence[], now: Date = new Date(), budget: number = Number.POSITIVE_INFINITY): Rendered {
+export function renderCertifications(certs: readonly CertificationEvidence[], now: Date = new Date()): Rendered {
   const notes: string[] = []
-  const live = certs.filter((c) => certificationStatus(c, now) !== 'expired')
   const isWeak = (c: CertificationEvidence) =>
     certificationStatus(c, now) !== 'in_progress' && !c.issuer?.trim() && !c.issueDate && !c.expiryDate && (c.rank ?? 0) > 0
-  /** Certifications that are not weak: they count toward filling the budget. */
-  const solid = live.filter((c) => !isWeak(c)).length
   const lines: string[] = []
   for (const c of certs) {
     const status = certificationStatus(c, now)
@@ -106,11 +100,8 @@ export function renderCertifications(certs: readonly CertificationEvidence[], no
       continue
     }
     if (isWeak(c)) {
-      if (solid >= budget) {
-        notes.push(`"${c.name}" has no issuer and no date, and the section is full without it, so it was left out.`)
-        continue
-      }
-      notes.push(`"${c.name}" has no issuer and no date; shown by name because the section would be short of ${budget} without it.`)
+      notes.push(`"${c.name}" has no issuer and no date, so it was left out.`)
+      continue
     }
     const dates = [c.issueDate ? year(c.issueDate) : null, c.expiryDate ? `expires ${year(c.expiryDate)}` : null].filter(Boolean).join(', ')
     const mark = status === 'in_progress' && !ALREADY_MARKED.test(c.name) ? 'in progress' : null
