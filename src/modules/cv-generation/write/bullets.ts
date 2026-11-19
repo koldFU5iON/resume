@@ -14,7 +14,7 @@
  * only the allowance is enforced in code, by trimming, and never fails the run.
  */
 
-import type { CvBrief } from '../schema'
+import type { BriefItem, CvBrief } from '../schema'
 import { contentStems, figuresIn, normalised, phraseIndex, projectNameKey } from './checks'
 import type { EmployerEvidence } from './evidence'
 import { isThinProject } from './limits'
@@ -33,7 +33,7 @@ export type LeadWithProject = { name: string; key: string; line: string }
  * (matched by project name, years and versions ignored), each with the first
  * lead-with line that names it. In the order of `projects`.
  */
-export function leadWithProjects(projects: readonly ProjectRef[], leadWith: readonly string[]): LeadWithProject[] {
+export function leadWithProjects(projects: readonly ProjectRef[], leadWith: readonly BriefItem[]): LeadWithProject[] {
   return matchLeads(projects, leadWith, false)
 }
 
@@ -42,18 +42,18 @@ export function leadWithProjects(projects: readonly ProjectRef[], leadWith: read
  * isThinProject): the Brief names them, but there is no evidence behind the
  * framing line, so they get no own bullet and no check asks for one.
  */
-export function thinLeadWithProjects(projects: readonly ProjectRef[], leadWith: readonly string[]): LeadWithProject[] {
+export function thinLeadWithProjects(projects: readonly ProjectRef[], leadWith: readonly BriefItem[]): LeadWithProject[] {
   return matchLeads(projects, leadWith, true)
 }
 
-function matchLeads(projects: readonly ProjectRef[], leadWith: readonly string[], thin: boolean): LeadWithProject[] {
+function matchLeads(projects: readonly ProjectRef[], leadWith: readonly BriefItem[], thin: boolean): LeadWithProject[] {
   const out: LeadWithProject[] = []
   for (const p of projects) {
     if ((p.text !== undefined && isThinProject({ name: p.name, text: p.text })) !== thin) continue
     const key = projectNameKey(p.name)
     if (!key) continue
-    const line = leadWith.find((l) => phraseIndex(l, key) >= 0)
-    if (line) out.push({ name: p.name, key, line })
+    const lead = leadWith.find((l) => phraseIndex(l.framing, key) >= 0 || phraseIndex(l.name, key) >= 0)
+    if (lead) out.push({ name: p.name, key, line: lead.framing })
   }
   return out
 }
@@ -98,6 +98,11 @@ export function isOwnBulletOf(bullet: string, leads: readonly Pick<LeadWithProje
 
 // ── Trimming to the allowance ───────────────────────────────────────────────
 
+/** The texts a bullet is compared with: every lead-with and emphasise item's name and framing. */
+function briefItemTexts(brief: Pick<CvBrief, 'leadWith' | 'emphasise'>): string[] {
+  return [...brief.leadWith, ...brief.emphasise].flatMap((i) => [i.name, i.framing])
+}
+
 /** Whether a bullet reflects a Brief item (a lead-with line or an emphasise item): a project named in both, or two shared content words (one when the item has only one). */
 export function reflectsItem(bullet: string, item: string, projectKeys: readonly string[] = []): boolean {
   if (projectKeys.some((k) => phraseIndex(item, k) >= 0 && phraseIndex(bullet, k) >= 0)) return true
@@ -122,7 +127,7 @@ export function trimBullets(
   allowance: number,
 ): { bullets: string[]; trimmed: string[] } {
   if (bullets.length <= allowance) return { bullets: [...bullets], trimmed: [] }
-  const items = [...brief.leadWith, ...brief.emphasise.map((e) => e.item)]
+  const items = briefItemTexts(brief)
   const keys = projects.map((p) => projectNameKey(p.name)).filter(Boolean)
   const leads = leadWithProjects(projects, brief.leadWith)
   const tier = (b: string) => (isOwnBulletOf(b, leads) ? 0 : items.some((it) => reflectsItem(b, it, keys)) ? 1 : 2)
@@ -160,7 +165,7 @@ export function shortened(text: string, max = 80): string {
  * emphasise do not count (they would contradict themselves). Best effort.
  */
 export function playDownBullets(bullets: readonly string[], brief: Pick<CvBrief, 'leadWith' | 'emphasise' | 'playDown'>): Array<{ item: string; index: number }> {
-  const wanted = new Set([...brief.leadWith, ...brief.emphasise.map((e) => e.item)].flatMap((t) => [...contentStems(t, 3)]))
+  const wanted = new Set(briefItemTexts(brief).flatMap((t) => [...contentStems(t, 3)]))
   const out: Array<{ item: string; index: number }> = []
   for (const item of brief.playDown) {
     const terms = [...contentStems(item, 3)].filter((t) => !wanted.has(t))

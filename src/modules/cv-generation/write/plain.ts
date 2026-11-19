@@ -75,15 +75,18 @@ const has = (re: RegExp, text: string): boolean => {
   return found
 }
 
+/** `allowFirstPerson`: the professional profile paragraph is written in first person; every other string (bullets, summaries, headline, labels) is not. */
+export type PlainOptions = { allowFirstPerson?: boolean }
+
 /** What a model string breaks, as short phrases for the retry feedback; empty when it is plain. `evidence` is the candidate's own text: a first-person word inside a verbatim name from it is not a violation. */
-export function plainProblems(text: string, evidence = ''): string[] {
+export function plainProblems(text: string, evidence = '', opts: PlainOptions = {}): string[] {
   const out: string[] = []
   if ([IMAGE, LINK, REF_LINK, AUTOLINK].some((re) => has(re, text))) out.push('links or images')
   if (has(TAG, text)) out.push('HTML tags')
   if (text.split(/\r?\n/).some((l) => LEADING_MARKER.test(l))) out.push('a heading, quote or list marker')
   if (text.includes(':::')) out.push('":::"')
   if (text.includes('{{') || text.includes('}}')) out.push('"{{"')
-  if (hasFirstPerson(text, evidence)) out.push('first person ("I", "my", "we"): use an implied subject, with no pronouns')
+  if (!opts.allowFirstPerson && hasFirstPerson(text, evidence)) out.push('first person ("I", "my", "we"): use an implied subject, with no pronouns')
   return out
 }
 
@@ -120,14 +123,15 @@ export function plainLine(text: string): string {
 }
 
 /** The retry feedback for a field that is not plain, or null. */
-export function plainFeedback(label: string, text: string, evidence = ''): string | null {
-  const p = plainProblems(text, evidence)
-  return p.length > 0 ? `${label} contains ${p.join(', ')}; write plain text only (no Markdown, links, HTML or ":::"), in the third person implied: no "I", "my", "we"` : null
+export function plainFeedback(label: string, text: string, evidence = '', opts: PlainOptions = {}): string | null {
+  const p = plainProblems(text, evidence, opts)
+  const voice = opts.allowFirstPerson ? '' : `, in the third person implied: no "I", "my", "we"`
+  return p.length > 0 ? `${label} contains ${p.join(', ')}; write plain text only (no Markdown, links, HTML or ":::")${voice}` : null
 }
 
 /** Short phrases for the log ("first person", "links or images") for a field's problems, or []. */
-export function plainReasons(text: string, evidence = ''): string[] {
-  return plainProblems(text, evidence).map((p) => (p.startsWith('first person') ? 'first person' : p))
+export function plainReasons(text: string, evidence = '', opts: PlainOptions = {}): string[] {
+  return plainProblems(text, evidence, opts).map((p) => (p.startsWith('first person') ? 'first person' : p))
 }
 
 /**

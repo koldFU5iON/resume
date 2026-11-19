@@ -194,7 +194,7 @@ export function reviewPrompt(input: ReviewPromptInput, doc: ReviewDoc): { prompt
   const prompt = [
     '# Brief',
     briefText(input.brief),
-    `Lead with:\n${list(input.brief.leadWith)}`,
+    `Lead with:\n${list(input.brief.leadWith.map((l) => l.framing))}`,
     '# Job requirements\n\nFor judging coverage only. They are not facts about the candidate.',
     data('job_requirements', requirementsBlock(input.strategy)),
     '# Listed in the profile without evidence\n\nA bullet may name one only when the job asks for it.',
@@ -245,8 +245,10 @@ export function recheckText(
   const evidenceText = texts.join('\n')
   const ownText = [evidenceText, ...ctx.evidence.profileCompanies, ...ctx.evidence.profileTitles].join('\n')
 
-  const plain = plainProblems(raw, ownText)
-  if (plain.length > 0) return { why: `the new text is not plain text (${plainReasons(raw, ownText).join(', ')})` }
+  // The profile paragraph is written in first person; bullets and summaries are not.
+  const voice = { allowFirstPerson: kind === 'profile' }
+  const plain = plainProblems(raw, ownText, voice)
+  if (plain.length > 0) return { why: `the new text is not plain text (${plainReasons(raw, ownText, voice).join(', ')})` }
   const text = plainLine(raw)
   if (!text) return { why: 'the new text is empty' }
   const max = kind === 'bullet' ? BULLET_MAX_WORDS : kind === 'summary' ? SUMMARY_MAX_WORDS : PROFILE_MAX_WORDS

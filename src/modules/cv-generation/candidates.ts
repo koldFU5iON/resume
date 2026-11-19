@@ -48,6 +48,12 @@ export type CandidateItem = {
   detail: string | null
   /** Skills, tools and competencies: backed by evidence or a certification in the profile. */
   proven: boolean
+  /** Certifications only: the issue date (ISO), when the profile has one. */
+  issued?: string | null
+  /** Certifications only: not finished (status.ts). */
+  inProgress?: boolean
+  /** Certifications only: the expiry date has passed, so the CV leaves it out. */
+  expired?: boolean
 }
 
 export type Candidates = { employers: CandidateEmployer[] } & Record<FlatSection, CandidateItem[]>
@@ -111,8 +117,11 @@ export function buildCandidates(vault: Vault, now: Date = new Date()): Candidate
     certifications: notesOf(vault, 'certification').map((n) => ({
       id: n.id,
       label: markInProgress(n.props.name, certificationStatus(n.props, now) === 'in_progress'),
-      detail: n.props.issuer,
+      detail: [n.props.issuer, n.props.issueDate ? String(n.props.issueDate.getUTCFullYear()) : null].filter(Boolean).join(', ') || null,
       proven: true,
+      issued: n.props.issueDate ? n.props.issueDate.toISOString().slice(0, 10) : null,
+      inProgress: certificationStatus(n.props, now) === 'in_progress',
+      expired: certificationStatus(n.props, now) === 'expired',
     })),
     education: notesOf(vault, 'education').map((n) => ({
       id: n.id,

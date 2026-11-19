@@ -81,16 +81,23 @@ export type Rendered = {
  * note; a future expiry date is a held certification. An undated one is shown
  * without a date.
  *
- * Weak certification rule (Phase 3b): one with NEITHER an issuer NOR a date
- * cannot be checked and says little, so it is skipped (log note) unless it is
- * the first certification shown (`rank` 0 among those rendered, in Select's
- * relevance order). A certification with an issuer or a date is never skipped
- * by this rule, and neither is one that is in progress (it has no date by
- * nature). `rank` is undefined for a code-chosen (fallback) selection, so the
- * rule does not apply there.
+ * Weak certification rule: one with NEITHER an issuer NOR a date cannot be
+ * checked and says little, so it is skipped (log note) ONLY when there are
+ * already enough other certifications to fill `budget` (the Brief's
+ * certification budget). When the others would leave the section short of the
+ * budget, the weak one still renders (name only). The first certification shown
+ * (`rank` 0 among those rendered, in Select's relevance order) and one in
+ * progress (no date by nature) are never skipped by this rule, and a
+ * certification with an issuer or a date never is. `rank` is undefined for a
+ * code-chosen (fallback) selection, so the rule does not apply there.
  */
-export function renderCertifications(certs: readonly CertificationEvidence[], now: Date = new Date()): Rendered {
+export function renderCertifications(certs: readonly CertificationEvidence[], now: Date = new Date(), budget: number = Number.POSITIVE_INFINITY): Rendered {
   const notes: string[] = []
+  const live = certs.filter((c) => certificationStatus(c, now) !== 'expired')
+  const isWeak = (c: CertificationEvidence) =>
+    certificationStatus(c, now) !== 'in_progress' && !c.issuer?.trim() && !c.issueDate && !c.expiryDate && (c.rank ?? 0) > 0
+  /** Certifications that are not weak: they count toward filling the budget. */
+  const solid = live.filter((c) => !isWeak(c)).length
   const lines: string[] = []
   for (const c of certs) {
     const status = certificationStatus(c, now)
@@ -98,10 +105,12 @@ export function renderCertifications(certs: readonly CertificationEvidence[], no
       notes.push(`"${c.name}" expired in ${year(c.expiryDate as Date)} and was left out.`)
       continue
     }
-    // An in-progress certification is never "weak": it has no date by nature, and the CV shows it as "(in progress)".
-    if (status !== 'in_progress' && !c.issuer?.trim() && !c.issueDate && !c.expiryDate && (c.rank ?? 0) > 0) {
-      notes.push(`"${c.name}" has no issuer and no date, and Select did not rank it first, so it was left out.`)
-      continue
+    if (isWeak(c)) {
+      if (solid >= budget) {
+        notes.push(`"${c.name}" has no issuer and no date, and the section is full without it, so it was left out.`)
+        continue
+      }
+      notes.push(`"${c.name}" has no issuer and no date; shown by name because the section would be short of ${budget} without it.`)
     }
     const dates = [c.issueDate ? year(c.issueDate) : null, c.expiryDate ? `expires ${year(c.expiryDate)}` : null].filter(Boolean).join(', ')
     const mark = status === 'in_progress' && !ALREADY_MARKED.test(c.name) ? 'in progress' : null

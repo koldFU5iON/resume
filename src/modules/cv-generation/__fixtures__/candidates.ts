@@ -1,4 +1,10 @@
 import type { Candidates, CandidateEmployer, CandidateItem } from '../candidates'
+import { deriveItemName } from '../schema'
+
+/** Lead-with items from plain sentences, the way an OLD stored brief reads (name derived from the text). */
+export const leads = (items: readonly string[]) => items.map((framing) => ({ name: deriveItemName(framing), framing }))
+/** An emphasise item from the old `{ item, why }` pair. */
+export const em = (item: string, why = '') => ({ name: deriveItemName(item), framing: item, why })
 
 const item = (id: string, label: string, over: Partial<CandidateItem> = {}): CandidateItem => ({ id, label, detail: null, proven: true, ...over })
 
@@ -45,10 +51,10 @@ export function bigCandidates(employers = 6, acts = 8, flat = 15): Candidates {
 
 export const brief = {
   hiddenQuestion: 'Can they ship a platform migration?',
-  leadWith: ['Platform migration delivery'],
-  emphasise: [{ item: 'Release management', why: 'core of the role' }],
+  leadWith: [{ name: 'Platform migration', framing: 'Platform migration delivery' }],
+  emphasise: [{ name: 'Release management', framing: 'Release management', why: 'core of the role' }],
   playDown: ['Early career support work'],
   positioning: 'A delivery lead who has done this before.',
   tone: 'plain and specific',
-  budgets: { experiences: 4, skills: 12, tools: 10, competencies: 6, certifications: 4, education: 3, projects: 2 },
+  budgets: { experiences: 4, skills: 12, tools: 10, competencies: 8, certifications: 6, education: 3, projects: 2 },
 }

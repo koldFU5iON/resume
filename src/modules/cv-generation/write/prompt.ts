@@ -26,7 +26,7 @@ export function briefText(brief: CvBrief): string {
     `The problem the role is hired to solve: ${brief.hiddenQuestion}`,
     `Positioning: ${brief.positioning}`,
     `Tone: ${brief.tone}`,
-    `Emphasise:\n${bullets(brief.emphasise.map((e) => `${e.item}: ${e.why}`))}`,
+    `Emphasise:\n${bullets(brief.emphasise.map((e) => `${e.framing}: ${e.why}`))}`,
     `Play down (framing only; it never changes a title or hides an employer):\n${bullets(brief.playDown)}`,
   ].join('\n\n')
 }

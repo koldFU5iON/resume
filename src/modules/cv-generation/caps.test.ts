@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  BUDGET_CAPS, FLAT_CAPS, MAX_ACTIVITIES_PER_EMPLOYER, MAX_EMPLOYERS, MAX_HEADER_ONLY_EMPLOYERS, MIN_ACTIVITIES_PER_EMPLOYER,
-  TOTAL_ACTIVITY_BUDGET, allocateBullets,
+  BUDGET_CAPS, BUDGET_FLOORS, FLAT_CAPS, FLAT_FLOORS, MAX_ACTIVITIES_PER_EMPLOYER, MAX_EMPLOYERS, MAX_HEADER_ONLY_EMPLOYERS, MAX_TOTAL_BULLETS,
+  MIN_ACTIVITIES_PER_EMPLOYER, MIN_EMPLOYERS_WITH_BULLETS, TOTAL_ACTIVITY_BUDGET, allocateBullets, clampBudgetValue,
 } from './caps'
 
 const claim = (relevance: number, supply = 30) => ({ relevance, supply })
@@ -11,22 +11,43 @@ describe('caps', () => {
   it('are the agreed numbers', () => {
     expect(MAX_EMPLOYERS).toBe(4)
     expect(MAX_HEADER_ONLY_EMPLOYERS).toBe(4)
-    expect(TOTAL_ACTIVITY_BUDGET).toBe(14)
+    expect(TOTAL_ACTIVITY_BUDGET).toBe(17)
+    expect(MAX_TOTAL_BULLETS).toBe(20)
     expect([MIN_ACTIVITIES_PER_EMPLOYER, MAX_ACTIVITIES_PER_EMPLOYER]).toEqual([2, 6])
-    expect(FLAT_CAPS).toEqual({ skills: 12, tools: 10, competencies: 6, certifications: 4, education: 3, projects: 2 })
+    expect(FLAT_CAPS).toEqual({ skills: 12, tools: 10, competencies: 8, certifications: 6, education: 3, projects: 2 })
     expect(BUDGET_CAPS.experiences).toBe(MAX_EMPLOYERS)
+  })
+
+  it('has floors the Brief may raise but never go below, each within its ceiling', () => {
+    expect(MIN_EMPLOYERS_WITH_BULLETS).toBe(4)
+    expect(FLAT_FLOORS).toEqual({ skills: 12, tools: 10, competencies: 8, certifications: 6, education: 1, projects: 0 })
+    for (const s of Object.keys(BUDGET_CAPS) as Array<keyof typeof BUDGET_CAPS>) expect(BUDGET_FLOORS[s]).toBeLessThanOrEqual(BUDGET_CAPS[s])
+    expect(TOTAL_ACTIVITY_BUDGET).toBeGreaterThanOrEqual(16)
+    expect(TOTAL_ACTIVITY_BUDGET).toBeLessThanOrEqual(18)
+  })
+
+  it('clamps a budget into [floor, ceiling]', () => {
+    expect(clampBudgetValue('certifications', 3)).toBe(6)
+    expect(clampBudgetValue('competencies', 5)).toBe(8)
+    expect(clampBudgetValue('experiences', 1)).toBe(4)
+    expect(clampBudgetValue('skills', 99)).toBe(12)
+    expect(clampBudgetValue('education', 0)).toBe(1)
+    expect(clampBudgetValue('education', 2)).toBe(2)
+    expect(clampBudgetValue('projects', 0)).toBe(0)
+    expect(clampBudgetValue('projects', 9)).toBe(2)
+    expect(clampBudgetValue('tools', Number.NaN)).toBe(10)
   })
 })
 
 describe('allocateBullets', () => {
   it('splits in proportion to relevance', () => {
-    // 14 across weights 5:3:2 -> 7:4.2:2.8, the first capped at 6, the rest re-share 8 as 4.8:3.2.
-    expect(allocateBullets([claim(5), claim(3), claim(2)])).toEqual([6, 5, 3])
+    // 17 across weights 5:3:2 -> 8.5:5.1:3.4, the first capped at 6, the rest re-share 11 as 6.6:4.4 (the second capped at 6).
+    expect(allocateBullets([claim(5), claim(3), claim(2)])).toEqual([6, 6, 5])
   })
 
   it('gives equal relevance an equal split', () => {
     expect(allocateBullets([claim(3), claim(3)])).toEqual([6, 6])
-    expect(allocateBullets([claim(3), claim(3), claim(3), claim(3)]).sort()).toEqual([3, 3, 4, 4])
+    expect(allocateBullets([claim(3), claim(3), claim(3), claim(3)]).sort()).toEqual([4, 4, 4, 5])
   })
 
   it('never goes below the minimum or above the maximum', () => {
@@ -42,7 +63,7 @@ describe('allocateBullets', () => {
   it('is driven by relevance, not by position (recency)', () => {
     // The newest employer is least relevant; the oldest is the lead-with one.
     const r = allocateBullets([claim(1), claim(2), claim(5)])
-    expect(r).toEqual([3, 5, 6])
+    expect(r).toEqual([5, 6, 6])
   })
 
   it('gives a lone employer the maximum', () => {
@@ -75,9 +96,14 @@ describe('allocateBullets', () => {
           claims.forEach((o, j) => { if (o.relevance > claims[i].relevance) expect(r[j]).toBeGreaterThanOrEqual(n) })
         })
         // The budget is used in full whenever the supplies allow it.
-        if (supply >= 4) expect(sum(r)).toBe(TOTAL_ACTIVITY_BUDGET)
+        if (supply * 4 >= TOTAL_ACTIVITY_BUDGET) expect(sum(r)).toBe(TOTAL_ACTIVITY_BUDGET)
+        else expect(sum(r)).toBe(supply * 4)
       }
     }
+  })
+
+  it('never splits more than the hard ceiling, even when asked for more', () => {
+    expect(sum(allocateBullets([claim(3), claim(3), claim(3), claim(3), claim(3)], { total: 40 }))).toBe(MAX_TOTAL_BULLETS)
   })
 
   it('keeps the most relevant floors when the minimums alone exceed the total', () => {

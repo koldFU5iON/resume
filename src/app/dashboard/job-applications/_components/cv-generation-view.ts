@@ -208,8 +208,8 @@ export function briefRows(brief: CvBrief): BriefRow[] {
   const b = brief.budgets
   const rows: BriefRow[] = [
     { label: "The hidden question", text: brief.hiddenQuestion },
-    { label: "Lead with", items: brief.leadWith.map((text) => ({ text })) },
-    { label: "Emphasise", items: brief.emphasise.map((e) => ({ text: e.item, strong: true, ...(e.why.trim() ? { note: e.why } : {}) })) },
+    { label: "Lead with", items: brief.leadWith.map((l) => ({ text: l.name, ...(l.framing.trim() && l.framing.trim() !== l.name ? { note: l.framing } : {}) })) },
+    { label: "Emphasise", items: brief.emphasise.map((e) => ({ text: e.name, strong: true, ...(e.framing.trim() || e.why.trim() ? { note: [e.framing, e.why].filter((t) => t.trim() && t.trim() !== e.name).join(" — ") } : {}) })) },
     { label: "Play down (framing only; titles and employers stay)", items: brief.playDown.map((text) => ({ text })) },
     { label: "Positioning", text: brief.positioning },
     { label: "Tone", text: brief.tone },

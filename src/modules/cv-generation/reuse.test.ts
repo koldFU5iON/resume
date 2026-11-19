@@ -113,6 +113,12 @@ describe('findReusableSelection', () => {
       expect(reuseKeyOf({ ...base, briefPrompt: 'S', selectPrompt: 'B' })).not.toBe(k) // not just the concatenation
     })
 
+    it('an older stored selection is not reused: the pipeline version was bumped when the floors and the named-item brief shape arrived', () => {
+      expect(SELECTION_PIPELINE_VERSION).toBeGreaterThanOrEqual(2)
+      const base = { inputsHash: HASH, briefPrompt: 'B', selectPrompt: 'S' }
+      expect(reuseKeyOf({ ...base, version: 1 })).not.toBe(reuseKeyOf({ ...base, version: SELECTION_PIPELINE_VERSION }))
+    })
+
     it('computeReuseKey uses the current version and the EFFECTIVE prompts of this profile (an override included)', async () => {
       const k1 = await computeReuseKey('p1', HASH)
       expect(k1).toBe(reuseKeyOf({ version: SELECTION_PIPELINE_VERSION, inputsHash: HASH, briefPrompt: 'BRIEF PROMPT', selectPrompt: 'SELECT PROMPT' }))

@@ -40,6 +40,7 @@ import {
   provenanceBySection,
   sourceLine,
 } from "./cv-generation-view"
+import { leads, em } from '../../../../modules/cv-generation/__fixtures__/candidates'
 
 const entry = (over: Partial<StageLogEntry> & Pick<StageLogEntry, "stage">): StageLogEntry => StageLogEntrySchema.parse(over)
 const run = (status: CvGenerationStatus, log: StageLogEntry[] = [], stageTimings = {}) => ({ status, log, stageTimings })
@@ -210,8 +211,8 @@ describe("startResponseMessage", () => {
 
 describe("briefRows", () => {
   const brief = CvBriefSchema.parse({
-    hiddenQuestion: "Can they ship a migration?", leadWith: ["Migration delivery"],
-    emphasise: [{ item: "Release management", why: "core of the role" }], playDown: [],
+    hiddenQuestion: "Can they ship a migration?", leadWith: leads(["Migration delivery"]),
+    emphasise: [em("Release management", "core of the role")], playDown: [],
     positioning: "A delivery lead.", tone: "plain",
     budgets: { experiences: 3, skills: 8, tools: 6, competencies: 4, certifications: 2, education: 2, projects: 1 },
   })
@@ -225,7 +226,7 @@ describe("briefRows", () => {
     expect(rows[2].items).toEqual([{ text: "Release management", strong: true, note: "core of the role" }])
     expect(rows[1].items?.some((i) => i.strong)).toBe(false)
     expect(JSON.stringify(rows[2].items)).not.toContain("Release management: core")
-    expect(rows[5].text).toBe("Employers with bullets 3 · skills 8 · tools 6 · competencies 4 · certifications 2 · education 2 · projects 1")
+    expect(rows[5].text).toBe("Employers with bullets 4 · skills 12 · tools 10 · competencies 8 · certifications 6 · education 2 · projects 1")
   })
 })
 
@@ -431,8 +432,8 @@ describe("retryReasonLine (why a stage or section retried)", () => {
 
 describe("runLogMarkdown (the Copy log text)", () => {
   const brief = CvBriefSchema.parse({
-    hiddenQuestion: "Can they ship a migration?", leadWith: ["The Enemies Demo Campaign"],
-    emphasise: [{ item: "Release management", why: "core of the role" }], playDown: ["Build detail"],
+    hiddenQuestion: "Can they ship a migration?", leadWith: leads(["The Enemies Demo Campaign"]),
+    emphasise: [em("Release management", "core of the role")], playDown: ["Build detail"],
     positioning: "A delivery lead.", tone: "plain",
     budgets: { experiences: 2, skills: 8, tools: 6, competencies: 4, certifications: 2, education: 2, projects: 1 },
   })
