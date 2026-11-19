@@ -100,7 +100,9 @@ export function writeSelection(vault: Vault = writeVault(), over: Partial<Select
     ...sel,
     employers: sel.employers.map((e) => (e.headerOnly || bulletKeys.has(e.key) ? e : { ...e, headerOnly: true, relevance: undefined, bullets: [] })),
     skills: only(sel.skills), tools: only(sel.tools), competencies: only(sel.competencies),
-    certifications: only(sel.certifications), education: only(sel.education), projects: only(sel.projects),
+    // Select leaves expired certifications off; the write stage must still cope with one (older stored selections), so keep what the fixture names.
+    certifications: out.certifications.filter((p) => vault.notes.get(p.id)?.type === 'certification').map((p) => ({ id: p.id, label: String(vault.notes.get(p.id)!.title), reason: p.reason })),
+    education: only(sel.education), projects: only(sel.projects),
   }
 }
 

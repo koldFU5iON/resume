@@ -1109,7 +1109,8 @@ describe('named lead-with and emphasise items', () => {
     expect(nameTokens('17th Unity Awards 2022')).toEqual(['unity', 'award'])
     expect(matchesName('The Unity Awards show, 2019', '17th Unity Award')).toBe(true)
     expect(matchesName('Cut costs', 'Unity')).toBe(false)
-    expect(matchesName('Automated the ARM workflow', 'Automation')).toBe(true)
+    expect(matchesName('Automation of the ARM workflow', 'Automation')).toBe(true)
+    expect(matchesName('Automated the ARM workflow', 'Automation')).toBe(false) // whole words, not six-letter stems
     expect(matchesName('2022', '2022')).toBe(false) // a name with no usable word matches nothing
   })
 })
@@ -1126,17 +1127,17 @@ describe('figure-rich evidence', () => {
     a[2].text = 'Managed vendor relationships'
     a[3].text = 'Maintained the roadmap'
     a[4].text = 'Reported status to leadership'
-    a[5].text = 'Automated the ARM workflow, cutting it from 3 weeks to 1 hour' // figure-rich match, picked below the cap
-    a[6].text = 'Unified 1,000+ inbound requests into one intake, automating triage' // figure-rich match, never picked
+    a[5].text = 'Automation of the ARM workflow, cutting it from 3 weeks to 1 hour' // figure-rich match, picked below the cap
+    a[6].text = 'Unified 1,000+ inbound requests into one intake with automation of triage' // figure-rich match, never picked
     return c
   }
   const withModel = (c: Candidates, ids: string[]) => ({ ...empty, employers: epick(['co-0', 3], ['co-1', 3], ['co-2', 3], ['co-3', 3]), activities: ids.map((id) => ({ id, reason: 'r' })), emphasise: [{ item: 'Automation', evidence: ['e0a0'] }] })
 
   it('detects a figure or an outcome together with a brief item name', () => {
     const items = [{ name: 'Automation' }]
-    expect(strongEvidence({ text: 'Automated the ARM workflow from 3 weeks to 1 hour', impact: null }, items)).toBe(true)
-    expect(strongEvidence({ text: 'Automated the ARM workflow', impact: '75% faster' }, items)).toBe(true)
-    expect(strongEvidence({ text: 'Automated the ARM workflow', impact: null }, items)).toBe(false) // no figure or outcome
+    expect(strongEvidence({ text: 'Automation of the ARM workflow from 3 weeks to 1 hour', impact: null }, items)).toBe(true)
+    expect(strongEvidence({ text: 'Automation of the ARM workflow', impact: '75% faster' }, items)).toBe(true)
+    expect(strongEvidence({ text: 'Automation of the ARM workflow', impact: null }, items)).toBe(false) // no figure or outcome
     expect(strongEvidence({ text: 'Cut costs by 40%', impact: null }, items)).toBe(false) // a figure, but no brief item
   })
 
@@ -1220,5 +1221,33 @@ describe('figure-rich swap guards', () => {
     expect(s.selection.certifications.map((i) => i.id)).not.toContain('ce0')
     expect(s.selection.certifications.map((i) => i.id)).toContain('ce1')
     expect(s.notes.join(' ')).toContain('expired certification')
+  })
+})
+
+describe('name matching false positives', () => {
+  it('does not match by a shared prefix', () => {
+    expect(matchesName('production for launch events', 'Product launches')).toBe(false)
+    expect(matchesName('Grew the developer community', 'Developer communications')).toBe(false)
+    expect(matchesName('Ran product launches in EMEA', 'Product launches')).toBe(true)
+  })
+  it('needs every word of a name of three words or fewer', () => {
+    expect(matchesName('Built internal tools for games teams', 'Weta Tools & Games')).toBe(false)
+    expect(matchesName('Shipped Weta tools and games', 'Weta Tools & Games')).toBe(true)
+  })
+  it('keeps a majority for longer names', () => {
+    expect(matchesName('Ran the one marketing request intake', 'One Marketing Request Form Intake')).toBe(true)
+    expect(matchesName('Ran marketing', 'One Marketing Request Form Intake')).toBe(false)
+  })
+  it('a single generic word matches only a short label, never a sentence', () => {
+    expect(matchesName('Led marketing for the studio across three regions', 'Marketing')).toBe(false)
+    expect(matchesName('Marketing', 'Marketing')).toBe(true)
+    expect(matchesName('Growth Marketing Lead', 'Marketing')).toBe(true)
+    expect(matchesName('Led the product team daily', 'Team')).toBe(false)
+  })
+  it('Unity is covered by an employer carrying it', () => {
+    const c = bigCandidates(5, 4)
+    c.employers[0].company = 'Unity Technologies'
+    const { selection: s } = enforceSelection({ ...empty, employers: epick(['co-0', 5], ['co-1', 3], ['co-2', 3], ['co-3', 3]) }, c, { budgets: brief.budgets, leadWith: [{ name: 'Unity', framing: 'Unity: platform storytelling' }], emphasise: [] })
+    expect(s.uncovered ?? []).toEqual([])
   })
 })
