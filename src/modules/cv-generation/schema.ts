@@ -9,7 +9,7 @@
  */
 
 import * as z from 'zod'
-import { BUDGET_CAPS, FLAT_SECTIONS, MAX_RELEVANCE, MIN_RELEVANCE, NEUTRAL_RELEVANCE, type BudgetSection } from './caps'
+import { BUDGET_CAPS, BUDGET_FLOORS, clampBudgetValue, FLAT_SECTIONS, MAX_RELEVANCE, MIN_RELEVANCE, NEUTRAL_RELEVANCE, type BudgetSection } from './caps'
 
 // ── Run lifecycle ───────────────────────────────────────────────────────────
 
@@ -172,7 +172,7 @@ export const SELECTION_REUSE_WINDOW_MS = SELECTION_REUSE_WINDOW_DAYS * 24 * 60 *
  * writers): a stored selection from before the change must not be reused. A prompt
  * edit by the user needs no bump: the effective prompt texts are hashed too.
  */
-export const SELECTION_PIPELINE_VERSION = 1
+export const SELECTION_PIPELINE_VERSION = 2
 
 /** A failed run whose Brief and Select were paid for may still donate them: only these failures happened AFTER Select (at Land), so the stored pair is whole. */
 export const REUSABLE_FAILURE_KINDS = ['draft_exists', 'document_limit'] as const
@@ -346,37 +346,99 @@ function capped<T extends z.ZodType>(item: T, max: number, description: string) 
   return z.array(item).describe(`${description} (at most ${max})`).transform((a) => a.slice(0, max))
 }
 
-/** A count clamped into 0..cap (1..cap for roles: the CV always has one) instead of failing. */
+/**
+ * A count clamped into [floor, ceiling] (caps.ts): the Brief may raise a
+ * budget up to its ceiling but never go below the floor, so a stored Brief's
+ * out-of-range number reads as the floor instead of failing.
+ */
 function budget(section: BudgetSection, description: string) {
-  const cap = BUDGET_CAPS[section]
-  const min = section === 'experiences' ? 1 : 0
-  return z.number().describe(`${description} (an integer from ${min} to ${cap})`)
-    .transform((v) => Math.min(cap, Math.max(min, Math.round(v))))
+  return z.number().describe(`${description} (an integer from ${BUDGET_FLOORS[section]} to ${BUDGET_CAPS[section]})`)
+    .transform((v) => clampBudgetValue(section, v))
+}
+
+/** A lead-with or emphasise item: a short proper `name` or topic to match evidence by, and the `framing` sentence that tells the writers how to use it. */
+export type BriefItem = { name: string; framing: string }
+
+const NAME_MAX = 80
+const FRAMING_MAX = 200
+
+/**
+ * The short name of an old-shape item (a plain sentence): the text before the
+ * first ':' when there is one, else the first quoted phrase, else the first
+ * run of capitalised words (not just a sentence's first word), else the first
+ * few words. Pure.
+ */
+export function deriveItemName(text: string): string {
+  const t = text.trim()
+  const colon = t.indexOf(':')
+  if (colon > 0 && colon <= NAME_MAX) return t.slice(0, colon).trim()
+  const quoted = t.match(/["“‘']([^"”’']{2,80})["”’']/)
+  if (quoted) return quoted[1].trim()
+  const run = [...t.matchAll(/[A-Z0-9][\w&.+#'-]*(?:\s+(?:(?:of|&)\s+)?[A-Z0-9][\w&.+#'-]*)*/g)]
+    .find((m) => m[0].includes(' ') || (m.index ?? 0) > 0)
+  if (run) return run[0].trim().slice(0, NAME_MAX)
+  return t.split(/\s+/).slice(0, 6).join(' ').slice(0, NAME_MAX)
+}
+
+/** Reads the new `{ name, framing }` shape, or an old plain string (the framing; the name is derived). */
+function briefItemShape(v: unknown): unknown {
+  if (typeof v === 'string') return { name: deriveItemName(v), framing: v }
+  if (v && typeof v === 'object') {
+    const o = v as Record<string, unknown>
+    // Old emphasise shape: { item, why }.
+    const framing = typeof o.framing === 'string' ? o.framing : typeof o.item === 'string' ? o.item : undefined
+    const name = typeof o.name === 'string' && o.name.trim() ? o.name : framing !== undefined ? deriveItemName(framing) : undefined
+    if (framing !== undefined) return { ...o, name, framing }
+  }
+  return v
+}
+
+const itemFields = {
+  name: cutText(NAME_MAX, 'The short proper name or topic evidence is matched by, e.g. "Unity" or "One Marketing Request Form"'),
+  framing: cutText(FRAMING_MAX, 'The sentence that frames it for the writers'),
+}
+const leadWithObject = z.object(itemFields)
+const emphasiseObject = z.object({ ...itemFields, why: cutText(200, 'Why it matters for this role') })
+
+/**
+ * The brief object for one item flavour: `tolerant` reads the old shapes too
+ * (what the stored-Brief reader and the model-answer parser use); the strict
+ * one has only the new shape, because a preprocess step cannot be written as
+ * the JSON Schema the model is shown.
+ */
+function briefSchema(tolerant: boolean) {
+  const read = <T extends z.ZodType>(item: T) => (tolerant ? z.preprocess(briefItemShape, item) : item)
+  return z.object({
+    hiddenQuestion: cutText(400, 'The problem this role is hired to solve, in 1–2 sentences'),
+    leadWith: capped(read(leadWithObject), 4, 'What the CV should open with'),
+    emphasise: capped(read(emphasiseObject), 6, 'What to emphasise'),
+    playDown: capped(cutText(160, 'Item'), 4, 'What to play down or leave out'),
+    positioning: cutText(400, '1–2 sentences on the story the CV tells'),
+    tone: cutText(160, 'Voice for the writing, e.g. "plain and specific, senior but not grand"'),
+    budgets: z.object({
+      experiences: budget('experiences', 'Employers to show with bullets'),
+      skills: budget('skills', 'Skills to show'),
+      tools: budget('tools', 'Tools to show'),
+      competencies: budget('competencies', 'Competencies to show'),
+      certifications: budget('certifications', 'Certifications to show'),
+      education: budget('education', 'Education entries to show'),
+      projects: budget('projects', 'Projects to show'),
+    }),
+  })
 }
 
 /**
  * Stage 1 output. Strategy fields mirror the deep dive's `cvStrategy`
  * (`leadWith`, `emphasise`, `playDown`, `positioning`) so either source feeds
- * the same shape. The budgets are the model's request; select.ts clamps them
- * again against caps.ts, so a stored brief can never ask for more than a cap.
+ * the same shape. The budgets are the model's request; they are clamped to
+ * [floor, ceiling] (caps.ts) by this schema and again in select.ts, so a stored
+ * brief can never ask for more than a ceiling or less than a floor. Lead-with
+ * and emphasise items are `{ name, framing }` (emphasise also `why`); the
+ * reader also accepts the old shape (a plain string, or `{ item, why }`).
  */
-export const CvBriefSchema = z.object({
-  hiddenQuestion: cutText(400, 'The problem this role is hired to solve, in 1–2 sentences'),
-  leadWith: capped(cutText(160, 'Item'), 4, 'What the CV should open with'),
-  emphasise: capped(z.object({ item: cutText(160, 'Item'), why: cutText(200, 'Why it matters for this role') }), 6, 'What to emphasise'),
-  playDown: capped(cutText(160, 'Item'), 4, 'What to play down or leave out'),
-  positioning: cutText(400, '1–2 sentences on the story the CV tells'),
-  tone: cutText(160, 'Voice for the writing, e.g. "plain and specific, senior but not grand"'),
-  budgets: z.object({
-    experiences: budget('experiences', 'Employers to show with bullets'),
-    skills: budget('skills', 'Skills to show'),
-    tools: budget('tools', 'Tools to show'),
-    competencies: budget('competencies', 'Competencies to show'),
-    certifications: budget('certifications', 'Certifications to show'),
-    education: budget('education', 'Education entries to show'),
-    projects: budget('projects', 'Projects to show'),
-  }),
-})
+export const CvBriefSchema = briefSchema(true)
+/** The same shape without the old-shape reader: what the model is shown as its JSON Schema. */
+export const CvBriefOutputSchema = briefSchema(false)
 export type CvBrief = z.infer<typeof CvBriefSchema>
 
 /** Employers that show bullets: the Brief's `budgets.experiences` (the key predates employers and is kept so stored briefs parse). Use this, not the raw key. */

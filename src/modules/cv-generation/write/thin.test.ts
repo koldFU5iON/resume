@@ -4,6 +4,7 @@ import { projectRow, writeSelection, writeVault } from '../__fixtures__/write'
 import type { CvReview } from '../schema'
 import { evidenceFromVault } from './evidence'
 import { thinProjectConcerns, thinProjectNote, withThinProjectConcerns } from './thin'
+import { leads } from '../__fixtures__/candidates'
 
 const NAME = 'Enemies Demo Campaign'
 const FRAMING = `The ${NAME}: launch and GTM decision`
@@ -12,7 +13,7 @@ const evidenceFor = (text: string) => {
   return evidenceFromVault(v, writeSelection(v, { projects: [{ id: 'pa', reason: '' }] }))
 }
 const review = (over: Partial<CvReview> = {}): CvReview => ({ skipped: false, skipReason: null, model: 'm', tokens: { input: 1, output: 1 }, costUsd: 0, applied: [], discarded: [], concerns: [], ...over })
-const lead = buildBriefFor({ leadWith: [FRAMING] })
+const lead = buildBriefFor({ leadWith: leads([FRAMING]) })
 
 describe('thin project helpers', () => {
   it('the log note names the project and says what to do', () => {
@@ -29,7 +30,7 @@ describe('thin project helpers', () => {
 
   it('no concern for a project with real text, or a thin one the brief does not lead with', () => {
     expect(thinProjectConcerns(evidenceFor('Ran the demo campaign for the new title: a go-to-market and launch-timing decision, reaching 14,000+ players.'), lead)).toEqual([])
-    expect(thinProjectConcerns(evidenceFor(''), buildBriefFor({ leadWith: [] }))).toEqual([])
+    expect(thinProjectConcerns(evidenceFor(''), buildBriefFor({ leadWith: leads([]) }))).toEqual([])
   })
 
   it('withThinProjectConcerns appends the concern when the review has none, even for a skipped review', () => {
@@ -48,6 +49,6 @@ describe('thin project helpers', () => {
     const other = { kind: 'evidence_gap' as const, title: 'No migration', why: '', question: 'q', refs: [] }
     expect(withThinProjectConcerns(review({ concerns: [other] }), evidenceFor(''), lead).concerns).toHaveLength(2)
     const none = review()
-    expect(withThinProjectConcerns(none, evidenceFor(''), buildBriefFor({ leadWith: [] }))).toBe(none)
+    expect(withThinProjectConcerns(none, evidenceFor(''), buildBriefFor({ leadWith: leads([]) }))).toBe(none)
   })
 })

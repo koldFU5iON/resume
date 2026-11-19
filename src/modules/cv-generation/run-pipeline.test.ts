@@ -38,6 +38,7 @@ import { bigCandidates } from './__fixtures__/candidates'
 import { buildBriefFor, gathered } from './__fixtures__/gathered'
 import { projectRow, writeSelection, writeVault, writtenResult, writtenSections } from './__fixtures__/write'
 import { CV_BODY_WORDS_SOFT_LIMIT } from './write/limits'
+import { leads } from './__fixtures__/candidates'
 
 const db = vi.mocked(prisma, { deep: true })
 const mockSetStatus = vi.mocked(setStatus)
@@ -375,7 +376,7 @@ describe('runCvGenerationStages: a thin lead-with project (title only)', () => {
     const v = writeVault([projectRow('pa', NAME, text, { experienceId: 'e-u2' })])
     mockVault.mockResolvedValue(v)
     mockSelect.mockResolvedValue({ selection: writeSelection(v, { projects: [{ id: 'pa', reason: '' }] }), model: 'm-fast', retries: 0, notes: [] })
-    mockBrief.mockResolvedValue({ value: buildBriefFor({ leadWith: [`The ${NAME}: launch and GTM decision`] }), model: 'm-analysis', retries: 0, usage: NO_USAGE })
+    mockBrief.mockResolvedValue({ value: buildBriefFor({ leadWith: leads([`The ${NAME}: launch and GTM decision`]) }), model: 'm-analysis', retries: 0, usage: NO_USAGE })
   }
   const stored = () => mockUpdate.mock.calls.at(-1)![2].review as { concerns: Array<{ kind: string; title: string }> }
 

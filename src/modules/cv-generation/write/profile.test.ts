@@ -8,7 +8,7 @@ import { extractJSON } from '@/modules/llm/extract-json'
 import { scripted, writeSelection, writeVault } from '../__fixtures__/write'
 import { buildBriefFor } from '../__fixtures__/gathered'
 import { evidenceFromVault } from './evidence'
-import { analyseProfile, experienceDigest, fallbackProfile, labelsFromSelected, maxCompetencyLabels, profilePrompt, writableCompetencies, writeProfile } from './profile'
+import { analyseProfile, experienceDigest, fallbackProfile, labelsFromSelected, maxCompetencyLabels, minCompetencyLabels, profilePrompt, writableCompetencies, writeProfile } from './profile'
 import { requirementText } from './prompt'
 import type { WriteContext } from './types'
 
@@ -87,22 +87,22 @@ describe('writeProfile', () => {
     expect(r.headline).toBe(good.headline)
   })
 
-  it('shortens a profile over 80 words in code at a clause boundary, with a note and no retry', async () => {
-    const first = Array.from({ length: 70 }, (_, i) => `w${i}`).join(' ')
+  it('shortens a profile over 110 words in code at a clause boundary, with a note and no retry', async () => {
+    const first = Array.from({ length: 100 }, (_, i) => `w${i}`).join(' ')
     const long = { ...good, profile: `${first}, and then ${Array.from({ length: 20 }, (_, i) => `x${i}`).join(' ')}` }
     const { s, result } = run([long])
     const r = await result
     expect(s.calls).toHaveLength(1)
     expect(r.profileMarkdown).toBe(first)
-    expect(r.notes.join(' ')).toMatch(/Shortened the profile from 9\d to 70 words at a clause boundary \(limit 80\)/)
+    expect(r.notes.join(' ')).toMatch(/Shortened the profile from 12\d to 100 words at a clause boundary \(limit 110\)/)
   })
 
   it('keeps an over-long profile with no clause boundary as written, noted, without a retry', async () => {
-    const long = { ...good, profile: Array.from({ length: 90 }, (_, i) => `w${i}`).join(' ') }
+    const long = { ...good, profile: Array.from({ length: 125 }, (_, i) => `w${i}`).join(' ') }
     const { s, result } = run([long])
     const r = await result
     expect(s.calls).toHaveLength(1)
-    expect(r.notes.join(' ')).toMatch(/profile is 90 words, over the limit of 80/)
+    expect(r.notes.join(' ')).toMatch(/profile is 125 words, over the limit of 110/)
   })
 
   it('shortens an over-long headline at a clause boundary instead of retrying', async () => {
@@ -254,9 +254,9 @@ describe('writeProfile', () => {
     })
 
     it('cuts a long positioning to the word limit and cleans it', () => {
-      const long = `# ${Array.from({ length: 120 }, () => 'word').join(' ')} :::`
+      const long = `# ${Array.from({ length: 150 }, () => 'word').join(' ')} :::`
       const f = fallbackProfile({ ...base, brief: { ...base.brief, positioning: long } }, digest, 'No time.')
-      expect(f.profileMarkdown.split(' ')).toHaveLength(80)
+      expect(f.profileMarkdown.split(' ')).toHaveLength(110)
       expect(f.profileMarkdown).not.toMatch(/#|:::/)
     })
   })
@@ -280,7 +280,8 @@ describe('profilePrompt and helpers', () => {
   it('lists the limits, and only evidenced competencies are writable', () => {
     expect(writableCompetencies(evidence.competencies).map((c) => c.name)).toEqual(['Cross-functional leadership'])
     const p = profilePrompt(ctx(), digest, writableCompetencies(evidence.competencies), 6)
-    expect(p).toMatch(/at most 80 words/)
+    expect(p).toMatch(/at most 110 words/)
+    expect(p).toMatch(/4 to 6 sentences/)
     expect(p).toMatch(/at most 12 words/)
     expect(p).toMatch(/up to 6 labels.*2 to 5 words/)
   })
@@ -453,14 +454,20 @@ describe('Phase 3b: no cross-section repetition, short competency labels, voice'
   })
 
   describe('voice', () => {
-    it('rejects first person in the profile: retry once with feedback, record why, then accept with a log note', async () => {
-      const mine = { ...good, profile: 'I turn multi-team programmes into predictable releases for my clients.' }
-      const { s, result } = run([mine, mine])
+    it('allows first person in the profile paragraph: no retry, no note', async () => {
+      const mine = { ...good, profile: "I build release programmes that run on time. I've designed the planning cadence for platform organisations and I work best with my engineers close." }
+      const { s, result } = run([mine])
       const r = await result
-      expect(s.calls).toHaveLength(2)
-      expect(s.calls[1].prompt).toMatch(/the profile contains first person/)
-      expect(r.retryReasons).toEqual(['first person'])
-      expect(r.notes.join(' ')).toMatch(/Accepted with a problem after the retry: the profile contains first person/)
+      expect(s.calls).toHaveLength(1)
+      expect(r.retryReasons).toEqual([])
+      expect(r.profileMarkdown).toContain('I build release programmes')
+      expect(r.notes.join(' ')).not.toMatch(/first person/)
+    })
+
+    it('does not flag first person in the profile, but does flag it everywhere else', () => {
+      const a = analyseProfile({ ...good, profile: "I've built things for my teams.", headline: 'My delivery craft', competencies: ['Our delivery model'] }, ctx(), allowed)
+      expect(a.soft.filter((x) => /the profile contains/.test(x))).toEqual([])
+      expect(a.soft.filter((x) => /first person/.test(x))).toHaveLength(2) // headline and label only
     })
 
     it('rejects first person in a competency label and in the headline', () => {
@@ -479,9 +486,76 @@ describe('Phase 3b: no cross-section repetition, short competency labels, voice'
       expect(p).toMatch(/at most 1 in the profile and headline together/)
       expect(p).toMatch(/those are: 40%, 2M/)
     })
-    it('asks for no pronouns and 2-5 word noun-phrase labels', () => {
-      expect(p).toMatch(/No first person \("I", "my", "we"\)/)
+    it('asks for the profile in first person, plain, with no slogans, and no pronouns in the headline or labels', () => {
+      expect(p).toMatch(/in the first person \("I build \.\.\.", "I've designed \.\.\."; here and nowhere else\)/)
+      expect(p).toMatch(/No slogans and no storyteller phrases/)
+      expect(p).toMatch(/never a job title or seniority level; no first person/)
       expect(p).toMatch(/2 to 5 words, with no numbers and no sentence/)
     })
+    it('prefers a figure the experience section does not state, or none', () => {
+      expect(p).toMatch(/Lead with a figure only when it is NOT stated in the experience section/)
+      expect(p).toMatch(/prefer a different figure from the evidence, or none/)
+    })
+    it('says not to state years of experience while the number is unset (pending the owner)', () => {
+      expect(p).toContain('Do not state a number of years of experience.')
+      expect(p).not.toMatch(/Open with how long/)
+    })
+    it('asks for the years opener only when a number is given, and accepts that number as a supported figure', () => {
+      const withYears = profilePrompt({ ...ctx(), yearsOfExperience: 15 }, digest, writableCompetencies(evidence.competencies), 6)
+      expect(withYears).toMatch(/Open with how long the candidate has done this work: 15 years of experience/)
+      const a = analyseProfile({ ...good, profile: "I've spent 15 years turning programmes into predictable releases." }, { ...ctx(), yearsOfExperience: 15 }, allowed)
+      expect(a.unsupported).toEqual([])
+      expect(analyseProfile({ ...good, profile: "I've spent 15 years turning programmes into predictable releases." }, ctx(), allowed).unsupported).toEqual(['15'])
+    })
+  })
+})
+
+describe('competency labels up to the budget (floors)', () => {
+  const comp = (name: string) => ({ id: name, name, category: null, level: null, claimed: false })
+  const names = ['Release governance', 'Programme planning', 'Stakeholder management', 'Vendor negotiation', 'Risk management', 'Team coaching', 'Budget ownership', 'Roadmap strategy']
+  const withComps = (list: string[], budget = 8) => ctx({
+    evidence: { ...evidence, competencies: list.map(comp) },
+    brief: buildBriefFor({ budgets: { experiences: 4, skills: 12, tools: 10, competencies: budget, certifications: 6, education: 3, projects: 2 } }),
+  })
+
+  it('allows up to 8 labels, and asks for 6 to 8 when the profile has at least 6 competencies', () => {
+    const c = withComps(names)
+    expect(maxCompetencyLabels(c)).toBe(8)
+    expect(minCompetencyLabels(c, 8)).toBe(6)
+    const p = profilePrompt(c, digest, writableCompetencies(c.evidence.competencies), 8, 6)
+    expect(p).toMatch(/write 6 to 8 labels/)
+    expect(p).toMatch(/chosen competencies above and the key terms of the job's requirements/)
+  })
+
+  it('asks for no minimum when the profile has fewer than 6 competencies (it is not padded)', () => {
+    const c = withComps(names.slice(0, 4))
+    expect(minCompetencyLabels(c, 8)).toBe(0)
+    expect(profilePrompt(c, digest, writableCompetencies(c.evidence.competencies), 8, 0)).toMatch(/write up to 8 labels/)
+  })
+
+  it('keeps eight labels from the writer (the old cap was six)', async () => {
+    const c = withComps(names)
+    const { s, result } = run([{ ...good, competencies: names }], c)
+    const r = await result
+    expect(s.calls).toHaveLength(1)
+    expect(r.competenciesMarkdown.split('\n').filter((l) => l.startsWith('- '))).toHaveLength(8)
+  })
+
+  it('tops up to 6 from the selected competencies when the writer returned fewer, noting it, with no retry', async () => {
+    const c = withComps(names)
+    const { s, result } = run([{ ...good, competencies: names.slice(0, 5) }], c)
+    const r = await result
+    expect(s.calls).toHaveLength(1)
+    const lines = r.competenciesMarkdown.split('\n').filter((l) => l.startsWith('- '))
+    expect(lines).toHaveLength(6)
+    expect(lines[5]).toBe(`- ${names[5]}`)
+    expect(r.notes.join(' ')).toMatch(/had 5 competency labels; added 1 from your selected competencies to reach 6/)
+  })
+
+  it('still names a selected competency that no label reflects', async () => {
+    const c = withComps(names)
+    const { result } = run([{ ...good, competencies: names.slice(0, 6) }], c)
+    const r = await result
+    expect(r.notes.join(' ')).toMatch(/not reflected in Core Competencies.*Budget ownership.*Roadmap strategy/)
   })
 })

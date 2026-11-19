@@ -90,8 +90,18 @@ export function writeSelection(vault: Vault = writeVault(), over: Partial<Select
     emphasise: [],
     ...over,
   }
-  const brief = buildBriefFor({ budgets: { experiences: 2, skills: 12, tools: 10, competencies: 6, certifications: 4, education: 3, projects: 2 } })
-  return enforceSelection(out, buildCandidates(vault), brief).selection
+  const brief = buildBriefFor({ budgets: { experiences: 4, skills: 12, tools: 10, competencies: 8, certifications: 6, education: 3, projects: 2 } })
+  const sel = enforceSelection(out, buildCandidates(vault), brief).selection
+  // Select's floors top lists up (caps.ts); these fixtures stand for a finished selection of exactly what is named here, so keep only the named items and leave the other employers header-only.
+  const named = new Set([...out.skills, ...out.tools, ...out.competencies, ...out.certifications, ...out.education, ...out.projects].map((p) => p.id))
+  const bulletKeys = new Set(out.employers.map((e) => e.id))
+  const only = <T extends { id: string }>(items: T[]) => items.filter((i) => named.has(i.id))
+  return {
+    ...sel,
+    employers: sel.employers.map((e) => (e.headerOnly || bulletKeys.has(e.key) ? e : { ...e, headerOnly: true, relevance: undefined, bullets: [] })),
+    skills: only(sel.skills), tools: only(sel.tools), competencies: only(sel.competencies),
+    certifications: only(sel.certifications), education: only(sel.education), projects: only(sel.projects),
+  }
 }
 
 /** A completeJSON-shaped reply for a writer's mocked call. */

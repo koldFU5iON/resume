@@ -24,6 +24,7 @@ import {
   applyEdits, renderExperience, reviewDoc, reviewPrompt, runReview, splitExperience, toConcernRecords, writeBack, type ApplyContext, type ReviewPromptInput,
 } from './review'
 import type { WrittenSection } from './types'
+import { leads } from '../__fixtures__/candidates'
 
 const mockJSON = vi.mocked(completeJSON)
 
@@ -248,6 +249,14 @@ describe('applyEdits: edits applied only after the checks', () => {
     expect(shared.discarded[0].why).toMatch(/repeats a figure the experience section already states/)
   })
 
+  it('keeps a profile edit in first person (the profile is written that way), but still refuses first person in a bullet or summary', () => {
+    const profile = applyEdits(freshDoc(), [edit('profile', undefined, 'replace', "I run release programmes for platform organisations and I've built the planning cadence for my teams.")], actx())
+    expect(profile.discarded).toEqual([])
+    expect(profile.applied).toHaveLength(1)
+    const bullet = applyEdits(freshDoc(), [edit(U, 'b2', 'replace', 'I led quarterly planning for the platform org.')], actx())
+    expect(bullet.discarded[0].why).toMatch(/not plain text \(first person\)/)
+  })
+
   it('discards a replace with no new text, and a no-op replace', () => {
     const r = applyEdits(freshDoc(), [edit(U, 'b2', 'replace'), edit(U, 'b2', 'replace', UNITY_BULLETS[1].text)], actx())
     expect(r.discarded.map((d) => d.why)).toEqual(['a replace needs the new text', 'the new text is the same as the old'])
@@ -361,8 +370,8 @@ describe('applyEdits: the writers\' lead-with and project rules still hold after
   const pvault = writeVault([projectRow('pr1', PROJ, 'Ran the demo campaign for a new title and chose the launch timing, then tracked how the first day went against the plan.', { experienceId: 'e-u2' })])
   const pselection = writeSelection(pvault, { projects: [{ id: 'pr1', reason: '' }] })
   const pevidence = evidenceFromVault(pvault, pselection)
-  const lead = buildBriefFor({ leadWith: [`The ${PROJ}: a go-to-market launch-timing decision`] })
-  const noLead = buildBriefFor({ leadWith: [] })
+  const lead = buildBriefFor({ leadWith: leads([`The ${PROJ}: a go-to-market launch-timing decision`]) })
+  const noLead = buildBriefFor({ leadWith: leads([]) })
   const bullets = [
     { text: `${PROJ}: led the launch timing decision for the new title.`, id: 'pr1', kind: 'project' as const },
     { text: 'Ran the quarterly planning cycle for the platform org.', id: 'ua2' },
@@ -409,7 +418,7 @@ describe('applyEdits: a bullet whose only source is a thin project may be remove
   const tv = writeVault([projectRow('pr1', PROJ, `${PROJ}:`, { experienceId: 'e-u2' })])
   const tsel = writeSelection(tv, { projects: [{ id: 'pr1', reason: '' }] })
   const tev = evidenceFromVault(tv, tsel)
-  const lead = buildBriefFor({ leadWith: [`The ${PROJ}: launch and GTM decision`] })
+  const lead = buildBriefFor({ leadWith: leads([`The ${PROJ}: launch and GTM decision`]) })
   const bullets = [
     { text: `${PROJ}: set the timing and positioning narrative, and tracked the first-day result.`, id: 'pr1', kind: 'project' as const },
     { text: 'Ran the quarterly planning cycle for the platform org.', id: 'ua2' },

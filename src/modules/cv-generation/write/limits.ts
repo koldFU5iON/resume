@@ -4,22 +4,28 @@
  * a soft breach is retried once with feedback and then accepted and logged.
  */
 
+import { MAX_COMPETENCIES } from '../caps'
+
 /** Experience summary: one sentence. */
 export const SUMMARY_MAX_WORDS = 40
 /** One experience bullet. */
 export const BULLET_MAX_WORDS = 25
-/** The professional profile paragraph. */
-export const PROFILE_MAX_WORDS = 80
+/** The professional profile paragraph: 4-6 sentences, first person, figure-led (raised from 80 after the owner's own CV profile ran about 110 words). A longer one is shortened at a clause boundary. */
+export const PROFILE_MAX_WORDS = 110
 /** The headline under the name: a descriptor, never a title. */
 export const HEADLINE_MAX_WORDS = 12
 /**
  * Core Competencies are short noun-phrase labels, not sentences: 2 to 5 words,
- * no numbers, at most COMPETENCY_MAX_LABELS of them (5-6 reads well and cannot
- * restate the experience's figures).
+ * no numbers, at most COMPETENCY_MAX_LABELS of them (the ceiling of the
+ * Brief's competency budget, caps.ts MAX_COMPETENCIES; the profile call writes
+ * up to the budget and at least COMPETENCY_MIN_LABELS when the profile has that
+ * many, labels that cannot restate the experience's figures).
  */
 export const COMPETENCY_LABEL_MIN_WORDS = 2
 export const COMPETENCY_LABEL_MAX_WORDS = 5
-export const COMPETENCY_MAX_LABELS = 6
+export const COMPETENCY_MAX_LABELS = MAX_COMPETENCIES
+/** The fewest labels the profile call is asked for when the profile has at least this many competencies; code tops up from the selected ones when it writes fewer. */
+export const COMPETENCY_MIN_LABELS = 6
 /** The professional profile uses at most this many figures (and none already used in an experience bullet). */
 export const PROFILE_MAX_FIGURES = 1
 /** Group labels in Skills and Tools (per list). */

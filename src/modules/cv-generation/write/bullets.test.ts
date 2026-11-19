@@ -4,6 +4,7 @@ import {
   LEAD_WITH_PROJECT_EXTRA_BULLETS, bulletAllowance, leadWithProjects, leadWithStanding, opensInPresentTense, playDownBullets, reflectsItem, repeatsSummary, shortened,
   thinLeadWithProjects, trimBullets, wrongTenseLines,
 } from './bullets'
+import { leads, em } from '../__fixtures__/candidates'
 
 const brief = (over: Parameters<typeof buildBriefFor>[0] = {}) => buildBriefFor(over)
 const SOLID = 'Ran the launch campaign for the new title, set the release window and measured the first-day result against plan.'
@@ -15,27 +16,27 @@ const emp = (activities: number, projects: Array<{ name: string; text?: string }
 describe('leadWithProjects', () => {
   it('matches a selected project named in a lead-with line, years and versions ignored, and keeps the line', () => {
     const lines = ['Platform migration delivery', 'The Enemies Demo Campaign: a go-to-market and launch-timing decision', 'Unity Awards']
-    const r = leadWithProjects([{ name: 'Enemies Demo Campaign' }, { name: 'Unity Awards 2025' }, { name: 'Boot Camp' }], lines)
+    const r = leadWithProjects([{ name: 'Enemies Demo Campaign' }, { name: 'Unity Awards 2025' }, { name: 'Boot Camp' }], leads(lines))
     expect(r.map((l) => l.name)).toEqual(['Enemies Demo Campaign', 'Unity Awards 2025'])
     expect(r[0].line).toContain('go-to-market')
   })
   it('does not match on a shared generic word', () => {
-    expect(leadWithProjects([{ name: 'Enemies Demo Campaign' }], ['Launch campaign delivery'])).toEqual([])
+    expect(leadWithProjects([{ name: 'Enemies Demo Campaign' }], leads(['Launch campaign delivery']))).toEqual([])
   })
 })
 
 describe('bulletAllowance', () => {
   it('is the allocation, and a project the brief does not lead with adds nothing', () => {
-    expect(bulletAllowance(emp(6, [{ name: 'Unity Awards 2025' }]), brief({ leadWith: ['Platform migration delivery'] }))).toBe(6)
+    expect(bulletAllowance(emp(6, [{ name: 'Unity Awards 2025' }]), brief({ leadWith: leads(['Platform migration delivery']) }))).toBe(6)
   })
   it('allows one more bullet for a lead-with project', () => {
     expect(LEAD_WITH_PROJECT_EXTRA_BULLETS).toBe(1)
-    expect(bulletAllowance(emp(3, [{ name: 'Enemies Demo Campaign' }]), brief({ leadWith: ['Enemies Demo Campaign launch timing'] }))).toBe(4)
+    expect(bulletAllowance(emp(3, [{ name: 'Enemies Demo Campaign' }]), brief({ leadWith: leads(['Enemies Demo Campaign launch timing']) }))).toBe(4)
   })
   it('a thin lead-with project (title only) adds no bullet: there is no evidence to write it from', () => {
-    expect(bulletAllowance(emp(3, [{ name: 'Enemies Demo Campaign', text: 'Enemies Demo Campaign:' }]), brief({ leadWith: ['Enemies Demo Campaign launch timing'] }))).toBe(3)
-    expect(leadWithProjects(emp(3, [{ name: 'Enemies Demo Campaign', text: '' }]).projects, ['Enemies Demo Campaign launch timing'])).toEqual([])
-    expect(thinLeadWithProjects(emp(3, [{ name: 'Enemies Demo Campaign', text: '' }]).projects, ['Enemies Demo Campaign launch timing'])).toMatchObject([{ name: 'Enemies Demo Campaign' }])
+    expect(bulletAllowance(emp(3, [{ name: 'Enemies Demo Campaign', text: 'Enemies Demo Campaign:' }]), brief({ leadWith: leads(['Enemies Demo Campaign launch timing']) }))).toBe(3)
+    expect(leadWithProjects(emp(3, [{ name: 'Enemies Demo Campaign', text: '' }]).projects, leads(['Enemies Demo Campaign launch timing']))).toEqual([])
+    expect(thinLeadWithProjects(emp(3, [{ name: 'Enemies Demo Campaign', text: '' }]).projects, leads(['Enemies Demo Campaign launch timing']))).toMatchObject([{ name: 'Enemies Demo Campaign' }])
   })
   it('allows one bullet for an employer that has only project evidence, and none for an empty one', () => {
     expect(bulletAllowance(emp(0, [{ name: 'Side Gig' }]), brief())).toBe(1)
@@ -60,7 +61,7 @@ describe('leadWithStanding', () => {
 })
 
 describe('trimBullets', () => {
-  const b = brief({ leadWith: ['Platform migration delivery'], emphasise: [{ item: 'Release management', why: '' }] })
+  const b = brief({ leadWith: leads(['Platform migration delivery']), emphasise: [em('Release management', '')] })
   const bullets = [
     'Ran the quarterly planning cycle.',
     'Shipped twelve titles on schedule.',
@@ -82,7 +83,7 @@ describe('trimBullets', () => {
     expect(r.trimmed).toEqual(['Three.', 'Four.'])
   })
   it('keeps the own bullet of a lead-with project ahead of every other bullet', () => {
-    const lb = brief({ leadWith: ['Enemies Demo Campaign launch timing'], emphasise: [{ item: 'Release management', why: '' }] })
+    const lb = brief({ leadWith: leads(['Enemies Demo Campaign launch timing']), emphasise: [em('Release management', '')] })
     const list = ['Owned release management for the studio.', 'Owned release management across teams.', 'Enemies Demo Campaign: chose the launch window.']
     const r = trimBullets(list, lb, [{ name: 'Enemies Demo Campaign' }], 2)
     expect(r.bullets).toContain('Enemies Demo Campaign: chose the launch window.')
@@ -100,7 +101,7 @@ describe('reflectsItem', () => {
 })
 
 describe('playDownBullets', () => {
-  const b = brief({ leadWith: ['Platform migration delivery'], emphasise: [], playDown: ['React Router 7 and Prisma/PostgreSQL build detail'] })
+  const b = brief({ leadWith: leads(['Platform migration delivery']), emphasise: [], playDown: ['React Router 7 and Prisma/PostgreSQL build detail'] })
   it('flags a bullet that IS the play-down item', () => {
     const r = playDownBullets(['Built the tracker on React Router 7 and Prisma/PostgreSQL with typed server actions.'], b)
     expect(r).toEqual([{ item: 'React Router 7 and Prisma/PostgreSQL build detail', index: 0 }])
@@ -112,7 +113,7 @@ describe('playDownBullets', () => {
     expect(playDownBullets(['Cut release time by 40% across 8 teams.', 'Ran a React workshop for the team.'], b)).toEqual([])
   })
   it('ignores words the brief also asks to lead with', () => {
-    const conflict = brief({ leadWith: ['React Router migration'], emphasise: [], playDown: ['React Router and Prisma detail'] })
+    const conflict = brief({ leadWith: leads(['React Router migration']), emphasise: [], playDown: ['React Router and Prisma detail'] })
     expect(playDownBullets(['Migrated to React Router for the studio.'], conflict)).toEqual([])
   })
 })

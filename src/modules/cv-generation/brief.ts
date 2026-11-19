@@ -5,24 +5,23 @@
  * job, the strategy found by Gather and a short outline of the profile, never
  * the detailed evidence (Select does that).
  *
- * The output is validated with CvBriefSchema; budgets are clamped to the
- * code's hard caps (caps.ts) by the schema itself. `applyProfileBudgets` then
- * raises education to at least 1 when the profile has any.
+ * The output is validated with CvBriefSchema; budgets are clamped into
+ * [floor, ceiling] (caps.ts) by the schema itself, which also keeps education
+ * at 1 or more.
  */
 
 import * as z from 'zod'
 import { composeSystem, loadCVBriefPrompt } from '@/modules/llm/prompt-context'
 import { attributionOf, completeValidated, type ValidatedCall } from './call'
-import type { Candidates } from './candidates'
 import type { GatherResult } from './gather'
-import { CV_GENERATION_FEATURES, CvBriefSchema, MAX_OUTPUT_TOKENS, TEMPERATURE, TIME_BUDGET_MS, type CvBrief } from './schema'
+import { CV_GENERATION_FEATURES, CvBriefOutputSchema, CvBriefSchema, MAX_OUTPUT_TOKENS, TEMPERATURE, TIME_BUDGET_MS, type CvBrief } from './schema'
 import { strategyToPrompt } from './strategy'
 
 type Gathered = Extract<GatherResult, { ok: true }>
 
 const OUTPUT_FORMAT = `Output: one JSON object in a \`\`\`json code block, nothing else. It must match this JSON Schema. Text and list limits in the descriptions are hard limits.
 \`\`\`json
-${JSON.stringify(z.toJSONSchema(CvBriefSchema, { io: 'input' }))}
+${JSON.stringify(z.toJSONSchema(CvBriefOutputSchema, { io: 'input' }))}
 \`\`\``
 
 /** The brief prompt (everything but the instructions). Pure. */
@@ -37,12 +36,6 @@ export function briefPrompt(g: Gathered): string {
 }
 
 export type BriefResult = ValidatedCall<CvBrief>
-
-/** Budgets that depend on the profile: a profile with education always shows at least one entry. Pure. */
-export function applyProfileBudgets(brief: CvBrief, cands: Pick<Candidates, 'education'>): CvBrief {
-  if (cands.education.length === 0 || brief.budgets.education >= 1) return brief
-  return { ...brief, budgets: { ...brief.budgets, education: 1 } }
-}
 
 /** Runs the Brief call. Throws LLMError (kind invalid_output, timeout, ...). */
 export async function runBrief(
@@ -62,5 +55,5 @@ export async function runBrief(
     attribution: attributionOf(ctx),
     label: 'brief',
   })
-  return { ...result, value: applyProfileBudgets(result.value, g.candidates) }
+  return result
 }

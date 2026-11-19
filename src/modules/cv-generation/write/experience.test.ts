@@ -14,6 +14,7 @@ import { llmReply } from '../__fixtures__/write'
 import { analyseExperience as analyse, experiencePrompt, fallbackExperience, writeExperience, ExperienceOutputSchema, EXPERIENCE_OUTPUT_FORMAT as EXPERIENCE_OUTPUT_FORMAT_FOR_TEST } from './experience'
 import { requirementText } from './prompt'
 import type { WriteContext } from './types'
+import { leads } from '../__fixtures__/candidates'
 
 const mockJSON = vi.mocked(completeJSON)
 
@@ -533,7 +534,7 @@ describe('thin lead-with project (title only): nothing is invented from the brie
   const build = (text: string) => {
     const v = thinVault(text)
     const ev = evidenceFromVault(v, writeSelection(v, { projects: [{ id: 'pa', reason: '' }] }))
-    const brief = buildBriefFor({ leadWith: [FRAMING], emphasise: [] })
+    const brief = buildBriefFor({ leadWith: leads([FRAMING]), emphasise: [] })
     return { ev, brief, emp: ev.employers.find((e) => e.employer.key === UNITY)!, c: ctx({ evidence: ev, brief }) }
   }
   const invented = `${NAME}: set the timing and positioning narrative, and tracked the first-day result.`
@@ -609,7 +610,7 @@ describe('Phase 3c', () => {
   const pev = evidenceFromVault(pv, writeSelection(pv, { projects: [{ id: 'pa', reason: '' }, { id: 'pb', reason: '' }] }))
   const unityP = pev.employers.find((e) => e.employer.key === UNITY)!
   const blizzardP = pev.employers.find((e) => e.employer.key === BLIZZARD)!
-  const leadBrief = buildBriefFor({ leadWith: ['The Enemies Demo Campaign: a go-to-market launch-timing decision'], emphasise: [] })
+  const leadBrief = buildBriefFor({ leadWith: leads(['The Enemies Demo Campaign: a go-to-market launch-timing decision']), emphasise: [] })
   const lctx = (over: Partial<WriteContext> = {}) => ctx({ evidence: pev, brief: leadBrief, ...over })
   const ownBullet = 'Enemies Demo Campaign: chose the launch window for the new title, reaching 14,000+ players at launch.'
   const withOwn = { summary: 'Ran release and planning for the platform org.', bullets: [good.bullets[0], good.bullets[1], good.bullets[2], ownBullet] }

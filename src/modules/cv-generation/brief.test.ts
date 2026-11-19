@@ -11,16 +11,16 @@ import { z } from 'zod'
 import { completeJSON } from '@/modules/llm/complete-json'
 import { LLMError } from '@/modules/llm/errors'
 import { readFileSync } from 'node:fs'
-import { applyProfileBudgets, briefPrompt, runBrief } from './brief'
-import { TEMPERATURE, CvBriefSchema, parseBrief } from './schema'
+import { briefPrompt, runBrief } from './brief'
+import { TEMPERATURE, CvBriefSchema, deriveItemName, parseBrief } from './schema'
 import { gathered } from './__fixtures__/gathered'
-import { bigCandidates } from './__fixtures__/candidates'
+import { leads, em } from './__fixtures__/candidates'
 
 const mockJSON = vi.mocked(completeJSON)
 const goodBrief = {
   hiddenQuestion: '  Can they ship a platform migration?  ',
-  leadWith: ['a', 'b', 'c', 'd', 'e', 'f'],
-  emphasise: [{ item: 'Release management', why: 'core' }],
+  leadWith: leads(['a', 'b', 'c', 'd', 'e', 'f']),
+  emphasise: [em('Release management', 'core')],
   playDown: [],
   positioning: 'p',
   tone: 'plain',
@@ -43,11 +43,35 @@ describe('CvBriefSchema', () => {
     const b = CvBriefSchema.parse(goodBrief)
     expect(b.hiddenQuestion).toBe('Can they ship a platform migration?')
     expect(b.leadWith).toHaveLength(4)
-    expect(b.budgets).toEqual({ experiences: 4, skills: 12, tools: 4, competencies: 0, certifications: 2, education: 3, projects: 2 })
+    // Too high comes down to the ceiling, too low comes up to the floor (caps.ts).
+    expect(b.budgets).toEqual({ experiences: 4, skills: 12, tools: 10, competencies: 8, certifications: 6, education: 3, projects: 2 })
   })
 
-  it('always shows at least one role', () => {
-    expect(CvBriefSchema.parse({ ...goodBrief, budgets: { ...goodBrief.budgets, experiences: 0 } }).budgets.experiences).toBe(1)
+  it('never goes below the floors: a stored brief with small numbers reads as the floors', () => {
+    const small = { experiences: 1, skills: 3, tools: 2, competencies: 5, certifications: 3, education: 0, projects: 0 }
+    expect(CvBriefSchema.parse({ ...goodBrief, budgets: small }).budgets).toEqual({ experiences: 4, skills: 12, tools: 10, competencies: 8, certifications: 6, education: 1, projects: 0 })
+  })
+
+  it('reads the old string shape of lead-with and emphasise, deriving the name', () => {
+    const old = CvBriefSchema.parse({
+      ...goodBrief,
+      leadWith: ['Unity: storytelling for a developer platform across 8 years', 'Led the \u201cOne Marketing Request Form\u201d programme', 'Platform migration delivery'],
+      emphasise: [{ item: 'Automation: ARM workflow and asset generation', why: 'core' }, { item: 'Release management', why: 'x' }],
+    })
+    expect(old.leadWith.map((l) => l.name)).toEqual(['Unity', 'One Marketing Request Form', 'Platform migration delivery'])
+    expect(old.leadWith[0].framing).toBe('Unity: storytelling for a developer platform across 8 years')
+    expect(old.emphasise[0]).toEqual({ name: 'Automation', framing: 'Automation: ARM workflow and asset generation', why: 'core' })
+  })
+
+  it('reads the new {name, framing} shape as given', () => {
+    const b = CvBriefSchema.parse({ ...goodBrief, leadWith: [{ name: 'Unity', framing: 'storytelling for a developer platform' }], emphasise: [{ name: 'Automation', framing: 'workflow automation', why: 'core' }] })
+    expect(b.leadWith).toEqual([{ name: 'Unity', framing: 'storytelling for a developer platform' }])
+    expect(b.emphasise[0].name).toBe('Automation')
+  })
+
+  it('derives a name from the first capitalised phrase, or the first words of a plain sentence', () => {
+    expect(deriveItemName('Built the Weta Tools & Games launch for creators')).toBe('Weta Tools & Games')
+    expect(deriveItemName('platform migration work that mattered a great deal to everyone')).toBe('platform migration work that mattered a')
   })
 
   it('rejects a brief missing a field, and parseBrief tolerates junk', () => {
@@ -97,19 +121,6 @@ describe('the brief prompt file', () => {
 
   it('says the brief is direction, not evidence', () => {
     expect(text).toContain('The brief is direction, not evidence.')
-  })
-})
-
-describe('applyProfileBudgets', () => {
-  const b = CvBriefSchema.parse({ ...goodBrief, budgets: { ...goodBrief.budgets, education: 0 } })
-
-  it('raises education to 1 when the profile has education', () => {
-    expect(applyProfileBudgets(b, bigCandidates()).budgets.education).toBe(1)
-  })
-
-  it('leaves 0 alone when the profile has none, and never lowers a budget', () => {
-    expect(applyProfileBudgets(b, { education: [] }).budgets.education).toBe(0)
-    expect(applyProfileBudgets({ ...b, budgets: { ...b.budgets, education: 3 } }, bigCandidates()).budgets.education).toBe(3)
   })
 })
 

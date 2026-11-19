@@ -17,6 +17,14 @@ export type WriteContext = {
   evidence: Evidence
   /** The job's requirement text (must-have then nice-to-have): what makes a claimed tool allowed in a bullet. */
   requirementText: string
+  /**
+   * PENDING (the owner is deciding the number): whole years of experience for a
+   * years-of-experience opener in the profile ("I've spent 12 years ..."). Unset
+   * (the default, and what the pipeline passes today) the profile writer is
+   * told NOT to state a number of years. When a number is set the prompt asks
+   * for the opener and the figure check accepts it as a supported figure.
+   */
+  yearsOfExperience?: number | null
 }
 
 /**

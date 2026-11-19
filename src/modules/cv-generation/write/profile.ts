@@ -20,16 +20,16 @@ import * as z from 'zod'
 import { composeSystem } from '@/modules/llm/prompt-context'
 import { attributionOf, completeChecked, softIssueNotes, type CheckResult } from '../call'
 import { CV_GENERATION_FEATURES, MAX_OUTPUT_TOKENS, TEMPERATURE, TIME_BUDGET_MS } from '../schema'
-import { COMPETENCY_LABEL_MAX_WORDS, COMPETENCY_LABEL_MIN_WORDS, COMPETENCY_MAX_LABELS, HEADLINE_MAX_WORDS, PROFILE_MAX_FIGURES, PROFILE_MAX_WORDS } from './limits'
+import { COMPETENCY_LABEL_MAX_WORDS, COMPETENCY_LABEL_MIN_WORDS, COMPETENCY_MAX_LABELS, COMPETENCY_MIN_LABELS, HEADLINE_MAX_WORDS, PROFILE_MAX_FIGURES, PROFILE_MAX_WORDS } from './limits'
 import { claimedHits, competencyLabelProblem, credentialProblems, distinctNotableFigures, headlineTitleProblem, introducedNames, labelGroundedIn, labelReflectsCompetency, sharedFigures, unsupportedFigures, wordCount } from './checks'
 import { evidenceTexts, figureIgnoredNames, type CapabilityEvidence } from './evidence'
-import { plainFeedback, plainLine, plainReasons, shortenToWords } from './plain'
+import { plainFeedback, plainLine, plainReasons, shortenToWords, type PlainOptions } from './plain'
 import { briefText, data, requirementsBlock } from './prompt'
 import { renderNameGroups } from './render'
 import type { CheckNote, WriteContext, WriterOutcome } from './types'
 
 export const ProfileOutputSchema = z.object({
-  profile: z.string().describe(`The professional profile, one short plain-text paragraph, at most ${PROFILE_MAX_WORDS} words, with no first person`),
+  profile: z.string().describe(`The professional profile, one plain-text paragraph of 4 to 6 sentences, at most ${PROFILE_MAX_WORDS} words, written in the first person ("I build ...")`),
   headline: z.string().describe(`A short plain-text descriptor under the name, at most ${HEADLINE_MAX_WORDS} words; never a job title`),
   competencies: z.array(z.string()).default([]).describe(`Core competency labels: short noun phrases of ${COMPETENCY_LABEL_MIN_WORDS} to ${COMPETENCY_LABEL_MAX_WORDS} words, no numbers, no sentences (for example "Go-to-market strategy")`),
 })
@@ -51,6 +51,16 @@ export function maxCompetencyLabels(ctx: Pick<WriteContext, 'brief' | 'evidence'
   return Math.max(0, Math.min(COMPETENCY_MAX_LABELS, ctx.brief.budgets.competencies))
 }
 
+/**
+ * The fewest labels the call is asked for (and code tops up to):
+ * COMPETENCY_MIN_LABELS when the profile has at least that many competencies
+ * (the selection holds them: Select fills to its floor), else no minimum, so a
+ * profile with few competencies is not padded. Never more than the allowed `max`.
+ */
+export function minCompetencyLabels(ctx: Pick<WriteContext, 'evidence'>, max: number): number {
+  return ctx.evidence.competencies.length >= COMPETENCY_MIN_LABELS ? Math.min(max, COMPETENCY_MIN_LABELS) : 0
+}
+
 /** The experience as the profile writer reads it: no names, titles or dates, only the written text. */
 export function experienceDigest(employers: ReadonlyArray<{ summary: string; bullets: readonly string[] }>): string {
   return employers
@@ -59,12 +69,17 @@ export function experienceDigest(employers: ReadonlyArray<{ summary: string; bul
 }
 
 export function profilePrompt(
-  ctx: Pick<WriteContext, 'brief' | 'strategy'>,
+  ctx: Pick<WriteContext, 'brief' | 'strategy' | 'yearsOfExperience'>,
   digest: string,
   competencies: readonly CapabilityEvidence[],
   maxLabels: number,
+  minLabels = 0,
 ): string {
   const used = distinctNotableFigures(digest)
+  const years = ctx.yearsOfExperience
+  const yearsRule = typeof years === 'number' && years > 0
+    ? `\n- Open with how long the candidate has done this work: ${years} years of experience, in the first person ("I've spent ${years} years ..."), the one number allowed beside the other figure rules.`
+    : '\n- Do not state a number of years of experience.'
   return [
     '# Brief',
     briefText(ctx.brief),
@@ -74,7 +89,7 @@ export function profilePrompt(
     data('experience', digest || '(no experience bullets)'),
     `# Competencies chosen for this CV\n\nThe candidate's own competencies for this role: use their wording where it fits. Claim nothing the experience section does not support.`,
     data('competencies', competencies.length > 0 ? competencies.map((c) => `- ${c.name}`).join('\n') : '(none: return an empty list)'),
-    `# Limits\n\n- Profile: at most ${PROFILE_MAX_WORDS} words. Open with the positioning for THIS role, in the brief's positioning and hidden-question language and the job's key terms; then what the candidate has done. No first person ("I", "my", "we"): an implied subject, present tense.\n- Figures: at most ${PROFILE_MAX_FIGURES} in the profile and headline together, and never one that already appears in the experience section${used.length > 0 ? ` (those are: ${used.join(', ')})` : ''}. The experience section carries the numbers; do not restate them.\n- Headline: at most ${HEADLINE_MAX_WORDS} words, a descriptor and never a job title or seniority level.\n- Competencies: ${maxLabels === 0 ? 'none: return an empty list' : `up to ${maxLabels} labels, each a short noun phrase of ${COMPETENCY_LABEL_MIN_WORDS} to ${COMPETENCY_LABEL_MAX_WORDS} words, with no numbers and no sentence`}.\n- Plain text only: no Markdown, links, HTML or ":::".\n- Numbers exactly as in the evidence, whether you write them as digits or words; no title, company or date.\n- The brief's lead-with and emphasise lines are direction, not evidence. Claim no outcome, programme, result or framing for a project or theme the experience section has no bullet about, even when the brief names it.`,
+    `# Limits\n\n- Profile: 4 to 6 sentences, at most ${PROFILE_MAX_WORDS} words, in the first person ("I build ...", "I've designed ..."; here and nowhere else). Open with the positioning for THIS role, in the brief's positioning and hidden-question language and the job's key terms; then what the candidate has done, plainly. Lead with a figure only when it is NOT stated in the experience section; otherwise lead with the strongest fact. No slogans and no storyteller phrases.\n- Figures: at most ${PROFILE_MAX_FIGURES} in the profile and headline together, and never one that already appears in the experience section${used.length > 0 ? ` (those are: ${used.join(', ')})` : ''}. The experience section carries the numbers: prefer a different figure from the evidence, or none.${yearsRule}\n- Headline: at most ${HEADLINE_MAX_WORDS} words, a descriptor and never a job title or seniority level; no first person.\n- Competencies: ${maxLabels === 0 ? 'none: return an empty list' : `write ${minLabels > 0 ? `${Math.min(minLabels, maxLabels)} to ` : 'up to '}${maxLabels} labels (as many as the experience supports, up to the limit), built from the chosen competencies above and the key terms of the job's requirements where the experience section shows them; each a short noun phrase of ${COMPETENCY_LABEL_MIN_WORDS} to ${COMPETENCY_LABEL_MAX_WORDS} words, with no numbers and no sentence`}.\n- Plain text only: no Markdown, links, HTML or ":::".\n- Numbers exactly as in the evidence, whether you write them as digits or words; no title, company or date.\n- The brief's lead-with and emphasise lines are direction, not evidence. Claim no outcome, programme, result or framing for a project or theme the experience section has no bullet about, even when the brief names it.`,
     'Return the profile, headline and competency labels as one JSON object matching the schema, in a ```json code block.',
   ].join('\n\n')
 }
@@ -98,14 +113,19 @@ type Check = {
 }
 
 /** The text sources a profile figure or name may come from: the wave-1 text and every selected evidence item. */
-const sourcesOf = (ctx: Pick<WriteContext, 'evidence'>, digest: string) => [digest, ...ctx.evidence.employers.flatMap(evidenceTexts)]
+const sourcesOf = (ctx: Pick<WriteContext, 'evidence' | 'yearsOfExperience'>, digest: string) => [
+  digest,
+  ...ctx.evidence.employers.flatMap(evidenceTexts),
+  // The pending years opener: the owner's own number is a supported figure.
+  ...(typeof ctx.yearsOfExperience === 'number' && ctx.yearsOfExperience > 0 ? [`${ctx.yearsOfExperience} years of experience`] : []),
+]
 
 const LABEL_BOUNDS = { min: COMPETENCY_LABEL_MIN_WORDS, max: COMPETENCY_LABEL_MAX_WORDS }
 
 /** All code checks on one answer. Pure. */
 export function analyseProfile(
   out: ProfileOutput,
-  ctx: Pick<WriteContext, 'evidence' | 'requirementText'>,
+  ctx: Pick<WriteContext, 'evidence' | 'requirementText' | 'yearsOfExperience'>,
   allowed: { digest: string; competencies: readonly CapabilityEvidence[]; maxLabels: number },
 ): CheckResult & Check {
   const hard: string[] = []
@@ -116,10 +136,11 @@ export function analyseProfile(
   const headline = plainLine(out.headline)
   // Verbatim names from the candidate's own text ("Our World in Data") are not first person: the wave-1 digest is model output, so it is not used.
   const ownText = [...ctx.evidence.employers.flatMap(evidenceTexts), ...ctx.evidence.profileCompanies, ...ctx.evidence.profileTitles].join('\n')
-  const fields: Array<[string, string]> = [['the profile', out.profile], ['the headline', out.headline], ...out.competencies.map((c): [string, string] => [`the competency "${c}"`, c])]
-  for (const [label, text] of fields) {
-    const f = plainFeedback(label, text, ownText)
-    if (f) problem(f, plainReasons(text, ownText).join(', '))
+  // First person is allowed in the profile paragraph only (the headline and the labels stay impersonal).
+  const fields: Array<[string, string, PlainOptions]> = [['the profile', out.profile, { allowFirstPerson: true }], ['the headline', out.headline, {}], ...out.competencies.map((c): [string, string, PlainOptions] => [`the competency "${c}"`, c, {}])]
+  for (const [label, text, opts] of fields) {
+    const f = plainFeedback(label, text, ownText, opts)
+    if (f) problem(f, plainReasons(text, ownText, opts).join(', '))
   }
   if (!profile) hard.push('the profile is empty; write the paragraph')
   // Over the word cap (profile or headline) is NOT a retry reason (a retry doubles the call's cost): writeProfile shortens it in code.
@@ -277,7 +298,8 @@ export async function writeProfile(
   const competencies = writableCompetencies(ctx.evidence.competencies)
   const maxLabels = maxCompetencyLabels(ctx)
   const allowed = { digest, competencies, maxLabels }
-  const call = await completeChecked(ctx.profileId, profilePrompt(ctx, digest, competencies, maxLabels), ProfileOutputSchema, {
+  const minLabels = minCompetencyLabels(ctx, maxLabels)
+  const call = await completeChecked(ctx.profileId, profilePrompt(ctx, digest, competencies, maxLabels, minLabels), ProfileOutputSchema, {
     role: 'default',
     system: composeSystem(instructions.rules, instructions.brief, instructions.prompt, PROFILE_OUTPUT_FORMAT),
     maxOutputTokens: MAX_OUTPUT_TOKENS.writeProfile,
@@ -327,6 +349,15 @@ export async function writeProfile(
     const picked = labelsFromSelected(competencies, maxLabels)
     labels = picked.labels
     if (labels.length > 0) notes.push('The answer had no usable competency labels, so Core Competencies uses your selected competency names.')
+  }
+  // Fewer labels than the minimum: top up from the selected competencies that already read as labels (no retry, no new claims).
+  if (maxLabels > 0 && labels.length < minLabels) {
+    const have = labels.length
+    for (const l of labelsFromSelected(competencies, COMPETENCY_MAX_LABELS).labels) {
+      if (labels.length >= minLabels) break
+      if (!labels.some((x) => labelReflectsCompetency(x, l))) labels = [...labels, l]
+    }
+    if (labels.length > have) notes.push(`The answer had ${have} competency ${have === 1 ? 'label' : 'labels'}; added ${labels.length - have} from your selected competencies to reach ${minLabels}.`)
   }
   notes.push(...competencyNotes(competencies, labels, maxLabels))
   if (a.ungroundedLabels.length > 0) {
