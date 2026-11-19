@@ -519,16 +519,16 @@ describe('competency labels up to the budget (floors)', () => {
     brief: buildBriefFor({ budgets: { experiences: 4, skills: 12, tools: 10, competencies: budget, certifications: 6, education: 3, projects: 2 } }),
   })
 
-  it('allows up to 8 labels, and asks for 6 to 8 when the profile has at least 6 competencies', () => {
+  it('allows up to 8 labels and asks for no minimum', () => {
     const c = withComps(names)
     expect(maxCompetencyLabels(c)).toBe(8)
-    expect(minCompetencyLabels(c, 8)).toBe(6)
-    const p = profilePrompt(c, digest, writableCompetencies(c.evidence.competencies), 8, 6)
-    expect(p).toMatch(/write 6 to 8 labels/)
+    expect(minCompetencyLabels(c, 8)).toBe(0)
+    const p = profilePrompt(c, digest, writableCompetencies(c.evidence.competencies), 8, 0)
+    expect(p).toMatch(/write up to 8 labels/)
     expect(p).toMatch(/chosen competencies above and the key terms of the job's requirements/)
   })
 
-  it('asks for no minimum when the profile has fewer than 6 competencies (it is not padded)', () => {
+  it('asks for no minimum with few competencies (it is not padded)', () => {
     const c = withComps(names.slice(0, 4))
     expect(minCompetencyLabels(c, 8)).toBe(0)
     expect(profilePrompt(c, digest, writableCompetencies(c.evidence.competencies), 8, 0)).toMatch(/write up to 8 labels/)
@@ -542,15 +542,13 @@ describe('competency labels up to the budget (floors)', () => {
     expect(r.competenciesMarkdown.split('\n').filter((l) => l.startsWith('- '))).toHaveLength(8)
   })
 
-  it('tops up to 6 from the selected competencies when the writer returned fewer, noting it, with no retry', async () => {
+  it('does not pad the labels: a writer that returned 5 gets 5, with no retry', async () => {
     const c = withComps(names)
     const { s, result } = run([{ ...good, competencies: names.slice(0, 5) }], c)
     const r = await result
     expect(s.calls).toHaveLength(1)
-    const lines = r.competenciesMarkdown.split('\n').filter((l) => l.startsWith('- '))
-    expect(lines).toHaveLength(6)
-    expect(lines[5]).toBe(`- ${names[5]}`)
-    expect(r.notes.join(' ')).toMatch(/had 5 competency labels; added 1 from your selected competencies to reach 6/)
+    expect(r.competenciesMarkdown.split('\n').filter((l) => l.startsWith('- '))).toHaveLength(5)
+    expect(r.notes.join(' ')).not.toMatch(/to reach/)
   })
 
   it('still names a selected competency that no label reflects', async () => {

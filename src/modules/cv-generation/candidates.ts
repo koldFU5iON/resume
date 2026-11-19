@@ -21,7 +21,7 @@ import { FLAT_SECTIONS, type FlatSection } from './caps'
 import { countOf } from './text'
 import { employerPeriod, groupEmployers, type EmployerGroup } from './employers'
 import { isThinProject } from './write/limits'
-import { ALREADY_MARKED, certificationStatus, educationStatus, isClaimedCapability } from './write/status'
+import { ALREADY_MARKED, certificationStatus, educationStatus, isClaimedCapability, isDegreeLike } from './write/status'
 
 export type CandidateActivity = {
   id: string
@@ -126,7 +126,8 @@ export function buildCandidates(vault: Vault, now: Date = new Date()): Candidate
       inProgress: certificationStatus(n.props, now) === 'in_progress',
       expired: certificationStatus(n.props, now) === 'expired',
     })),
-    education: notesOf(vault, 'education').map((n) => ({
+    // A short course or certificate is not a degree or diploma: never an Education candidate.
+    education: notesOf(vault, 'education').filter((n) => isDegreeLike(n.props.qualification)).map((n) => ({
       id: n.id,
       label: markInProgress(`${n.props.qualification}${n.props.field ? ` in ${n.props.field}` : ''} — ${n.props.institution}`, educationStatus(n.props, now) === 'in_progress'),
       detail: formatSpan(n.props.startDate, n.props.endDate),

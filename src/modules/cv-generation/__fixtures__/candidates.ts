@@ -56,5 +56,5 @@ export const brief = {
   playDown: ['Early career support work'],
   positioning: 'A delivery lead who has done this before.',
   tone: 'plain and specific',
-  budgets: { experiences: 4, skills: 12, tools: 10, competencies: 8, certifications: 6, education: 3, projects: 2 },
+  budgets: { experiences: 4, skills: 12, tools: 10, competencies: 8, certifications: 4, education: 2, projects: 2 },
 }

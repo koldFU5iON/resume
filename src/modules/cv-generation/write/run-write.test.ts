@@ -494,25 +494,14 @@ describe('runWrite', () => {
       expect(r.sections.find((x) => x.id === `experience:${BLIZZARD}`)!.log.retryReasons).toEqual([])
     })
 
-    it('skips a weak certification (no issuer, no date) that Select did not rank first only when the budget is already filled, and says so', async () => {
-      const src = writeVaultSource()
-      ;(src.certifications as unknown[]).push({ id: 'wcw', profileId: 'p1', name: 'React Front-End Course', issuer: null, issueDate: null, expiryDate: null, credentialUrl: null, tags: '[]', createdAt: new Date(0), updatedAt: new Date(0), skills: [] })
-      const vault = buildVault(src)
-      const full = buildBriefFor({ budgets: { ...buildBriefFor().budgets, certifications: 1 } })
-      const r = await runWrite(vault, full, writeSelection(vault, { certifications: pick('wc1', 'wcw') }), strategy, ctx())
-      const cert = r.sections.find((x) => x.id === 'certification')!
-      expect(cert.markdown).toBe('- **PMP** — PMI (2018)')
-      expect(cert.log.notes.join(' ')).toContain('"React Front-End Course" has no issuer and no date, and the section is full without it, so it was left out.')
-    })
-
-    it('shows a weak certification by name when the section would otherwise fall short of its budget', async () => {
+    it('skips a weak certification (no issuer, no date) that Select did not rank first, and says so', async () => {
       const src = writeVaultSource()
       ;(src.certifications as unknown[]).push({ id: 'wcw', profileId: 'p1', name: 'React Front-End Course', issuer: null, issueDate: null, expiryDate: null, credentialUrl: null, tags: '[]', createdAt: new Date(0), updatedAt: new Date(0), skills: [] })
       const vault = buildVault(src)
       const r = await runWrite(vault, buildBriefFor(), writeSelection(vault, { certifications: pick('wc1', 'wcw') }), strategy, ctx())
       const cert = r.sections.find((x) => x.id === 'certification')!
-      expect(cert.markdown).toBe('- **PMP** — PMI (2018)\n- **React Front-End Course**')
-      expect(cert.log.notes.join(' ')).toContain('shown by name because the section would be short of 6 without it')
+      expect(cert.markdown).toBe('- **PMP** — PMI (2018)')
+      expect(cert.log.notes.join(' ')).toContain('"React Front-End Course" has no issuer and no date, so it was left out.')
     })
 
     it('leaves no selected item silently dropped: each is on the CV or named in a log note', async () => {

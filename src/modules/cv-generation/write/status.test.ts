@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildVault } from '@/modules/profile-map/build'
 import { writeVaultSource } from '../__fixtures__/write'
-import { certificationStatus, educationStatus, isClaimedCapability } from './status'
+import { certificationStatus, educationStatus, isClaimedCapability, isDegreeLike } from './status'
 import type { CapabilityNote } from '@/modules/profile-map/types'
 
 const now = new Date('2026-11-18T00:00:00Z')
@@ -71,5 +71,14 @@ describe('isClaimedCapability (CV view of a capability)', () => {
     for (const id of ['wc1', 'wc2']) (s.certifications as Array<{ id: string; skills: unknown[] }>).find((c) => c.id === id)!.skills = [{ skillId: 'skx', status: 'confirmed' }]
     const vault = buildVault(s)
     expect(isClaimedCapability(vault, capNote(vault, 'Programme governance'), now)).toBe(false)
+  })
+})
+
+describe('isDegreeLike', () => {
+  it('treats degrees, diplomas and school qualifications as education', () => {
+    for (const q of ['BSc', 'MSc in Supply chain', 'Bachelor of Arts', 'MBA', 'Higher Diploma in Computing', 'Postgraduate Certificate in Education', 'PhD', 'Leaving Certificate', 'Degree 3']) expect(isDegreeLike(q), q).toBe(true)
+  })
+  it('keeps a short course or certificate out of education', () => {
+    for (const q of ['Certificate in On-screen Presenting', 'Short course in negotiation', 'Data bootcamp', 'Workshop: pricing', 'Leadership training programme']) expect(isDegreeLike(q), q).toBe(false)
   })
 })

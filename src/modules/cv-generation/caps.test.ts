@@ -14,28 +14,29 @@ describe('caps', () => {
     expect(TOTAL_ACTIVITY_BUDGET).toBe(17)
     expect(MAX_TOTAL_BULLETS).toBe(20)
     expect([MIN_ACTIVITIES_PER_EMPLOYER, MAX_ACTIVITIES_PER_EMPLOYER]).toEqual([2, 6])
-    expect(FLAT_CAPS).toEqual({ skills: 12, tools: 10, competencies: 8, certifications: 6, education: 3, projects: 2 })
+    expect(FLAT_CAPS).toEqual({ skills: 12, tools: 10, competencies: 8, certifications: 4, education: 2, projects: 2 })
     expect(BUDGET_CAPS.experiences).toBe(MAX_EMPLOYERS)
   })
 
-  it('has floors the Brief may raise but never go below, each within its ceiling', () => {
+  it('has no padding floor on any flat section (education keeps 1 so the Brief cannot zero it)', () => {
     expect(MIN_EMPLOYERS_WITH_BULLETS).toBe(4)
-    expect(FLAT_FLOORS).toEqual({ skills: 12, tools: 6, competencies: 8, certifications: 6, education: 1, projects: 0 })
+    expect(FLAT_FLOORS).toEqual({ skills: 0, tools: 0, competencies: 0, certifications: 0, education: 1, projects: 0 })
     for (const s of Object.keys(BUDGET_CAPS) as Array<keyof typeof BUDGET_CAPS>) expect(BUDGET_FLOORS[s]).toBeLessThanOrEqual(BUDGET_CAPS[s])
     expect(TOTAL_ACTIVITY_BUDGET).toBeGreaterThanOrEqual(16)
     expect(TOTAL_ACTIVITY_BUDGET).toBeLessThanOrEqual(18)
   })
 
   it('clamps a budget into [floor, ceiling]', () => {
-    expect(clampBudgetValue('certifications', 3)).toBe(6)
-    expect(clampBudgetValue('competencies', 5)).toBe(8)
+    expect(clampBudgetValue('certifications', 3)).toBe(3)
+    expect(clampBudgetValue('certifications', 9)).toBe(4)
+    expect(clampBudgetValue('competencies', 5)).toBe(5)
     expect(clampBudgetValue('experiences', 1)).toBe(4)
     expect(clampBudgetValue('skills', 99)).toBe(12)
     expect(clampBudgetValue('education', 0)).toBe(1)
-    expect(clampBudgetValue('education', 2)).toBe(2)
+    expect(clampBudgetValue('education', 3)).toBe(2)
     expect(clampBudgetValue('projects', 0)).toBe(0)
     expect(clampBudgetValue('projects', 9)).toBe(2)
-    expect(clampBudgetValue('tools', Number.NaN)).toBe(6)
+    expect(clampBudgetValue('tools', Number.NaN)).toBe(0)
   })
 })
 

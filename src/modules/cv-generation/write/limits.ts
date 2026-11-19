@@ -18,14 +18,14 @@ export const HEADLINE_MAX_WORDS = 12
  * Core Competencies are short noun-phrase labels, not sentences: 2 to 5 words,
  * no numbers, at most COMPETENCY_MAX_LABELS of them (the ceiling of the
  * Brief's competency budget, caps.ts MAX_COMPETENCIES; the profile call writes
- * up to the budget and at least COMPETENCY_MIN_LABELS when the profile has that
- * many, labels that cannot restate the experience's figures).
+ * up to the budget, never padded to a count, labels that cannot restate the
+ * experience's figures).
  */
 export const COMPETENCY_LABEL_MIN_WORDS = 2
 export const COMPETENCY_LABEL_MAX_WORDS = 5
 export const COMPETENCY_MAX_LABELS = MAX_COMPETENCIES
-/** The fewest labels the profile call is asked for when the profile has at least this many competencies; code tops up from the selected ones when it writes fewer. */
-export const COMPETENCY_MIN_LABELS = 6
+/** No minimum number of competency labels: the call writes as many as the experience supports, up to the budget; code never tops up to reach a count. */
+export const COMPETENCY_MIN_LABELS = 0
 /** The professional profile uses at most this many figures (and none already used in an experience bullet). */
 export const PROFILE_MAX_FIGURES = 1
 /** Group labels in Skills and Tools (per list). */

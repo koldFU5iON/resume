@@ -52,15 +52,17 @@ export const MAX_RELEVANCE = 5
 /** The middle of the scale: what an unreadable stored score reads as, and what derivation gives when nothing matches anywhere. */
 export const NEUTRAL_RELEVANCE = Math.round((MIN_RELEVANCE + MAX_RELEVANCE) / 2)
 
-/** Hard ceilings per flat section (the Brief and Select can never exceed them). */
+/**
+ * Ceilings per flat section (the Brief and Select can never exceed them).
+ * They are CEILINGS only: relevance decides how many items a section shows, and
+ * a short list is better than a padded one (docs/cv-generation.md, section 6).
+ */
 export const MAX_SKILLS = 12
 export const MAX_TOOLS = 10
-/** Tools floor: a code top-up stops here; the model may go up to MAX_TOOLS. */
-export const MIN_TOOLS = 6
 export const MAX_COMPETENCIES = 8
-export const MAX_CERTIFICATIONS = 6
-/** All education, but never more than this many entries. */
-export const MAX_EDUCATION = 3
+export const MAX_CERTIFICATIONS = 4
+/** Degrees and diplomas only; never more than this many entries. */
+export const MAX_EDUCATION = 2
 export const MAX_PROJECTS = 2
 
 /** The flat (non-experience) sections of the selection. */
@@ -77,23 +79,28 @@ export const FLAT_CAPS: Record<FlatSection, number> = {
 }
 
 /**
- * Floors: the Brief may raise a budget up to its ceiling but never go below
- * these (a stored Brief's lower number is clamped up in code). A floor is
- * met only as far as the profile has items (a profile with 5 certifications
- * shows 5). The first real run came out at 507 words because the Brief asked
- * for 3 certifications, 5 competencies and 3 employers with bullets.
- * Projects keep a floor of 0: a project with no bearing on the job is not
- * padding for the page. Education keeps its floor of 1.
+ * Employers with bullets keep a floor (a long career still shows its recent
+ * employers; the work history has no gaps). No flat section has a padding floor (education's 1 only stops the Brief zeroing it):
+ * a section may be empty or short when little in the profile is relevant.
  */
 export const MIN_EMPLOYERS_WITH_BULLETS = 4
 export const FLAT_FLOORS: Record<FlatSection, number> = {
-  skills: MAX_SKILLS,
-  tools: MIN_TOOLS,
-  competencies: MAX_COMPETENCIES,
-  certifications: MAX_CERTIFICATIONS,
+  skills: 0,
+  tools: 0,
+  competencies: 0,
+  certifications: 0,
+  /** Education is the one section the Brief cannot zero: a CV with no education line reads as an omission (when the profile has any). */
   education: 1,
   projects: 0,
 }
+
+/**
+ * The one top-up code still does: a section that would be EMPTY while the
+ * profile has a relevant, evidence-backed item gets that many items. Education
+ * gets one whenever the profile has a degree or diploma (a CV with no
+ * education line reads as an omission). Every other flat section gets none.
+ */
+export const EMPTY_SECTION_MINIMUM = 1
 
 /** The sections the Brief sets a budget for, and the hard cap each budget is clamped to. */
 export const BUDGET_CAPS = {

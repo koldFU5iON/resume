@@ -27,7 +27,7 @@ import { composeSystem, loadCVSelectPrompt } from '@/modules/llm/prompt-context'
 import { LLMError } from '@/modules/llm/errors'
 import { attributionOf, completeValidated, type CallUsage } from './call'
 import {
-  BUDGET_FLOORS,
+  EMPTY_SECTION_MINIMUM,
   FLAT_SECTIONS,
   MAX_ACTIVITIES_PER_EMPLOYER,
   MAX_ACTIVITIES_LAYERED_EMPLOYER,
@@ -178,7 +178,7 @@ export function selectPrompt(brief: CvBrief, cands: Candidates, strategy?: Pick<
     )
   }
   sections.push(
-    `# Budgets (fill them: code tops a short list up to the floor, and cuts picks over the budget)\n\nEmployers with bullets ${employersWithBullets(brief)}, skills ${b.skills}, tools ${b.tools}, competencies ${b.competencies}, certifications ${b.certifications}, education ${b.education}, projects ${b.projects}. Employers you do not pick are still listed on the CV as a title line with no bullets (up to ${MAX_HEADER_ONLY_EMPLOYERS}), so do not spend a pick on an employer only to keep it visible. Pick as many items as the budget allows when the profile has them, best first; an item with no bearing on the job goes last, not first. Projects are the exception: pick one only when it helps this job.`,
+    `# Budgets (ceilings: pick no more than these, and fewer when little is relevant)\n\nEmployers with bullets ${employersWithBullets(brief)}, skills ${b.skills}, tools ${b.tools}, competencies ${b.competencies}, certifications ${b.certifications}, education ${b.education}, projects ${b.projects}. Employers you do not pick are still listed on the CV as a title line with no bullets (up to ${MAX_HEADER_ONLY_EMPLOYERS}), so do not spend a pick on an employer only to keep it visible. Pick only items that are relevant to this job, best first. You may return fewer than a budget, or none; code never pads a list to reach a count. An item with no bearing on the job is left out, not put last.`,
     `# Bullets\n\n${TOTAL_ACTIVITY_BUDGET} activities in all (at most ${MAX_TOTAL_BULLETS}) across the employers with bullets, split in proportion to the relevance score (${MIN_RELEVANCE}-${MAX_RELEVANCE}) you give each employer, with at least ${MIN_ACTIVITIES_PER_EMPLOYER} and at most ${MAX_ACTIVITIES_PER_EMPLOYER} for each (${MAX_ACTIVITIES_LAYERED_EMPLOYER} for an employer with ${LAYERED_EMPLOYER_MIN_ROLES} or more roles). Code applies the split after you answer. Give every employer you pick a relevance score (${MAX_RELEVANCE} = central to the role, 3 = supports the story but not central, ${MIN_RELEVANCE} = barely relevant), and list up to ${MAX_ACTIVITIES_LAYERED_EMPLOYER} activities for it, best first: the first ones are kept if the split gives the employer fewer. Recency does not set the split: an older employer that answers the brief better gets more bullets than a recent one that does not.`,
   )
   if (required.length === 1) {
@@ -498,7 +498,8 @@ export function enforceSelection(
     const limit = clampBudgetValue(s, brief.budgets[s])
     const expiredIds = s === 'certifications' ? new Set(cands.certifications.filter((c) => c.expired).map((c) => c.id)) : new Set<string>()
     const picks = rank(s, s === 'projects' ? [...pinnedProjects.filter((p) => !out.projects.some((o) => o.id === p.id)), ...out.projects] : out[s], known)
-    const live = picks.filter((p) => !expiredIds.has(p.id))
+    let live = picks.filter((p) => !expiredIds.has(p.id))
+    if (s === 'certifications') live = relevantInProgressOnly(live, cands.certifications, terms, notes)
     for (const p of picks) if (expiredIds.has(p.id)) dropReason.set(p.id, 'not_selected')
     if (live.length < picks.length) notes.push(`Left out ${countOf(picks.length - live.length, 'expired certification')} the model picked: ${picks.filter((p) => expiredIds.has(p.id)).map((p) => labels.get(p.id) ?? p.id).join(', ')}.`)
     // Thin projects (a title only) write no bullet, so they never use a project slot: substantive ones fill the
@@ -517,19 +518,12 @@ export function enforceSelection(
     for (const p of solid.slice(limit)) dropReason.set(p.id, 'over_cap')
     for (const p of thinAll) if (!thin.includes(p)) dropReason.set(p.id, 'over_cap')
     if (solid.length > 0 && thin.length > 0 && solid.length + thin.length > limit) notes.push(`${thin.map((p) => labels.get(p.id) ?? p.id).join(', ')} ${thin.length === 1 ? 'has' : 'have'} only a title: kept for the coach note without using a project slot.`)
-    const want = Math.min(BUDGET_FLOORS[s], limit, cands[s].length)
-    if (kept.length < want) {
-      const taken = new Set(kept.map((k) => k.id))
-      const extra = topUpOrder(s, cands[s].filter((c) => !taken.has(c.id)), terms, now).slice(0, want - kept.length)
-      const had = kept.length
-      kept = [...kept, ...extra.map((c) => ({ id: c.id, reason: 'Chosen by rule: the model picked too few' }))]
-      if (had === 0 && s === 'education') notes.push('The model picked no education; kept the most recent entries.')
-      else if (had === 0 && (s === 'skills' || s === 'tools')) notes.push(`The model picked no ${s}; chose ${kept.length} by rule (evidence-backed first).`)
-      else notes.push(`Topped up ${s} to ${kept.length} by rule (the minimum is ${want}): the model picked ${had}.`)
-      if ((s === 'skills' || s === 'tools') && kept.length < want) {
-        const skipped = cands[s].filter((c) => !c.proven && !kept.some((k) => k.id === c.id)).length
-        if (skipped > 0) notes.push(`Left ${countOf(skipped, `claimed-only ${s === 'tools' ? 'tool' : 'skill'}`)} out on purpose: the brief and the job do not name ${skipped === 1 ? 'it' : 'them'}, so the list stays at ${kept.length}.`)
-      }
+    // No padding: a section is never topped up to a count. Only a section that would be EMPTY gets one
+    // relevant, evidence-backed item (education: any degree or diploma the profile has).
+    if (kept.length === 0 && limit > 0) {
+      const extra = emptySectionPicks(s, cands[s], terms, now).slice(0, EMPTY_SECTION_MINIMUM)
+      kept = extra.map((c) => ({ id: c.id, reason: 'Chosen by rule: the section would be empty' }))
+      if (extra.length > 0) notes.push(`The model picked no ${s}; kept ${extra.length} by rule (${s === 'education' ? 'the first entry' : 'relevant and evidence-backed'}).`)
     }
     flat[s] = kept.map((p) => item(p.id, p.reason))
     for (const k of kept) keptFlat.add(k.id)
@@ -678,6 +672,39 @@ function topUpOrder(section: FlatSection, items: readonly CandidateItem[], terms
       .map(({ c }) => c)
   }
   return [...items]
+}
+
+/**
+ * What a section that would otherwise be EMPTY may take: skills, tools and
+ * competencies one relevant (a brief or requirement term matches), evidence-backed
+ * item; education the first entry; certifications and projects nothing. Pure.
+ */
+function emptySectionPicks(section: FlatSection, items: readonly CandidateItem[], terms: readonly string[], now: Date): CandidateItem[] {
+  if (section === 'education') return [...items]
+  if (section === 'skills' || section === 'tools' || section === 'competencies') {
+    return topUpOrder(section, items, terms, now).filter((c) => !c.proven || matches(`${c.label} ${c.detail ?? ''}`, terms).length > 0) // a claimed-only item gets here only when the job names it (topUpOrder)
+  }
+  return []
+}
+
+/** The most in-progress certifications a CV shows. */
+export const MAX_IN_PROGRESS_CERTIFICATIONS = 1
+
+/**
+ * An in-progress certification is kept only when it is relevant to the job
+ * (a brief or requirement term matches its name or issuer), and at most
+ * MAX_IN_PROGRESS_CERTIFICATIONS of them: the most relevant, then the model's
+ * order. Others are dropped with a note. Pure apart from `notes`.
+ */
+function relevantInProgressOnly<P extends { id: string }>(picks: P[], certs: readonly CandidateItem[], terms: readonly string[], notes: string[]): P[] {
+  const byId = new Map(certs.map((c) => [c.id, c]))
+  const relevance = (p: P) => { const c = byId.get(p.id); return c ? matches(`${c.label} ${c.detail ?? ''}`, terms).length : 0 }
+  const inProgress = picks.filter((p) => byId.get(p.id)?.inProgress)
+  if (inProgress.length === 0) return picks
+  const keep = inProgress.filter((p) => relevance(p) > 0).sort((x, y) => relevance(y) - relevance(x)).slice(0, MAX_IN_PROGRESS_CERTIFICATIONS)
+  const out = picks.filter((p) => !byId.get(p.id)?.inProgress || keep.includes(p))
+  if (out.length < picks.length) notes.push(`Left out ${countOf(picks.length - out.length, 'in-progress certification')}: ${inProgress.filter((p) => !keep.includes(p)).map((p) => byId.get(p.id)?.label ?? p.id).join(', ')} (only one relevant in-progress certification is shown).`)
+  return out
 }
 
 /** Words that do not make a claimed tool "named" on their own: "OpenAI API" is not named by a job that only asks for "API". */

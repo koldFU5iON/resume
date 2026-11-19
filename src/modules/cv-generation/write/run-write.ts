@@ -252,7 +252,7 @@ export async function runWrite(
     headline = p.headline
 
     // Rendered by code, from the profile as stored.
-    const certs = renderCertifications(evidence.certifications, new Date(), brief.budgets.certifications)
+    const certs = renderCertifications(evidence.certifications, new Date())
     if (certs.markdown) keep({ id: 'certification', kind: 'certification', markdown: certs.markdown, log: logOf('certification', 'Certifications', { notes: ['Rendered by code from your profile, in relevance order, no model call.', ...certs.notes] }) })
     else if (certs.notes.length > 0) notes.push(...certs.notes)
     const edu = renderEducation(evidence.education)

@@ -158,3 +158,13 @@ describe('in-progress certifications and education are marked for Brief and Sele
     expect(candidatesToPrompt(cands)).toContain('Programme governance [claimed only]')
   })
 })
+
+describe('education candidates are degrees and diplomas only', () => {
+  it('leaves a short course or certificate out of the education candidates', () => {
+    const src = writeVaultSource()
+    ;(src.educations as Array<Record<string, unknown>>).push({ ...(src.educations as Array<Record<string, unknown>>)[0], id: 'we-tv', qualification: 'Certificate in On-screen Presenting', field: null, institution: 'Evening Media School' })
+    const labels = buildCandidates(buildVault(src), new Date('2026-11-18T00:00:00Z')).education.map((i) => i.label)
+    expect(labels.some((l) => l.includes('On-screen Presenting'))).toBe(false)
+    expect(labels.length).toBeGreaterThan(0)
+  })
+})

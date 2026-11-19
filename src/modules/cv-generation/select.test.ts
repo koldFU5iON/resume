@@ -15,7 +15,6 @@ import {
   MAX_TOTAL_BULLETS, MIN_ACTIVITIES_PER_EMPLOYER, TOTAL_ACTIVITY_BUDGET,
 } from './caps'
 
-const FLOOR_TOOLS = 6
 import { candidatesToPrompt, type Candidates } from './candidates'
 import { matchesName, nameTokens } from './named-items'
 import {
@@ -79,8 +78,8 @@ describe('enforceSelection', () => {
     expect(s.skills).toHaveLength(12)
     expect(s.tools).toHaveLength(10)
     expect(s.competencies).toHaveLength(8)
-    expect(s.certifications).toHaveLength(6)
-    expect(s.education).toHaveLength(3)
+    expect(s.certifications).toHaveLength(4)
+    expect(s.education).toHaveLength(2)
     expect(s.projects).toHaveLength(2)
     expect(s.skills.map((i) => i.id)).toEqual(cands.skills.slice(0, 12).map((i) => i.id))
     expect(s.dropped.find((d) => d.id === 's12')?.why).toBe('over_cap')
@@ -208,16 +207,16 @@ describe('enforceSelection', () => {
       expect(one.selection.employers.filter((e) => !e.headerOnly).map((e) => e.key)).toContain('co-0')
     })
 
-    it('never lets a stored brief go below a floor or exceed a cap', () => {
+    it('never lets a stored brief exceed a cap, and never pads a short pick up to a floor', () => {
       const small = { budgets: { ...brief.budgets, skills: 3, experiences: 2 } }
       const a = enforceSelection({ ...empty, employers: epick(['co-0', 3], ['co-1', 3], ['co-2', 3]), skills: pick('s0', 's1', 's2', 's3', 's4') }, cands, small)
       expect(a.selection.employers.filter((e) => !e.headerOnly)).toHaveLength(4)
-      expect(a.selection.skills).toHaveLength(12) // 5 picked, topped up to the floor
+      expect(a.selection.skills).toHaveLength(3) // the Brief asked for 3: no top-up beyond what was picked
       const greedy = { budgets: { ...brief.budgets, skills: 999, experiences: 99, tools: -5 } }
       const b = enforceSelection({ ...empty, employers: epick(['co-0', 3], ['co-1', 3], ['co-2', 3], ['co-3', 3], ['co-4', 3]), skills: pick(...cands.skills.map((s) => s.id)), tools: pick('t0') }, cands, greedy)
       expect(b.selection.employers.filter((e) => !e.headerOnly)).toHaveLength(MAX_EMPLOYERS)
       expect(b.selection.skills).toHaveLength(FLAT_CAPS.skills)
-      expect(b.selection.tools).toHaveLength(FLOOR_TOOLS) // a negative request reads as the floor
+      expect(b.selection.tools).toHaveLength(0) // a negative request reads as 0: nothing is padded
     })
 
     it('accepts a role’s experience id for its employer', () => {
@@ -433,13 +432,16 @@ describe('enforceSelection', () => {
     c.skills[3].proven = false
     c.skills[0].proven = false
     const r = enforceSelection({ ...empty, employers: epick(['co-0', 3]) }, c, brief)
-    expect(r.selection.skills).toHaveLength(12)
-    expect(r.selection.skills[0].id).toBe('s1')
-    expect(r.selection.skills.map((s) => s.id)).not.toContain('s3')
-    expect(r.selection.tools).toHaveLength(6)
-    expect(r.selection.competencies).toHaveLength(8) // topped up to the floor
-    expect(r.notes.join(' ')).toContain('picked no skills')
-    expect(enforceSelection(empty, c, { budgets: { ...brief.budgets, tools: 0 } }).selection.tools).toHaveLength(6) // a request below the floor reads as the floor
+    // Nothing matches the brief, so no skill, tool or competency counts as relevant: nothing is chosen to fill a count.
+    expect(r.selection.skills).toHaveLength(0)
+    expect(r.selection.tools).toHaveLength(0)
+    expect(r.selection.competencies).toHaveLength(0)
+    // An EMPTY section with one relevant, evidence-backed item gets that one item, never a count.
+    c.skills[5].label = 'Release management'
+    c.skills[3].label = 'Release management tooling'
+    const r2 = enforceSelection({ ...empty, employers: epick(['co-0', 3]) }, c, brief)
+    expect(r2.selection.skills.map((s) => s.id)).toEqual(['s5'])
+    expect(r2.notes.join(' ')).toContain('picked no skills')
   })
 
   it('keeps the newest education when the model picked none', () => {
@@ -514,7 +516,7 @@ describe('fallbackSelection', () => {
     expect(s.skills).toHaveLength(12)
     expect(s.tools).toHaveLength(10)
     expect(s.projects).toHaveLength(2)
-    expect(s.education).toHaveLength(3)
+    expect(s.education).toHaveLength(2)
     for (const e of withBullets) expect(e.bullets.length).toBeGreaterThanOrEqual(MIN_ACTIVITIES_PER_EMPLOYER)
     expect(withBullets.reduce((n, e) => n + e.bullets.length, 0)).toBeLessThanOrEqual(TOTAL_ACTIVITY_BUDGET)
     // The employer that matches the brief gets the most bullets, not the most recent one.
@@ -833,14 +835,17 @@ describe('lead-with and emphasise items are searched in ALL candidates', () => {
 })
 
 describe('tools and skills top-up does not pad with claimed-only items', () => {
-  it('tops tools up to the floor of 6 with evidence-backed ones, and a claimed-only tool only when the job names it', () => {
+  it('never pads tools: the model picks stay, and a code pick happens only for an EMPTY list', () => {
     const c = bigCandidates(2, 4)
     c.tools = [
       ...['Figma', 'Jira', 'Notion'].map((l, i) => ({ id: `tp${i}`, label: l, detail: null, proven: true })),
       ...['Slack', 'Meltwater', 'Claude', 'Workato'].map((l, i) => ({ id: `tc${i}`, label: l, detail: null, proven: false })),
     ]
     const r = enforceSelection({ ...empty, employers: epick(['co-0', 4]) }, c, brief, 'model', { requirementTerms: ['workato'] })
-    expect(r.selection.tools.map((t) => t.id)).toEqual(['tp0', 'tp1', 'tp2', 'tc3'])
+    // Empty tools list: one relevant, evidence-backed or job-named tool only, not a count.
+    expect(r.selection.tools.map((t) => t.id)).toEqual(['tc3'])
+    const picked = enforceSelection({ ...empty, employers: epick(['co-0', 4]), tools: pick('tp0') }, c, brief, 'model', { requirementTerms: ['workato'] })
+    expect(picked.selection.tools.map((t) => t.id)).toEqual(['tp0'])
   })
 })
 
@@ -857,11 +862,11 @@ describe('claimed-only top-up needs the whole name, not one shared word', () => 
   }
   it('a requirement that only says "API" does not pad with OpenAI API or an unnamed Zapier', () => {
     const r = enforceSelection({ ...empty, employers: epick(['co-0', 4]) }, tools(), brief, 'model', { requirementTerms: ['rest', 'api', 'integration'] })
-    expect(r.selection.tools.map((t) => t.id)).toEqual(['tp0', 'tp1'])
+    expect(r.selection.tools.map((t) => t.id)).toEqual([])
   })
   it('names in the requirements admit them: "openai" admits OpenAI API, "zapier" admits Zapier', () => {
     const r = enforceSelection({ ...empty, employers: epick(['co-0', 4]) }, tools(), brief, 'model', { requirementTerms: ['openai', 'zapier'] })
-    expect(r.selection.tools.map((t) => t.id)).toEqual(['tp0', 'tp1', 'oa', 'zp'])
+    expect(r.selection.tools.map((t) => t.id)).toEqual(['oa'])
   })
 })
 
@@ -910,13 +915,6 @@ describe('thin lead-with projects', () => {
     expect(r.selection.projects.map((p) => p.id)).toEqual(['t0', 't1', 't2'])
     expect(r.notes.join(' ')).not.toMatch(/only a title/) // no substantive project to displace
   })
-
-  it('says claimed-only tools were left out on purpose', () => {
-    const c = bigCandidates(2, 4)
-    c.tools = ['A', 'B'].map((l, i) => ({ id: `tx${i}`, label: l, detail: null, proven: true })).concat(['Slack', 'Office'].map((l, i) => ({ id: `ty${i}`, label: l, detail: null, proven: false })))
-    const r = enforceSelection({ ...empty, employers: epick(['co-0', 4]) }, c, brief)
-    expect(r.notes.join(' ')).toMatch(/Left 2 claimed-only tools out on purpose/)
-  })
 })
 
 describe('thin projects do not use project slots', () => {
@@ -963,10 +961,10 @@ describe('the select prompt: emphasise and budgets', () => {
     expect(selectPrompt(buildBriefFor({ emphasise: [] }), bigCandidates(2, 2))).not.toContain('# Emphasise')
   })
 
-  it('tells the model to fill the budgets, which code also holds as floors', () => {
+  it('tells the model the budgets are ceilings and it may return fewer', () => {
     const text = selectPrompt(buildBriefFor(), bigCandidates(2, 2))
-    expect(text).toContain('fill them: code tops a short list up to the floor')
-    expect(text).toMatch(/as many items as the budget allows/)
+    expect(text).toContain('ceilings: pick no more than these')
+    expect(text).toMatch(/return fewer than a budget, or none; code never pads/)
   })
 
   it('cannot be broken by an emphasise item that contains the requirements tag', () => {
@@ -978,10 +976,10 @@ describe('the select prompt: emphasise and budgets', () => {
 describe('the select prompt file (phase 3 additions)', () => {
   const text = readFileSync('src/lib/prompts/cv-gen-select.md', 'utf8')
 
-  it('says budgets are floors to fill, with projects the exception', () => {
-    expect(text).toContain('also a **floor**')
-    expect(text).toContain('fill each list to its budget')
-    expect(text).toContain('Projects are the exception')
+  it('says budgets are ceilings, not targets', () => {
+    expect(text).toContain('is a **ceiling**, not a target')
+    expect(text).toContain('only items that are relevant to this job')
+    expect(text).toContain('code never tops a list up')
   })
 
   it('asks for one skill per concept, naming the near-duplicate example', () => {
@@ -1016,19 +1014,19 @@ describe('the select prompt file (tuning additions)', () => {
 describe('the select prompt file (phase 3b additions)', () => {
   const text = readFileSync('src/lib/prompts/cv-gen-select.md', 'utf8')
 
-  it('fills the certification budget, relevant first, a no-relevance one last, in-progress and recent before old', () => {
-    expect(text).toContain('A certification with no clear relevance to the role goes last')
+  it('picks only relevant certifications, at most one in progress and only when relevant', () => {
+    expect(text).toContain('is left out, even when the budget has room')
     expect(text).toContain('front-end React course for a product marketing role')
-    expect(text).toMatch(/an in-progress certification and a recent one/)
-    expect(text).toMatch(/no issuer and no date is hard to verify: pick it only after the others/)
-    expect(text).toMatch(/in-progress certification has no date by nature/)
+    expect(text).toMatch(/At most one in-progress certification, and only when it is relevant/)
+    expect(text).toMatch(/no issuer and no date is hard to verify: pick it only when it is your most relevant one/)
+    expect(text).toContain('A short course or certificate is not education')
     expect(text).toContain('first one is treated as the most relevant')
   })
 })
 
 // ── Volume floors (calibration from a real run: 507 words against a ~850-word hand-made CV) ──
 
-describe('volume floors', () => {
+describe('budgets are ceilings, not floors', () => {
   const four = { experiences: 3, skills: 5, tools: 4, competencies: 5, certifications: 3, education: 1, projects: 0 }
 
   it('shows four employers with bullets even when the Brief asked for three, so a long-tenure employer is not a title line', () => {
@@ -1061,28 +1059,28 @@ describe('volume floors', () => {
     expect(counts.reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(MAX_TOTAL_BULLETS)
   })
 
-  it('tops every flat list up to its floor when the model picked fewer, from what the profile has', () => {
+  it('does not top a short list up: the model picks stay, and only an empty education gets one entry', () => {
     const c = bigCandidates(4, 8, 20)
     const out: SelectOutput = { ...empty, employers: epick(['co-0', 3]), skills: pick('s3'), tools: pick('t0'), competencies: pick('c4', 'c5', 'c6'), certifications: pick('ce1', 'ce2'), education: [], projects: [] }
-    const { selection: s, notes } = enforceSelection(out, c, { budgets: { ...brief.budgets, ...four } })
-    expect(s.skills).toHaveLength(12)
-    expect(s.tools).toHaveLength(6)
-    expect(s.competencies).toHaveLength(8)
-    expect(s.certifications).toHaveLength(6)
-    expect(s.education).toHaveLength(1)
-    expect(s.projects).toHaveLength(0) // projects keep no floor: a project with no bearing is not padding
-    // The model's picks come first, in its order; code fills after them.
-    expect(s.skills[0].id).toBe('s3')
-    expect(s.competencies.slice(0, 3).map((i) => i.id)).toEqual(['c4', 'c5', 'c6'])
-    expect(s.skills[1].reason).toContain('Chosen by rule')
-    expect(notes.join(' ')).toContain('Topped up certifications to 6 by rule')
+    const { selection: s } = enforceSelection(out, c, { budgets: { ...brief.budgets, ...four } })
+    expect(s.skills.map((i) => i.id)).toEqual(['s3'])
+    expect(s.tools.map((i) => i.id)).toEqual(['t0'])
+    expect(s.competencies.map((i) => i.id)).toEqual(['c4', 'c5', 'c6'])
+    expect(s.certifications.map((i) => i.id)).toEqual(['ce1', 'ce2'])
+    expect(s.education).toHaveLength(1) // the one minimum: a profile with education shows some
+    expect(s.projects).toHaveLength(0)
   })
 
-  it('meets a floor only as far as the profile has items (a profile with 3 certifications shows 3)', () => {
+  it('shows nothing in a section when nothing is picked and nothing is relevant', () => {
     const c = bigCandidates(4, 8, 20)
-    c.certifications = c.certifications.slice(0, 3)
     const { selection: s } = enforceSelection({ ...empty, employers: epick(['co-0', 3]) }, c, brief)
-    expect(s.certifications).toHaveLength(3)
+    expect([s.skills.length, s.tools.length, s.competencies.length, s.certifications.length]).toEqual([0, 0, 0, 0])
+  })
+
+  it('never leaves education out of a profile that has a degree, but never pads it either', () => {
+    const c = bigCandidates(2, 4)
+    expect(enforceSelection({ ...empty, employers: epick(['co-0', 3]) }, c, brief).selection.education).toHaveLength(1)
+    expect(enforceSelection({ ...empty, employers: epick(['co-0', 3]), education: pick('ed1') }, c, brief).selection.education.map((e) => e.id)).toEqual(['ed1'])
   })
 
   it('never exceeds a ceiling, whatever the model picked or the Brief asked', () => {
@@ -1091,13 +1089,13 @@ describe('volume floors', () => {
     const { selection: s } = enforceSelection(out, c, { budgets: { ...brief.budgets, competencies: 99, certifications: 99 } })
     expect(s.competencies).toHaveLength(FLAT_CAPS.competencies)
     expect(s.certifications).toHaveLength(FLAT_CAPS.certifications)
-    expect([FLAT_CAPS.competencies, FLAT_CAPS.certifications, FLAT_CAPS.skills, FLAT_CAPS.tools]).toEqual([8, 6, 12, 10])
+    expect([FLAT_CAPS.competencies, FLAT_CAPS.certifications, FLAT_CAPS.skills, FLAT_CAPS.tools, FLAT_CAPS.education]).toEqual([8, 4, 12, 10, 2])
   })
 
-  it('tells the model the floored numbers, not the small ones it may have been given', () => {
+  it('tells the model the ceilings, with no floor under them', () => {
     const b = CvBriefSchema.parse({ ...buildBriefFor(), budgets: { experiences: 1, skills: 2, tools: 2, competencies: 2, certifications: 1, education: 0, projects: 0 } })
     const text = selectPrompt(b, bigCandidates(2, 2))
-    expect(text).toContain('Employers with bullets 4, skills 12, tools 6, competencies 8, certifications 6, education 1, projects 0')
+    expect(text).toContain('Employers with bullets 4, skills 2, tools 2, competencies 2, certifications 1, education 1, projects 0')
   })
 })
 
@@ -1117,15 +1115,27 @@ describe('certification order and top-up', () => {
     expect(ranked.map((c) => c.id)).toEqual(['relevant-old', 'wip', 'recent', 'old', 'weak', 'expired'])
   })
 
-  it('a code top-up takes in-progress and recent certifications before stale ones, and never an expired one', () => {
+  it('never tops certifications up, and never lets an expired one in', () => {
+    const c = bigCandidates(4, 8)
+    c.certifications = [cert('c-old', 'Old', { issued: '2010-01-01' }), cert('c-exp', 'Expired', { issued: '2015-01-01', expired: true }), cert('c-new', 'New', { issued: '2026-02-01' })]
+    const { selection: s } = enforceSelection({ ...empty, employers: epick(['co-0', 3]), certifications: pick('c-old', 'c-exp') }, c, brief, 'model', { now })
+    expect(s.certifications.map((i) => i.id)).toEqual(['c-old'])
+  })
+
+  it('shows an in-progress certification only when it is relevant to the job, and at most one', () => {
     const c = bigCandidates(4, 8)
     c.certifications = [
-      cert('c-old', 'Old', { issued: '2010-01-01' }), cert('c-exp', 'Expired', { issued: '2015-01-01', expired: true }), cert('c-wip', 'Wip (in progress)', { inProgress: true }),
-      cert('c-new', 'New', { issued: '2026-02-01' }), cert('c-mid', 'Mid', { issued: '2022-02-01' }), cert('c-old2', 'Old 2', { issued: '2011-01-01' }), cert('c-old3', 'Old 3', { issued: '2012-01-01' }),
+      cert('done', 'Cloud Architect', { issued: '2024-01-01' }),
+      cert('wip-off', 'Lean Six Sigma (in progress)', { inProgress: true }),
+      cert('wip-on', 'Project Management Professional (in progress)', { inProgress: true }),
+      cert('wip-on2', 'Project Management Foundations (in progress)', { inProgress: true }),
     ]
-    const { selection: s } = enforceSelection({ ...empty, employers: epick(['co-0', 3]), certifications: pick('c-old') }, c, brief, 'model', { now })
-    expect(s.certifications.map((i) => i.id)).toEqual(['c-old', 'c-wip', 'c-new', 'c-mid', 'c-old3', 'c-old2']) // the more recent of two stale ones first
-    expect(s.certifications.map((i) => i.id)).not.toContain('c-exp')
+    const pickAll = pick('done', 'wip-off', 'wip-on', 'wip-on2')
+    const r = enforceSelection({ ...empty, employers: epick(['co-0', 3]), certifications: pickAll }, c, brief, 'model', { now, requirementTerms: ['project', 'management'] })
+    expect(r.selection.certifications.map((i) => i.id)).toEqual(['done', 'wip-on'])
+    expect(r.notes.join(' ')).toContain('in-progress certification')
+    const none = enforceSelection({ ...empty, employers: epick(['co-0', 3]), certifications: pickAll }, c, { budgets: brief.budgets }, 'model', { now, requirementTerms: ['kubernetes'] })
+    expect(none.selection.certifications.map((i) => i.id)).toEqual(['done'])
   })
 
   it('the rules fallback orders certifications the same way', () => {
