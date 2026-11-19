@@ -4,7 +4,7 @@
 // figures, never contact details. Expect a few false positives on the
 // "consider" checks: they are phrased as questions.
 
-import { IN_PROGRESS_WORDING, certificationStatus, educationStatus } from '@/modules/cv-generation/write/status'
+import { certificationStatus, educationStatus } from '@/modules/cv-generation/write/status'
 import { isThinProject } from '@/modules/cv-generation/write/limits'
 import { notesOf } from '@/modules/profile-map/build'
 import { formatMonth, normalizeName, oneLine } from '@/modules/profile-map/format'
@@ -22,6 +22,10 @@ export const DUPLICATE_NAME_SIMILARITY = 0.8
 export const DUPLICATE_TEXT_SIMILARITY = 0.7
 /** Descriptions shorter than this many words are too short to compare. */
 export const DUPLICATE_TEXT_MIN_WORDS = 8
+/** A role with no evidence is a 'fix' only if it is current or ended within this many years (older roles collapse into Earlier Experience)... */
+export const EXPERIENCE_RECENT_YEARS = 5
+/** ...and its summary is shorter than this many characters. */
+export const EXPERIENCE_SHORT_BODY_CHARS = 120
 /** Two roles at different employers must overlap this long to be mentioned. */
 export const CONCURRENT_MIN_OVERLAP_MONTHS = 3
 /** A longer stretch between employers is mentioned. */
@@ -78,10 +82,13 @@ function evidenceOf(vault: Vault, narrative: Note): EvidenceNote[] {
     .filter((n): n is EvidenceNote => n?.type === 'evidence')
 }
 
+function containedProjects(vault: Vault, exp: ExperienceNote): ProjectNote[] {
+  return exp.links.filter((l) => l.type === 'contains').map((l) => vault.notes.get(l.id)).filter((n): n is ProjectNote => n?.type === 'project')
+}
+
 /** Evidence of a role, including that of the projects under it. */
 function roleEvidence(vault: Vault, exp: ExperienceNote): EvidenceNote[] {
-  const projects = exp.links.filter((l) => l.type === 'contains').map((l) => vault.notes.get(l.id)).filter((n): n is ProjectNote => n?.type === 'project')
-  return [...evidenceOf(vault, exp), ...projects.flatMap((p) => evidenceOf(vault, p))]
+  return [...evidenceOf(vault, exp), ...containedProjects(vault, exp).flatMap((p) => evidenceOf(vault, p))]
 }
 
 const evidenceText = (e: EvidenceNote) => [e.props.description, e.props.impact ?? ''].filter(Boolean).join(' ')
@@ -90,7 +97,9 @@ const evidenceText = (e: EvidenceNote) => [e.props.description, e.props.impact ?
 function narrativeText(vault: Vault, note: ExperienceNote | ProjectNote): string {
   const own = evidenceOf(vault, note).map(evidenceText)
   const highlights = note.type === 'project' ? note.props.highlights.map(String) : []
-  return [note.body ?? '', ...highlights, ...own].join(' ')
+  // A role's text includes what its projects say: that is where many people put it.
+  const projects = note.type === 'experience' ? containedProjects(vault, note).map((p) => narrativeText(vault, p)) : []
+  return [note.body ?? '', ...highlights, ...own, ...projects].join(' ')
 }
 
 const roleName = (e: ExperienceNote) => `${e.props.role} at ${e.props.company}`
@@ -103,7 +112,14 @@ function thinNotes(vault: Vault): (ExperienceNote | ProjectNote)[] {
 }
 
 // ── Thin narratives ────────────────────────────────────────────────────
-export function checkThinNarratives(vault: Vault): Candidate[] {
+/** Current, or ended within EXPERIENCE_RECENT_YEARS: older roles collapse into Earlier Experience, so thin data there never earns a 'fix'. */
+function isRecent(e: ExperienceNote, now: Date): boolean {
+  const cutoff = new Date(now)
+  cutoff.setUTCFullYear(cutoff.getUTCFullYear() - EXPERIENCE_RECENT_YEARS)
+  return !e.props.endDate || e.props.endDate.getTime() >= cutoff.getTime()
+}
+
+export function checkThinNarratives(vault: Vault, now: Date): Candidate[] {
   return thinNotes(vault).map((n) => about(n, n.type === 'project'
     ? {
         kind: 'thin_narrative', severity: 'fix', impact: 9, title: `${n.props.name}: only a title`,
@@ -111,14 +127,19 @@ export function checkThinNarratives(vault: Vault): Candidate[] {
         suggestion: 'Open the project and write two or three lines: what it was, what you did, and what came of it.',
       }
     : {
-        kind: 'thin_narrative', severity: 'fix', impact: 8, title: `${roleName(n)}: almost no text`,
+        kind: 'thin_narrative', severity: isRecent(n, now) ? 'fix' : 'consider', impact: 8, title: `${roleName(n)}: almost no text`,
         message: `Your role as ${roleName(n)} has almost no text: nothing to write the CV from.`,
         suggestion: 'Open the role and add the scope, your team and what you achieved, or add achievements under it.',
       }))
 }
 
+const STOPWORDS = new Set(['with', 'that', 'this', 'from', 'have', 'been', 'were', 'into', 'over', 'about', 'across', 'which', 'while', 'their', 'than', 'then', 'them', 'they', 'also', 'more', 'each', 'when', 'after', 'before'])
+
 // ── Duplicate projects ─────────────────────────────────────────────────
-const tokens = (s: string) => new Set(s.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean))
+const SMALL_WORDS = new Set(['the', 'and', 'for', 'of', 'to', 'in', 'on', 'at', 'an'])
+/** Lowercase words without stopwords or one-letter tokens: the "content words" the similarity tests use. */
+const contentTokens = (s: string) => new Set(s.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 1 && !STOPWORDS.has(w) && !SMALL_WORDS.has(w)))
+const numberTokens = (s: string) => (s.match(/\d+/g) ?? []).sort().join(',')
 function jaccard(a: Set<string>, b: Set<string>): number {
   if (a.size === 0 || b.size === 0) return 0
   let shared = 0
@@ -127,31 +148,36 @@ function jaccard(a: Set<string>, b: Set<string>): number {
 }
 
 export function checkDuplicateProjects(vault: Vault): Candidate[] {
-  const projects = notesOf(vault, 'project')
-  const info = projects.map((p) => ({
+  const info = notesOf(vault, 'project').map((p) => ({
     note: p,
-    name: tokens(p.props.name),
-    text: tokens(narrativeText(vault, p).toLowerCase().split(p.props.name.toLowerCase()).join(' ')),
+    name: contentTokens(p.props.name),
+    text: contentTokens(narrativeText(vault, p).toLowerCase().split(p.props.name.toLowerCase()).join(' ')),
   }))
   const out: Candidate[] = []
   info.forEach((b, j) => {
     const a = info.slice(0, j).find((x) => {
-      if (normalizeName(x.note.props.name) === normalizeName(b.note.props.name) || jaccard(x.name, b.name) >= DUPLICATE_NAME_SIMILARITY) return true
-      return x.text.size >= DUPLICATE_TEXT_MIN_WORDS && b.text.size >= DUPLICATE_TEXT_MIN_WORDS && jaccard(x.text, b.text) >= DUPLICATE_TEXT_SIMILARITY
+      // "Awards 2024" and "Awards 2025" are recurring projects, not copies.
+      if (numberTokens(x.note.props.name) !== numberTokens(b.note.props.name)) return false
+      const sameText = x.text.size >= DUPLICATE_TEXT_MIN_WORDS && b.text.size >= DUPLICATE_TEXT_MIN_WORDS && jaccard(x.text, b.text) >= DUPLICATE_TEXT_SIMILARITY
+      const sameName = normalizeName(x.note.props.name) === normalizeName(b.note.props.name) || jaccard(x.name, b.name) >= DUPLICATE_NAME_SIMILARITY
+      // One name under two different roles is a different piece of work, unless the text says it is the same.
+      return sameText || (sameName && x.note.props.experienceId === b.note.props.experienceId)
     })
     if (!a) return
     out.push(about(b.note, {
-      kind: 'duplicate_project', severity: 'fix', impact: 7, title: `${b.note.props.name}: possible duplicate`,
+      kind: 'duplicate_project', severity: 'consider', impact: 5, title: `${b.note.props.name}: possible duplicate`,
       message: `Projects "${a.note.props.name}" and "${b.note.props.name}" look like the same project entered twice.`,
-      suggestion: 'Keep the one with more detail and delete the other, so the CV does not repeat it or split its evidence.',
+      suggestion: 'If so, keep the one with more detail and delete the other, so the CV does not repeat it or split its evidence. If they are different pieces of work, tell them apart in the name.',
     }))
   })
   return out
 }
 
 // ── Certifications ─────────────────────────────────────────────────────
-// The generator reads "in progress" from a future issue date or this wording in the name.
-const STATUS_WORDING = new RegExp(`${IN_PROGRESS_WORDING.source}|\\b(pending|planned|due)\\b`, 'i')
+// The generator reads "in progress" from a future issue date OR in-progress wording in the name
+// (write/status.ts), on purpose: "AWS SA (in progress)" with a future date is fine. Only bracketed or
+// suffix wording counts as typed status; "Ongoing Professional Development" and "Expected Credit Loss" are names.
+const TYPED_STATUS = /\([^)]*\b(?:in[\s-]?progress|pending)\b[^)]*\)|[-–—,:]\s*(?:in[\s-]?progress|pending)\s*$/i
 
 export function checkCertifications(vault: Vault, now: Date): Candidate[] {
   const out: Candidate[] = []
@@ -159,17 +185,17 @@ export function checkCertifications(vault: Vault, now: Date): Candidate[] {
     const { name, issuer, issueDate } = c.props
     if (!issuer?.trim()) {
       out.push(about(c, {
-        kind: 'cert_no_issuer', severity: 'fix', impact: 5, title: `${name}: no issuer`,
+        kind: 'cert_no_issuer', severity: 'consider', impact: 5, title: `${name}: no issuer`,
         message: `Certification "${name}" has no issuer.`,
         suggestion: 'Add who awards it (for example the institute or vendor); a certification without one is easy to doubt.',
       }))
     }
-    const typedStatus = STATUS_WORDING.test(name)
+    const typedStatus = TYPED_STATUS.test(name) && !(issueDate && issueDate.getTime() > now.getTime())
     if (typedStatus) {
       out.push(about(c, {
-        kind: 'cert_status_in_name', severity: 'fix', impact: 6, title: `${name}: status in the name`,
+        kind: 'cert_status_in_name', severity: 'consider', impact: 6, title: `${name}: status in the name`,
         message: `Certification "${name}" has its status typed into the name.`,
-        suggestion: 'Keep the name to the credential itself and set the issue date to the expected date of completion: a future issue date is what marks it as in progress.',
+        suggestion: 'Keep the name to the credential itself and set the issue date to the expected date of completion: a future issue date marks it as in progress.',
       }))
       if (!issueDate) {
         out.push(about(c, {
@@ -267,15 +293,19 @@ export function checkExperienceDates(vault: Vault, now: Date): Candidate[] {
 }
 
 // ── Experience with no evidence ────────────────────────────────────────
-export function checkExperienceEvidence(vault: Vault): Candidate[] {
+export function checkExperienceEvidence(vault: Vault, now: Date): Candidate[] {
   const thin = new Set(thinNotes(vault).map((n) => n.id))
   return notesOf(vault, 'experience')
     .filter((e) => !thin.has(e.id) && roleEvidence(vault, e).length === 0)
-    .map((e) => about(e, {
-      kind: 'experience_no_evidence', severity: 'fix', impact: 6, title: `${roleName(e)}: no achievements or responsibilities`,
-      message: `${roleName(e)} has no achievements or responsibilities listed, only its summary.`,
-      suggestion: 'Add the two or three things you did there that you would want a reader to know, with a result where you have one.',
-    }))
+    .map((e) => {
+      const recent = isRecent(e, now)
+      return about(e, {
+        kind: 'experience_no_evidence', severity: recent && (e.body?.length ?? 0) < EXPERIENCE_SHORT_BODY_CHARS && containedProjects(vault, e).length === 0 ? 'fix' : 'consider',
+        impact: recent ? 6 : 2, title: `${roleName(e)}: no achievements or responsibilities`,
+        message: `${roleName(e)} has no achievements or responsibilities listed, only its summary.`,
+        suggestion: 'Add the two or three things you did there that you would want a reader to know, with a result where you have one.',
+      })
+    })
 }
 
 // ── Evidence quality ───────────────────────────────────────────────────
@@ -317,7 +347,6 @@ export function checkEvidenceQuality(vault: Vault): Candidate[] {
 }
 
 // ── Possibly conflicting figures ───────────────────────────────────────
-const STOPWORDS = new Set(['with', 'that', 'this', 'from', 'have', 'been', 'were', 'into', 'over', 'about', 'across', 'which', 'while', 'their', 'than', 'then', 'them', 'they', 'also', 'more', 'each', 'when', 'after', 'before'])
 const NUMBER = /(?<![\p{L}\p{N}])\d[\d,]*(?:\.\d+)?(?:\s?(?:%|bn|[km]\b|x\b))?/giu
 
 function figuresOf(text: string): Set<string> {

@@ -11,19 +11,18 @@ import {
 import type { Candidate, ReadinessReport } from './schema'
 
 export * from './schema'
-export { checkThinNarratives } from './checks'
 
 /** The panel shows at most this many findings; `total` still counts them all. */
 export const MAX_FINDINGS = 25
 
 export function checkProfileReadiness(vault: Vault, now: Date): ReadinessReport {
   const all: Candidate[] = [
-    ...checkThinNarratives(vault),
+    ...checkThinNarratives(vault, now),
     ...checkDuplicateProjects(vault),
     ...checkCertifications(vault, now),
     ...checkEducation(vault, now),
     ...checkExperienceDates(vault, now),
-    ...checkExperienceEvidence(vault),
+    ...checkExperienceEvidence(vault, now),
     ...checkEvidenceQuality(vault),
     ...checkConflictingFigures(vault),
     ...checkCapabilities(vault),

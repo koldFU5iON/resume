@@ -12,7 +12,7 @@ describe('checkProfileReadiness', () => {
 
   it('finds the problems of a messy imported profile, fixes first', () => {
     const r = checkProfileReadiness(messyImport(), NOW)
-    expect(r.fixCount).toBeGreaterThanOrEqual(6)
+    expect(r.fixCount).toBeGreaterThanOrEqual(4)
     const sev = r.findings.map((f) => f.severity)
     expect(sev).toEqual([...sev].sort((a) => (a === 'fix' ? -1 : 1)))
     for (const kind of ['thin_narrative', 'duplicate_project', 'cert_no_issuer', 'cert_status_in_name', 'experience_dates_reversed', 'contact_missing']) {

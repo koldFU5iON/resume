@@ -13,22 +13,22 @@ const kinds = (fs: { kind: string }[]) => fs.map((f) => f.kind)
 
 describe('checkThinNarratives', () => {
   it('flags a project with only its title, naming it and asking for what and result', () => {
-    const f = checkThinNarratives(messyImport()).find((x) => x.noteId === 'pr1')!
+    const f = checkThinNarratives(messyImport(), NOW).find((x) => x.noteId === 'pr1')!
     expect(f.severity).toBe('fix')
     expect(f.message).toBe('Project "Enemies Demo Campaign" has only its title: add what you did and the result so the CV can use it.')
     expect(f.editHref).toBe('/dashboard/profile/n/pr1')
   })
   it('flags a role with no text and no evidence, and leaves a described project alone', () => {
-    const fs = checkThinNarratives(messyImport())
+    const fs = checkThinNarratives(messyImport(), NOW)
     expect(fs.map((x) => x.noteId)).toContain('e2')
     expect(fs.map((x) => x.noteId)).not.toContain('pr2')
   })
   it('counts a project name repeated in its own text as thin', () => {
     const v = vaultOf({ projects: [project('p', 'Atlas', 'Atlas.')] })
-    expect(checkThinNarratives(v)).toHaveLength(1)
+    expect(checkThinNarratives(v, NOW)).toHaveLength(1)
   })
   it('does not flag clean, early-career or career-changer profiles', () => {
-    for (const v of [cleanProfile(), earlyCareer(), careerChanger(), longCareer()]) expect(checkThinNarratives(v)).toEqual([])
+    for (const v of [cleanProfile(), earlyCareer(), careerChanger(), longCareer()]) expect(checkThinNarratives(v, NOW)).toEqual([])
   })
 })
 
@@ -36,7 +36,7 @@ describe('checkDuplicateProjects', () => {
   it('finds the same project entered twice under different casing', () => {
     const fs = checkDuplicateProjects(messyImport())
     expect(fs).toHaveLength(1)
-    expect(fs[0]).toMatchObject({ kind: 'duplicate_project', severity: 'fix', noteType: 'project' })
+    expect(fs[0]).toMatchObject({ kind: 'duplicate_project', severity: 'consider', noteType: 'project' })
     expect(fs[0].message).toContain('Enemies Demo Campaign')
   })
   it('finds near-identical names and high text overlap, but not different projects', () => {
@@ -53,11 +53,11 @@ describe('checkCertifications', () => {
   const fs = checkCertifications(messyImport(), NOW)
   it('asks for an issuer', () => {
     expect(fs.filter((f) => f.kind === 'cert_no_issuer').map((f) => f.noteId)).toEqual(['ce1', 'ce3'])
-    expect(fs.find((f) => f.noteId === 'ce3')!.severity).toBe('fix')
+    expect(fs.find((f) => f.noteId === 'ce3')!.severity).toBe('consider')
   })
   it('catches status typed into the name', () => {
     const f = fs.find((x) => x.kind === 'cert_status_in_name')!
-    expect(f).toMatchObject({ noteId: 'ce1', severity: 'fix' })
+    expect(f).toMatchObject({ noteId: 'ce1', severity: 'consider' })
     expect(f.suggestion).toMatch(/expected date/i)
   })
   it('asks for an expected date when the only sign of progress is wording', () => {
@@ -70,8 +70,8 @@ describe('checkCertifications', () => {
     expect(checkCertifications(cleanProfile(), NOW)).toEqual([])
     expect(checkCertifications(careerChanger(), NOW)).toEqual([])
   })
-  it('treats "pending" and "ongoing" as status words', () => {
-    const v = vaultOf({ certifications: [certification('c', 'CISSP - pending'), certification('d', 'AWS ongoing')] })
+  it('treats bracketed or suffix "pending" as typed status, but not "ongoing" in a name', () => {
+    const v = vaultOf({ certifications: [certification('c', 'CISSP - pending'), certification('d', 'AWS (in progress)'), certification('e', 'Ongoing Professional Development')] })
     expect(checkCertifications(v, NOW).filter((f) => f.kind === 'cert_status_in_name')).toHaveLength(2)
   })
 })
@@ -128,18 +128,20 @@ describe('checkExperienceDates', () => {
 describe('checkExperienceEvidence', () => {
   it('flags a role with no achievements or responsibilities, unless it is already reported as thin', () => {
     const v = vaultOf({ experiences: [role('r', 'Co', 'Analyst', '2020-01', null, 'A'.repeat(200))] })
-    expect(checkExperienceEvidence(v)).toMatchObject([{ kind: 'experience_no_evidence', severity: 'fix', noteId: 'r' }])
-    expect(checkExperienceEvidence(messyImport()).map((f) => f.noteId)).not.toContain('e2')
+    expect(checkExperienceEvidence(v, NOW)).toMatchObject([{ kind: 'experience_no_evidence', severity: 'consider', noteId: 'r' }])
+    const short = vaultOf({ experiences: [role('r', 'Co', 'Analyst', '2020-01', null, 'A'.repeat(100))] })
+    expect(checkExperienceEvidence(short, NOW)[0].severity).toBe('fix')
+    expect(checkExperienceEvidence(messyImport(), NOW).map((f) => f.noteId)).not.toContain('e2')
   })
   it('counts evidence owned by the role\'s projects', () => {
     const v = vaultOf({
       experiences: [role('r', 'Co', 'Analyst', '2020-01', null, 'A'.repeat(200))],
       projects: [project('p', 'Atlas', 'x', { experienceId: 'r', activities: [activity('a', { projectId: 'p' }, 'achievement', 'Shipped Atlas', '3 weeks early')] })],
     })
-    expect(checkExperienceEvidence(v)).toEqual([])
+    expect(checkExperienceEvidence(v, NOW)).toEqual([])
   })
   it('is quiet on fixtures that have evidence', () => {
-    for (const v of [cleanProfile(), earlyCareer(), careerChanger(), longCareer()]) expect(checkExperienceEvidence(v)).toEqual([])
+    for (const v of [cleanProfile(), earlyCareer(), careerChanger(), longCareer()]) expect(checkExperienceEvidence(v, NOW)).toEqual([])
   })
 })
 
