@@ -82,35 +82,61 @@ export function trimReason(v: string): string {
   const words = v.trim().split(/\s+/).filter(Boolean).slice(0, REASON_MAX_WORDS).join(' ')
   return words.slice(0, REASON_MAX).replace(/[\s,;:–—-]+$/, '').trim()
 }
-const reason = z.string().default('').describe(`At most ${REASON_MAX_WORDS} words: what this item shows for the role`)
-  .transform(trimReason)
-const PickSchema = z.object({ id: z.string(), reason })
-const list = () => z.array(PickSchema).default([])
+const reason = z.string().default('').transform(trimReason)
 
 /** 1-5, rounded and clamped; anything that is not a number reads as "none given" (derived in code). */
 const relevance = z.number().optional()
-  .describe(`How relevant the employer is to this job's hidden question: an integer from ${MIN_RELEVANCE} (barely) to ${MAX_RELEVANCE} (central)`)
   .transform((v) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(MAX_RELEVANCE, Math.max(MIN_RELEVANCE, Math.round(v))) : undefined))
 
+/**
+ * What the model is ASKED to return: ids only (a plain string per pick), plus a
+ * 1-5 `relevance` per employer and the `emphasise` claims. No reasons and no
+ * list of left-out items: a reason per pick made the answer long enough to be
+ * cut off (about 60 picks), and code derives the dropped list itself
+ * (everything not picked, `not_selected`). This shape is the JSON Schema in the prompt.
+ */
+const AskedSchema = z.object({
+  employers: z.array(z.object({ id: z.string(), relevance: z.number().min(MIN_RELEVANCE).max(MAX_RELEVANCE) }))
+    .describe(`Employers to show with bullets, best first, the current employer first; id is the employer id in square brackets; relevance an integer from ${MIN_RELEVANCE} (barely) to ${MAX_RELEVANCE} (central)`),
+  activities: z.array(z.string())
+    .describe(`Activity ids to keep, best first within each employer (up to ${MAX_ACTIVITIES_LAYERED_EMPLOYER} per employer, ${MAX_ACTIVITIES_PER_EMPLOYER} unless it has ${LAYERED_EMPLOYER_MIN_ROLES}+ roles)`),
+  skills: z.array(z.string()),
+  tools: z.array(z.string()),
+  competencies: z.array(z.string()),
+  certifications: z.array(z.string()),
+  education: z.array(z.string()),
+  projects: z.array(z.string()),
+  emphasise: z.array(z.object({ item: z.string(), evidence: z.array(z.string()) }))
+    .describe('For each emphasise item (name copied exactly), the ids of the picked activities or projects that support it; an empty list when no candidate does'),
+})
+
+/** A pick as a bare id (asked for) or an object with an optional short reason (older answers; still read). */
+const pick = z.union([
+  z.string().transform((id) => ({ id, reason: '' })),
+  z.object({ id: z.string(), reason }),
+])
+const list = () => z.array(pick).default([])
+
+/** Tolerant reader of the model's answer: the asked-for shape, or picks with reasons. Output is what `enforceSelection` takes. */
 export const SelectOutputSchema = z.object({
-  employers: z.array(z.object({ id: z.string(), relevance, reason })).default([])
-    .describe('Employers to show with bullets, best first, the current employer first; id is the employer id in square brackets'),
-  activities: z.array(z.object({ id: z.string(), reason })).default([])
-    .describe(`Activities to keep, best first within each employer (up to ${MAX_ACTIVITIES_LAYERED_EMPLOYER} per employer, ${MAX_ACTIVITIES_PER_EMPLOYER} unless it has ${LAYERED_EMPLOYER_MIN_ROLES}+ roles)`),
+  employers: z.array(z.union([
+    z.string().transform((id) => ({ id, relevance: undefined as number | undefined, reason: '' })),
+    z.object({ id: z.string(), relevance, reason }),
+  ])).default([]),
+  activities: list(),
   skills: list(),
   tools: list(),
   competencies: list(),
   certifications: list(),
   education: list(),
   projects: list(),
-  emphasise: z.array(z.object({ item: z.string(), evidence: z.array(z.string()).default([]) })).default([])
-    .describe('For each emphasise item (copied exactly), the ids of the picked activities or projects that support it; an empty list when no candidate does'),
+  emphasise: z.array(z.object({ item: z.string(), evidence: z.array(z.string()).default([]) })).default([]),
 })
 export type SelectOutput = z.infer<typeof SelectOutputSchema>
 
-const OUTPUT_FORMAT = `Output: one JSON object in a \`\`\`json code block, nothing else. It must match this JSON Schema. Use only ids from the candidate list.
+export const OUTPUT_FORMAT = `Output: one JSON object in a \`\`\`json code block, nothing else. It must match this JSON Schema. Use only ids from the candidate list. Give ids only: no reasons, no text for items you leave out.
 \`\`\`json
-${JSON.stringify(z.toJSONSchema(SelectOutputSchema, { io: 'input' }))}
+${JSON.stringify(z.toJSONSchema(AskedSchema))}
 \`\`\``
 
 /** Key words of the job's requirements (must-have and nice-to-have), lower-case, without filler. */
