@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { FOLD_LEAD_IN, foldIntoOverview, formatReport, planBackfill, type BackfillInput } from './model-backfill'
+import { FOLD_LEAD_IN, foldIntoOverview, formatReport, isNearDuplicate, planBackfill, type BackfillInput } from './model-backfill'
 
-const exp = (id: string, summary = '', type = 'employment') => ({ id, company: `Co ${id}`, role: `Role ${id}`, type, summary })
+const exp = (id: string, summary = '', type = 'employment') => ({ id, company: `Co ${id}`, role: `Role ${id}`, type, summary, revision: 1 })
 const proj = (id: string, experienceId: string | null) => ({ id, name: `Project ${id}`, experienceId })
 let n = 0
 const act = (over: Partial<BackfillInput['activities'][number]>) => ({
@@ -193,5 +193,46 @@ describe('formatReport', () => {
     expect(text).toContain('[Project p2] Launched the thing  →  Role e1 at Co e1')
     expect(text).toContain('Floating  (no role and no project)')
     expect(text).toContain('| - Owned the calendar')
+  })
+})
+
+describe('near-duplicate responsibilities', () => {
+  const resp = 'Developed the concept for a European media tour bringing Diablo III on Nintendo Switch to journalists via two custom chests'
+  const ach = 'Developed the concept for a European media tour bringing Diablo III on Nintendo Switch to journalists via two custom Diablo-themed chests, each holding four Switch consoles'
+
+  it('matches a near-verbatim restatement, whichever is longer', () => {
+    expect(isNearDuplicate(resp, ach)).toBe(true)
+    expect(isNearDuplicate(ach, resp)).toBe(true)
+  })
+  it('does not match a paraphrase, a short text, or unrelated text', () => {
+    expect(isNearDuplicate('Partnered directly with the sales team to support studio relationships', 'Embedded alongside sales on strategic studio accounts using the programme')).toBe(false)
+    expect(isNearDuplicate('Budget owner', 'Owned the budget and the forecast for the programme')).toBe(false)
+    expect(isNearDuplicate('Led crisis communications during a global policy controversy', 'Cut asset turnaround from three weeks to one hour for regional teams')).toBe(false)
+  })
+
+  it('leaves a responsibility out of the fold when a same-role achievement restates it, and says so', () => {
+    const a = act({ experienceId: 'e1', projectId: 'p1', description: ach })
+    const r = planBackfill({
+      experiences: [exp('e1', '')], projects: [proj('p1', 'e1')],
+      activities: [a, act({ kind: 'responsibility', experienceId: 'e1', description: resp }), act({ kind: 'responsibility', experienceId: 'e1', description: 'Owned the regional budget and forecasts' })],
+    })
+    expect(r.folds[0].responsibilities).toEqual(['Owned the regional budget and forecasts'])
+    expect(r.nearDuplicates).toMatchObject([{ experienceId: 'e1', responsibility: resp, achievementId: a.id, achievement: ach }])
+    expect(formatReport(r)).toContain('6. Responsibilities left out because an achievement already says almost the same: 1')
+  })
+  it('only compares within the same role, and counts achievements reached through a project', () => {
+    const viaProject = act({ projectId: 'p1', description: ach })
+    const other = planBackfill({
+      experiences: [exp('e1'), exp('e2')], projects: [proj('p1', 'e2')],
+      activities: [viaProject, act({ kind: 'responsibility', experienceId: 'e1', description: resp })],
+    })
+    expect(other.nearDuplicates).toEqual([])
+    expect(other.folds[0].responsibilities).toEqual([resp])
+    const same = planBackfill({
+      experiences: [exp('e1')], projects: [proj('p1', 'e1')],
+      activities: [viaProject, act({ kind: 'responsibility', experienceId: 'e1', description: resp })],
+    })
+    expect(same.nearDuplicates).toHaveLength(1)
+    expect(same.folds).toEqual([])
   })
 })

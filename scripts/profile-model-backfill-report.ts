@@ -56,7 +56,7 @@ async function main() {
     const [experiences, projects, activities] = await Promise.all([
       prisma.experience.findMany({
         where: { profileId: profile.id },
-        select: { id: true, company: true, role: true, type: true, summary: true },
+        select: { id: true, company: true, role: true, type: true, summary: true, revision: true },
         orderBy: { startDate: 'desc' },
       }),
       prisma.project.findMany({

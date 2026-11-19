@@ -7,7 +7,7 @@
 // result; the constraints and the Overview fold are applied in a later PR,
 // only after the owner has read this report.
 
-export type BackfillExperience = { id: string; company: string; role: string; type: string; summary: string }
+export type BackfillExperience = { id: string; company: string; role: string; type: string; summary: string; revision: number }
 export type BackfillProject = { id: string; name: string; experienceId: string | null }
 export type BackfillActivity = {
   id: string
@@ -61,6 +61,8 @@ export type BackfillReport = {
     before: string
     after: string
   } & Role)[]
+  /** Responsibilities left out of the fold because an achievement in the same role already says almost the same thing. Nothing is lost: the achievement keeps the wording. */
+  nearDuplicates: ({ responsibility: string; achievementId: string; achievement: string } & Role)[]
   /** Roles left out of the fold because their note was already folded once; they still have responsibilities not in the Overview. */
   foldsSkipped: ({ reason: 'already_folded'; responsibilities: string[] } & Role)[]
   counts: {
@@ -80,6 +82,26 @@ const OVERVIEW_HEADING = /^#{1,2}\s+overview\s*$/i
 const ANY_HEADING = /^#{1,2}\s+\S/
 
 const normalize = (t: string) => t.toLowerCase().replace(/\s+/g, ' ').replace(/[\s.;:,]+$/, '').trim()
+
+const NEAR_DUPLICATE_MIN_TOKENS = 6
+const NEAR_DUPLICATE_OVERLAP = 0.8
+
+const tokens = (t: string) => new Set((t.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter((w) => w.length >= 3))
+
+/**
+ * Two texts say almost the same thing when most of the shorter one's words are in the other.
+ * Deliberately strict (a long enough text, a high overlap) so only near-verbatim restatements
+ * match; a paraphrase is still folded, and shows in the report for the owner to judge.
+ */
+export function isNearDuplicate(a: string, b: string): boolean {
+  const ta = tokens(a)
+  const tb = tokens(b)
+  const [small, large] = ta.size <= tb.size ? [ta, tb] : [tb, ta]
+  if (small.size < NEAR_DUPLICATE_MIN_TOKENS) return false
+  let shared = 0
+  for (const w of small) if (large.has(w)) shared++
+  return shared / small.size >= NEAR_DUPLICATE_OVERLAP
+}
 
 /** The lines of the note's Overview section, as bullets or prose, normalised; empty when there is no Overview. */
 function overviewLines(summary: string): Set<string> {
@@ -174,12 +196,14 @@ export function planBackfill(input: BackfillInput): BackfillReport {
 
   const folds: BackfillReport['folds'] = []
   const foldsSkipped: BackfillReport['foldsSkipped'] = []
+  const nearDuplicates: BackfillReport['nearDuplicates'] = []
   for (const e of input.experiences) {
     const mine = input.activities.filter((a) => a.kind === 'responsibility' && effectiveRole.get(a.id) === e.id && a.description.trim())
     if (!mine.length) continue
     // "Already there" means the same line is in the Overview, not merely somewhere in the note: text under a
     // Responsibilities heading still has to reach the Overview.
     const inOverview = overviewLines(e.summary)
+    const achievements = input.activities.filter((a) => a.kind === 'achievement' && effectiveRole.get(a.id) === e.id)
     const seen = new Set<string>()
     const toAdd: string[] = []
     const alreadyInNote: string[] = []
@@ -188,7 +212,13 @@ export function planBackfill(input: BackfillInput): BackfillReport {
       const key = normalize(text)
       if (seen.has(key)) continue
       seen.add(key)
-      ;(inOverview.has(key) ? alreadyInNote : toAdd).push(text)
+      if (inOverview.has(key)) { alreadyInNote.push(text); continue }
+      const twin = achievements.find((x) => isNearDuplicate(text, x.description))
+      if (twin) {
+        nearDuplicates.push({ experienceId: e.id, company: e.company, role: e.role, responsibility: text, achievementId: twin.id, achievement: twin.description })
+        continue
+      }
+      toAdd.push(text)
     }
     if (!toAdd.length) continue
     if (e.summary.includes(FOLD_LEAD_IN)) {
@@ -206,6 +236,7 @@ export function planBackfill(input: BackfillInput): BackfillReport {
     activitiesMismatched,
     folds,
     foldsSkipped,
+    nearDuplicates,
     counts: {
       experiences: input.experiences.length,
       independentExperiences: input.experiences.filter((e) => e.type === 'independent').length,
@@ -257,6 +288,13 @@ export function formatReport(r: BackfillReport): string {
   }
   for (const f of r.foldsSkipped) {
     out.push(`   ${roleLabel(f)}: NOT folded, its note was already folded once; ${f.responsibilities.length} newer responsibilities are not in the Overview`)
+  }
+  out.push('')
+  out.push(`6. Responsibilities left out because an achievement already says almost the same: ${r.nearDuplicates.length}`)
+  for (const d of r.nearDuplicates) {
+    out.push(`   ${roleLabel(d)}`)
+    out.push(`   | responsibility: ${clip(d.responsibility, 140)}`)
+    out.push(`   | achievement:    ${clip(d.achievement, 140)}`)
   }
   return out.join('\n')
 }
