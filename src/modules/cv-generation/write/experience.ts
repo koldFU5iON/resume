@@ -247,7 +247,8 @@ export async function writeExperience(ctx: WriteContext, emp: EmployerEvidence, 
   const bulletIdx = analysed.bullets.map((_, i) => i).filter((i) => !dropThin || keepAt[i])
   if (dropThin) analysed.bullets.forEach((b, i) => { if (!keepAt[i]) notes.push(`Dropped a bullet that was written from a project with no text, not from evidence: “${shortened(b)}”.`) })
   for (const r of dedup.removed) notes.push(`Removed “${shortened(r)}” from the summary: a bullet already says it (the summary states scope and context only).`)
-  for (const u of dedup.unresolved) notes.push(`The summary and a bullet say nearly the same thing: “${shortened(u)}”. Kept both, because the summary has nothing else to keep.`)
+  for (const u of dedup.unresolved) notes.push(`The summary and a bullet say nearly the same thing: “${shortened(u)}”. Kept both, because the summary has nothing else it could lose safely.`)
+  for (const u of dedup.partial) notes.push(`The summary still overlaps a bullet after a clause was removed: “${shortened(u)}”. Kept what is left of both.`)
   const a = {
     ...analysed,
     summary: fit(dedup.summary, SUMMARY_MAX_WORDS, 'the summary'),

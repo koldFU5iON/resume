@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildBriefFor } from '../__fixtures__/gathered'
 import {
-  LEAD_WITH_PROJECT_EXTRA_BULLETS, bulletAllowance, dedupeSummary, leadWithProjects, leadWithStanding, opensInPresentTense, playDownBullets, reflectsItem, repeatsSummary, shortened,
+  LEAD_WITH_PROJECT_EXTRA_BULLETS, bulletAllowance, dedupeSummary, splitSentences, leadWithProjects, leadWithStanding, opensInPresentTense, playDownBullets, reflectsItem, repeatsSummary, shortened,
   thinLeadWithProjects, trimBullets, wrongTenseLines,
 } from './bullets'
 import { leads, em } from '../__fixtures__/candidates'
@@ -157,8 +157,28 @@ describe('repeatsSummary', () => {
 })
 
 describe('dedupeSummary', () => {
-  it('drops the overlapping sentence, or clause, and never empties the summary', () => {
+  it('drops an overlapping whole sentence and keeps the rest', () => {
     expect(dedupeSummary('Directed international PR strategy for EMEA. Part of a small team.', ['Directed international PR strategy for EMEA']).summary).toBe('Part of a small team.')
-    expect(dedupeSummary('Directed international PR strategy for EMEA.', ['Directed international PR strategy for EMEA'])).toMatchObject({ summary: 'Directed international PR strategy for EMEA.', unresolved: ['Directed international PR strategy for EMEA'] })
+  })
+
+  it('never splits a number, a list or an abbreviation', () => {
+    const num = dedupeSummary('Led partner marketing for 1,200 studios, directing international PR strategy across regions.', ['Directed international PR strategy across regions'])
+    expect(num.summary).toBe('Led partner marketing for 1,200 studios.')
+    const list = dedupeSummary('Directed international PR strategy across EMEA, Americas and APAC.', ['Directed international PR strategy across EMEA'])
+    expect(list.summary).toBe('Directed international PR strategy across EMEA, Americas and APAC.')
+    const lead = dedupeSummary('Directed international PR strategy across regions, owning a 12-person team.', ['Directed international PR strategy across regions'])
+    expect(lead.summary).toBe('Directed international PR strategy across regions, owning a 12-person team.')
+    expect(splitSentences('Worked at Acme Inc. on e.g. launches. Led J. Smith’s team vs. rivals.')).toEqual(['Worked at Acme Inc. on e.g. launches.', 'Led J. Smith’s team vs. rivals.'])
+  })
+
+  it('removes a sentence only when the bullet covers most of the SENTENCE', () => {
+    const long = 'Directed international PR strategy across regions for 40 studios and three product lines. Part of a small team.'
+    const r = dedupeSummary(long, ['Directed international PR strategy across regions'])
+    expect(r.summary).toBe(long)
+    expect(r.unresolved).toHaveLength(1)
+  })
+
+  it('keeps a one-sentence summary whole when nothing safe can go', () => {
+    expect(dedupeSummary('Directed international PR strategy for EMEA.', ['Directed international PR strategy for EMEA'])).toMatchObject({ summary: 'Directed international PR strategy for EMEA.', removed: [], unresolved: ['Directed international PR strategy for EMEA'] })
   })
 })
