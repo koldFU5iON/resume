@@ -22,6 +22,14 @@ describe('foldIntoOverview', () => {
     expect(foldIntoOverview('## Overview\nLed the team.', ['a']).after).toBe(`## Overview\nLed the team.\n\n${FOLD_LEAD_IN}\n- a`)
     expect(foldIntoOverview('', ['a']).after).toBe(`## Overview\n\n${FOLD_LEAD_IN}\n- a\n`)
   })
+  it('keeps a multi-line description as one bullet, so a line starting with # is never a heading', () => {
+    const { after } = foldIntoOverview('## Overview\nLed it.\n\n## Skills\n- x', ['First line\n# not a heading'])
+    expect(after).toBe(`## Overview\nLed it.\n\n${FOLD_LEAD_IN}\n- First line\n  # not a heading\n\n## Skills\n- x`)
+  })
+  it('reads a CRLF note and writes plain newlines', () => {
+    const { after } = foldIntoOverview('## Overview\r\nLed it.\r\n\r\n## Skills\r\n- x', ['Duty'])
+    expect(after).toBe(`## Overview\nLed it.\n\n${FOLD_LEAD_IN}\n- Duty\n\n## Skills\n- x`)
+  })
   it('keeps wording exactly', () => {
     expect(foldIntoOverview('', ['Managed  the   Q3 plan, "carefully".']).after).toContain('- Managed  the   Q3 plan, "carefully".')
   })

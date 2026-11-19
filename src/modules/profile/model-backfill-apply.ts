@@ -1,24 +1,27 @@
-// Applies the profile model backfill (docs/superpowers/specs/2026-11-19-profile-model-simplification-design.md, §6)
-// for one profile: gives project-only activities their project's role, and folds
-// responsibilities into each role's Overview. Used by scripts/profile-model-backfill-apply.ts,
-// which the owner runs after reading the dry-run report.
+// Applies the Overview fold of the profile model backfill
+// (docs/superpowers/specs/2026-11-19-profile-model-simplification-design.md, §6) for one profile:
+// each role's responsibilities are written into its Overview text. Used by
+// scripts/profile-model-backfill-apply.ts, which the owner runs after reading the dry-run report.
+//
+// This changes ONLY Experience.summary (and its revision and notesUpdatedAt). It does not touch
+// RoleActivity rows. Giving project-only activities a role is a separate step that lands with the
+// code that reads and writes the new ownership (the design's later PR), because changing those
+// rows first would break deleting a role, moving a project and the vault counts.
 //
 // Guards:
-//  - Everything runs in the caller's transaction, so a failure leaves nothing changed.
-//  - A role's note is only changed if its revision is still the one the report was built from
-//    (the same check the editor uses), so a note edited meanwhile is never overwritten.
-//  - An activity is only assigned if it still has no role.
-//  - Afterwards the plan is rebuilt from the changed rows and must be empty (idempotent);
-//    if not, the transaction is rolled back.
+//  - One transaction: a failed guard leaves nothing changed.
+//  - The owner approves a fingerprint of exactly what will be written (printed by the dry run).
+//    The plan is rebuilt inside the transaction and must produce the same fingerprint, so a note or
+//    responsibility edited after the owner read the report stops the run.
+//  - A note is only changed if its revision is unchanged (the check the editor uses).
+//  - Afterwards the plan is rebuilt from the changed rows and must have nothing left to fold.
 //  - No row is deleted, and no wording is changed.
 
+import { createHash } from 'node:crypto'
 import { planBackfill, type BackfillInput, type BackfillReport } from './model-backfill'
 
 /** The slice of a Prisma transaction client this needs, so it can be tested without a database. */
 export type BackfillTx = {
-  roleActivity: {
-    updateMany(args: { where: { id: string; experienceId: null }; data: { experienceId: string } }): Promise<{ count: number }>
-  }
   experience: {
     updateMany(args: {
       where: { id: string; profileId: string; revision: number }
@@ -27,60 +30,54 @@ export type BackfillTx = {
   }
 }
 
-export type ApplyResult = { activitiesAssigned: number; notesFolded: number }
+export type ApplyResult = { notesFolded: number; responsibilitiesFolded: number }
 
 /** What applying would change, without touching anything. */
 export function summarisePlan(report: BackfillReport): ApplyResult {
-  return { activitiesAssigned: report.activitiesToAssign.length, notesFolded: report.folds.length }
+  return { notesFolded: report.folds.length, responsibilitiesFolded: report.folds.reduce((n, f) => n + f.responsibilities.length, 0) }
 }
 
-/** Why a plan must not be applied, or null when it can be. Only the owner can resolve these. */
-export function blockers(report: BackfillReport): string | null {
-  const parts: string[] = []
-  if (report.projectsWithoutRole.length) parts.push(`${report.projectsWithoutRole.length} projects have no role`)
-  if (report.activitiesUnresolved.length) parts.push(`${report.activitiesUnresolved.length} activities cannot get a role`)
-  if (report.activitiesMismatched.length) parts.push(`${report.activitiesMismatched.length} activities disagree with their project's role`)
-  return parts.length ? `Not applying: ${parts.join('; ')}. Resolve these first (see the report).` : null
+/** A short hash of exactly what a run would write: which notes, from which revision, to which text. */
+export function foldFingerprint(report: BackfillReport, input: BackfillInput): string {
+  const revisionOf = new Map(input.experiences.map((e) => [e.id, e.revision]))
+  const parts = report.folds
+    .map((f) => ({ id: f.experienceId, revision: revisionOf.get(f.experienceId) ?? null, after: f.after }))
+    .sort((a, b) => a.id.localeCompare(b.id))
+  return createHash('sha256').update(JSON.stringify(parts)).digest('hex').slice(0, 12)
 }
 
-export async function applyBackfill(
+export async function applyFold(
   tx: BackfillTx,
   profileId: string,
   input: BackfillInput,
   report: BackfillReport,
+  approvedFingerprint: string,
   now: Date = new Date(),
 ): Promise<ApplyResult> {
-  const blocked = blockers(report)
-  if (blocked) throw new Error(blocked)
-
-  const revisionOf = new Map(input.experiences.map((e) => [e.id, e.revision]))
-
-  for (const a of report.activitiesToAssign) {
-    const res = await tx.roleActivity.updateMany({ where: { id: a.id, experienceId: null }, data: { experienceId: a.experienceId } })
-    if (res.count !== 1) throw new Error('An activity changed since the report was made. Nothing was applied; run the report again.')
+  const fingerprint = foldFingerprint(report, input)
+  if (fingerprint !== approvedFingerprint) {
+    throw new Error(`What would be written (${fingerprint}) is not what you approved (${approvedFingerprint}): something changed since the dry run. Nothing was applied; read the new dry run first.`)
   }
 
+  const revisionOf = new Map(input.experiences.map((e) => [e.id, e.revision]))
   const folded = new Map<string, string>()
   for (const f of report.folds) {
     const revision = revisionOf.get(f.experienceId)
-    if (revision === undefined) throw new Error('A role is missing. Nothing was applied; run the report again.')
+    if (revision === undefined) throw new Error('A role is missing. Nothing was applied; run the dry run again.')
     const res = await tx.experience.updateMany({
       where: { id: f.experienceId, profileId, revision },
       data: { summary: f.after, notesUpdatedAt: now, revision: { increment: 1 } },
     })
-    if (res.count !== 1) throw new Error(`The note for ${f.role} at ${f.company} changed since the report was made. Nothing was applied; run the report again.`)
+    if (res.count !== 1) throw new Error(`The note for ${f.role} at ${f.company} changed since it was read. Nothing was applied; run the dry run again.`)
     folded.set(f.experienceId, f.after)
   }
 
-  // The same plan, rebuilt from the rows as they now are, must have nothing left to do.
-  const assigned = new Map(report.activitiesToAssign.map((a) => [a.id, a.experienceId]))
+  // The same plan, rebuilt from the notes as they now are, must have nothing left to fold.
   const after = planBackfill({
     experiences: input.experiences.map((e) => ({ ...e, summary: folded.get(e.id) ?? e.summary })),
     projects: input.projects,
-    activities: input.activities.map((a) => ({ ...a, experienceId: assigned.get(a.id) ?? a.experienceId })),
+    activities: input.activities,
   })
-  if (after.activitiesToAssign.length || after.folds.length) {
-    throw new Error('The result was not stable on a second pass. Nothing was applied.')
-  }
+  if (after.folds.length) throw new Error('The result was not stable on a second pass. Nothing was applied.')
   return summarisePlan(report)
 }

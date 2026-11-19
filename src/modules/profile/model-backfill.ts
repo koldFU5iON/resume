@@ -78,7 +78,7 @@ export type BackfillReport = {
 /** The lead-in line of a fold. Also how a note that was already folded is recognised, so a second run adds nothing. */
 export const FOLD_LEAD_IN = 'Responsibilities (moved here from the list):'
 
-const OVERVIEW_HEADING = /^#{1,2}\s+overview\s*$/i
+const OVERVIEW_HEADING = /^#{1,2}\s+overview\s*$/i // matched on the raw line, as the note parser does
 const ANY_HEADING = /^#{1,2}\s+\S/
 
 const normalize = (t: string) => t.toLowerCase().replace(/\s+/g, ' ').replace(/[\s.;:,]+$/, '').trim()
@@ -106,11 +106,11 @@ export function isNearDuplicate(a: string, b: string): boolean {
 /** The lines of the note's Overview section, as bullets or prose, normalised; empty when there is no Overview. */
 function overviewLines(summary: string): Set<string> {
   const lines = summary.split(/\r?\n/)
-  const start = lines.findIndex((l) => OVERVIEW_HEADING.test(l.trim()))
+  const start = lines.findIndex((l) => OVERVIEW_HEADING.test(l.trimEnd()))
   const found = new Set<string>()
   if (start === -1) return found
   for (let i = start + 1; i < lines.length; i++) {
-    if (ANY_HEADING.test(lines[i].trim())) break
+    if (ANY_HEADING.test(lines[i])) break
     const text = normalize(lines[i].replace(/^\s*[-*]\s+/, ''))
     if (text) found.add(text)
   }
@@ -127,16 +127,18 @@ export function foldIntoOverview(
   summary: string,
   responsibilities: string[],
 ): { addition: string; after: string; placement: 'existing_overview' | 'new_section' } {
-  const block = `${FOLD_LEAD_IN}\n${responsibilities.map((r) => `- ${r}`).join('\n')}`
-  const lines = summary.split('\n')
-  const start = lines.findIndex((l) => OVERVIEW_HEADING.test(l.trim()))
+  // A description that runs over several lines stays one bullet: continuation lines are indented, so a line
+  // that starts with "#" in the owner's text can never be read as a heading.
+  const block = `${FOLD_LEAD_IN}\n${responsibilities.map((r) => `- ${r.replace(/\r\n?/g, '\n').split('\n').join('\n  ')}`).join('\n')}`
+  const lines = summary.replace(/\r\n?/g, '\n').split('\n')
+  const start = lines.findIndex((l) => OVERVIEW_HEADING.test(l.trimEnd()))
   if (start === -1) {
     const addition = `## Overview\n\n${block}`
     return { addition, placement: 'new_section', after: summary.trim() ? `${summary.replace(/\s+$/, '')}\n\n${addition}\n` : `${addition}\n` }
   }
   let end = lines.length
   for (let i = start + 1; i < lines.length; i++) {
-    if (ANY_HEADING.test(lines[i].trim())) { end = i; break }
+    if (ANY_HEADING.test(lines[i])) { end = i; break }
   }
   // Trim trailing blank lines of the section so the block sits right after the last content.
   let insertAt = end

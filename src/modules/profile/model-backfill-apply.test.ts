@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { planBackfill, type BackfillInput } from './model-backfill'
-import { applyBackfill, blockers, summarisePlan, type BackfillTx } from './model-backfill-apply'
+import { applyFold, foldFingerprint, summarisePlan, type BackfillTx } from './model-backfill-apply'
 
 const input = (over: Partial<BackfillInput> = {}): BackfillInput => ({
   experiences: [{ id: 'e1', company: 'Co', role: 'Lead', type: 'employment', summary: '## Achievements\n- x', revision: 4 }],
@@ -12,70 +12,65 @@ const input = (over: Partial<BackfillInput> = {}): BackfillInput => ({
   ...over,
 })
 
-const tx = () => {
-  const t = {
-    roleActivity: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
-    experience: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
-  }
-  return t satisfies BackfillTx
-}
+const tx = () => ({ experience: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) } }) satisfies BackfillTx
 
-describe('applyBackfill', () => {
+describe('applyFold', () => {
   let t: ReturnType<typeof tx>
   beforeEach(() => { t = tx() })
 
-  it('assigns project-only activities and folds notes, guarded by revision and "no role yet"', async () => {
+  it('writes only the note, guarded by profile and revision, and leaves activities alone', async () => {
     const i = input()
+    const report = planBackfill(i)
     const now = new Date('2026-11-20T10:00:00Z')
-    const res = await applyBackfill(t, 'prof1', i, planBackfill(i), now)
-    expect(res).toEqual({ activitiesAssigned: 1, notesFolded: 1 })
-    expect(t.roleActivity.updateMany).toHaveBeenCalledWith({ where: { id: 'a1', experienceId: null }, data: { experienceId: 'e1' } })
+    const res = await applyFold(t, 'prof1', i, report, foldFingerprint(report, i), now)
+    expect(res).toEqual({ notesFolded: 1, responsibilitiesFolded: 1 })
+    expect(t.experience.updateMany).toHaveBeenCalledTimes(1)
     const call = t.experience.updateMany.mock.calls[0][0]
     expect(call.where).toEqual({ id: 'e1', profileId: 'prof1', revision: 4 })
     expect(call.data).toMatchObject({ notesUpdatedAt: now, revision: { increment: 1 } })
-    expect(call.data.summary).toContain('- Owned the regional budget')
     expect(call.data.summary.startsWith('## Achievements\n- x')).toBe(true)
+    expect(call.data.summary).toContain('- Owned the regional budget')
   })
 
-  it('refuses to apply while the owner still has things to resolve, and writes nothing', async () => {
-    const i = input({ projects: [{ id: 'p1', name: 'Launch', experienceId: null }] })
-    const report = planBackfill(i)
-    expect(blockers(report)).toContain('1 projects have no role')
-    await expect(applyBackfill(t, 'prof1', i, report)).rejects.toThrow(/Not applying/)
-    expect(t.roleActivity.updateMany).not.toHaveBeenCalled()
-    expect(t.experience.updateMany).not.toHaveBeenCalled()
-  })
-
-  it('aborts (so the transaction rolls back) when an activity already got a role meanwhile', async () => {
-    t.roleActivity.updateMany.mockResolvedValue({ count: 0 })
+  it('refuses when what would be written is not what was approved, and writes nothing', async () => {
     const i = input()
-    await expect(applyBackfill(t, 'prof1', i, planBackfill(i))).rejects.toThrow(/activity changed/)
+    const report = planBackfill(i)
+    await expect(applyFold(t, 'prof1', i, report, 'deadbeef0000')).rejects.toThrow(/not what you approved/)
     expect(t.experience.updateMany).not.toHaveBeenCalled()
   })
 
-  it('aborts when a note was edited since the report (revision moved on)', async () => {
+  it('the fingerprint changes when a note, a revision or a responsibility changes', () => {
+    const i = input()
+    const base = foldFingerprint(planBackfill(i), i)
+    const edited = input({ experiences: [{ ...i.experiences[0], summary: '## Achievements\n- x edited' }] })
+    expect(foldFingerprint(planBackfill(edited), edited)).not.toBe(base)
+    const rev = input({ experiences: [{ ...i.experiences[0], revision: 5 }] })
+    expect(foldFingerprint(planBackfill(rev), rev)).not.toBe(base)
+    const more = input({ activities: [...i.activities, { id: 'a3', kind: 'responsibility', description: 'Mentored the team', experienceId: 'e1', projectId: null }] })
+    expect(foldFingerprint(planBackfill(more), more)).not.toBe(base)
+    expect(foldFingerprint(planBackfill(i), i)).toBe(base)
+  })
+
+  it('aborts (so the transaction rolls back) when a note was edited meanwhile', async () => {
     t.experience.updateMany.mockResolvedValue({ count: 0 })
     const i = input()
-    await expect(applyBackfill(t, 'prof1', i, planBackfill(i))).rejects.toThrow(/note for Lead at Co changed/)
+    const report = planBackfill(i)
+    await expect(applyFold(t, 'prof1', i, report, foldFingerprint(report, i))).rejects.toThrow(/note for Lead at Co changed/)
   })
 
-  it('has nothing to do on a second pass', async () => {
+  it('has nothing to fold on a second pass', async () => {
     const i = input()
     const first = planBackfill(i)
-    await applyBackfill(t, 'prof1', i, first)
-    const folded = first.folds[0].after
-    const next = input({
-      experiences: [{ ...i.experiences[0], summary: folded, revision: 5 }],
-      activities: i.activities.map((a) => (a.id === 'a1' ? { ...a, experienceId: 'e1' } : a)),
-    })
-    expect(summarisePlan(planBackfill(next))).toEqual({ activitiesAssigned: 0, notesFolded: 0 })
+    await applyFold(t, 'prof1', i, first, foldFingerprint(first, i))
+    const next = input({ experiences: [{ ...i.experiences[0], summary: first.folds[0].after, revision: 5 }] })
+    expect(summarisePlan(planBackfill(next))).toEqual({ notesFolded: 0, responsibilitiesFolded: 0 })
   })
 
-  it('a plan with nothing to change writes nothing', async () => {
+  it('a plan with nothing to fold writes nothing', async () => {
     const i = input({ activities: [{ id: 'a2', kind: 'achievement', description: 'Did it', experienceId: 'e1', projectId: null }] })
-    const res = await applyBackfill(t, 'prof1', i, planBackfill(i))
-    expect(res).toEqual({ activitiesAssigned: 0, notesFolded: 0 })
-    expect(t.roleActivity.updateMany).not.toHaveBeenCalled()
+    const report = planBackfill(i)
+    const res = await applyFold(t, 'prof1', i, report, foldFingerprint(report, i))
+    expect(res).toEqual({ notesFolded: 0, responsibilitiesFolded: 0 })
     expect(t.experience.updateMany).not.toHaveBeenCalled()
   })
 })

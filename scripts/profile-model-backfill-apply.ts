@@ -1,12 +1,13 @@
-// Applies the profile model backfill for one profile. WRITES to the database.
+// Folds each role's responsibilities into its Overview text, for one profile. WRITES to the database.
+// It changes only Experience.summary; no activity row is touched or deleted, and no wording changes.
 // Read the dry-run report first (npm run profile:backfill-report).
 //
-//   npm run profile:backfill-apply -- --profile <profileId|email> [--apply] [--allow-remote]
+//   npm run profile:backfill-apply -- --profile <profileId|email> [--allow-remote]               dry run: prints the plan and a fingerprint
+//   npm run profile:backfill-apply -- --profile <profileId|email> --apply --confirm <fingerprint> [--allow-remote]
 //
-// Without --apply it only prints what it would do (the same as the report) and
-// changes nothing. With --apply it makes the changes in one transaction: a
-// failed guard rolls everything back. Refuses a non-local DATABASE_URL unless
-// --allow-remote. It never deletes anything and never changes wording.
+// The fingerprint identifies exactly what would be written. --apply refuses to run unless the plan,
+// rebuilt inside the transaction, still has that fingerprint, so anything edited since the dry run stops it.
+// One transaction: a failed guard rolls everything back. Refuses a non-local DATABASE_URL unless --allow-remote.
 import { parseArgs } from 'node:util'
 
 function fail(message: string): never {
@@ -19,10 +20,11 @@ async function main() {
     options: {
       profile: { type: 'string' },
       apply: { type: 'boolean', default: false },
+      confirm: { type: 'string' },
       'allow-remote': { type: 'boolean', default: false },
     },
   })
-  if (!values.profile) fail('Usage: npm run profile:backfill-apply -- --profile <profileId|email> [--apply] [--allow-remote]')
+  if (!values.profile) fail('Usage: npm run profile:backfill-apply -- --profile <profileId|email> [--apply --confirm <fingerprint>] [--allow-remote]')
 
   try { process.loadEnvFile('.env.local') } catch { /* env may come from the shell */ }
   if (!process.env.DATABASE_URL) fail('DATABASE_URL is not set.')
@@ -37,7 +39,7 @@ async function main() {
   const { Pool } = await import('pg')
   const prisma = new PrismaClient({ adapter: new PrismaPg(new Pool({ connectionString: process.env.DATABASE_URL })) })
   const { planBackfill, formatReport } = await import('../src/modules/profile/model-backfill')
-  const { applyBackfill, blockers, summarisePlan } = await import('../src/modules/profile/model-backfill-apply')
+  const { applyFold, foldFingerprint, summarisePlan } = await import('../src/modules/profile/model-backfill-apply')
 
   try {
     const who = values.profile!
@@ -69,20 +71,22 @@ async function main() {
     const report = planBackfill(input)
     console.log(formatReport(report))
     console.log('')
-    const blocked = blockers(report)
-    if (blocked) fail(blocked)
     const plan = summarisePlan(report)
+    const fingerprint = foldFingerprint(report, input)
+    console.log(`This run would fold ${plan.responsibilitiesFolded} responsibilities into ${plan.notesFolded} notes. Fingerprint: ${fingerprint}`)
+    console.log('(Section 2 is not applied by this script: giving project-only activities a role is a later step.)')
     if (!values.apply) {
-      console.log(`DRY RUN: would assign ${plan.activitiesAssigned} activities and fold ${plan.notesFolded} notes. Pass --apply to do it.`)
+      console.log(`DRY RUN: nothing changed. To apply: --apply --confirm ${fingerprint}`)
       return
     }
+    if (!values.confirm) fail('--apply needs --confirm <fingerprint> from the dry run.')
 
-    // The plan is rebuilt inside the transaction from the rows as they are then, so what is applied is what is checked.
+    // The plan is rebuilt inside the transaction from the rows as they are then, and must match what was confirmed.
     const result = await prisma.$transaction(async (tx) => {
       const fresh = await load(tx)
-      return applyBackfill(tx, profileId, fresh, planBackfill(fresh))
+      return applyFold(tx, profileId, fresh, planBackfill(fresh), values.confirm!)
     }, { timeout: 60_000 })
-    console.log(`APPLIED: assigned ${result.activitiesAssigned} activities, folded ${result.notesFolded} notes.`)
+    console.log(`APPLIED: folded ${result.responsibilitiesFolded} responsibilities into ${result.notesFolded} notes.`)
   } finally {
     await prisma.$disconnect()
   }
