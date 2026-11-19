@@ -23,7 +23,7 @@ import { guardedNavigate } from "./navigation-guard"
  * "Fresh" re-selects the evidence. A waiting draft (409) is the user's call:
  * open it, or discard it and generate.
  */
-export function GenerateCvForJob({ jobId, hasCvGeneration, onStarted }: { jobId: string; hasCvGeneration: boolean; /** Called before leaving for the progress page or a draft (a host dialog closes itself). */ onStarted?: () => void }) {
+export function GenerateCvForJob({ jobId, hasCvGeneration, onStarted, readinessFixCount = 0 }: { jobId: string; hasCvGeneration: boolean; /** Called before leaving for the progress page or a draft (a host dialog closes itself). */ onStarted?: () => void; /** Profile readiness findings that limit the CV ("fix" severity); a hint shows when above 0. Never blocks generating. */ readinessFixCount?: number }) {
   const router = useRouter()
   const ids = useId()
   const [fresh, setFresh] = useState(false)
@@ -75,6 +75,13 @@ export function GenerateCvForJob({ jobId, hasCvGeneration, onStarted }: { jobId:
           </Link>
         )}
       </div>
+      {readinessFixCount > 0 && (
+        <p className="text-xs text-muted-foreground">
+          {readinessFixCount === 1 ? "1 thing in your profile limits the CV." : `${readinessFixCount} things in your profile limit the CV.`}{" "}
+          {/* "profile-readiness" is READINESS_PANEL_ID (cv-generation/_components/readiness-panel.tsx); not imported because that is a client file of another route. */}
+          <Link href={`${jobCvGenerationHref(jobId)}#profile-readiness`} onClick={onStarted} className="underline underline-offset-2 hover:text-foreground">Review profile readiness</Link>
+        </p>
+      )}
       <div className="flex items-start gap-2">
         <input id={`${ids}-fresh`} type="checkbox" checked={fresh} onChange={(e) => setFresh(e.target.checked)} disabled={busy} className="mt-1" />
         <label htmlFor={`${ids}-fresh`} className="text-sm text-muted-foreground">

@@ -4,6 +4,8 @@ import { Check, CircleAlert, Loader2, TriangleAlert } from "lucide-react"
 import { requireProfile } from "@/lib/session"
 import { getJobAssets } from "@/modules/jobs/queries"
 import { getLatestCvGeneration, type CvGenerationView } from "@/modules/cv-generation/queries"
+import { loadVault } from "@/modules/profile-map/load"
+import { checkProfileReadiness } from "@/modules/profile-readiness"
 import { AssessmentPoller } from "@/app/dashboard/job-applications/_components/assessment-poller"
 import {
   COMPLETE_HEADING,
@@ -26,6 +28,7 @@ import { GenerationLog, StageStepper } from "./_components/generation-log"
 import { ConcernsPanel } from "./_components/concerns-panel"
 import { GenerateCvButton } from "./_components/generate-cv-button"
 import { RunPanel } from "./_components/run-panel"
+import { ReadinessPanel } from "./_components/readiness-panel"
 
 export default async function CvGenerationPage({ params }: { params: Promise<{ id: string }> }) {
   const [{ id }, { profile }] = await Promise.all([params, requireProfile()])
@@ -34,6 +37,11 @@ export default async function CvGenerationPage({ params }: { params: Promise<{ i
     getLatestCvGeneration(profile.id, id),
   ])
   if (!assets) notFound()
+  // The poller refreshes this page every few seconds during a run: skip the vault load then.
+  // The check is pure, but the vault is one profile-wide query.
+  const readinessNode = view && isCvGenerationActive(view.status)
+    ? <p className="text-xs text-muted-foreground">Profile readiness is checked when the run finishes.</p>
+    : <ReadinessPanel report={checkProfileReadiness(await loadVault(profile.id), new Date())} />
 
   const page = (
       <div className="mx-auto grid max-w-6xl gap-10 px-4 py-8 sm:px-6 lg:grid-cols-[minmax(0,1fr)_15rem] lg:gap-14 lg:py-10">
@@ -42,13 +50,14 @@ export default async function CvGenerationPage({ params }: { params: Promise<{ i
             CV generation · <span className="text-foreground">{assets.title}</span>
             {assets.company && <> at <span className="text-foreground">{assets.company}</span></>}
           </p>
-          {view ? <RunBody jobId={id} view={view} jobTitle={assets.title} company={assets.company ?? null} /> : <EmptyState jobId={id} />}
+          {view ? <RunBody jobId={id} view={view} jobTitle={assets.title} company={assets.company ?? null} /> : <EmptyState jobId={id} readiness={readinessNode} />}
         </main>
 
         {view && (
           // Before the long sections on a narrow screen, so the controls stay near the top.
           <aside className="order-first lg:sticky lg:top-10 lg:order-none lg:self-start">
             <RunPanel view={view} jobId={id} jobTitle={assets.title} company={assets.company ?? null} />
+            <div className="mt-5">{readinessNode}</div>
           </aside>
         )}
       </div>
@@ -75,7 +84,7 @@ function sectionIdsFor(view: CvGenerationView): string[] {
   })
 }
 
-function EmptyState({ jobId }: { jobId: string }) {
+function EmptyState({ jobId, readiness }: { jobId: string; readiness: React.ReactNode }) {
   return (
     <div className="max-w-[68ch]">
       <h1 className="text-3xl font-semibold tracking-[-0.02em]">No CV generation has run for this job yet</h1>
@@ -83,6 +92,7 @@ function EmptyState({ jobId }: { jobId: string }) {
         When a CV is generated for this job, each stage shows up here as it runs: the model it used, how long it took,
         what it cost, which evidence was kept or dropped, and any claim the review could not support.
       </p>
+      <div className="mt-5">{readiness}</div>
       <div className="mt-5 space-y-2">
         <GenerateCvButton jobId={jobId} />
         <p className="text-sm text-muted-foreground">Generating runs every stage on your own LLM key and saves the CV as a draft in the writing desk. You accept or discard it there; nothing live is overwritten.</p>
