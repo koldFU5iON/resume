@@ -115,21 +115,25 @@ export async function mergeProjects(profileId: string, { keepId, removeId, body 
   await prisma.$transaction(async (tx) => {
     const projects = await tx.project.findMany({
       where: { id: { in: [keepId, removeId] }, profileId },
-      include: { activities: { orderBy: { order: 'asc' }, select: { id: true, description: true, order: true } } },
+      include: { activities: { orderBy: { order: 'asc' }, select: { id: true, description: true, order: true, result: true } } },
     })
     const keep = projects.find((p) => p.id === keepId)
     const remove = projects.find((p) => p.id === removeId)
     if (!keep || !remove) throw new Error('Project not found')
 
-    const existing = new Map(keep.activities.map((a) => [normalizeName(a.description), a.id]))
+    const existing = new Map(keep.activities.map((a) => [normalizeName(a.description), a]))
     let nextOrder = keep.activities.reduce((max, a) => Math.max(max, a.order), -1) + 1
     for (const activity of remove.activities) {
       const twin = existing.get(normalizeName(activity.description))
       if (twin) {
+        // A result on the duplicate is not lost when the kept item has none.
+        if (activity.result != null && twin.result == null) {
+          await tx.roleActivity.update({ where: { id: twin.id }, data: { result: activity.result } })
+        }
         const links = await tx.roleActivitySkill.findMany({ where: { roleActivityId: activity.id, status: 'confirmed' } })
         if (links.length) {
           await tx.roleActivitySkill.createMany({
-            data: links.map((l) => ({ roleActivityId: twin, skillId: l.skillId, status: 'confirmed', source: l.source, reason: l.reason })),
+            data: links.map((l) => ({ roleActivityId: twin.id, skillId: l.skillId, status: 'confirmed', source: l.source, reason: l.reason })),
             skipDuplicates: true,
           })
         }

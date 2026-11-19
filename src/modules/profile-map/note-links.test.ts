@@ -5,7 +5,7 @@ import { t, vaultSource } from './__fixtures__/source'
 
 const base = vaultSource()
 const evidence = (id: string, projectId: string, over = {}) => ({
-  id, experienceId: null, projectId, kind: 'achievement', description: 'Shipped it', impact: null,
+  id, experienceId: null, projectId, kind: 'achievement', description: 'Shipped it', impact: null, result: null,
   highlighted: false, order: 0, tags: '[]', createdAt: t, updatedAt: t, skills: [], ...over,
 })
 const vault = buildVault(vaultSource({

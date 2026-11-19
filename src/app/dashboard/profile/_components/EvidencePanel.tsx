@@ -15,12 +15,16 @@ import {
 import { createActivity, deleteActivity, updateActivity } from '@/modules/profile/actions'
 import type { ExtractionOwner } from '@/modules/profile/extract'
 import { noteHref } from '@/modules/profile/note-index'
+import { combineImpact, parseResult } from '@/modules/profile/result'
 import { RoleActivityKind } from '@/app/types/profile'
 import type { RoleActivity, RoleActivityKindType } from '@/app/types/profile'
 import { ExtractionPanel } from './ExtractionPanel'
 import { selectClass } from './PropertyFields'
 
 type Group = { id: string; name: string; activities: RoleActivity[] }
+
+/** The result and the free-text outcome as readers (and the CV generator) see them. */
+const shownImpact = (a: RoleActivity) => combineImpact(a.impact, parseResult(a.result))
 
 const KIND_LABEL: Record<string, string> = {
   [RoleActivityKind.Achievement]: 'Achievement',
@@ -54,6 +58,10 @@ export function EvidencePanel({ owner, activities: initial, skills, fromProjects
   const [kind, setKind] = useState<RoleActivityKindType>(RoleActivityKind.Achievement)
   const [description, setDescription] = useState('')
   const [impact, setImpact] = useState('')
+  const [resMeasure, setResMeasure] = useState('')
+  const [resValue, setResValue] = useState('')
+  const [resBaseline, setResBaseline] = useState('')
+  const [resPeriod, setResPeriod] = useState('')
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState<RoleActivity | null>(null)
 
@@ -62,12 +70,23 @@ export function EvidencePanel({ owner, activities: initial, skills, fromProjects
     setKind(activity === 'new' ? RoleActivityKind.Achievement : activity.kind)
     setDescription(activity === 'new' ? '' : activity.description)
     setImpact(activity === 'new' ? '' : activity.impact ?? '')
+    const result = activity === 'new' ? null : parseResult(activity.result)
+    setResMeasure(result?.measure ?? '')
+    setResValue(result?.value ?? '')
+    setResBaseline(result?.baseline ?? '')
+    setResPeriod(result?.period ?? '')
   }
 
   async function save() {
     if (!description.trim() || saving || !editing) return
+    const filled = kind === RoleActivityKind.Achievement && [resMeasure, resValue, resBaseline, resPeriod].some(v => v.trim())
+    if (filled && (!resMeasure.trim() || !resValue.trim())) {
+      toast.error('A result needs what it measures and the figure.')
+      return
+    }
+    const result = filled ? { measure: resMeasure, value: resValue, baseline: resBaseline, period: resPeriod } : null
+    const data = { kind, description: description.trim(), impact: impact.trim() || null, result }
     setSaving(true)
-    const data = { kind, description: description.trim(), impact: impact.trim() || undefined }
     try {
       if (editing === 'new') {
         const created = await createActivity(owner, data)
@@ -117,7 +136,7 @@ export function EvidencePanel({ owner, activities: initial, skills, fromProjects
               <div className="min-w-0 flex-1">
                 <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{KIND_LABEL[activity.kind] ?? activity.kind}</p>
                 <p className="text-sm leading-snug">{activity.description}</p>
-                {activity.impact && <p className="mt-0.5 text-xs text-muted-foreground">↳ {activity.impact}</p>}
+                {shownImpact(activity) && <p className="mt-0.5 text-xs text-muted-foreground">↳ {shownImpact(activity)}</p>}
               </div>
               <div className={ROW_ACTIONS}>
                 <Button variant="ghost" size="icon" className="size-7 max-md:size-11" onClick={() => openForm(activity)} aria-label={`Edit: ${activity.description.slice(0, 60)}`}>
@@ -153,6 +172,29 @@ export function EvidencePanel({ owner, activities: initial, skills, fromProjects
             <Label htmlFor="evidence-impact" className="text-xs text-muted-foreground">Measurable outcome (optional)</Label>
             <Input className="max-md:h-11" id="evidence-impact" value={impact} onChange={e => setImpact(e.target.value)} placeholder="e.g. cut release time from 6 weeks to 2" />
           </div>
+          {kind === RoleActivityKind.Achievement && (
+            <fieldset className="space-y-2 rounded-md border border-dashed p-2">
+              <legend className="px-1 text-xs text-muted-foreground">Result (optional): the figure, so the CV states it correctly</legend>
+              <div className="space-y-1">
+                <Label htmlFor="evidence-result-measure" className="text-xs text-muted-foreground">What it measures</Label>
+                <Input className="max-md:h-11" id="evidence-result-measure" maxLength={120} value={resMeasure} onChange={e => setResMeasure(e.target.value)} placeholder="e.g. asset turnaround time" />
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <div className="space-y-1">
+                  <Label htmlFor="evidence-result-value" className="text-xs text-muted-foreground">Result</Label>
+                  <Input className="max-md:h-11" id="evidence-result-value" maxLength={80} value={resValue} onChange={e => setResValue(e.target.value)} placeholder="e.g. 1 hour" />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="evidence-result-baseline" className="text-xs text-muted-foreground">Started at</Label>
+                  <Input className="max-md:h-11" id="evidence-result-baseline" maxLength={80} value={resBaseline} onChange={e => setResBaseline(e.target.value)} placeholder="e.g. 3 weeks" />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="evidence-result-period" className="text-xs text-muted-foreground">Period</Label>
+                  <Input className="max-md:h-11" id="evidence-result-period" maxLength={80} value={resPeriod} onChange={e => setResPeriod(e.target.value)} placeholder="e.g. Q3 2023" />
+                </div>
+              </div>
+            </fieldset>
+          )}
           <div className="flex justify-end gap-2">
             <Button type="button" variant="secondary" size="sm" className="max-md:h-11" onClick={() => setEditing(null)}>Cancel</Button>
             <Button type="submit" size="sm" className="max-md:h-11" disabled={saving || !description.trim()}>{saving ? 'Saving…' : editing === 'new' ? 'Add' : 'Save'}</Button>
@@ -178,7 +220,7 @@ export function EvidencePanel({ owner, activities: initial, skills, fromProjects
               <li key={activity.id} className="px-2 py-1">
                 <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{KIND_LABEL[activity.kind] ?? activity.kind}</p>
                 <p className="text-sm leading-snug">{activity.description}</p>
-                {activity.impact && <p className="mt-0.5 text-xs text-muted-foreground">↳ {activity.impact}</p>}
+                {shownImpact(activity) && <p className="mt-0.5 text-xs text-muted-foreground">↳ {shownImpact(activity)}</p>}
               </li>
             ))}
           </ul>

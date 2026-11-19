@@ -219,6 +219,40 @@ describe('checkConflictingFigures', () => {
   it('is quiet on clean fixtures', () => {
     for (const v of [cleanProfile(), earlyCareer(), careerChanger(), longCareer()]) expect(checkConflictingFigures(v)).toEqual([])
   })
+  describe('structured results', () => {
+    const res = (measure: string, value: string, baseline: string | null = null, period: string | null = null) => ({ measure, value, baseline, period } as unknown as Record<string, string>)
+    const two = (a: Record<string, string>, b: Record<string, string>) => vaultOf({ experiences: [role('a', 'A', 'x', '2020-01', null, 'x', [
+      activity('a1', { experienceId: 'a' }, 'achievement', 'Sped up asset hand-offs for the design team', null, [], 0, a),
+      activity('a2', { experienceId: 'a' }, 'achievement', 'Reworked the request form for assets', null, [], 1, b),
+    ])] })
+    it('flags the same measure and period with different results, however the prose reads', () => {
+      const f = checkConflictingFigures(two(res('asset turnaround time', '1 hour', '3 weeks'), res('asset turnaround time', '1 week', '4 weeks')))
+      expect(f).toHaveLength(1)
+      expect(f[0].message).toContain('1 hour (from 3 weeks)')
+      expect(f[0].message).toContain('1 week (from 4 weeks)')
+    })
+    it('does not flag different periods, different measures or equal results', () => {
+      expect(checkConflictingFigures(two(res('asset turnaround time', '1 hour', '3 weeks', 'Q1 2023'), res('asset turnaround time', '1 week', '4 weeks', 'Q3 2023')))).toEqual([])
+      expect(checkConflictingFigures(two(res('asset turnaround time', '1 hour'), res('request approval time', '1 week')))).toEqual([])
+      expect(checkConflictingFigures(two(res('asset turnaround time', '1 hour', '3 weeks'), res('Asset turnaround time', '1 hour', '3 weeks')))).toEqual([])
+    })
+    it('does not flag the same result when only one copy gives a baseline, or the figure is spaced differently', () => {
+      expect(checkConflictingFigures(two(res('release cycle', '2 weeks', '6 weeks'), res('release cycle', '2 weeks')))).toEqual([])
+      expect(checkConflictingFigures(two(res('cost saving', '40%'), res('cost saving', '40 %')))).toEqual([])
+    })
+    it('treats measures as the same only when their words are the same', () => {
+      expect(checkConflictingFigures(two(res('UK revenue growth', '20%'), res('US revenue growth', '35%')))).toEqual([])
+      expect(checkConflictingFigures(two(res('revenue growth', '20%'), res('Growth revenue', '35%')))).toHaveLength(1)
+    })
+    it('compares structured items by their fields, not by the words of their prose', () => {
+      // No shared words in the prose at all, yet the same measure and period disagree.
+      const v = vaultOf({ experiences: [role('a', 'A', 'x', '2020-01', null, 'x', [
+        activity('a1', { experienceId: 'a' }, 'achievement', 'Apples', null, [], 0, res('reach', '2M')),
+        activity('a2', { experienceId: 'a' }, 'achievement', 'Oranges', null, [], 1, res('reach', '3M')),
+      ])] })
+      expect(checkConflictingFigures(v)).toHaveLength(1)
+    })
+  })
 })
 
 describe('review follow-ups', () => {
@@ -299,5 +333,27 @@ describe('checkRoleOverview', () => {
   it('is quiet when the overview has enough text, or the role has no achievements', () => {
     expect(checkRoleOverview(withEvidence('A'.repeat(200)), NOW)).toEqual([])
     expect(checkRoleOverview(vaultOf({ experiences: [role('r', 'Co', 'Analyst', '2020-01', null, 'A'.repeat(200))] }), NOW)).toEqual([])
+  })
+})
+
+describe('figure_in_prose', () => {
+  const ach = (i: number, text: string, result: Record<string, string> | null = null) => activity(`f${i}`, { experienceId: 'a' }, 'achievement', text, null, [], i, result)
+  const withAchievements = (list: ReturnType<typeof ach>[]) => vaultOf({ experiences: [role('a', 'A', 'x', '2020-01', null, 'x', list)] })
+  it('asks once, listing achievements with a figure in the text and no result', () => {
+    const f = checkEvidenceQuality(withAchievements([ach(1, 'Grew sign-ups by 30% in a year'), ach(2, 'Cut costs by 12%'), ach(3, 'Reached 2M readers'), ach(4, 'Ran the weekly show')]))
+      .filter((x) => x.kind === 'figure_in_prose')
+    expect(f).toHaveLength(1)
+    expect(f[0]).toMatchObject({ severity: 'consider' })
+    expect(f[0].message).toContain('3 achievements')
+  })
+  it('does not count achievements that have a result, or years, and needs at least three', () => {
+    const r = { measure: 'sign-ups', value: '30%' }
+    const quiet = (list: ReturnType<typeof ach>[]) => checkEvidenceQuality(withAchievements(list)).filter((x) => x.kind === 'figure_in_prose')
+    expect(quiet([ach(1, 'Grew sign-ups by 30%', r), ach(2, 'Cut costs by 12%', { measure: 'cost', value: '12%' }), ach(3, 'Reached 2M readers', { measure: 'reach', value: '2M' })])).toEqual([])
+    expect(quiet([ach(1, 'Launched the 2021 programme'), ach(2, 'Ran the 2022 review'), ach(3, 'Shipped in 2023')])).toEqual([])
+    expect(quiet([ach(1, 'Grew sign-ups by 30%'), ach(2, 'Cut costs by 12%')])).toEqual([])
+  })
+  it('is quiet on the clean profile that has structured or no figures', () => {
+    expect(checkEvidenceQuality(cleanProfile()).filter((x) => x.severity === 'fix')).toEqual([])
   })
 })

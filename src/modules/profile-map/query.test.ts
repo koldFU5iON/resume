@@ -38,7 +38,7 @@ describe('project evidence in queries', () => {
       ...base.projects[0],
       activities: [{
         id: 'pa1', experienceId: null, projectId: 'pr1', kind: 'achievement', description: 'Cut hotfix turnaround to an hour',
-        impact: null, highlighted: false, order: 0, tags: '[]', createdAt: base.createdAt, updatedAt: base.updatedAt, skills: [],
+        impact: null, result: null, highlighted: false, order: 0, tags: '[]', createdAt: base.createdAt, updatedAt: base.updatedAt, skills: [],
       }],
     }],
   }) as never)

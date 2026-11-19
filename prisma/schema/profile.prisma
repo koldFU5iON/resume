@@ -108,6 +108,9 @@ model RoleActivity {
   kind         String // "responsibility" | "achievement"
   description  String
   impact       String?
+  // Structured figure of an achievement: { measure, value, baseline?, period? }.
+  // Validated by src/modules/profile/result.ts; the free-text impact stays.
+  result       Json?
   highlighted  Boolean  @default(false)
   order        Int      @default(0)
   tags         String   @default("[]")

@@ -1,4 +1,5 @@
 import * as z from 'zod'
+import { ResultInputSchema } from './result'
 
 // Canonical, lowercase skill levels. Every write path (manual form, notes
 // extraction, CV import) goes through normalizeSkillLevel so the stored value
@@ -30,5 +31,8 @@ export const ACTIVITY_KINDS = ['responsibility', 'achievement'] as const
 export const ActivityInputSchema = z.object({
   kind: z.enum(ACTIVITY_KINDS),
   description: z.string().trim().min(1),
-  impact: z.string().trim().optional(),
+  /** null (or empty) clears it, undefined leaves it. */
+  impact: z.string().trim().nullish().transform((v) => (v === undefined ? undefined : v || null)),
+  /** The structured figure; null clears it, undefined leaves it. */
+  result: ResultInputSchema.nullish(),
 })

@@ -4,10 +4,12 @@ import { prisma } from '@/lib/db'
 import { requireProfile } from '@/lib/session'
 import { revalidatePath } from 'next/cache'
 import * as z from 'zod'
+import { Prisma } from '@prisma/client'
 import { activityOwnedBy } from './ownership'
 import { saveExperienceProperties, saveProjectProperties, type ExperienceProperties, type ProjectProperties } from './properties'
 import { readNote, saveExperienceNote, saveProjectNote, type NoteSaveResult } from './note-revision'
 import { mergeProjects } from './project-merge'
+import type { ResultInput } from './result'
 import { ActivityInputSchema, ACTIVITY_KINDS, DEFAULT_SKILL_CATEGORY, MAX_SUMMARY_LENGTH, SkillInputSchema, normalizeSkillLevel } from './schema'
 
 export type ContactField = 'name' | 'email' | 'phone' | 'location' | 'website' | 'linkedIn' | 'github' | 'headline'
@@ -49,7 +51,13 @@ export async function patchProfileField(field: string, value: string): Promise<v
 
 // ── Activities ────────────────────────────────────────────────────────────────
 
-type ActivityData = { kind: string; description: string; impact?: string }
+type ActivityData = { kind: string; description: string; impact?: string | null; result?: ResultInput | null }
+
+/** The row fields of an activity: `result: null` clears the Json column, undefined leaves it. */
+function activityRow(data: ActivityData) {
+  const { result, ...rest } = ActivityInputSchema.parse(data)
+  return { ...rest, ...(result === undefined ? {} : { result: result === null ? Prisma.JsonNull : result }) }
+}
 
 /** Evidence belongs to exactly one owner: a role or a project. */
 export type ActivityOwner = { experienceId: string } | { projectId: string }
@@ -73,7 +81,7 @@ export async function createActivity(owner: ActivityOwner, data: ActivityData) {
     ownerData = { experienceId: experience.id }
   }
   const activity = await prisma.roleActivity.create({
-    data: { ...ActivityInputSchema.parse(data), ...ownerData, tags: '[]', order: await nextActivityOrder(ownerData) },
+    data: { ...activityRow(data), ...ownerData, tags: '[]', order: await nextActivityOrder(ownerData) },
   })
   revalidatePath('/dashboard/profile', 'layout')
   return activity
@@ -85,7 +93,7 @@ export async function updateActivity(id: string, data: ActivityData) {
     where: { id, ...activityOwnedBy(profile.id) },
   })
   if (!existing) throw new Error('Activity not found')
-  const activity = await prisma.roleActivity.update({ where: { id }, data: ActivityInputSchema.parse(data) })
+  const activity = await prisma.roleActivity.update({ where: { id }, data: activityRow(data) })
   revalidatePath('/dashboard/profile', 'layout')
   return activity
 }
