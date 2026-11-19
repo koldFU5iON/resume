@@ -157,12 +157,15 @@ Screens that shrink: the project note's own evidence list (it becomes a filtered
 | PR | Content | Needs owner |
 |---|---|---|
 | 1 | (built: `npm run profile:backfill-report -- --profile <id\|email>`, read-only; migration adds only `Experience.type`) Migration A with a **dry-run backfill report** (projects with no role, activities with only a project, responsibilities to fold into Overview). No constraint tightened yet. | Approves the report |
-| 2 | Apply constraints and the Overview fold, `type` flag, "Independent projects" creation, date/gap checks skip it | Chooses the experience's name |
-| 3 | Achievement form: project dropdown, grouping on the role page, Move reduced to role picker; project note becomes a filtered view | None |
+| 2 | **Overview fold only**: guarded apply script (`npm run profile:backfill-apply`: dry run prints a fingerprint, `--apply --confirm <fingerprint>` writes it in one transaction), near-duplicate responsibilities left out of the fold. Changes only `Experience.summary`; no activity row is touched. | Approves the fingerprint, then runs it |
+| 3 | **Role-owns switch**: code that reads and writes the new ownership first (see the list below), then giving project-only activities their role, the `type` flag and "Independent projects" creation, date/gap checks skipping it, then the NOT NULL constraints. Likely split into two or three PRs. | Chooses the experience's name |
+| 3b | Achievement form: project dropdown, grouping on the role page, Move reduced to role picker; project note becomes a filtered view | None |
 | 4 | **Clean-and-extract draft layer** (§9): extraction proposes cleaned achievements with result and project, a saved draft with edit, accept and skip, de-duplication against all the role's achievements | None (extraction prompts are profile capture, not generator prompts) |
 | 5 | Vault build and readiness: remove `outcome_without_project`, add the link suggestion; CV renders independent work in a Projects section | None |
 | 6 | Generator: Select shortlist with handles; project name rule | **Lifts the generator pause** |
 | 7 | Optional embeddings spike | Decides after PR 6 |
+
+**Why the assignment waits for PR 3.** Review of the apply script found that giving a project-only activity a role *before* the code expects it breaks things: deleting a role would cascade-delete the achievements of its "kept" projects (`RoleActivity.experience` is `onDelete: Cascade`); moving a project to another role, or merging two projects, would leave activities on the old role; `moveActivity`/`ownedTarget` clear the other owner column; the vault would add the same evidence twice (once through the role, once through the project), doubling readiness counts; archived projects' evidence would reach the generator through the role; and the generator would stop applying its project-evidence cap. PR 3 must handle each of these, with tests, before any row is assigned. The assignment step also guards on `projectId` (an activity moved to another project meanwhile must not be assigned).
 
 Items 4, 5, 6 and 8 of #440 (inline date checks, `Project.product`, results section in the template, certification status) are not blocked by this and are mostly absorbed or made unnecessary: `Project.product` is not needed if the project label and an owner's wording are enough.
 

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { FOLD_LEAD_IN, foldIntoOverview, formatReport, planBackfill, type BackfillInput } from './model-backfill'
+import { FOLD_LEAD_IN, foldIntoOverview, formatReport, isNearDuplicate, planBackfill, type BackfillInput } from './model-backfill'
 
-const exp = (id: string, summary = '', type = 'employment') => ({ id, company: `Co ${id}`, role: `Role ${id}`, type, summary })
-const proj = (id: string, experienceId: string | null) => ({ id, name: `Project ${id}`, experienceId })
+const exp = (id: string, summary = '', type = 'employment') => ({ id, company: `Co ${id}`, role: `Role ${id}`, type, summary, revision: 1 })
+const proj = (id: string, experienceId: string | null, notes = '') => ({ id, name: `Project ${id}`, experienceId, notes, revision: 1 })
 let n = 0
 const act = (over: Partial<BackfillInput['activities'][number]>) => ({
   id: `a${++n}`, kind: 'achievement', description: `did thing ${n}`, experienceId: null, projectId: null, ...over,
@@ -21,6 +21,14 @@ describe('foldIntoOverview', () => {
   it('handles an Overview that is the last section, and an empty note', () => {
     expect(foldIntoOverview('## Overview\nLed the team.', ['a']).after).toBe(`## Overview\nLed the team.\n\n${FOLD_LEAD_IN}\n- a`)
     expect(foldIntoOverview('', ['a']).after).toBe(`## Overview\n\n${FOLD_LEAD_IN}\n- a\n`)
+  })
+  it('keeps a multi-line description as one bullet, so a line starting with # is never a heading', () => {
+    const { after } = foldIntoOverview('## Overview\nLed it.\n\n## Skills\n- x', ['First line\n# not a heading'])
+    expect(after).toBe(`## Overview\nLed it.\n\n${FOLD_LEAD_IN}\n- First line\n  # not a heading\n\n## Skills\n- x`)
+  })
+  it('reads a CRLF note and writes plain newlines', () => {
+    const { after } = foldIntoOverview('## Overview\r\nLed it.\r\n\r\n## Skills\r\n- x', ['Duty'])
+    expect(after).toBe(`## Overview\nLed it.\n\n${FOLD_LEAD_IN}\n- Duty\n\n## Skills\n- x`)
   })
   it('keeps wording exactly', () => {
     expect(foldIntoOverview('', ['Managed  the   Q3 plan, "carefully".']).after).toContain('- Managed  the   Q3 plan, "carefully".')
@@ -81,15 +89,42 @@ describe('planBackfill', () => {
   describe('responsibility fold', () => {
     const resp = (over: Partial<BackfillInput['activities'][number]>) => act({ kind: 'responsibility', ...over })
 
-    it('folds role responsibilities, and those that reach a role through a project', () => {
+    it('folds a role\'s own responsibilities into the role, and a project-only one into the project note', () => {
       const r = planBackfill({
         experiences: [exp('e1', '## Achievements\n- shipped x')],
-        projects: [proj('p1', 'e1')],
+        projects: [proj('p1', 'e1', '## Overview\nThe launch.')],
         activities: [resp({ experienceId: 'e1', description: 'Ran weekly reporting' }), resp({ projectId: 'p1', description: 'Owned the calendar' })],
       })
       expect(r.folds).toHaveLength(1)
-      expect(r.folds[0].responsibilities).toEqual(['Ran weekly reporting', 'Owned the calendar'])
-      expect(r.folds[0].after).toContain(`${FOLD_LEAD_IN}\n- Ran weekly reporting\n- Owned the calendar`)
+      expect(r.folds[0].responsibilities).toEqual(['Ran weekly reporting'])
+      expect(r.folds[0].after).toContain(`${FOLD_LEAD_IN}\n- Ran weekly reporting`)
+      expect(r.folds[0].after).not.toContain('Owned the calendar')
+      expect(r.projectFolds).toHaveLength(1)
+      expect(r.projectFolds[0]).toMatchObject({ projectId: 'p1', responsibilities: ['Owned the calendar'], placement: 'existing_overview', before: '## Overview\nThe launch.' })
+      expect(r.projectFolds[0].after).toBe(`## Overview\nThe launch.\n\n${FOLD_LEAD_IN}\n- Owned the calendar`)
+      expect(formatReport(r)).toContain('project "Project p1": added to the end of its existing ## Overview')
+    })
+    it('a responsibility with both a role and a project belongs to the role, not the project note', () => {
+      const r = planBackfill({
+        experiences: [exp('e1')], projects: [proj('p1', 'e1')],
+        activities: [resp({ experienceId: 'e1', projectId: 'p1', description: 'Owned the calendar' })],
+      })
+      expect(r.folds[0].responsibilities).toEqual(['Owned the calendar'])
+      expect(r.projectFolds).toEqual([])
+    })
+    it('checks project responsibilities against the project achievements only, and is idempotent', () => {
+      const long = 'Developed the concept for a European media tour bringing the game to journalists via two custom chests'
+      const r = planBackfill({
+        experiences: [exp('e1')], projects: [proj('p1', 'e1'), proj('p2', 'e1')],
+        activities: [act({ projectId: 'p1', description: long + ', each holding four consoles' }), resp({ projectId: 'p1', description: long }), resp({ projectId: 'p2', description: long })],
+      })
+      expect(r.nearDuplicates).toMatchObject([{ projectId: 'p1', owner: 'project "Project p1"', responsibility: long }])
+      expect(r.projectFolds.map((f) => f.projectId)).toEqual(['p2'])
+      const again = planBackfill({
+        experiences: [exp('e1')], projects: [proj('p1', 'e1'), { ...proj('p2', 'e1'), notes: r.projectFolds[0].after }],
+        activities: [resp({ projectId: 'p2', description: long })],
+      })
+      expect(again.projectFolds).toEqual([])
     })
     it('skips wording already in the Overview, repeats, blanks and achievements', () => {
       const r = planBackfill({
@@ -193,5 +228,46 @@ describe('formatReport', () => {
     expect(text).toContain('[Project p2] Launched the thing  →  Role e1 at Co e1')
     expect(text).toContain('Floating  (no role and no project)')
     expect(text).toContain('| - Owned the calendar')
+  })
+})
+
+describe('near-duplicate responsibilities', () => {
+  const resp = 'Developed the concept for a European media tour bringing Diablo III on Nintendo Switch to journalists via two custom chests'
+  const ach = 'Developed the concept for a European media tour bringing Diablo III on Nintendo Switch to journalists via two custom Diablo-themed chests, each holding four Switch consoles'
+
+  it('matches a near-verbatim restatement, whichever is longer', () => {
+    expect(isNearDuplicate(resp, ach)).toBe(true)
+    expect(isNearDuplicate(ach, resp)).toBe(true)
+  })
+  it('does not match a paraphrase, a short text, or unrelated text', () => {
+    expect(isNearDuplicate('Partnered directly with the sales team to support studio relationships', 'Embedded alongside sales on strategic studio accounts using the programme')).toBe(false)
+    expect(isNearDuplicate('Budget owner', 'Owned the budget and the forecast for the programme')).toBe(false)
+    expect(isNearDuplicate('Led crisis communications during a global policy controversy', 'Cut asset turnaround from three weeks to one hour for regional teams')).toBe(false)
+  })
+
+  it('leaves a responsibility out of the fold when a same-role achievement restates it, and says so', () => {
+    const a = act({ experienceId: 'e1', projectId: 'p1', description: ach })
+    const r = planBackfill({
+      experiences: [exp('e1', '')], projects: [proj('p1', 'e1')],
+      activities: [a, act({ kind: 'responsibility', experienceId: 'e1', description: resp }), act({ kind: 'responsibility', experienceId: 'e1', description: 'Owned the regional budget and forecasts' })],
+    })
+    expect(r.folds[0].responsibilities).toEqual(['Owned the regional budget and forecasts'])
+    expect(r.nearDuplicates).toMatchObject([{ experienceId: 'e1', responsibility: resp, achievementId: a.id, achievement: ach }])
+    expect(formatReport(r)).toContain('6. Responsibilities left out because an achievement already says almost the same: 1')
+  })
+  it('only compares within the same role, and counts achievements reached through a project', () => {
+    const viaProject = act({ projectId: 'p1', description: ach })
+    const other = planBackfill({
+      experiences: [exp('e1'), exp('e2')], projects: [proj('p1', 'e2')],
+      activities: [viaProject, act({ kind: 'responsibility', experienceId: 'e1', description: resp })],
+    })
+    expect(other.nearDuplicates).toEqual([])
+    expect(other.folds[0].responsibilities).toEqual([resp])
+    const same = planBackfill({
+      experiences: [exp('e1')], projects: [proj('p1', 'e1')],
+      activities: [viaProject, act({ kind: 'responsibility', experienceId: 'e1', description: resp })],
+    })
+    expect(same.nearDuplicates).toHaveLength(1)
+    expect(same.folds).toEqual([])
   })
 })
