@@ -26,7 +26,7 @@ export function rightToWorkText(vault: Vault, now: Date): string | null {
     if (v.expiresOn && v.expiresOn < today) continue
     const type = oneLine(v.type)
     // The type is free text: "Blue Card" gets " visa", "H-1B visa" and "Settled status" do not.
-    add(v.country, !type ? 'visa' : /\b(?:visa|permit|card|status)$/i.test(type) ? type : `${type} visa`)
+    add(v.country, !type ? 'visa' : /\b(?:visa|permit|status)$/i.test(type) ? type : `${type} visa`)
   }
   if (byCountry.size === 0) return null
   return [...byCountry].map(([code, what]) => `${countryName(code)} (${[...new Set(what)].join(', ')})`).join('; ')
