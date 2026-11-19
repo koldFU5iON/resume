@@ -271,10 +271,11 @@ export function recheckText(
   const unsupported = unsupportedFigures(text, texts, names)
   if (unsupported.length > 0) return { why: `figures not in the employer's evidence: ${unsupported.join(', ')}` }
   const notes: string[] = []
-  // The figures were found in the employer's evidence; say when they are not in the evidence this bullet cited.
-  if (scope.cited.length > 0) {
+  // A bullet states what ITS evidence states: a figure only in the employer's other evidence is rejected.
+  // A summary (or profile) may use any selected evidence of the employer, including activities no bullet cites.
+  if (kind === 'bullet' && scope.cited.length > 0) {
     const off = unsupportedFigures(text, scope.cited, names)
-    if (off.length > 0) notes.push(`${off.join(', ')} ${off.length === 1 ? 'is' : 'are'} not in the evidence this bullet cited (${off.length === 1 ? 'it is' : 'they are'} in the employer's other evidence).`)
+    if (off.length > 0) return { why: `${off.join(', ')} ${off.length === 1 ? 'is' : 'are'} not in the evidence this bullet cited (${off.length === 1 ? 'it is' : 'they are'} in the employer's other evidence)` }
   }
 
   const unrequested = claimedHits(text, ctx.evidence.claimedNames, { evidenceText, requirementText: requirementText(ctx.strategy) }).filter((c) => !c.requested).map((c) => c.name)
