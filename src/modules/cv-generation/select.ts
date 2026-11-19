@@ -30,6 +30,8 @@ import {
   BUDGET_FLOORS,
   FLAT_SECTIONS,
   MAX_ACTIVITIES_PER_EMPLOYER,
+  MAX_ACTIVITIES_LAYERED_EMPLOYER,
+  LAYERED_EMPLOYER_MIN_ROLES,
   MAX_EMPLOYERS,
   MAX_TOTAL_BULLETS,
   MAX_HEADER_ONLY_EMPLOYERS,
@@ -42,11 +44,12 @@ import {
   TOTAL_ACTIVITY_BUDGET,
   allocateBullets,
   clampBudgetValue,
+  maxActivitiesFor,
   type FlatSection,
 } from './caps'
 import { candidatesToPrompt, labelIndex, type Candidates, type CandidateActivity, type CandidateEmployer, type CandidateItem } from './candidates'
 import { relatedEmployerNotes } from './employers'
-import { matchesName, nameTokens, namedItems, type NamedItem } from './named-items'
+import { matchedWords, matchesName, nameTokens, namedItems, type NamedItem } from './named-items'
 import { figuresIn } from './write/checks'
 import type { GatherResult } from './gather'
 import type { Strategy } from './strategy'
@@ -86,7 +89,7 @@ export const SelectOutputSchema = z.object({
   employers: z.array(z.object({ id: z.string(), relevance, reason })).default([])
     .describe('Employers to show with bullets, best first, the current employer first; id is the employer id in square brackets'),
   activities: z.array(z.object({ id: z.string(), reason })).default([])
-    .describe(`Activities to keep, best first within each employer (up to ${MAX_ACTIVITIES_PER_EMPLOYER} per employer)`),
+    .describe(`Activities to keep, best first within each employer (up to ${MAX_ACTIVITIES_LAYERED_EMPLOYER} per employer, ${MAX_ACTIVITIES_PER_EMPLOYER} unless it has ${LAYERED_EMPLOYER_MIN_ROLES}+ roles)`),
   skills: list(),
   tools: list(),
   competencies: list(),
@@ -143,7 +146,7 @@ export function selectPrompt(brief: CvBrief, cands: Candidates, strategy?: Pick<
   }
   sections.push(
     `# Budgets (fill them: code tops a short list up to the floor, and cuts picks over the budget)\n\nEmployers with bullets ${employersWithBullets(brief)}, skills ${b.skills}, tools ${b.tools}, competencies ${b.competencies}, certifications ${b.certifications}, education ${b.education}, projects ${b.projects}. Employers you do not pick are still listed on the CV as a title line with no bullets (up to ${MAX_HEADER_ONLY_EMPLOYERS}), so do not spend a pick on an employer only to keep it visible. Pick as many items as the budget allows when the profile has them, best first; an item with no bearing on the job goes last, not first. Projects are the exception: pick one only when it helps this job.`,
-    `# Bullets\n\n${TOTAL_ACTIVITY_BUDGET} activities in all (at most ${MAX_TOTAL_BULLETS}) across the employers with bullets, split in proportion to the relevance score (${MIN_RELEVANCE}-${MAX_RELEVANCE}) you give each employer, with at least ${MIN_ACTIVITIES_PER_EMPLOYER} and at most ${MAX_ACTIVITIES_PER_EMPLOYER} for each. Code applies the split after you answer. Give every employer you pick a relevance score (${MAX_RELEVANCE} = central to the role, 3 = supports the story but not central, ${MIN_RELEVANCE} = barely relevant), and list up to ${MAX_ACTIVITIES_PER_EMPLOYER} activities for it, best first: the first ones are kept if the split gives the employer fewer. Recency does not set the split: an older employer that answers the brief better gets more bullets than a recent one that does not.`,
+    `# Bullets\n\n${TOTAL_ACTIVITY_BUDGET} activities in all (at most ${MAX_TOTAL_BULLETS}) across the employers with bullets, split in proportion to the relevance score (${MIN_RELEVANCE}-${MAX_RELEVANCE}) you give each employer, with at least ${MIN_ACTIVITIES_PER_EMPLOYER} and at most ${MAX_ACTIVITIES_PER_EMPLOYER} for each (${MAX_ACTIVITIES_LAYERED_EMPLOYER} for an employer with ${LAYERED_EMPLOYER_MIN_ROLES} or more roles). Code applies the split after you answer. Give every employer you pick a relevance score (${MAX_RELEVANCE} = central to the role, 3 = supports the story but not central, ${MIN_RELEVANCE} = barely relevant), and list up to ${MAX_ACTIVITIES_LAYERED_EMPLOYER} activities for it, best first: the first ones are kept if the split gives the employer fewer. Recency does not set the split: an older employer that answers the brief better gets more bullets than a recent one that does not.`,
   )
   if (required.length === 1) {
     sections.push(`# Current employer\n\n[${required[0].key}] ${required[0].label}. It must be included in \`employers\` (list it first) and counts toward the employer budget.`)
@@ -355,7 +358,10 @@ export function enforceSelection(
     const hits = bulletCands
       .flatMap((e) => e.activities.map((a, idx) => ({ a, key: e.key, idx })))
       .filter((h) => matchesName(textOf(h.a), n.name) && !pickedActs.has(h.a.id))
-      .sort((x, y) => activityRank(y.a) - activityRank(x.a) || x.idx - y.idx)
+      .map((h) => ({ ...h, words: matchedWords(textOf(h.a), n.name), len: textOf(h.a).trim().split(/\s+/).length }))
+    // Several candidates match: more matched words, then a figure or outcome, then longer text; a bland short one (under MIN_PIN_WORDS) only when nothing longer matches.
+    if (hits.some((h) => h.len >= MIN_PIN_WORDS)) hits.splice(0, hits.length, ...hits.filter((h) => h.len >= MIN_PIN_WORDS))
+    hits.sort((x, y) => y.words - x.words || Number(hasOutcome(y.a)) - Number(hasOutcome(x.a)) || y.len - x.len || activityRank(y.a) - activityRank(x.a) || x.idx - y.idx)
     const proj = cands.projects.find((c) => !pickedProjects.has(c.id) && matchesName(projText(c), n.name))
     const best = hits[0]
     if (best) {
@@ -373,7 +379,7 @@ export function enforceSelection(
   // what the model picked for it, topped up by rule to the minimum.
   const supply = (e: (typeof bulletEmployers)[number]) =>
     Math.max((byEmployer.get(e.key) ?? []).length, Math.min(MIN_ACTIVITIES_PER_EMPLOYER, e.activities.length))
-  const split = allocateBullets(bulletEmployers.map((e) => ({ relevance: relevanceOf(e.key), supply: supply(e) })), { total: Math.min(MAX_TOTAL_BULLETS, TOTAL_ACTIVITY_BUDGET) })
+  const split = allocateBullets(bulletEmployers.map((e) => ({ relevance: relevanceOf(e.key), supply: supply(e), max: maxActivitiesFor(e.roles.length) })), { total: Math.min(MAX_TOTAL_BULLETS, TOTAL_ACTIVITY_BUDGET) })
   const bullets = new Map<string, SelectedActivity[]>()
   const keptActIds = new Set<string>()
   let toppedUp = 0
@@ -571,6 +577,9 @@ function claimedBy(claims: Map<string, string[]>, n: Pick<NamedItem, 'name' | 'f
 function employerCarries(e: Pick<CandidateEmployer, 'company'>, name: string): boolean {
   return matchesName(e.company, name)
 }
+
+/** A name pin never takes an activity shorter than this many words when a longer one matches. */
+const MIN_PIN_WORDS = 8
 
 /** At most this many kept activities per employer are swapped for a figure-rich match that was left out. */
 const MAX_FIGURE_SWAPS_PER_EMPLOYER = 2

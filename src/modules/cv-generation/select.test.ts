@@ -265,9 +265,9 @@ describe('enforceSelection', () => {
       }
       const { selection: s } = enforceSelection(out, c, brief)
       const counts = s.employers.filter((e) => !e.headerOnly).map((e) => e.bullets.length)
-      expect(counts[0]).toBe(MAX_ACTIVITIES_PER_EMPLOYER)
+      expect(counts[0]).toBe(8) // Unity has three roles: the layered-employer cap
       for (const n of counts.slice(1)) expect(n).toBeGreaterThanOrEqual(MIN_ACTIVITIES_PER_EMPLOYER)
-      for (const n of counts) expect(n).toBeLessThanOrEqual(MAX_ACTIVITIES_PER_EMPLOYER)
+      for (const n of counts.slice(1)) expect(n).toBeLessThanOrEqual(MAX_ACTIVITIES_PER_EMPLOYER)
       expect(counts.reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(TOTAL_ACTIVITY_BUDGET)
     })
 
@@ -827,6 +827,31 @@ describe('lead-with and emphasise items are searched in ALL candidates', () => {
   })
 })
 
+describe('name pin quality and the layered-employer cap', () => {
+  it('pins the better of several matches: more words, then a figure, never a bland short one', () => {
+    const c = realistic()
+    const unity = c.employers[0]
+    unity.activities[27].text = 'Develop and maintain customer facing activities as part of Made With Unity program'
+    unity.activities[27].text = 'Made With Unity customer programme'
+    unity.activities[28].text = 'Grew the Made With Unity program to 40 studios across Europe and Asia, with a quarterly showcase for each'
+    unity.activities[26].text = 'Develop and maintain customer facing activities as part of the Made With Unity program for studios'
+    const b = buildBriefFor({ leadWith: [{ name: 'Made With Unity', framing: 'x' }], emphasise: [] })
+    const r = enforceSelection({ ...empty, employers: epick([unity.key, 5]), activities: pick('u-a0', 'u-a1') }, c, b)
+    const ids = r.selection.employers.find((e) => e.key === unity.key)!.bullets.map((x) => x.id)
+    expect(ids[0]).toBe('u-a28')
+    expect(ids).not.toContain('u-a27')
+  })
+
+  it('lets an employer with three or more roles show up to 8 bullets, others stay at 6', () => {
+    const c = realistic()
+    const unity = c.employers[0]
+    const r = enforceSelection({ ...empty, employers: epick([unity.key, 5], ['co-1', 1]), activities: pick(...unity.activities.map((a) => a.id)) }, c, buildBriefFor({ leadWith: [], emphasise: [] }))
+    expect(bulletsOf(r.selection, unity.key)).toBe(8)
+    expect(r.selection.employers.reduce((n, e) => n + e.bullets.length, 0)).toBeLessThanOrEqual(MAX_TOTAL_BULLETS)
+    for (const e of r.selection.employers) if (e.key !== unity.key) expect(e.bullets.length).toBeLessThanOrEqual(MAX_ACTIVITIES_PER_EMPLOYER)
+  })
+})
+
 describe('thin projects do not use project slots', () => {
   const mk = () => {
     const c = bigCandidates(2, 4)
@@ -1200,11 +1225,10 @@ describe('figure-rich evidence', () => {
     const out = { ...withModel(c, []), emphasise: [] }
     const { selection: s } = enforceSelection(out, c, brief2)
     const kept = s.employers.find((e) => e.key === 'co-0')!.bullets
-    // e0a0 is pinned by name (the model picked nothing for it); the free slot goes to a figure-rich match, not a plain activity.
-    expect(kept.map((b) => b.id)).toContain('e0a0')
-    const topUp = kept.find((b) => b.id !== 'e0a0')!
-    expect(['e0a5', 'e0a6']).toContain(topUp.id)
-    expect(topUp.reason).toContain('states a figure and matches a brief item')
+    // The pin by name prefers a figure-rich match over the short plain one (e0a0); the free slot goes to the other figure-rich match.
+    expect(kept.map((b) => b.id)).not.toContain('e0a0')
+    expect(kept.map((b) => b.id)).toEqual(expect.arrayContaining(['e0a5', 'e0a6']))
+    expect(kept[0].reason).toContain('Named in the brief')
   })
 
   it('never swaps out an activity pinned by name, and leaves things alone when no brief item is named', () => {
