@@ -3,6 +3,7 @@
 // that presents them as linked notes.
 
 import { parseJsonField } from '@/lib/utils'
+import { roleOwnEvidence } from '@/modules/profile/ownership'
 import { evidenceLine, projectHighlights } from '@/modules/profile/project-highlights'
 import { combineImpact, parseResult } from '@/modules/profile/result'
 import { normalizeSearchProfile } from '@/modules/search-profile/schema'
@@ -205,14 +206,18 @@ export function buildVault(row: VaultSource): Vault {
   }
 
   // ── Experiences and their evidence ──
+  const profileProjectIds = new Set(row.projects.map((p) => p.id))
   for (const e of row.experiences) {
-    const evidenceIds = addEvidence(e.activities, e.id)
+    // An activity labelled with a project is that project's evidence (the project sits inside the role), so it is
+    // added once, under the project, whether or not it also carries the role.
+    const ownActivities = roleOwnEvidence(e.activities, profileProjectIds)
+    const evidenceIds = addEvidence(ownActivities, e.id)
     const projectIds = row.projects.filter((p) => p.experienceId === e.id).map((p) => p.id)
-    const achievements = e.activities.filter((a) => a.kind === 'achievement').length
+    const achievements = ownActivities.filter((a) => a.kind === 'achievement').length
     // findGaps counts contained projects' evidence toward the role; say so here too.
     const projectEvidence = row.projects.reduce((n, p) => (p.experienceId === e.id ? n + p.activities.length : n), 0)
-    const evidenceGist = e.activities.length
-      ? evidenceCounts(achievements, e.activities.length - achievements) + (projectEvidence ? ` (+${projectEvidence} from projects)` : '')
+    const evidenceGist = ownActivities.length
+      ? evidenceCounts(achievements, ownActivities.length - achievements) + (projectEvidence ? ` (+${projectEvidence} from projects)` : '')
       : projectEvidence ? `${projectEvidence} evidence from projects` : null
     const span = formatSpan(e.startDate, e.endDate)
     const note: ExperienceNote = {

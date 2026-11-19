@@ -156,7 +156,8 @@ const DeleteExperienceOptionsSchema = z.object({ projects: z.enum(['keep', 'dele
 export async function getExperienceDeleteImpact(id: string) {
   const { profile } = await requireProfile()
   const [evidence, projects, projectEvidence] = await Promise.all([
-    prisma.roleActivity.count({ where: { experienceId: id, experience: { profileId: profile.id } } }),
+    // Evidence held directly by the role; an activity labelled with a project is counted once, as project evidence.
+    prisma.roleActivity.count({ where: { experienceId: id, projectId: null, experience: { profileId: profile.id } } }),
     prisma.project.count({ where: { experienceId: id, profileId: profile.id } }),
     prisma.roleActivity.count({ where: { project: { experienceId: id, profileId: profile.id } } }),
   ])
