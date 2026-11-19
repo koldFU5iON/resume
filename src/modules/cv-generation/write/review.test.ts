@@ -446,6 +446,17 @@ describe('applyEdits: the writers\' lead-with and project rules still hold after
     expect(trailing.discarded[0].why).toMatch(/own bullet of the lead-with project/)
   })
 
+  it('keeps a rewrite that names the project by its distinctive words early in the bullet (no full name)', () => {
+    const r = applyEdits(pdoc(), [edit(U, 'b1', 'replace', 'Led the Enemies launch timing decision for the new title.')], pctx(lead))
+    expect(r.discarded).toEqual([])
+    expect(r.applied).toHaveLength(1)
+  })
+
+  it('still discards a rewrite that no longer mentions the project at all, or only by a generic word', () => {
+    const r = applyEdits(pdoc(), [edit(U, 'b1', 'replace', 'Led the demo campaign launch timing decision for the new title.')], pctx(lead))
+    expect(r.discarded[0].why).toMatch(/own bullet of the lead-with project/)
+  })
+
   it('still allows rewording that keeps the project as the bullet\'s subject', () => {
     const r = applyEdits(pdoc(), [edit(U, 'b1', 'replace', `${PROJ}: led the launch timing for the new title.`)], pctx(lead))
     expect(r.discarded).toEqual([])

@@ -49,6 +49,11 @@ describe('leadWithStanding', () => {
   it('own: a bullet starts with the project', () => {
     expect(leadWithStanding(['Led the Enemies Demo Campaign, a launch-timing decision that reached 9.4M people.'], lead)).toBe('own')
   })
+  it('own: the distinctive words (not the full name) are enough when named in the first half', () => {
+    const l = { key: 'enemies demo campaign', name: 'Enemies Demo Campaign' }
+    expect(leadWithStanding(['Led a zero-budget global campaign for the Enemies digital human tech demo: 7x previous demo performance, 237+ media outlets, 500K+ YouTube views in 24 hours.'], l)).toBe('own')
+    expect(leadWithStanding(['Led a zero-budget global demo campaign: 7x previous demo performance, 237+ media outlets, 500K+ YouTube views.'], l)).toBe('missing')
+  })
   it('trailing: the project is only a clause at the end of another bullet', () => {
     expect(leadWithStanding(['Drove 9.4M reach across social and press for the new title launch, including the Enemies Demo Campaign.'], lead)).toBe('trailing')
   })
