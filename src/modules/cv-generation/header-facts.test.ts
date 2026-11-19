@@ -35,4 +35,14 @@ describe('headerFacts', () => {
     const v = withProfile(null, { citizenships: ['GB'], visas: [{ country: 'GB', type: 'Settled', expiresOn: null }] })
     expect(rightToWorkText(v, NOW)).toBe('United Kingdom (citizen, Settled visa)')
   })
+
+  it('does not repeat "visa" when the type already says it, and lists a repeated visa once', () => {
+    const v = withProfile(null, { citizenships: [], visas: [
+      { country: 'DE', type: 'Skilled Worker Visa', expiresOn: null },
+      { country: 'DE', type: 'Skilled Worker Visa', expiresOn: '2030-01-01' },
+      { country: 'US', type: 'H-1B visa', expiresOn: null },
+      { country: 'GB', type: 'Settled status', expiresOn: null },
+    ] })
+    expect(rightToWorkText(v, NOW)).toBe('Germany (Skilled Worker Visa); United States (H-1B visa); United Kingdom (Settled status)')
+  })
 })

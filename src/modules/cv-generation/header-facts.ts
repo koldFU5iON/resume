@@ -24,10 +24,12 @@ export function rightToWorkText(vault: Vault, now: Date): string | null {
   for (const code of eligibility.citizenships) add(code, 'citizen')
   for (const v of eligibility.visas) {
     if (v.expiresOn && v.expiresOn < today) continue
-    add(v.country, v.type ? `${oneLine(v.type)} visa` : 'visa')
+    const type = oneLine(v.type)
+    // The type is free text: "Blue Card" gets " visa", "H-1B visa" and "Settled status" do not.
+    add(v.country, !type ? 'visa' : /\b(?:visa|permit|card|status)$/i.test(type) ? type : `${type} visa`)
   }
   if (byCountry.size === 0) return null
-  return [...byCountry].map(([code, what]) => `${countryName(code)} (${what.join(', ')})`).join('; ')
+  return [...byCountry].map(([code, what]) => `${countryName(code)} (${[...new Set(what)].join(', ')})`).join('; ')
 }
 
 /** "London, UK · Right to work: United Kingdom (citizen)": the line under the headline; null when there is nothing to show. */
