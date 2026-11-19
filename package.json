@@ -19,6 +19,7 @@
     "assess:compare": "tsx scripts/assessment-compare.ts",
     "profile:backfill-report": "tsx scripts/profile-model-backfill-report.ts",
     "profile:backfill-apply": "tsx scripts/profile-model-backfill-apply.ts",
+    "profile:golden-check": "tsx scripts/profile-model-golden-check.ts",
     "pdf:fixtures": "tsx scripts/render-writing-desk-pdf-fixtures.tsx"
   },
   "prisma": {

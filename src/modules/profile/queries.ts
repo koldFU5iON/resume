@@ -1,5 +1,6 @@
 import { cache } from "react"
 import { ACTIVITY_ORDER } from "./activity-order"
+import { projectEvidenceOf, roleOwnEvidence } from "./ownership"
 import { prisma } from "@/lib/db"
 import { requireProfile } from "@/lib/session"
 import { parseJsonField } from "@/lib/utils"
@@ -96,6 +97,7 @@ export const getFullProfile = cache(async (): Promise<FullProfile> => {
     },
   })
 
+  const projectRoles = new Map(row.projects.map((p) => [p.id, p.experienceId] as const))
   const ofKind = (kind: string) => row.skills.filter((s) => s.kind === kind)
   const capabilityBase = (s: (typeof row.skills)[number]) => ({
     id: s.id, profileId: s.profileId, name: s.name, order: s.order, createdAt: s.createdAt, updatedAt: s.updatedAt,
@@ -106,7 +108,8 @@ export const getFullProfile = cache(async (): Promise<FullProfile> => {
     experiences: row.experiences.map((exp) => ({
       ...exp,
       tags: parseJsonField<string[]>(exp.tags, []),
-      activities: exp.activities.map((act) => ({
+      // An activity labelled with a project is listed under that project, not twice.
+      activities: roleOwnEvidence(exp.activities, projectRoles).map((act) => ({
         ...act,
         kind: act.kind as RoleActivityKindType,
         tags: parseJsonField<string[]>(act.tags, []),
@@ -130,7 +133,7 @@ export const getFullProfile = cache(async (): Promise<FullProfile> => {
       ...p,
       highlights: parseJsonField<string[]>(p.highlights, []),
       tags: parseJsonField<string[]>(p.tags, []),
-      activities: p.activities.map((act) => ({
+      activities: projectEvidenceOf(p.activities, p.experienceId).map((act) => ({
         ...act,
         kind: act.kind as RoleActivityKindType,
         tags: parseJsonField<string[]>(act.tags, []),

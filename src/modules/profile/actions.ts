@@ -156,9 +156,11 @@ const DeleteExperienceOptionsSchema = z.object({ projects: z.enum(['keep', 'dele
 export async function getExperienceDeleteImpact(id: string) {
   const { profile } = await requireProfile()
   const [evidence, projects, projectEvidence] = await Promise.all([
+    // Every activity that carries the role is deleted with it (cascade), whether or not it also names a project.
     prisma.roleActivity.count({ where: { experienceId: id, experience: { profileId: profile.id } } }),
     prisma.project.count({ where: { experienceId: id, profileId: profile.id } }),
-    prisma.roleActivity.count({ where: { project: { experienceId: id, profileId: profile.id } } }),
+    // The role's projects' activities that do not carry the role: deleted only along with the projects.
+    prisma.roleActivity.count({ where: { project: { experienceId: id, profileId: profile.id }, OR: [{ experienceId: null }, { experienceId: { not: id } }] } }),
   ])
   return { evidence, projects, projectEvidence }
 }
