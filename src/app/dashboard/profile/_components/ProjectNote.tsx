@@ -18,10 +18,12 @@ import { NoteLinksPanel } from './NoteLinksPanel'
  * if any), its Markdown note as the document, and Properties, Evidence and
  * Links in the details region.
  */
-export function ProjectNote({ project, parent, roles, skills, links, pending }: {
+export function ProjectNote({ project, parent, siblings = [], roles, skills, links, pending }: {
   project: FullProfile['projects'][number]
   /** The role this project belongs to. */
   parent: { id: string; title: string } | null
+  /** The other projects of the same role: places this project's evidence can move to. */
+  siblings?: { id: string; name: string }[]
   /** Every role the project could be moved to. */
   roles: { id: string; label: string }[]
   skills: { id: string; name: string }[]
@@ -52,7 +54,7 @@ export function ProjectNote({ project, parent, roles, skills, links, pending }: 
               id: 'evidence',
               label: 'Evidence',
               count: String(activities.length),
-              panel: <EvidencePanel key={project.id} owner={{ projectId: project.id }} activities={activities} skills={skills} />,
+              panel: <EvidencePanel key={project.id} owner={{ projectId: project.id }} activities={activities} skills={skills} moveTargets={[...(parent ? [{ owner: { experienceId: parent.id }, label: `Role: ${parent.title}` }] : []), ...siblings.map(s => ({ owner: { projectId: s.id }, label: `Project: ${s.name}` }))]} />,
             },
             { id: 'links', label: 'Links', count: `${links.length} · ${pending.length}`, panel: <NoteLinksPanel capabilities={links} pending={pending} /> },
           ]}

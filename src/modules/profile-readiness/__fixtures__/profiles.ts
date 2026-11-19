@@ -77,7 +77,6 @@ export function cleanProfile(): Vault {
     experiences: [
       role('e1', 'Fictional Freight', 'Program Manager', '2022-09', null, LONG_SUMMARY, [
         activity('a1', { experienceId: 'e1' }, 'achievement', 'Cut the release cycle for the freight platform', 'From 6 weeks to 2 weeks across 14 teams', ['s1'], 0, { measure: 'release cycle', value: '2 weeks', baseline: '6 weeks' }),
-        activity('a2', { experienceId: 'e1' }, 'achievement', 'Moved the tracking migration to schedule after a late start', 'Delivered 3 weeks early', ['s2'], 0, { measure: 'delivery against plan', value: '3 weeks early' }),
         activity('a3', { experienceId: 'e1' }, 'responsibility', 'Run the monthly steering group and agree priorities with the business', null, ['s3']),
       ]),
       role('e2', 'Example Logistics', 'Delivery Lead', '2019-01', '2022-06', LONG_SUMMARY, [
@@ -88,6 +87,7 @@ export function cleanProfile(): Vault {
     projects: [
       project('pr1', 'Tracking migration', 'Moved parcel tracking from a legacy system to a new platform for all depots, with a phased cut-over and daily reporting to operations.', {
         experienceId: 'e1', start: '2023-01',
+        activities: [activity('a2', { projectId: 'pr1' }, 'achievement', 'Moved the migration to schedule after a late start', 'Delivered 3 weeks early', ['s2'], 0, { measure: 'delivery against plan', value: '3 weeks early' })],
       }),
     ],
     skills: [skill('s1', 'Release management'), skill('s2', 'Jira', 'tool'), skill('s3', 'Stakeholder management', 'competency')],

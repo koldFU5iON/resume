@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   CONCURRENT_MIN_OVERLAP_MONTHS, EMPLOYMENT_GAP_MONTHS, FILLER_RESPONSIBILITY_WORDS, LONG_ACTIVITY_WORDS,
   checkCapabilities, checkCertifications, checkConflictingFigures, checkContact, checkDuplicateProjects, checkEducation,
-  checkEvidenceQuality, checkExperienceDates, checkExperienceEvidence, checkRoleOverview, checkThinNarratives,
+  checkEvidenceQuality, checkExperienceDates, checkExperienceEvidence, checkOutcomeProjects, checkRoleOverview, checkThinNarratives,
 } from './checks'
 import {
   NOW, activity, careerChanger, certification, cleanProfile, earlyCareer, education, longCareer, messyImport, project,
@@ -355,5 +355,35 @@ describe('figure_in_prose', () => {
   })
   it('is quiet on the clean profile that has structured or no figures', () => {
     expect(checkEvidenceQuality(cleanProfile()).filter((x) => x.severity === 'fix')).toEqual([])
+  })
+})
+
+describe('checkOutcomeProjects', () => {
+  const withProject = (text: string, over: { projectName?: string; status?: string } = {}) => vaultOf({
+    experiences: [role('e1', 'Studio', 'Marketing Lead', '2020-01', null, 'x', [activity('x1', { experienceId: 'e1' }, 'achievement', text)])],
+    projects: [project('p1', over.projectName ?? 'Heroes 2.0', 'A relaunch campaign for the game with a new story arc.', { experienceId: 'e1' })],
+  })
+  it('asks whether a role-level achievement that names one of the role\'s projects belongs to it', () => {
+    const f = checkOutcomeProjects(withProject('Earned 150+ articles from the Heroes 2.0 launch'))
+    expect(f).toHaveLength(1)
+    expect(f[0]).toMatchObject({ kind: 'outcome_without_project', severity: 'consider', noteId: 'x1' })
+    expect(f[0].message).toContain('Heroes 2.0')
+    expect(f[0].message).toMatch(/\?$/)
+  })
+  it('does not fire when the project is not named, or for responsibilities, or achievements already in the project', () => {
+    expect(checkOutcomeProjects(withProject('Earned 150+ articles from the launch'))).toEqual([])
+    const inProject = vaultOf({
+      experiences: [role('e1', 'Studio', 'Marketing Lead', '2020-01', null, 'x')],
+      projects: [project('p1', 'Heroes 2.0', 'A relaunch campaign for the game.', { experienceId: 'e1', activities: [activity('x1', { projectId: 'p1' }, 'achievement', 'Earned 150+ articles from the Heroes 2.0 launch')] })],
+    })
+    expect(checkOutcomeProjects(inProject)).toEqual([])
+    const resp = vaultOf({
+      experiences: [role('e1', 'Studio', 'Marketing Lead', '2020-01', null, 'x', [activity('x1', { experienceId: 'e1' }, 'responsibility', 'Ran the Heroes 2.0 launch plan')])],
+      projects: [project('p1', 'Heroes 2.0', 'A relaunch campaign.', { experienceId: 'e1' })],
+    })
+    expect(checkOutcomeProjects(resp)).toEqual([])
+  })
+  it('is quiet on the healthy fixtures', () => {
+    for (const v of [cleanProfile(), earlyCareer(), careerChanger(), longCareer()]) expect(checkOutcomeProjects(v)).toEqual([])
   })
 })
