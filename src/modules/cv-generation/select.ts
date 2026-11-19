@@ -506,7 +506,10 @@ export function enforceSelection(
     const expiredIds = s === 'certifications' ? new Set(cands.certifications.filter((c) => c.expired).map((c) => c.id)) : new Set<string>()
     const picks = rank(s, s === 'projects' ? [...pinnedProjects.filter((p) => !out.projects.some((o) => o.id === p.id)), ...out.projects] : out[s], known)
     let live = picks.filter((p) => !expiredIds.has(p.id))
-    if (s === 'certifications') live = relevantInProgressOnly(live, cands.certifications, terms, notes)
+    if (s === 'certifications') {
+      live = relevantShortCoursesOnly(live, cands.certifications, terms, notes)
+      live = relevantInProgressOnly(live, cands.certifications, terms, notes, mode === 'model')
+    }
     for (const p of picks) if (expiredIds.has(p.id)) dropReason.set(p.id, 'not_selected')
     if (live.length < picks.length) notes.push(`Left out ${countOf(picks.length - live.length, 'expired certification')} the model picked: ${picks.filter((p) => expiredIds.has(p.id)).map((p) => labels.get(p.id) ?? p.id).join(', ')}.`)
     // Thin projects (a title only) write no bullet, so they never use a project slot: substantive ones fill the
@@ -689,26 +692,49 @@ function topUpOrder(section: FlatSection, items: readonly CandidateItem[], terms
 function emptySectionPicks(section: FlatSection, items: readonly CandidateItem[], terms: readonly string[], now: Date): CandidateItem[] {
   if (section === 'education') return [...items]
   if (section === 'skills' || section === 'tools' || section === 'competencies') {
-    return topUpOrder(section, items, terms, now).filter((c) => !c.proven || matches(`${c.label} ${c.detail ?? ''}`, terms).length > 0) // a claimed-only item gets here only when the job names it (topUpOrder)
+    // A term match is required for every kind, claimed-only competencies included (skills and tools that are claimed-only also need the job to name them: topUpOrder).
+    return topUpOrder(section, items, terms, now).filter((c) => matches(`${c.label} ${c.detail ?? ''}`, terms).length > 0)
   }
   return []
+}
+
+/**
+ * A short course the profile files under Education (`fromEducation`) is a
+ * certification candidate only when a brief or requirement term matches it;
+ * otherwise it is left out, with a log note naming it. Pure apart from `notes`.
+ */
+function relevantShortCoursesOnly<P extends { id: string }>(picks: P[], certs: readonly CandidateItem[], terms: readonly string[], notes: string[]): P[] {
+  const byId = new Map(certs.map((c) => [c.id, c]))
+  const offRelevance = picks.filter((p) => byId.get(p.id)?.fromEducation && matches(`${byId.get(p.id)!.label} ${byId.get(p.id)!.detail ?? ''}`, terms).length === 0)
+  const course = certs.filter((c) => c.fromEducation)
+  const out = picks.filter((p) => !offRelevance.includes(p))
+  if (course.length > 0) {
+    const shown = course.filter((c) => out.some((p) => p.id === c.id))
+    const left = course.filter((c) => !shown.includes(c))
+    if (shown.length > 0) notes.push(`${shown.map((c) => c.label).join(', ')} ${shown.length === 1 ? 'is a short course, not a degree: shown under Certifications' : 'are short courses, not degrees: shown under Certifications'}, not Education.`)
+    if (left.length > 0) notes.push(`${left.map((c) => c.label).join(', ')} ${left.length === 1 ? 'is a short course, not a degree' : 'are short courses, not degrees'}: left out of Education, and not relevant to this job as a certification.`)
+  }
+  return out
 }
 
 /** The most in-progress certifications a CV shows. */
 export const MAX_IN_PROGRESS_CERTIFICATIONS = 1
 
 /**
- * An in-progress certification is kept only when it is relevant to the job
- * (a brief or requirement term matches its name or issuer), and at most
- * MAX_IN_PROGRESS_CERTIFICATIONS of them: the most relevant, then the model's
- * order. Others are dropped with a note. Pure apart from `notes`.
+ * At most MAX_IN_PROGRESS_CERTIFICATIONS in-progress certifications are kept.
+ * In model mode the model's pick is trusted (its order decides); in the rules
+ * fallback one is kept only when a brief or requirement term matches its name
+ * or issuer, the most relevant first. Others are dropped with a note. Pure apart from `notes`.
  */
-function relevantInProgressOnly<P extends { id: string }>(picks: P[], certs: readonly CandidateItem[], terms: readonly string[], notes: string[]): P[] {
+function relevantInProgressOnly<P extends { id: string }>(picks: P[], certs: readonly CandidateItem[], terms: readonly string[], notes: string[], trustModel = false): P[] {
   const byId = new Map(certs.map((c) => [c.id, c]))
   const relevance = (p: P) => { const c = byId.get(p.id); return c ? matches(`${c.label} ${c.detail ?? ''}`, terms).length : 0 }
   const inProgress = picks.filter((p) => byId.get(p.id)?.inProgress)
   if (inProgress.length === 0) return picks
-  const keep = inProgress.filter((p) => relevance(p) > 0).sort((x, y) => relevance(y) - relevance(x)).slice(0, MAX_IN_PROGRESS_CERTIFICATIONS)
+  // A model's pick is trusted (only the limit of one is enforced, in its order); the rules fallback needs a term match.
+  const keep = trustModel
+    ? inProgress.slice(0, MAX_IN_PROGRESS_CERTIFICATIONS)
+    : inProgress.filter((p) => relevance(p) > 0).sort((x, y) => relevance(y) - relevance(x)).slice(0, MAX_IN_PROGRESS_CERTIFICATIONS)
   const out = picks.filter((p) => !byId.get(p.id)?.inProgress || keep.includes(p))
   if (out.length < picks.length) notes.push(`Left out ${countOf(picks.length - out.length, 'in-progress certification')}: ${inProgress.filter((p) => !keep.includes(p)).map((p) => byId.get(p.id)?.label ?? p.id).join(', ')} (only one relevant in-progress certification is shown).`)
   return out
@@ -783,9 +809,11 @@ export function fallbackPicks(
     })
     .sort((x, y) => y.m.length - x.m.length || x.idx - y.idx)
 
-  const ranked = <T extends { id: string; label: string; detail: string | null; proven: boolean }>(items: readonly T[]) =>
+  // The rules fallback does not pad: it keeps only items that match a brief or requirement term (evidence-backed tools are kept too).
+  const ranked = <T extends { id: string; label: string; detail: string | null; proven: boolean }>(items: readonly T[], keepProven = false) =>
     items
       .map((i, idx) => ({ i, idx, m: matches(`${i.label} ${i.detail ?? ''}`, terms) }))
+      .filter(({ i, m }) => m.length > 0 || (keepProven && i.proven))
       .sort((x, y) => y.m.length - x.m.length || Number(y.i.proven) - Number(x.i.proven) || x.idx - y.idx)
       .map(({ i, m }) => ({ id: i.id, reason: matchReason(m) }))
 
@@ -806,9 +834,9 @@ export function fallbackPicks(
         })),
     ),
     skills: ranked(cands.skills),
-    tools: ranked(cands.tools),
+    tools: ranked(cands.tools, true),
     competencies: ranked(cands.competencies),
-    certifications: rankCertifications(cands.certifications, terms, new Date()).map((c) => ({ id: c.id, reason: matchReason(matches(`${c.label} ${c.detail ?? ''}`, terms)) })),
+    certifications: rankCertifications(cands.certifications, terms, new Date()).filter((c) => matches(`${c.label} ${c.detail ?? ''}`, terms).length > 0).map((c) => ({ id: c.id, reason: matchReason(matches(`${c.label} ${c.detail ?? ''}`, terms)) })),
     education: cands.education.map((c) => ({ id: c.id, reason: '' })),
     projects: ranked(cands.projects),
     emphasise: [],

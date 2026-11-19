@@ -73,7 +73,7 @@ export function isClaimedCapability(vault: Vault, note: CapabilityNote, now: Dat
   return certifiedOnlyInProgress(note.props.status, certifiers, now)
 }
 
-const DEGREE_WORDS = /\b(bachelor|master|doctor|degree|diploma|honou?rs|undergraduate|postgraduate|graduate (certificate|diploma)|pgce|b\.?sc|m\.?sc|b\.?a|m\.?a|b\.?eng|m\.?eng|b\.?ed|m\.?ed|llb|llm|mba|phd|dphil|hnd|hnc|associate|baccalaur\w*|licenci\w+|laurea|a[- ]levels?|gcse|leaving certificate|high school|secondary school)\b/i
+const DEGREE_WORDS = /\b(bachelor|master|doctor|degree|diploma|honou?rs|undergraduate|postgraduate|graduate (certificate|diploma)|pgce|b\.?sc|m\.?sc|b\.?a|m\.?a|b\.?eng|m\.?eng|b\.?ed|m\.?ed|llb|llm|mba|phd|dphil|hnd|hnc|associate|higher education|certhe|ncea|national certificate|baccalaur\w*|licenci\w+|laurea|a[- ]levels?|gcse|leaving certificate|high school|secondary school)\b/i
 const SHORT_COURSE_WORDS = /\b(certificate|certification|course|short course|bootcamp|boot camp|workshop|training|masterclass|summer school|programme|program)\b/i
 
 /**

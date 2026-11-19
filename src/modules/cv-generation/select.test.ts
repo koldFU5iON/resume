@@ -516,9 +516,12 @@ describe('fallbackSelection', () => {
     expect(s.employers.filter((e) => e.headerOnly).map((e) => e.key)).toEqual(['co-4', 'co-5'])
     expect(s.skills[0].id).toBe('s7')
     expect(s.skills[0].reason).toContain('Matches the brief')
-    expect(s.skills).toHaveLength(12)
+    // The fallback does not pad: only items matching a brief or requirement term (and evidence-backed tools).
+    expect(s.skills.map((x) => x.id)).toEqual(['s7'])
     expect(s.tools).toHaveLength(10)
-    expect(s.projects).toHaveLength(2)
+    expect(s.competencies).toHaveLength(0)
+    expect(s.certifications).toHaveLength(0)
+    expect(s.projects).toHaveLength(0)
     expect(s.education).toHaveLength(2)
     for (const e of withBullets) expect(e.bullets.length).toBeGreaterThanOrEqual(MIN_ACTIVITIES_PER_EMPLOYER)
     expect(withBullets.reduce((n, e) => n + e.bullets.length, 0)).toBeLessThanOrEqual(MAX_TOTAL_BULLETS)
@@ -553,6 +556,48 @@ describe('fallbackSelection', () => {
 
   it('extracts distinct terms without filler', () => {
     expect(briefTerms({ leadWith: leads(['The platform migration']), emphasise: [em('Platform and Terraform', '')] })).toEqual(['platform', 'migration', 'terraform'])
+  })
+})
+
+describe('short courses filed under Education', () => {
+  const mk = () => {
+    const c = bigCandidates(2, 4)
+    c.certifications = [{ id: 'sc', label: 'Certificate in Marketing Analytics', detail: 'Evening School, 2024', proven: true, issued: '2024-05-01', inProgress: false, expired: false, fromEducation: true }]
+    return c
+  }
+  it('is a certification only when relevant, and a note names it either way', () => {
+    const on = enforceSelection({ ...empty, employers: epick(['co-0', 3]), certifications: pick('sc') }, mk(), brief, 'model', { requirementTerms: ['marketing'] })
+    expect(on.selection.certifications.map((x) => x.id)).toEqual(['sc'])
+    expect(on.notes.join(' ')).toMatch(/short course, not a degree: shown under Certifications/)
+    const off = enforceSelection({ ...empty, employers: epick(['co-0', 3]), certifications: pick('sc') }, mk(), { budgets: brief.budgets }, 'model', { requirementTerms: ['kubernetes'] })
+    expect(off.selection.certifications).toEqual([])
+    expect(off.notes.join(' ')).toMatch(/short course, not a degree: left out of Education/)
+  })
+})
+
+describe('the empty-section pick needs a term match for competencies too', () => {
+  it('never picks an unrelated competency, claimed or not', () => {
+    const c = bigCandidates(2, 4)
+    c.competencies = [{ id: 'cc', label: 'Negotiation', detail: null, proven: false }, { id: 'cp', label: 'Planning', detail: null, proven: true }]
+    const r = enforceSelection({ ...empty, employers: epick(['co-0', 3]) }, c, { budgets: brief.budgets }, 'model', { requirementTerms: ['kubernetes'] })
+    expect(r.selection.competencies).toEqual([])
+    const m = enforceSelection({ ...empty, employers: epick(['co-0', 3]) }, c, { budgets: brief.budgets }, 'model', { requirementTerms: ['planning'] })
+    expect(m.selection.competencies.map((x) => x.id)).toEqual(['cp'])
+  })
+})
+
+describe('a failed Select call does not produce a padded CV', () => {
+  it('falls back to rules that keep only matching items, the weak-cert rule applying', async () => {
+    call.mockRejectedValue(new LLMError('slow', 'timeout'))
+    const c = bigCandidates(3, 6, 20)
+    c.skills[2].label = 'Release management'
+    const g = gathered({ candidates: c } as never)
+    const r = await runSelect(g, buildBriefFor({ leadWith: leads(['Release management']), emphasise: [] }), { profileId: 'p1', jobApplicationId: 'j', runId: 'r', deadline: Date.now() + 60_000 })
+    expect(r.selection.mode).toBe('fallback')
+    expect(r.selection.skills.map((x) => x.id)).toEqual(['s2'])
+    expect(r.selection.competencies).toHaveLength(0)
+    expect(r.selection.certifications).toHaveLength(0)
+    expect(r.selection.education.length).toBeLessThanOrEqual(2)
   })
 })
 
@@ -1131,17 +1176,24 @@ describe('certification order and top-up', () => {
     ]
     const pickAll = pick('done', 'wip-off', 'wip-on', 'wip-on2')
     const r = enforceSelection({ ...empty, employers: epick(['co-0', 3]), certifications: pickAll }, c, brief, 'model', { now, requirementTerms: ['project', 'management'] })
-    expect(r.selection.certifications.map((i) => i.id)).toEqual(['done', 'wip-on'])
+    // Model mode trusts the model's pick and enforces only the limit of one (its first, in order).
+    expect(r.selection.certifications.map((i) => i.id)).toEqual(['done', 'wip-off'])
     expect(r.notes.join(' ')).toContain('in-progress certification')
+    // The rules fallback needs a term match.
+    const fb = enforceSelection({ ...empty, employers: epick(['co-0', 3]), certifications: pickAll }, c, brief, 'fallback', { now, requirementTerms: ['project', 'management'] })
+    expect(fb.selection.certifications.map((i) => i.id)).toEqual(['done', 'wip-on'])
     const none = enforceSelection({ ...empty, employers: epick(['co-0', 3]), certifications: pickAll }, c, { budgets: brief.budgets }, 'model', { now, requirementTerms: ['kubernetes'] })
-    expect(none.selection.certifications.map((i) => i.id)).toEqual(['done'])
+    expect(none.selection.certifications.map((i) => i.id)).toEqual(['done', 'wip-off'])
   })
 
   it('the rules fallback orders certifications the same way', () => {
     const c = bigCandidates(4, 8)
     c.certifications = [cert('c-old', 'Old', { issued: '2010-01-01' }), cert('c-new', 'New', { issued: '2026-02-01' }), cert('c-wip', 'Wip (in progress)', { inProgress: true })]
-    const picks = fallbackPicks({ leadWith: [], emphasise: [] }, c)
+    c.certifications.forEach((x) => { x.label += ' Marketing' })
+    const picks = fallbackPicks({ leadWith: leads(['Marketing']), emphasise: [] }, c)
     expect(picks.certifications.map((p) => p.id)).toEqual(['c-wip', 'c-new', 'c-old'])
+    // A certification that matches no brief or requirement term is not picked.
+    expect(fallbackPicks({ leadWith: [], emphasise: [] }, c).certifications).toEqual([])
   })
 
   it('shows the issue year to the model', () => {

@@ -76,7 +76,7 @@ describe('isClaimedCapability (CV view of a capability)', () => {
 
 describe('isDegreeLike', () => {
   it('treats degrees, diplomas and school qualifications as education', () => {
-    for (const q of ['BSc', 'MSc in Supply chain', 'Bachelor of Arts', 'MBA', 'Higher Diploma in Computing', 'Postgraduate Certificate in Education', 'PhD', 'Leaving Certificate', 'Degree 3']) expect(isDegreeLike(q), q).toBe(true)
+    for (const q of ['BSc', 'MSc in Supply chain', 'Bachelor of Arts', 'MBA', 'Higher Diploma in Computing', 'Postgraduate Certificate in Education', 'PhD', 'Leaving Certificate', 'Degree 3', 'Certificate of Higher Education', 'National Certificate (NCEA Level 3)']) expect(isDegreeLike(q), q).toBe(true)
   })
   it('keeps a short course or certificate out of education', () => {
     for (const q of ['Certificate in On-screen Presenting', 'Short course in negotiation', 'Data bootcamp', 'Workshop: pricing', 'Leadership training programme']) expect(isDegreeLike(q), q).toBe(false)

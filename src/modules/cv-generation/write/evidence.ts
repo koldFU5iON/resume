@@ -187,14 +187,18 @@ export function evidenceFromVault(vault: Vault, selection: CvSelection, now: Dat
     })
 
   // Rank among the certifications that will actually be rendered: an expired or removed first pick leaves the next one rank 0.
-  // The weak-certification rule only means something for a model's relevance order, so a code-chosen selection carries no rank.
+  // The weak-certification rule applies to a code-chosen (fallback) selection too: its order is by relevance.
   const certifications: CertificationEvidence[] = []
   for (const { id } of selection.certifications) {
     const n = vault.notes.get(id)
-    if (n?.type !== 'certification') { unresolved.push({ section: 'certifications', id }); continue }
+    // A short course the profile files under Education is offered as a certification (candidates.ts).
+    const course = n?.type === 'education' ? n.props : null
+    if (n?.type !== 'certification' && !course) { unresolved.push({ section: 'certifications', id }); continue }
     const rank = certifications.filter((c) => certificationStatus(c, now) !== 'expired').length
-    const c = { id, name: n.props.name, issuer: n.props.issuer, issueDate: n.props.issueDate, expiryDate: n.props.expiryDate }
-    certifications.push(selection.mode === 'model' && certificationStatus(c, now) !== 'expired' ? { ...c, rank } : c)
+    const c = course
+      ? { id, name: `${course.qualification}${course.field ? ` in ${course.field}` : ''}`, issuer: course.institution, issueDate: course.endDate, expiryDate: null as Date | null }
+      : { id, name: (n as { props: { name: string } }).props.name, issuer: (n as { props: { issuer: string | null } }).props.issuer, issueDate: (n as { props: { issueDate: Date | null } }).props.issueDate, expiryDate: (n as { props: { expiryDate: Date | null } }).props.expiryDate }
+    certifications.push(certificationStatus(c, now) !== 'expired' ? { ...c, rank } : c)
   }
   const education = selection.education.flatMap(({ id }) => {
     const n = vault.notes.get(id)

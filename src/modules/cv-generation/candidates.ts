@@ -55,6 +55,8 @@ export type CandidateItem = {
   inProgress?: boolean
   /** Certifications only: the expiry date has passed, so the CV leaves it out. */
   expired?: boolean
+  /** Certifications only: a short course or certificate the profile files under Education (not a degree); offered here only when relevant. */
+  fromEducation?: boolean
   /** Projects only: only a title, no text to write from (limits.ts isThinProject). */
   thin?: boolean
 }
@@ -125,7 +127,16 @@ export function buildCandidates(vault: Vault, now: Date = new Date()): Candidate
       issued: n.props.issueDate ? n.props.issueDate.toISOString().slice(0, 10) : null,
       inProgress: certificationStatus(n.props, now) === 'in_progress',
       expired: certificationStatus(n.props, now) === 'expired',
-    })),
+    })).concat(notesOf(vault, 'education').filter((n) => !isDegreeLike(n.props.qualification)).map((n) => ({
+      id: n.id,
+      label: markInProgress(`${n.props.qualification}${n.props.field ? ` in ${n.props.field}` : ''}`, educationStatus(n.props, now) === 'in_progress'),
+      detail: [n.props.institution, n.props.endDate ? String(n.props.endDate.getUTCFullYear()) : null].filter(Boolean).join(', ') || null,
+      proven: true,
+      issued: n.props.endDate ? n.props.endDate.toISOString().slice(0, 10) : null,
+      inProgress: educationStatus(n.props, now) === 'in_progress',
+      expired: false,
+      fromEducation: true,
+    }))),
     // A short course or certificate is not a degree or diploma: never an Education candidate.
     education: notesOf(vault, 'education').filter((n) => isDegreeLike(n.props.qualification)).map((n) => ({
       id: n.id,

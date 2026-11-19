@@ -166,5 +166,8 @@ describe('education candidates are degrees and diplomas only', () => {
     const labels = buildCandidates(buildVault(src), new Date('2026-11-18T00:00:00Z')).education.map((i) => i.label)
     expect(labels.some((l) => l.includes('On-screen Presenting'))).toBe(false)
     expect(labels.length).toBeGreaterThan(0)
+    // ... and is offered as a certification candidate instead, flagged as coming from Education.
+    const certs = buildCandidates(buildVault(src), new Date('2026-11-18T00:00:00Z')).certifications
+    expect(certs.find((c) => c.label.includes('On-screen Presenting'))).toMatchObject({ fromEducation: true, detail: expect.stringContaining('Evening Media School') })
   })
 })
