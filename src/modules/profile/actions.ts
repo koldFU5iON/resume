@@ -70,6 +70,9 @@ async function nextActivityOrder(owner: ActivityOwner): Promise<number> {
 
 /** The owner the profile really has, as the row fields that set it (the other owner column is cleared). */
 async function ownedTarget(profileId: string, owner: ActivityOwner): Promise<{ experienceId: string | null; projectId: string | null }> {
+  // A missing id must not match "any row of the profile" (Prisma ignores an undefined filter).
+  const id = 'projectId' in owner ? owner.projectId : owner.experienceId
+  if (typeof id !== 'string' || !id) throw new Error('projectId' in owner ? 'Project not found' : 'Experience not found')
   if ('projectId' in owner) {
     const project = await prisma.project.findFirst({ where: { id: owner.projectId, profileId }, select: { id: true } })
     if (!project) throw new Error('Project not found')
@@ -100,6 +103,8 @@ export async function moveActivity(id: string, target: ActivityOwner) {
   const existing = await prisma.roleActivity.findFirst({ where: { id, ...activityOwnedBy(profile.id) }, select: { id: true } })
   if (!existing) throw new Error('Activity not found')
   const to = await ownedTarget(profile.id, target)
+  // An archived project is left out of the CV, so evidence moved there would silently stop reaching it.
+  if (to.projectId && (await prisma.project.count({ where: { id: to.projectId, status: 'archived' } })) > 0) throw new Error('That project is archived')
   const owner: ActivityOwner = to.projectId ? { projectId: to.projectId } : { experienceId: to.experienceId! }
   await prisma.roleActivity.update({ where: { id }, data: { ...to, order: await nextActivityOrder(owner) } })
   revalidatePath('/dashboard/profile', 'layout')

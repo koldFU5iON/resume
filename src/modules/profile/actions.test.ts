@@ -175,6 +175,13 @@ describe('acceptSuggestions into a project', () => {
 })
 
 describe('moveActivity', () => {
+  beforeEach(() => {
+    vi.mocked(prisma.roleActivity.findFirst).mockReset()
+    vi.mocked(prisma.project.findFirst).mockReset()
+    vi.mocked(prisma.experience.findFirst).mockReset()
+    vi.mocked(prisma.project.count).mockReset().mockResolvedValue(0)
+  })
+
   it('moves evidence from a role to the profile\'s own project, clearing the role and going to the end of the list', async () => {
     vi.mocked(prisma.roleActivity.findFirst).mockResolvedValueOnce({ id: 'a1' } as never).mockResolvedValueOnce({ order: 3 } as never)
     vi.mocked(prisma.project.findFirst).mockResolvedValue({ id: 'pr1' } as never)
@@ -189,6 +196,15 @@ describe('moveActivity', () => {
     vi.mocked(prisma.experience.findFirst).mockResolvedValue({ id: 'e1' } as never)
     await moveActivity('a1', { experienceId: 'e1' })
     expect(prisma.roleActivity.update).toHaveBeenCalledWith({ where: { id: 'a1' }, data: { experienceId: 'e1', projectId: null, order: 0 } })
+  })
+
+  it('refuses an archived project and a target with no id', async () => {
+    vi.mocked(prisma.roleActivity.findFirst).mockResolvedValue({ id: 'a1' } as never)
+    vi.mocked(prisma.project.findFirst).mockResolvedValue({ id: 'pr1' } as never)
+    vi.mocked(prisma.project.count).mockResolvedValueOnce(1)
+    await expect(moveActivity('a1', { projectId: 'pr1' })).rejects.toThrow('archived')
+    await expect(moveActivity('a1', {} as never)).rejects.toThrow('Experience not found')
+    expect(prisma.roleActivity.update).not.toHaveBeenCalled()
   })
 
   it('refuses a foreign activity or a foreign target, and changes nothing', async () => {

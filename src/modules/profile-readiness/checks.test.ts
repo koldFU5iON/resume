@@ -383,6 +383,19 @@ describe('checkOutcomeProjects', () => {
     })
     expect(checkOutcomeProjects(resp)).toEqual([])
   })
+  it('names the project whose number matches, not the first with the same words', () => {
+    const v = vaultOf({
+      experiences: [role('e1', 'Studio', 'Marketing Lead', '2020-01', null, 'x', [activity('x1', { experienceId: 'e1' }, 'achievement', 'Grew sales from the Heroes 3.0 launch')])],
+      projects: [
+        project('p1', 'Heroes 2.0', 'A relaunch campaign for the game with a new story arc.', { experienceId: 'e1' }),
+        project('p2', 'Heroes 3.0', 'The next relaunch campaign for the game, a year later.', { experienceId: 'e1' }),
+      ],
+    })
+    const f = checkOutcomeProjects(v)
+    expect(f).toHaveLength(1)
+    expect(f[0].message).toContain('Heroes 3.0')
+    expect(f[0].message).not.toContain('Heroes 2.0')
+  })
   it('is quiet on the healthy fixtures', () => {
     for (const v of [cleanProfile(), earlyCareer(), careerChanger(), longCareer()]) expect(checkOutcomeProjects(v)).toEqual([])
   })

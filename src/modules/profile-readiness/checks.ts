@@ -457,6 +457,9 @@ export function checkConflictingFigures(vault: Vault): Candidate[] {
  * project's name appears in it). The outcome probably came from that project, and moving it there lets the CV say
  * which campaign or event produced it. Phrased as a question: a short project name can match by chance.
  */
+/** Content words plus any digit, however short ("2" and "0" of "2.0"): names that differ by a number stay different. */
+const nameTokens = (s: string) => new Set(s.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w && (/\d/.test(w) || (w.length > 1 && !STOPWORDS.has(w) && !SMALL_WORDS.has(w)))))
+
 export function checkOutcomeProjects(vault: Vault): Candidate[] {
   const out: Candidate[] = []
   for (const exp of notesOf(vault, 'experience')) {
@@ -464,16 +467,17 @@ export function checkOutcomeProjects(vault: Vault): Candidate[] {
     if (projects.length === 0) continue
     for (const e of evidenceOf(vault, exp)) {
       if (e.props.kind !== 'achievement') continue
-      const words = contentTokens(evidenceText(e))
-      const project = projects.find((p) => {
-        const name = contentTokens(p.props.name)
-        return name.size > 0 && [...name].every((w) => words.has(w))
-      })
+      const words = nameTokens(evidenceText(e))
+      // The most specific project named: "Heroes 3.0" is not "Heroes 2.0" (digits count), and a longer name beats a shorter.
+      const project = projects
+        .map((p) => ({ p, name: nameTokens(p.props.name) }))
+        .filter(({ name }) => name.size > 0 && [...name].every((w) => words.has(w)))
+        .sort((a, b) => b.name.size - a.name.size)[0]?.p
       if (!project) continue
       out.push(about(e, {
         kind: 'outcome_without_project', severity: 'consider', impact: 2, title: `Does this belong to ${project.props.name}?`,
         message: `${quote(e.props.description)} sits under ${exp.props.role} at ${exp.props.company} and names ${quote(project.props.name, 50)}, one of that role's projects. Did it come from there?`,
-        suggestion: 'If so, use "Move to…" on the achievement so the CV can say which campaign or event produced the result.',
+        suggestion: 'If so, use the Move button on the achievement so the CV can say which campaign or event produced the result.',
       }))
     }
   }
