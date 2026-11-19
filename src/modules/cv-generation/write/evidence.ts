@@ -16,7 +16,7 @@ import { makeContactScrubber } from '@/modules/profile-map/pii'
 import { stripWikilinks } from '@/modules/profile-map/links'
 import { buildCandidates, type CandidateActivity } from '../candidates'
 import type { CvSelection, SelectedEmployer } from '../schema'
-import { capProjectText } from './limits'
+import { capOverview, capProjectText } from './limits'
 import { certificationStatus, educationStatus, isClaimedCapability } from './status'
 
 /** A selected project, routed to the employer it belongs to as extra evidence for that employer's writer. */
@@ -35,7 +35,7 @@ export type EmployerEvidence = {
   projects: ProjectEvidence[]
   /** Selected activities no longer in the profile (or no longer under this employer). */
   missing: number
-  /** The roles' own overview text (their notes' body), contact-scrubbed, oldest role first; '' when the profile has none. What the summary may be drawn from. */
+  /** The roles' own overview text (their notes' body), contact-scrubbed, oldest role first, repeats removed and capped (OVERVIEW_MAX_CHARS); '' when the profile has none. What the summary may be drawn from, and valid evidence for the summary's figures (never a bullet's). */
   overview?: string
 }
 
@@ -101,6 +101,11 @@ export function figureIgnoredNames(e: Pick<Evidence, 'skills' | 'tools' | 'compe
   ]
 }
 
+/** The text a SUMMARY's figures may also be checked against: the same as for bullets, plus the (capped) role overview the writer was shown. Never used for a bullet. */
+export function summaryEvidenceTexts(e: EmployerEvidence): string[] {
+  return e.overview?.trim() ? [...evidenceTexts(e), e.overview] : evidenceTexts(e)
+}
+
 /** The text a writer's figures and names may be checked against: the activities' text and impact. */
 export function evidenceTexts(e: EmployerEvidence): string[] {
   return [...e.activities.flatMap((a) => [a.text, a.impact ?? '']), ...e.projects.map((p) => `${p.name}\n${p.text}`)]
@@ -160,8 +165,8 @@ export function evidenceFromVault(vault: Vault, selection: CvSelection, now: Dat
       if (a && roleIds.has(a.experienceId)) activities.push(a)
       else missing++
     }
-    const overview = [...employer.roles].reverse().map((r) => vault.notes.get(r.experienceId)).flatMap((n) => (n?.type === 'experience' && n.body ? [clean(n.body)] : [])).filter(Boolean).join('\n')
-    return { employer, activities, projects: [], missing, overview }
+    const rawOverview = [...employer.roles].reverse().map((r) => vault.notes.get(r.experienceId)).flatMap((n) => (n?.type === 'experience' && n.body ? [clean(n.body)] : [])).filter(Boolean).join('\n')
+    return { employer, activities, projects: [], missing, overview: capOverview(rawOverview) }
   })
 
   // Selected projects ride along with the employer they belong to. None is dropped silently: an unroutable one is reported.

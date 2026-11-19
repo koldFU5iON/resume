@@ -26,21 +26,25 @@ describe('leadWithProjects', () => {
 })
 
 describe('bulletAllowance', () => {
-  it('is the allocation, and a project the brief does not lead with adds nothing', () => {
-    expect(bulletAllowance(emp(6, [{ name: 'Unity Awards 2025' }]), brief({ leadWith: leads(['Platform migration delivery']) }))).toBe(6)
+  it('adds one own bullet for every substantive project, led with or not', () => {
+    expect(bulletAllowance(emp(6, [{ name: 'Awards Programme 2025' }]))).toBe(7)
+    expect(bulletAllowance(emp(6, [{ name: 'Awards Programme 2025' }, { name: 'Keynote Event' }]))).toBe(8)
+  })
+  it('a thin project adds nothing', () => {
+    expect(bulletAllowance(emp(6, [{ name: 'Awards Programme 2025', text: '' }]))).toBe(6)
   })
   it('allows one more bullet for a lead-with project', () => {
     expect(LEAD_WITH_PROJECT_EXTRA_BULLETS).toBe(1)
-    expect(bulletAllowance(emp(3, [{ name: 'Enemies Demo Campaign' }]), brief({ leadWith: leads(['Enemies Demo Campaign launch timing']) }))).toBe(4)
+    expect(bulletAllowance(emp(3, [{ name: 'Enemies Demo Campaign' }]))).toBe(4)
   })
   it('a thin lead-with project (title only) adds no bullet: there is no evidence to write it from', () => {
-    expect(bulletAllowance(emp(3, [{ name: 'Enemies Demo Campaign', text: 'Enemies Demo Campaign:' }]), brief({ leadWith: leads(['Enemies Demo Campaign launch timing']) }))).toBe(3)
+    expect(bulletAllowance(emp(3, [{ name: 'Enemies Demo Campaign', text: 'Enemies Demo Campaign:' }]))).toBe(3)
     expect(leadWithProjects(emp(3, [{ name: 'Enemies Demo Campaign', text: '' }]).projects, leads(['Enemies Demo Campaign launch timing']))).toEqual([])
     expect(thinLeadWithProjects(emp(3, [{ name: 'Enemies Demo Campaign', text: '' }]).projects, leads(['Enemies Demo Campaign launch timing']))).toMatchObject([{ name: 'Enemies Demo Campaign' }])
   })
   it('allows one bullet for an employer that has only project evidence, and none for an empty one', () => {
-    expect(bulletAllowance(emp(0, [{ name: 'Side Gig' }]), brief())).toBe(1)
-    expect(bulletAllowance(emp(0, []), brief())).toBe(0)
+    expect(bulletAllowance(emp(0, [{ name: 'Side Gig' }]))).toBe(1)
+    expect(bulletAllowance(emp(0, []))).toBe(0)
   })
 })
 

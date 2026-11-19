@@ -177,7 +177,7 @@ export const SELECTION_REUSE_WINDOW_MS = SELECTION_REUSE_WINDOW_DAYS * 24 * 60 *
  * writers): a stored selection from before the change must not be reused. A prompt
  * edit by the user needs no bump: the effective prompt texts are hashed too.
  */
-export const SELECTION_PIPELINE_VERSION = 5
+export const SELECTION_PIPELINE_VERSION = 6
 
 /** A failed run whose Brief and Select were paid for may still donate them: only these failures happened AFTER Select (at Land), so the stored pair is whole. */
 export const REUSABLE_FAILURE_KINDS = ['draft_exists', 'document_limit'] as const
@@ -223,9 +223,9 @@ export const LOG_ENTRY_STATUSES = ['ok', 'skipped', 'failed'] as const
 
 /** One section's own row under the Write stage: what writing that section cost and noted. */
 export const SectionLogEntrySchema = z.object({
-  /** Stable id, e.g. "experience:unity", "skills", "profile". */
+  /** Stable id, e.g. "experience:acme-cloud", "skills", "profile". */
   id: z.string(),
-  /** What the page shows, e.g. "Experience: Snr. Program Manager — Unity". */
+  /** What the page shows, e.g. "Experience: Snr. Program Manager — Acme Cloud". */
   label: z.string(),
   /** ok: written; skipped: nothing to write; failed: the run failed here. */
   status: z.enum(LOG_ENTRY_STATUSES).default('ok'),
@@ -401,7 +401,7 @@ function briefItemShape(v: unknown): unknown {
 }
 
 const itemFields = {
-  name: cutText(NAME_MAX, 'The short proper name or topic evidence is matched by, e.g. "Unity" or "One Marketing Request Form"'),
+  name: cutText(NAME_MAX, 'The short proper name or topic evidence is matched by, e.g. "Acme Cloud" or "Customer Portal Redesign"'),
   framing: cutText(FRAMING_MAX, 'The sentence that frames it for the writers'),
 }
 const leadWithObject = z.object(itemFields)
@@ -696,7 +696,7 @@ export const CONCERN_KIND_LABEL: Record<ConcernKind, string> = {
 /** One edit the Review model proposes. `bulletId` may be null or missing (the profile paragraph has none); both read as undefined. */
 export const ReviewEditSchema = z.object({
   target: z.object({
-    sectionId: z.string().describe('The section id exactly as listed, e.g. "experience:unity" or "profile"'),
+    sectionId: z.string().describe('The section id exactly as listed, e.g. "experience:acme-cloud" or "profile"'),
     bulletId: z.string().nullish().describe('A bullet id of that section ("b1", "b2"...) or "summary"; leave out (or null) to edit the profile paragraph').transform((v) => v ?? undefined),
   }),
   action: z.enum(REVIEW_ACTIONS),

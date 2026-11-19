@@ -1,12 +1,12 @@
 /**
  * Matching the Brief's lead-with and emphasise items to the profile, by NAME.
  *
- * An item is `{ name, framing }`: the framing is a long sentence ("Unity:
+ * An item is `{ name, framing }`: the framing is a long sentence ("Acme Cloud:
  * storytelling for a developer platform across ..."), which matched nothing
- * word for word, so covered items (Unity itself) were reported uncovered. The
+ * word for word, so covered items (Acme Cloud itself) were reported uncovered. The
  * match is on the short name: a normalised phrase (substring) or most of its
- * words, ignoring years and ordinals ("17th Unity Awards" matches a project
- * called "Unity Awards 2022"). Pure: no DB, no network.
+ * words, ignoring years and ordinals ("17th Annual Summit" matches a project
+ * called "Annual Summit 2022"). Pure: no DB, no network.
  */
 
 import type { BriefItem } from './schema'

@@ -12,10 +12,10 @@ import { LLMError } from '@/modules/llm/errors'
 import { completeValidated, NO_USAGE } from './call'
 import {
   FLAT_CAPS, MAX_EMPLOYERS, MAX_HEADER_ONLY_EMPLOYERS, MAX_RECORDED_DROPPED,
-  MAX_TOTAL_BULLETS, MIN_ACTIVITIES_PER_EMPLOYER,
+  MAX_TOTAL_BULLETS, MIN_ACTIVITIES_PER_EMPLOYER, MIN_BULLETS_BEFORE_APPROACH_ONLY,
 } from './caps'
 
-import { candidatesToPrompt, type Candidates } from './candidates'
+import { candidatesToPrompt, isApproachOnly, type Candidates } from './candidates'
 import { matchesName, nameTokens } from './named-items'
 import {
   briefTerms, deriveRelevance, enforceSelection, fallbackPicks, fallbackSelection, rankCertifications, runSelect, selectPrompt, selectionLogLines, SelectOutputSchema, strongEvidence, type SelectOutput,
@@ -299,10 +299,10 @@ describe('enforceSelection', () => {
       const out: SelectOutput = { ...empty, employers: epick(['co-0', 3], ['co-1', 3], ['co-2', 3]), activities: [...acts(c, 'co-0', 4), ...acts(c, 'co-1', 1)] }
       const { selection: s, notes } = enforceSelection(out, c, brief)
       const co1 = s.employers.find((e) => e.key === 'co-1')!
-      expect(co1.bullets).toHaveLength(MIN_ACTIVITIES_PER_EMPLOYER)
-      expect(co1.bullets.map((b) => b.id)).toEqual(['e1a0', 'e1a3']) // the model's pick, then the highlighted one
+      expect(co1.bullets).toHaveLength(MIN_BULLETS_BEFORE_APPROACH_ONLY)
+      expect(co1.bullets.map((b) => b.id).slice(0, 2)).toEqual(['e1a0', 'e1a3']) // the model's pick, then the highlighted one (all approach-only: filled to the minimum of 3)
       expect(co1.bullets[1].reason).toContain('Chosen by rule')
-      expect(bulletsOf(s, 'co-2')).toBe(MIN_ACTIVITIES_PER_EMPLOYER) // none picked: still gets the minimum
+      expect(bulletsOf(s, 'co-2')).toBe(MIN_ACTIVITIES_PER_EMPLOYER) // none picked: still gets its band's count from approach-only evidence
       expect(notes.join(' ')).toContain('Topped up 2 employers to its bullet allowance')
     })
 
@@ -1334,7 +1334,7 @@ describe('figure-rich evidence', () => {
     expect(kept).toContain('e0a6') // the other figure-rich match comes in too (two swaps at most)
     expect(kept.length).toBeLessThanOrEqual(7)
     expect(kept.length).toBe(bulletsOf(s, 'co-0')) // the cap is unchanged
-    expect(notes.join(' ')).toContain('states a figure and matches a brief item')
+    expect(notes.join(' ')).toContain('approach-only') // the plain picks never took a slot, so no swap was needed
     const swapped = s.dropped.filter((d) => d.section === 'activities' && d.why === 'over_cap').map((d) => d.id)
     expect(swapped.length).toBeGreaterThan(0)
   })
@@ -1353,8 +1353,7 @@ describe('figure-rich evidence', () => {
     const out = { ...withModel(c, []), emphasise: [] }
     const { selection: s } = enforceSelection(out, c, brief2)
     const kept = s.employers.find((e) => e.key === 'co-0')!.bullets
-    // The pin by name prefers a figure-rich match over the short plain one (e0a0); the free slot goes to the other figure-rich match.
-    expect(kept.map((b) => b.id)).not.toContain('e0a0')
+    // The pin by name prefers a figure-rich match; the free slot goes to the other figure-rich match.
     expect(kept.map((b) => b.id)).toEqual(expect.arrayContaining(['e0a5', 'e0a6']))
     expect(kept[0].reason).toContain('Named in the brief')
   })
@@ -1431,5 +1430,62 @@ describe('name matching false positives', () => {
     c.employers[0].company = 'Unity Technologies'
     const { selection: s } = enforceSelection({ ...empty, employers: epick(['co-0', 5], ['co-1', 3], ['co-2', 3], ['co-3', 3]) }, c, { budgets: brief.budgets, leadWith: [{ name: 'Unity', framing: 'Unity: platform storytelling' }], emphasise: [] })
     expect(s.uncovered ?? []).toEqual([])
+  })
+})
+
+describe('allotted bullets are ceilings: approach-only evidence', () => {
+  const STRONG = ['Cut onboarding time by 40% across 6 teams', 'Launched a self-serve portal that won 3 enterprise accounts', 'Grew the partner programme from 4 to 12 partners', 'Delivered the platform migration two months early', 'Saved 120 hours a month by automating reporting', 'Reduced support tickets by 30% after the redesign', 'Doubled trial conversion through a new onboarding flow']
+  const WEAK = ['Coordinated regional campaign execution', 'Established cross-functional workflow standards', 'Partnered with teams on planning', 'Managed vendor relationships']
+
+  it('classifies an activity with no figure and no result wording, under ~18 words, as approach-only', () => {
+    expect(isApproachOnly({ text: 'Coordinated international launch campaigns and regional PR execution', impact: null })).toBe(true)
+    expect(isApproachOnly({ text: 'Established cross-functional workflow standards to improve launch readiness', impact: null })).toBe(true)
+    expect(isApproachOnly({ text: 'Cut costs by 40%', impact: null })).toBe(false)
+    expect(isApproachOnly({ text: 'Coordinated the rollout', impact: 'two weeks faster' })).toBe(false)
+    expect(isApproachOnly({ text: 'Reduced churn across the enterprise base', impact: null })).toBe(false)
+    expect(isApproachOnly({ text: 'Ran planning '.repeat(10), impact: null })).toBe(false) // long: it says enough
+  })
+
+  const mixed = () => {
+    const c = bigCandidates(2, 12)
+    const e = c.employers[0]
+    e.activities = [...WEAK, ...STRONG].map((text, i) => ({ id: `m${i}`, experienceId: 'e0', kind: 'responsibility' as const, text, impact: null, highlighted: false }))
+    return c
+  }
+
+  it('leaves approach-only items out while stronger evidence fills the allotment, and logs them', () => {
+    const c = mixed()
+    const picks = c.employers[0].activities.map((a) => ({ id: a.id, reason: 'r' })) // weak ones first: the model ranked them best
+    const { selection: s, notes } = enforceSelection({ ...empty, employers: epick(['co-0', 3], ['co-1', 3]), activities: picks }, c, brief)
+    const kept = s.employers.find((e) => e.key === 'co-0')!.bullets.map((b) => b.id)
+    expect(kept.length).toBeGreaterThanOrEqual(5)
+    for (const id of kept) expect(isApproachOnly(c.employers[0].activities.find((a) => a.id === id)!)).toBe(false)
+    expect(notes.join(' ')).toMatch(/approach-only/)
+    expect(notes.join(' ')).toContain('Coordinated regional campaign execution')
+  })
+
+  it('tops up by rule with strong evidence, never approach-only, when the model picked few', () => {
+    const c = mixed()
+    const { selection: s } = enforceSelection({ ...empty, employers: epick(['co-0', 3], ['co-1', 3]) }, c, brief)
+    const kept = s.employers.find((e) => e.key === 'co-0')!.bullets.map((b) => b.id)
+    expect(kept.length).toBeGreaterThanOrEqual(3)
+    for (const id of kept) expect(isApproachOnly(c.employers[0].activities.find((a) => a.id === id)!)).toBe(false)
+  })
+
+  it('still produces bullets for a profile whose evidence is all approach-only (fills to 3)', () => {
+    const c = bigCandidates(2, 12)
+    c.employers[0].activities = WEAK.map((text, i) => ({ id: `w${i}`, experienceId: 'e0', kind: 'responsibility' as const, text, impact: null, highlighted: false }))
+    const { selection: s } = enforceSelection({ ...empty, employers: epick(['co-0', 3], ['co-1', 3]), activities: c.employers[0].activities.map((a) => ({ id: a.id, reason: 'r' })) }, c, brief)
+    const kept = s.employers.find((e) => e.key === 'co-0')!.bullets
+    expect(kept).toHaveLength(3)
+    expect(kept.every((b) => b.id.startsWith('w'))).toBe(true)
+  })
+
+  it('a pinned (named in the brief) approach-only item is never dropped', () => {
+    const c = mixed()
+    c.employers[0].activities[1].text = 'Established cross-functional workflow standards for Zorbulator launches'
+    const b2 = { budgets: brief.budgets, leadWith: [{ name: 'Zorbulator', framing: 'Zorbulator launches', why: 'core' }], emphasise: [] }
+    const { selection: s } = enforceSelection({ ...empty, employers: epick(['co-0', 3], ['co-1', 3]), activities: c.employers[0].activities.map((a) => ({ id: a.id, reason: 'r' })) }, c, b2)
+    expect(s.employers.find((e) => e.key === 'co-0')!.bullets.map((x) => x.id)).toContain('m1')
   })
 })

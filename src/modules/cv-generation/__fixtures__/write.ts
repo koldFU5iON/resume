@@ -29,7 +29,7 @@ export function writeVaultSource(opts: { projects?: object[] } = {}) {
   src.experiences = [
     role('e-u2', 'Unity', 'Snr. Program Manager', '2023-07', null, [
       ['ua1', 'Cut platform release time by 40% across 8 teams', 'saved 2 weeks per release'],
-      ['ua2', 'Ran the quarterly planning cycle for the platform org', null],
+      ['ua2', 'Ran the quarterly planning cycle for the platform org', 'kept every team on one plan'],
     ]),
     role('e-u1', 'Unity', 'Program Manager', '2019-01', '2023-06', [['ua3', 'Shipped 12 titles on schedule', null]]),
     role('e-b1', 'Blizzard Entertainment', 'Program Manager', '2015-01', '2018-12', [['ba1', 'Launched a live-service title for 2M players', null]]),

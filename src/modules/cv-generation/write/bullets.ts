@@ -19,8 +19,10 @@ import { contentStems, distinctiveTokens, figuresIn, normalised, phraseIndex, pr
 import type { EmployerEvidence } from './evidence'
 import { isThinProject } from './limits'
 
-/** A bullet beyond the allocation that a lead-with project is allowed to need (one per such project). */
-export const LEAD_WITH_PROJECT_EXTRA_BULLETS = 1
+/** A bullet beyond the allocation that each substantive (not thin) selected project is allowed to need: it gets one of its own. */
+export const PROJECT_EXTRA_BULLETS = 1
+/** Kept for older imports: the same slot, for a lead-with project. */
+export const LEAD_WITH_PROJECT_EXTRA_BULLETS = PROJECT_EXTRA_BULLETS
 
 /** `text` is the project's evidence text; when given, a thin project (limits.ts) is recognised by it. */
 type ProjectRef = { id?: string; name: string; text?: string }
@@ -58,15 +60,21 @@ function matchLeads(projects: readonly ProjectRef[], leadWith: readonly BriefIte
   return out
 }
 
+/** The selected projects that have enough text to write a bullet from (not thin, limits.ts isThinProject). */
+export function substantiveProjects<P extends { name: string; text?: string }>(projects: readonly P[]): P[] {
+  return projects.filter((p) => !(p.text !== undefined && isThinProject({ name: p.name, text: p.text })))
+}
+
 /**
  * The most bullets an employer entry may have: the allocation Select gave it
- * (its selected activities), plus LEAD_WITH_PROJECT_EXTRA_BULLETS for each
- * lead-with project (that one needs a bullet of its own). Other projects are
- * merged into a bullet and add nothing. An employer with only project evidence
- * (no activities) may still have one bullet.
+ * (its selected activities), plus PROJECT_EXTRA_BULLETS for each substantive
+ * selected project (it gets a bullet of its own, never merged into an
+ * unrelated activity; Select caps projects at MAX_PROJECTS). A thin project
+ * adds nothing. An employer with only project evidence (no activities) may
+ * still have one bullet.
  */
-export function bulletAllowance(emp: Pick<EmployerEvidence, 'activities' | 'projects'>, brief: Pick<CvBrief, 'leadWith'>): number {
-  const extra = leadWithProjects(emp.projects, brief.leadWith).length * LEAD_WITH_PROJECT_EXTRA_BULLETS
+export function bulletAllowance(emp: Pick<EmployerEvidence, 'activities' | 'projects'>): number {
+  const extra = substantiveProjects(emp.projects).length * PROJECT_EXTRA_BULLETS
   return Math.max(emp.activities.length + extra, emp.projects.length > 0 ? 1 : 0)
 }
 
@@ -87,7 +95,7 @@ export function leadWithStanding(bullets: readonly string[], project: Pick<LeadW
     const words = normalised(b)
     const half = Math.floor(words.length / 2)
     const at = phraseIndex(b, project.key)
-    // A rewording may drop the generic words of the name ("Enemies Demo Campaign" -> "the Enemies digital human tech demo").
+    // A rewording may drop the generic words of the name ("Customer Portal Redesign" -> "the portal redesign demo").
     const tokenAt = tokens.length > 0 && tokens.every((t) => words.includes(t)) ? Math.max(...tokens.map((t) => words.indexOf(t))) : -1
     if (at < 0 && tokenAt < 0) continue
     named = true
@@ -121,7 +129,7 @@ export function reflectsItem(bullet: string, item: string, projectKeys: readonly
 
 /**
  * Cuts `bullets` to `allowance`, deterministically. Kept first: the own bullet
- * of a lead-with project, then bullets that reflect a lead-with or emphasise
+ * of a substantive selected project, then bullets that reflect a lead-with or emphasise
  * item, then the writer's order. The kept bullets stay in the writer's order.
  * Returns what was cut so the log can name it.
  */
@@ -134,7 +142,7 @@ export function trimBullets(
   if (bullets.length <= allowance) return { bullets: [...bullets], trimmed: [] }
   const items = briefItemTexts(brief)
   const keys = projects.map((p) => projectNameKey(p.name)).filter(Boolean)
-  const leads = leadWithProjects(projects, brief.leadWith)
+  const leads = substantiveProjects(projects).flatMap((p) => { const key = projectNameKey(p.name); return key ? [{ key, name: p.name }] : [] })
   const tier = (b: string) => (isOwnBulletOf(b, leads) ? 0 : items.some((it) => reflectsItem(b, it, keys)) ? 1 : 2)
   const ranked = bullets.map((b, i) => ({ i, tier: tier(b) })).sort((x, y) => x.tier - y.tier || x.i - y.i)
   const keep = new Set(ranked.slice(0, Math.max(0, allowance)).map((r) => r.i))

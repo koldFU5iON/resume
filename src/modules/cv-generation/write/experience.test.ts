@@ -20,7 +20,7 @@ const mockJSON = vi.mocked(completeJSON)
 
 /** Most tests are about the text of bullets: a plain string gets a valid source (E1, and P1 when the employer has a project; unknown labels are dropped). */
 type LooseOut = { summary: string; bullets: Array<string | { text: string; sources?: string[] }> }
-const sourced = (o: LooseOut) => ({ ...o, bullets: o.bullets.map((b) => (typeof b === 'string' ? { text: b, sources: ['E1', 'E2', 'E3', 'E4', 'P1'] } : { text: b.text, sources: b.sources ?? [] })) })
+const sourced = (o: LooseOut) => ({ ...o, bullets: o.bullets.map((b) => (typeof b === 'string' ? { text: b, sources: ['E1', 'E2', 'E3', 'E4'] } : { text: b.text, sources: b.sources ?? [] })) })
 const analyseExperience = (out: LooseOut, ...rest: Parameters<typeof analyse> extends [unknown, ...infer R] ? R : never) => analyse(sourced(out), ...rest)
 const vault = writeVault()
 const evidence = evidenceFromVault(vault, writeSelection(vault))
@@ -474,14 +474,15 @@ describe('Phase 3b: repetition, voice, projects, retry reasons', () => {
     const pctx = ctx({ evidence: pev })
     const projectAnswer = { summary: 'Ran release and planning for the platform org.', bullets: [...good.bullets, 'Ran the Enemies Demo Campaign, reaching 14,000+ players at launch.'] }
 
-    it('shows the project in the prompt as extra evidence; a project the brief does not lead with adds no bullet (it is merged)', () => {
+    it('shows the project in the prompt as extra evidence; a substantive project the brief does not lead with gets its own bullet slot', () => {
       expect(withProject.projects.map((p) => p.name)).toEqual(['Enemies Demo Campaign'])
       const p = experiencePrompt(pctx, withProject)
       expect(p).toContain('# Projects at this employer')
       expect(p).toContain('[P1] project "Enemies Demo Campaign": Ran the demo campaign for the new title')
-      expect(p).toMatch(/Bullets: at most 3,/) // the 3 activities: a project that is not lead-with is merged, never its own
+      expect(p).toMatch(/Bullets: at most 4 /) // the 3 activities plus one own bullet for the project
+      expect(p).toMatch(/bullet of its own/)
       expect(p).not.toContain('LEAD WITH: the brief names')
-      expect(p).toMatch(/never gets a bullet of its own/)
+      expect(p).toMatch(/Never merge a project into a bullet about an unrelated activity/)
       expect(experiencePrompt(pctx, pev.employers.find((e) => e.employer.key === BLIZZARD)!)).toContain('[P1] project "Boot Camp"')
       expect(experiencePrompt(ctx(), unity)).not.toContain('# Projects')
     })
@@ -514,6 +515,8 @@ describe('Phase 3b: repetition, voice, projects, retry reasons', () => {
       const r = await result
       expect(s.calls).toHaveLength(2)
       expect(s.calls[1].prompt).toMatch(/selected projects are not reflected: "Enemies Demo Campaign"/)
+      expect(s.calls[1].prompt).toMatch(/give each its own bullet/)
+      expect(s.calls[1].prompt).not.toMatch(/merge each into a bullet/)
       expect(r.retryReasons).toEqual(['project Enemies Demo Campaign not reflected'])
       expect(r.notes.join(' ')).toMatch(/not reflected.*Enemies Demo Campaign/)
     })
@@ -664,11 +667,11 @@ describe('Phase 3c', () => {
     })
 
     it('names a selected project whose only bullet was cut, so it is never lost silently', async () => {
-      const merged = { summary: 'Ran release and planning for the platform org.', bullets: [...good.bullets, 'Ran the Enemies Demo Campaign, reaching 14,000+ players at launch.'] }
+      const merged = { summary: 'Ran release and planning for the platform org.', bullets: [...good.bullets, 'Mentored two new hires.', 'Reported delivery status to leadership every week, including the Enemies Demo Campaign reaching 14,000+ players.'] }
       const noLead = ctx({ evidence: pev })
       const { result } = run([merged, merged], unityP, noLead)
       const r = await result
-      expect(r.bullets).toHaveLength(3)
+      expect(r.bullets).toHaveLength(4)
       expect(r.notes.join(' ')).toMatch(/Selected project "Enemies Demo Campaign" is no longer on the CV: the bullet that carried it was cut/)
     })
   })
@@ -679,7 +682,7 @@ describe('Phase 3c', () => {
       expect(p).toContain('[P1] project "Enemies Demo Campaign"')
       expect(p).toContain('LEAD WITH: the brief names this project and frames it as "The Enemies Demo Campaign: a go-to-market launch-timing decision"')
       expect(p).toMatch(/Give it an own bullet/)
-      expect(p).toMatch(/Bullets: at most 4 \(the 3 evidence items plus 1 own bullet for the LEAD WITH project\)/)
+      expect(p).toMatch(/Bullets: at most 4 \(the 3 evidence items plus 1 own bullet for the project\)/)
       expect(p.slice(p.indexOf('# Hard limit'), p.indexOf('# Evidence for this employer'))).toMatch(/at most 4 bullets in total/)
       // The other project (a different employer) is not lead-with.
       expect(experiencePrompt(lctx(), blizzardP)).not.toContain('LEAD WITH: the brief names')
@@ -1052,5 +1055,47 @@ describe('filler summaries', () => {
     const r = await result
     expect(r.summary).toBe('')
     expect(r.notes.join('\n')).toMatch(/too little overview text for a summary: add a role overview in your profile/)
+  })
+})
+
+describe('polish 2: overview as summary evidence, project slots', () => {
+  const withOverview = { ...unity, overview: 'Runs a catalogue of 100+ titles across 10-15 markets for a global publisher.' }
+  const bulletsOnly = good.bullets
+
+  it('a summary that states figures from the role overview passes without a retry', async () => {
+    const { s, result } = run([{ summary: 'Runs a catalogue of 100+ titles across 10-15 markets.', bullets: bulletsOnly }], withOverview)
+    const r = await result
+    expect(s.calls).toHaveLength(1)
+    expect(r.retryReasons).toEqual([])
+    expect(r.summary).toContain('100+')
+  })
+
+  it('a bullet that states the same figure with no activity evidence still retries', () => {
+    const a = analyseExperience({ summary: 'Runs a catalogue of 100+ titles.', bullets: ['Launched 100+ titles across 10-15 markets.', good.bullets[1], good.bullets[2]] }, ctx(), withOverview)
+    expect(a.unsupported.join(' ')).toMatch(/100/)
+    expect((a.why ?? []).join(' ')).toMatch(/figure .* not in evidence/)
+    const summaryOnly = analyseExperience({ summary: 'Runs a catalogue of 100+ titles.', bullets: good.bullets }, ctx(), withOverview)
+    expect(summaryOnly.unsupported).toEqual([])
+  })
+
+  describe('projects get their own bullet', () => {
+    const d = (ym: string) => new Date(`${ym}-01T00:00:00Z`)
+    const keynote = 'Presented the keynote at the annual conference for global audiences and partners.'
+    const pv = writeVault([projectRow('pk', 'Annual Conference Keynote', keynote, { experienceId: 'e-u2' }), projectRow('pb', 'Boot Camp', 'Ran the studio boot camp.', { startDate: d('2016-06') })])
+    const pev = evidenceFromVault(pv, writeSelection(pv, { projects: [{ id: 'pk', reason: '' }] }))
+    const emp = pev.employers.find((e) => e.employer.key === UNITY)!
+    const pctx = ctx({ evidence: pev })
+
+    it('a bullet that merges a project into an unrelated activity is a retry reason', () => {
+      const merged = { summary: 'Ran release and planning.', bullets: [{ text: 'Ran the quarterly planning cycle and delivered the Annual Conference Keynote.', sources: ['E2', 'P1'] }, good.bullets[0], good.bullets[2]] }
+      const a = analyseExperience(merged, pctx, emp)
+      expect((a.why ?? []).join(' ')).toMatch(/project merged into an unrelated bullet 1/)
+      expect(a.soft.join(' ')).toMatch(/own bullet/)
+    })
+
+    it('an own bullet citing only the project is fine, and so is a bullet whose activity shares the project\'s subject', () => {
+      const own = { summary: 'Ran release and planning.', bullets: [...good.bullets, { text: 'Presented the Annual Conference Keynote to global audiences.', sources: ['P1'] }] }
+      expect((analyseExperience(own, pctx, emp).why ?? []).join(' ')).not.toMatch(/unrelated/)
+    })
   })
 })

@@ -186,4 +186,14 @@ describe('projects ride along as evidence for the employer they belong to', () =
     expect(ev.unresolved).toEqual([])
     expect(without.unresolved).toEqual([{ section: 'projects', id: 'pa' }])
   })
+
+  it('caps the role overview it hands the writers', () => {
+    const src = writeVaultSource()
+    const long = Array.from({ length: 60 }, (_, i) => `Scope fact ${i} about the business.`).join(' ')
+    src.experiences = src.experiences.map((e) => ({ ...e, summary: long }))
+    const v = buildVault(src as never)
+    const e = evidenceFromVault(v, writeSelection(v))
+    expect(e.employers.some((emp) => (emp.overview ?? '').length > 100)).toBe(true)
+    for (const emp of e.employers) expect((emp.overview ?? '').length).toBeLessThanOrEqual(600)
+  })
 })

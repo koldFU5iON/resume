@@ -8,7 +8,7 @@ You do two things: propose a few edits, and list concerns for the coach. Both ar
 
 Propose an edit only when it is needed, and at most the limit. Each edit targets one section and, for an experience entry, one bullet or the summary:
 
-- `{ "target": { "sectionId": "experience:unity", "bulletId": "b2" }, "action": "replace", "newText": "...", "reason": "..." }`
+- `{ "target": { "sectionId": "experience:acme-cloud", "bulletId": "b2" }, "action": "replace", "newText": "...", "reason": "..." }`
 - `"bulletId": "summary"` targets the entry's one-sentence summary.
 - The `profile` section has no bullets: leave `bulletId` out to reword its paragraph.
 - `"action": "remove"` deletes a bullet or summary (an entry always keeps at least one bullet; the profile paragraph can only be reworded).

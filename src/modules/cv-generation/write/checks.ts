@@ -193,7 +193,7 @@ const VERSION_WORD = /^v\d+$/
 /**
  * A project's name as it is recognised in text: case, accents and punctuation
  * ignored, and the parts that change between editions dropped: years, "v2"
- * style versions and trailing numbers ("Unity Awards 2025" and "Unity Awards"
+ * style versions and trailing numbers ("Annual Summit 2025" and "Annual Summit"
  * are the same project; "Release 7.1" is "release"). A name that is nothing but
  * such parts keeps all its words.
  */
@@ -230,8 +230,8 @@ const isYear = (f: Figure) => YEAR_WORD.test(f.raw.replace(/^[£$€]/, '').trim
  * by value, as the numbers check does; a year is not a figure here). Words the
  * name shares with ordinary activity text, or generic words, prove nothing, so
  * "Launched marketing campaign across social channels" does not cover a project
- * called "Enemies Demo Campaign", while a bullet naming "Unity Awards" covers
- * "Unity Awards 2025" even though an activity says the same words.
+ * called "Customer Portal Redesign", while a bullet naming "Annual Summit" covers
+ * "Annual Summit 2025" even though an activity says the same words.
  * Best effort: a paraphrase with no figure is a false negative, which costs
  * one retry and a log note, never a failed run.
  */
@@ -489,7 +489,7 @@ function nameLike(tok: string, sentenceStart: boolean): boolean {
  * all-caps acronyms, CamelCase, dotted or digit-bearing tokens such as
  * Node.js, GA4, Kubernetes, EA) that NONE of `allowed` contains. A token is
  * allowed when every word in it appears somewhere in the allowed texts
- * (case-insensitive; one-letter parts such as the "s" of "Unity's" are
+ * (case-insensitive; one-letter parts such as the "s" of "Acme's" are
  * ignored). The caller decides what is allowed: the old text, the employer's
  * evidence and the profile's own names. The job's requirement text must never
  * be passed: job keywords cannot be stuffed into a bullet. Best effort: it

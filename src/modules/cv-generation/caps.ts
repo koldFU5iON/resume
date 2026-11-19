@@ -38,6 +38,12 @@ export const MAX_HEADER_ONLY_EMPLOYERS = 4
  */
 export const MAX_TOTAL_BULLETS = 20
 
+/**
+ * An employer's allotted bullets are CEILINGS. Approach-only activities (candidates.ts isApproachOnly: no figure, no result wording)
+ * fill a slot only while the employer would otherwise show fewer than this many bullets.
+ */
+export const MIN_BULLETS_BEFORE_APPROACH_ONLY = 3
+
 /** The least an employer shows when the profile has the evidence (older than OLD_EMPLOYER_YEARS excepted). */
 export const MIN_ACTIVITIES_PER_EMPLOYER = 2
 /** An employer with at least this many roles in the profile (a long, layered tenure) may be the current employer's 8-bullet case. */
