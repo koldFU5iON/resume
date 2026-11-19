@@ -82,6 +82,9 @@ model Experience {
   endDate         DateTime?
   location        String?
   remote          Boolean   @default(false)
+  // "employment" (a job) or "independent" (timeless home for personal projects; never read as a job
+  // by date, gap or employer logic). See docs/superpowers/specs/2026-11-19-profile-model-simplification-design.md.
+  type            String    @default("employment")
   // Markdown source notes. Recognized H2 tags (## Overview, ## Responsibilities,
   // ## Achievements, ## Skills) drive deterministic local extraction; prose
   // under no recognized heading feeds the LLM extraction step. Issue #26.

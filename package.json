@@ -17,6 +17,7 @@
     "test:mcp-oauth": "tsx scripts/verify-mcp-oauth.ts",
     "test:watch": "vitest",
     "assess:compare": "tsx scripts/assessment-compare.ts",
+    "profile:backfill-report": "tsx scripts/profile-model-backfill-report.ts",
     "pdf:fixtures": "tsx scripts/render-writing-desk-pdf-fixtures.tsx"
   },
   "prisma": {

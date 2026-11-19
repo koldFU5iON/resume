@@ -32,7 +32,7 @@ export function activity(id: string, owner: { experienceId?: string; projectId?:
 export function role(id: string, company: string, roleName: string, start: string, end: string | null, summary: string, activities: ReturnType<typeof activity>[] = []) {
   return {
     id, profileId: 'p1', company, role: roleName, startDate: d(start), endDate: end ? d(end) : null,
-    location: null, remote: false, summary, notesUpdatedAt: null, revision: 1, tags: '[]', createdAt: t, updatedAt: t,
+    location: null, remote: false, type: 'employment', summary, notesUpdatedAt: null, revision: 1, tags: '[]', createdAt: t, updatedAt: t,
     skills: [], activities,
   }
 }
