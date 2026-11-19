@@ -73,3 +73,10 @@ describe('mixedSourceNote (related activities with different figures must not be
     expect(mixedSourceNote('Reached 14k people', same)).toBeNull()
   })
 })
+
+describe('provenance of project atoms', () => {
+  it('names the project in the snippet of an activity that came from one', () => {
+    const refs = evidenceRefs({ activities: [{ id: 'a', experienceId: 'r', kind: 'achievement', text: 'Reached 2.4M people', impact: null, highlighted: false, fromProject: { id: 'p', name: 'Campaign Platform' } }], projects: [] })
+    expect(refs[0]).toMatchObject({ kind: 'activity', snippet: 'Campaign Platform: Reached 2.4M people' })
+  })
+})

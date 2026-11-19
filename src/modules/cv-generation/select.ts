@@ -406,6 +406,17 @@ export function enforceSelection(
       notes.push(`Added “${labels.get(best.a.id) ?? best.a.id}” for the brief's ${n.kind} item “${n.name}”: the model did not pick it, and it matches by name.`)
     } else if (proj && !pinnedProjects.some((p) => p.id === proj.id)) {
       pinnedProjects.push({ id: proj.id, reason: `Named in the brief: “${n.name}”` })
+      // The project's own achievements (figure-rich first) are pinned too: the project text alone would not carry its figures.
+      const atoms = bulletCands
+        .flatMap((e) => e.activities.map((a, idx) => ({ a, key: e.key, idx })))
+        .filter((h) => h.a.fromProject?.id === proj.id && !pickedActs.has(h.a.id))
+        .sort((x, y) => Number(hasOutcome(y.a)) - Number(hasOutcome(x.a)) || activityRank(y.a) - activityRank(x.a) || x.idx - y.idx)
+        .slice(0, PROJECT_ATOM_PINS)
+      for (const h of atoms.reverse()) {
+        byEmployer.set(h.key, [{ id: h.a.id, reason: `Named in the brief: “${n.name}” (from project ${proj.label})` }, ...(byEmployer.get(h.key) ?? [])])
+        pickedActs.add(h.a.id)
+      }
+      if (atoms.length > 0) notes.push(`Added ${countOf(atoms.length, 'achievement')} of the project “${proj.label}” for “${n.name}”.`)
       notes.push(`Added the project “${proj.label}” for the brief's ${n.kind} item “${n.name}”: the model did not pick it, and it matches by name.`)
     }
   }
@@ -647,6 +658,9 @@ function claimedBy(claims: Map<string, string[]>, n: Pick<NamedItem, 'name' | 'f
 function employerCarries(e: Pick<CandidateEmployer, 'company'>, name: string): boolean {
   return matchesName(e.company, name)
 }
+
+/** A pinned project also pins at most this many of its own achievements. */
+const PROJECT_ATOM_PINS = 2
 
 /** A name pin never takes an activity shorter than this many words when a longer one matches. */
 const MIN_PIN_WORDS = 8

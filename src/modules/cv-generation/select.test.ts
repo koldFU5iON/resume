@@ -1258,6 +1258,20 @@ describe('named lead-with and emphasise items', () => {
     expect(s.uncovered ?? []).toEqual([])
   })
 
+  it('pinning a project named in the brief also pins its best atoms (figure-rich first)', () => {
+    const c = unityCands()
+    c.employers[0].activities[2].text = 'Hosted the awards show'
+    const fp = { id: 'pj-awards', name: 'Unity Awards 2022' }
+    const atom = (id: string, text: string, impact: string | null) => ({ id, experienceId: c.employers[0].roles[0].experienceId, kind: 'achievement' as const, text, impact, highlighted: false, fromProject: fp })
+    c.employers[0].activities.push(atom('pj-a1', 'Coordinated the venue and the speakers', null), atom('pj-a2', 'Sold out the venue', 'reached 2,000 attendees'))
+    const b = { budgets: brief.budgets, leadWith: [], emphasise: [{ name: '17th Unity Awards', framing: 'The 17th Unity Awards show', why: 'big stage' }] }
+    const { selection: s } = enforceSelection({ ...empty, employers: epick(['co-0', 5], ['co-1', 3], ['co-2', 3], ['co-3', 3]) }, c, b)
+    expect(s.projects.map((p) => p.id)).toContain('pj-awards')
+    const bullets = s.employers.find((e) => e.key === 'co-0')!.bullets.map((x) => x.id)
+    expect(bullets).toContain('pj-a2')
+    expect(s.employers.find((e) => e.key === 'co-0')!.bullets.find((x) => x.id === 'pj-a2')!.reason).toContain('Named in the brief')
+  })
+
   it('reports uncovered only the NAMES nothing in the profile matches', () => {
     const c = unityCands()
     const b = {
