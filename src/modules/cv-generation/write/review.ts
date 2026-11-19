@@ -43,6 +43,7 @@ import {
   unsupportedFigures, unsupportedProperNouns, unsupportedQualitative, wordCount,
 } from './checks'
 import { activityPromptText, evidenceTexts, figureIgnoredNames, projectPromptText, type EmployerEvidence, type Evidence } from './evidence'
+import { negationDrift, scopeDrift } from './fidelity'
 import { BULLET_MAX_WORDS, PROFILE_MAX_FIGURES, PROFILE_MAX_WORDS, SUMMARY_MAX_WORDS } from './limits'
 import { plainLine, plainProblems, plainReasons } from './plain'
 import { snippetOf } from './provenance'
@@ -276,6 +277,14 @@ export function recheckText(
   if (kind === 'bullet' && scope.cited.length > 0) {
     const off = unsupportedFigures(text, scope.cited, names)
     if (off.length > 0) return { why: `${off.join(', ')} ${off.length === 1 ? 'is' : 'are'} not in the evidence this bullet cited (${off.length === 1 ? 'it is' : 'they are'} in the employer's other evidence)` }
+  }
+  // Meaning must not drift: no negation the evidence lacks, no superlative that loses its scope qualifier.
+  if (kind === 'bullet') {
+    const source = scope.cited.length > 0 ? scope.cited : texts
+    const neg = negationDrift(text, source.join('\n'))
+    if (neg.length > 0) return { why: `adds ${neg.map((n) => `"${n}"`).join(', ')}, which the evidence does not say (a rewording must not change the meaning)` }
+    const drift = scopeDrift(text, source)[0]
+    if (drift) return { why: `keeps "${drift.claim}" but drops "${drift.qualifier}", which the evidence attaches to it` }
   }
 
   const unrequested = claimedHits(text, ctx.evidence.claimedNames, { evidenceText, requirementText: requirementText(ctx.strategy) }).filter((c) => !c.requested).map((c) => c.name)

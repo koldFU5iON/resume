@@ -258,6 +258,12 @@ describe('applyEdits: edits applied only after the checks', () => {
     expect(r.discarded[0].why).toMatch(/play-down item/)
   })
 
+  it('discards a bullet edit that adds a negation its cited evidence lacks', () => {
+    const r = applyEdits(freshDoc(), [edit(U, 'b1', 'replace', 'Cut platform release time by 40% with no handoffs across 8 teams.')], actx())
+    expect(r.applied).toEqual([])
+    expect(r.discarded[0].why).toMatch(/adds "no".*must not change the meaning/)
+  })
+
   it('allows a profile edit to repeat a figure from the experience section, but not a personality claim', () => {
     const shared = applyEdits(freshDoc(), [edit('profile', undefined, 'replace', 'Cut release time by 40% for platform teams.')], actx())
     expect(shared.discarded).toEqual([])

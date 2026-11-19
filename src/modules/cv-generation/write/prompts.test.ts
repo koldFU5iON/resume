@@ -162,3 +162,28 @@ describe('the prompts, after the thin-project fix', () => {
     expect(read('cv-gen-write-experience')).toMatch(/NO EVIDENCE[^\n]*gets no bullet, no framing from the brief and no outcome/)
   })
 })
+
+describe('round 3a prompt rules: paraphrase safety, no approach-only bullets, top of page 1', () => {
+  it('the experience writer rewords for brevity only, keeps scope qualifiers, and writes no approach-only bullet', () => {
+    const t = read('cv-gen-write-experience')
+    expect(t).toContain('Reword for brevity only')
+    expect(t).toMatch(/Never change who did what, whether something was voluntary or required/)
+    expect(t).toContain('"voluntarily adopted ... rather than mandate" into "with no mandate"')
+    expect(t).toContain('"the territory\'s largest order" is not "Italy\'s largest order"')
+    expect(t).toContain('Every bullet states what was done AND a result, a scope or a figure')
+    expect(t).toContain('write from the one with a figure or outcome')
+  })
+  it('the select prompt refuses approach-only bullets and prefers the item with a figure', () => {
+    const t = read('cv-gen-select')
+    expect(t).toContain('No approach-only bullets')
+    expect(t).toContain('pick the one with a figure or outcome, not both')
+  })
+  it('the review prompt compares meaning with evidence and checks the top third of page 1', () => {
+    const t = read('cv-gen-review')
+    expect(t).toContain('Fix meaning drift')
+    expect(t).toContain("Compare each bullet's meaning with the evidence snippets it cites")
+    expect(t).toContain('Check the top third of page 1')
+    expect(t).toContain('B2B2C reach gap')
+    expect(t).toContain('a phrase or sentence the profile and a bullet share')
+  })
+})

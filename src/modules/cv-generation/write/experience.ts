@@ -20,6 +20,7 @@
  * At most TWO calls.
  */
 
+import { negationDrift, scopeDrift } from './fidelity'
 import * as z from 'zod'
 import { composeSystem } from '@/modules/llm/prompt-context'
 import { attributionOf, completeChecked, softIssueNotes, type CheckResult } from '../call'
@@ -185,6 +186,14 @@ export function analyseExperience(out: ExperienceOutput, ctx: Pick<WriteContext,
   for (const hit of playDownBullets(bullets, ctx.brief)) {
     problem(`bullet ${hit.index + 1} is about the play-down item "${hit.item}"; a play-down item may appear at most as a clause inside another bullet, never as a bullet of its own`, `play-down item ${hit.item} is a bullet`)
   }
+
+  // Paraphrase fidelity: each bullet is checked against the evidence it cites (the whole entry's evidence when it cites none that exists).
+  bullets.forEach((b, i) => {
+    const cited = bulletSources[i].length > 0 ? bulletSources[i].map((r) => r.text) : texts
+    const neg = negationDrift(b, cited.join('\n'))
+    if (neg.length > 0) problem(`bullet ${i + 1} says ${neg.map((n) => `"${n}"`).join(', ')}, which its evidence does not: reword for brevity only, never changing who did what, whether it was voluntary or required, or adding or removing a negation`, `meaning drift: negation in bullet ${i + 1}`)
+    for (const d of scopeDrift(b, cited)) problem(`bullet ${i + 1} keeps "${d.claim}" but drops "${d.qualifier}", which its evidence attaches to it: keep the qualifier or drop the claim`, `scope qualifier dropped in bullet ${i + 1}`)
+  })
 
   // Tense: a completed result is past tense even in the current role; a finished role is past throughout.
   const present = wrongTenseLines({ summary, bullets }, emp.employer.end === null)
