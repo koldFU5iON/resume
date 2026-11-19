@@ -10,9 +10,9 @@
  * that show bullets (any one of them when there are several; else the one with
  * the most activities). Every other employer stays visible as a header-only
  * entry (up to MAX_HEADER_ONLY_EMPLOYERS) so the work history has no gaps.
- * Bullets: a total budget (TOTAL_ACTIVITY_BUDGET) is split across the bullet
- * employers by relevance (allocateBullets), not by recency, with a minimum and
- * maximum per employer; the model still ranks activities within an employer.
+ * Bullets: allotted by recency band (allocateByRecency: current 5-7, previous
+ * 3-4, older 2-3), the relevance score moving an employer one bullet at most;
+ * the model still ranks activities within an employer.
  *
  * If the call fails or returns nothing usable, a deterministic fallback chooses
  * by rules (recency, highlighted activities, matches to the brief) and the run
@@ -29,9 +29,12 @@ import { attributionOf, completeValidated, type CallUsage } from './call'
 import {
   EMPTY_SECTION_MINIMUM,
   FLAT_SECTIONS,
-  MAX_ACTIVITIES_PER_EMPLOYER,
-  MAX_ACTIVITIES_LAYERED_EMPLOYER,
+  CURRENT_BAND,
   LAYERED_EMPLOYER_MIN_ROLES,
+  CURRENT_LAYERED_BAND,
+  OLDER_BAND,
+  OLD_BAND,
+  PREVIOUS_BAND,
   MAX_EMPLOYERS,
   MAX_TOTAL_BULLETS,
   MAX_HEADER_ONLY_EMPLOYERS,
@@ -41,10 +44,8 @@ import {
   MIN_ACTIVITIES_PER_EMPLOYER,
   MIN_RELEVANCE,
   NEUTRAL_RELEVANCE,
-  TOTAL_ACTIVITY_BUDGET,
-  allocateBullets,
+  allocateByRecency,
   clampBudgetValue,
-  maxActivitiesFor,
   type FlatSection,
 } from './caps'
 import { candidatesToPrompt, labelIndex, type Candidates, type CandidateActivity, type CandidateEmployer, type CandidateItem } from './candidates'
@@ -99,7 +100,7 @@ const AskedSchema = z.object({
   employers: z.array(z.object({ id: z.string(), relevance: z.number().min(MIN_RELEVANCE).max(MAX_RELEVANCE) }))
     .describe(`Employers to show with bullets, best first, the current employer first; id is the employer id in square brackets; relevance an integer from ${MIN_RELEVANCE} (barely) to ${MAX_RELEVANCE} (central)`),
   activities: z.array(z.string())
-    .describe(`Activity ids to keep, best first within each employer (up to ${MAX_ACTIVITIES_LAYERED_EMPLOYER} per employer, ${MAX_ACTIVITIES_PER_EMPLOYER} unless it has ${LAYERED_EMPLOYER_MIN_ROLES}+ roles)`),
+    .describe(`Activity ids to keep, best first within each employer (up to ${CURRENT_LAYERED_BAND.max} for the current employer, ${PREVIOUS_BAND.max} for the previous one, ${OLDER_BAND.max} for older ones)`),
   skills: z.array(z.string()),
   tools: z.array(z.string()),
   competencies: z.array(z.string()),
@@ -179,7 +180,7 @@ export function selectPrompt(brief: CvBrief, cands: Candidates, strategy?: Pick<
   }
   sections.push(
     `# Budgets (ceilings: pick no more than these, and fewer when little is relevant)\n\nEmployers with bullets ${employersWithBullets(brief)}, skills ${b.skills}, tools ${b.tools}, competencies ${b.competencies}, certifications ${b.certifications}, education ${b.education}, projects ${b.projects}. Employers you do not pick are still listed on the CV as a title line with no bullets (up to ${MAX_HEADER_ONLY_EMPLOYERS}), so do not spend a pick on an employer only to keep it visible. Pick only items that are relevant to this job, best first. You may return fewer than a budget, or none; code never pads a list to reach a count. An item with no bearing on the job is left out, not put last.`,
-    `# Bullets\n\n${TOTAL_ACTIVITY_BUDGET} activities in all (at most ${MAX_TOTAL_BULLETS}) across the employers with bullets, split in proportion to the relevance score (${MIN_RELEVANCE}-${MAX_RELEVANCE}) you give each employer, with at least ${MIN_ACTIVITIES_PER_EMPLOYER} and at most ${MAX_ACTIVITIES_PER_EMPLOYER} for each (${MAX_ACTIVITIES_LAYERED_EMPLOYER} for an employer with ${LAYERED_EMPLOYER_MIN_ROLES} or more roles). Code applies the split after you answer. Give every employer you pick a relevance score (${MAX_RELEVANCE} = central to the role, 3 = supports the story but not central, ${MIN_RELEVANCE} = barely relevant), and list up to ${MAX_ACTIVITIES_LAYERED_EMPLOYER} activities for it, best first: the first ones are kept if the split gives the employer fewer. Recency does not set the split: an older employer that answers the brief better gets more bullets than a recent one that does not.`,
+    `# Bullets\n\nBullets are set by recency, in code, after you answer: the current or most recent employer shows ${CURRENT_BAND.min}-${CURRENT_BAND.max} (up to ${CURRENT_LAYERED_BAND.max} when the profile holds ${LAYERED_EMPLOYER_MIN_ROLES}+ roles there), the previous one ${PREVIOUS_BAND.min}-${PREVIOUS_BAND.max}, older ones ${OLDER_BAND.min}-${OLDER_BAND.max} (${OLD_BAND.min}-${OLD_BAND.max} when they ended over ten years ago), at most ${MAX_TOTAL_BULLETS} in all, and fewer when the employer has less evidence. Never pad: list only activities that state what was done AND a result, scope or figure. Give every employer you pick a relevance score (${MAX_RELEVANCE} = central to the role, 3 = supports the story but not central, ${MIN_RELEVANCE} = barely relevant): a 4-5 earns one more bullet, a 1-2 one fewer, and it never reorders recency. For each employer list the activities best first, up to the most its band allows: the first ones are kept if the band gives the employer fewer.`,
   )
   if (required.length === 1) {
     sections.push(`# Current employer\n\n[${required[0].key}] ${required[0].label}. It must be included in \`employers\` (list it first) and counts toward the employer budget.`)
@@ -255,6 +256,7 @@ export function enforceSelection(
   opts: { requirementTerms?: readonly string[]; now?: Date } = {},
 ): EnforceResult {
   const notes: string[] = []
+  const now = opts.now ?? new Date()
   const labels = labelIndex(cands)
   const dropReason = new Map<string, DropReason>()
   let unknown = 0
@@ -412,7 +414,13 @@ export function enforceSelection(
   // what the model picked for it, topped up by rule to the minimum.
   const supply = (e: (typeof bulletEmployers)[number]) =>
     Math.max((byEmployer.get(e.key) ?? []).length, Math.min(MIN_ACTIVITIES_PER_EMPLOYER, e.activities.length))
-  const split = allocateBullets(bulletEmployers.map((e) => ({ relevance: relevanceOf(e.key), supply: supply(e), max: maxActivitiesFor(e.roles.length) })), { total: Math.min(MAX_TOTAL_BULLETS, TOTAL_ACTIVITY_BUDGET) })
+  const split = allocateByRecency(bulletEmployers.map((e) => ({
+    relevance: relevanceOf(e.key),
+    supply: supply(e),
+    roles: e.roles.length,
+    yearsSinceEnd: yearsSince(e.end, now),
+    tenureYears: tenureYears(e.stints, now),
+  })))
   const bullets = new Map<string, SelectedActivity[]>()
   const keptActIds = new Set<string>()
   let toppedUp = 0
@@ -464,7 +472,7 @@ export function enforceSelection(
   }
   if (bulletEmployers.length > 0) {
     const total = [...bullets.values()].reduce((n, l) => n + l.length, 0)
-    notes.push(`Split ${total} bullets by relevance: ${bulletEmployers.map((e) => `${e.company} ${bullets.get(e.key)!.length} (relevance ${relevanceOf(e.key)})`).join(', ')}.`)
+    notes.push(`Allotted ${total} bullets by recency (relevance shifts one at most): ${bulletEmployers.map((e) => `${e.company} ${bullets.get(e.key)!.length} (relevance ${relevanceOf(e.key)})`).join(', ')}.`)
   }
 
   const employers: SelectedEmployer[] = cands.employers.flatMap((e) => {
@@ -492,7 +500,6 @@ export function enforceSelection(
   // does not leave the section short while the profile has more.
   const flat = {} as Record<FlatSection, SelectedItem[]>
   const keptFlat = new Set<string>()
-  const now = opts.now ?? new Date()
   for (const s of FLAT_SECTIONS) {
     const known = new Set(cands[s].map((c) => c.id))
     const limit = clampBudgetValue(s, brief.budgets[s])
@@ -705,6 +712,25 @@ function relevantInProgressOnly<P extends { id: string }>(picks: P[], certs: rea
   const out = picks.filter((p) => !byId.get(p.id)?.inProgress || keep.includes(p))
   if (out.length < picks.length) notes.push(`Left out ${countOf(picks.length - out.length, 'in-progress certification')}: ${inProgress.filter((p) => !keep.includes(p)).map((p) => byId.get(p.id)?.label ?? p.id).join(', ')} (only one relevant in-progress certification is shown).`)
   return out
+}
+
+const MS_PER_YEAR = 365.25 * 24 * 3600 * 1000
+
+/** Whole years since `end` (an ISO date, or null for a current role: 0). Never negative. Pure. */
+export function yearsSince(end: string | null, now: Date): number {
+  if (end === null) return 0
+  const t = new Date(end).getTime()
+  return Number.isNaN(t) ? 0 : Math.max(0, Math.floor((now.getTime() - t) / MS_PER_YEAR))
+}
+
+/** Years held in total: the stints' lengths added up (a current stint runs to `now`). Pure. */
+export function tenureYears(stints: ReadonlyArray<{ start: string; end: string | null }>, now: Date): number {
+  const ms = stints.reduce((n, s) => {
+    const a = new Date(s.start).getTime()
+    const b = s.end === null ? now.getTime() : new Date(s.end).getTime()
+    return Number.isNaN(a) || Number.isNaN(b) ? n : n + Math.max(0, b - a)
+  }, 0)
+  return ms / MS_PER_YEAR
 }
 
 /** Words that do not make a claimed tool "named" on their own: "OpenAI API" is not named by a job that only asks for "API". */

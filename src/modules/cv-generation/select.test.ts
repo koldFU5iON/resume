@@ -11,8 +11,8 @@ vi.mock('./call', async (orig) => ({ ...(await orig<typeof import('./call')>()),
 import { LLMError } from '@/modules/llm/errors'
 import { completeValidated, NO_USAGE } from './call'
 import {
-  FLAT_CAPS, MAX_ACTIVITIES_PER_EMPLOYER, MAX_EMPLOYERS, MAX_HEADER_ONLY_EMPLOYERS, MAX_RECORDED_DROPPED,
-  MAX_TOTAL_BULLETS, MIN_ACTIVITIES_PER_EMPLOYER, TOTAL_ACTIVITY_BUDGET,
+  FLAT_CAPS, MAX_EMPLOYERS, MAX_HEADER_ONLY_EMPLOYERS, MAX_RECORDED_DROPPED,
+  MAX_TOTAL_BULLETS, MIN_ACTIVITIES_PER_EMPLOYER,
 } from './caps'
 
 import { candidatesToPrompt, type Candidates } from './candidates'
@@ -238,24 +238,26 @@ describe('enforceSelection', () => {
     })
   })
 
-  describe('bullets by relevance', () => {
-    it('does not starve the lead-with employer when recent roles at one company dominate', () => {
+  describe('bullets by recency', () => {
+    it('gives the current employer the most, whatever the relevance: relevance moves it by one at most', () => {
       const c = realistic()
-      // Current employer (30 activities, 3 roles) is only partly relevant; the older lead-with employer is central.
+      // Current employer (30 activities, 3 roles) is only partly relevant; the older lead-with employer is central: still not reordered.
       const out: SelectOutput = {
         ...empty,
         employers: epick(['co-0', 2], ['co-1', 5], ['co-2', 3]),
         activities: [...acts(c, 'co-0', 6), ...acts(c, 'co-1', 6), ...acts(c, 'co-2', 6)],
       }
       const { selection: s } = enforceSelection(out, c, brief)
-      expect(bulletsOf(s, 'co-1')).toBe(6)
-      expect(bulletsOf(s, 'co-1')).toBeGreaterThan(bulletsOf(s, 'co-0'))
-      expect(bulletsOf(s, 'co-0')).toBeGreaterThanOrEqual(MIN_ACTIVITIES_PER_EMPLOYER)
-      // The budget is filled by recency to four employers; the fourth has no pick and is scored by code.
-      expect(s.employers.filter((e) => !e.headerOnly).reduce((n, e) => n + e.bullets.length, 0)).toBe(TOTAL_ACTIVITY_BUDGET)
+      expect(bulletsOf(s, 'co-0')).toBe(6) // three roles: base 7, relevance 2 takes one off
+      expect(bulletsOf(s, 'co-1')).toBe(4) // the previous employer's band is 3-4
+      expect(bulletsOf(s, 'co-2')).toBe(2)
+      // The fourth employer has no pick (scored by code) and takes the minimum.
+      const total = s.employers.filter((e) => !e.headerOnly).reduce((n, e) => n + e.bullets.length, 0)
+      expect(total).toBeGreaterThanOrEqual(12)
+      expect(total).toBeLessThanOrEqual(16)
     })
 
-    it('splits in proportion to relevance, within min 2 and max 6 per employer and the total', () => {
+    it('allots by recency band: current 5-8, previous 3-4, older 2-3, within the total ceiling', () => {
       const c = realistic()
       const out: SelectOutput = {
         ...empty,
@@ -264,13 +266,14 @@ describe('enforceSelection', () => {
       }
       const { selection: s } = enforceSelection(out, c, brief)
       const counts = s.employers.filter((e) => !e.headerOnly).map((e) => e.bullets.length)
-      expect(counts[0]).toBe(8) // Unity has three roles: the layered-employer cap
-      for (const n of counts.slice(1)) expect(n).toBeGreaterThanOrEqual(MIN_ACTIVITIES_PER_EMPLOYER)
-      for (const n of counts.slice(1)) expect(n).toBeLessThanOrEqual(MAX_ACTIVITIES_PER_EMPLOYER)
-      expect(counts.reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(TOTAL_ACTIVITY_BUDGET)
+      expect(counts[0]).toBe(8) // Unity has three roles and is highly relevant: the layered 8
+      expect(counts[1]).toBe(3)
+      for (const n of counts.slice(2)) expect(n).toBeGreaterThanOrEqual(MIN_ACTIVITIES_PER_EMPLOYER)
+      for (const n of counts.slice(2)) expect(n).toBeLessThanOrEqual(3)
+      expect(counts.reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(MAX_TOTAL_BULLETS)
     })
 
-    it('is not recency-driven: the least recent employer can get the most', () => {
+    it('relevance never reorders recency: the least recent employer never gets more than a more recent one', () => {
       const c = bigCandidates(3, 10)
       const out: SelectOutput = {
         ...empty,
@@ -278,16 +281,16 @@ describe('enforceSelection', () => {
         activities: ['co-0', 'co-1', 'co-2'].flatMap((k) => acts(c, k, 8)),
       }
       const { selection: s } = enforceSelection(out, c, brief)
-      expect(bulletsOf(s, 'co-2')).toBeGreaterThan(bulletsOf(s, 'co-0'))
+      expect(bulletsOf(s, 'co-0')).toBeGreaterThan(bulletsOf(s, 'co-2'))
     })
 
     it('truncates an employer’s bullets in the model’s rank order, and records the rest as over the limit', () => {
       const c = bigCandidates(2, 10)
       const ranked = ['e0a5', 'e0a1', 'e0a9', 'e0a0', 'e0a2', 'e0a3', 'e0a4', 'e0a6'].map((id) => ({ id, reason: 'r' }))
       const { selection: s } = enforceSelection({ ...empty, employers: epick(['co-0', 5], ['co-1', 5]), activities: ranked }, c, brief)
-      expect(s.employers[0].bullets.map((b) => b.id)).toEqual(['e0a5', 'e0a1', 'e0a9', 'e0a0', 'e0a2', 'e0a3'])
-      expect(s.dropped.filter((d) => d.why === 'over_cap' && d.section === 'activities').map((d) => d.id)).toEqual(['e0a4', 'e0a6'])
-      expect(s.dropped.find((d) => d.id === 'e0a4')?.parentId).toBe('co-0')
+      expect(s.employers[0].bullets.map((b) => b.id)).toEqual(['e0a5', 'e0a1', 'e0a9', 'e0a0', 'e0a2', 'e0a3', 'e0a4']) // relevance 5: 7 for a current single-role employer
+      expect(s.dropped.filter((d) => d.why === 'over_cap' && d.section === 'activities').map((d) => d.id)).toEqual(['e0a6'])
+      expect(s.dropped.find((d) => d.id === 'e0a6')?.parentId).toBe('co-0')
     })
 
     it('tops an employer up to the minimum by rule when the model picked too few', () => {
@@ -312,7 +315,7 @@ describe('enforceSelection', () => {
     it('records the split in the notes', () => {
       const c = bigCandidates(2, 8)
       const { notes } = enforceSelection({ ...empty, employers: epick(['co-0', 5], ['co-1', 5]), activities: [...acts(c, 'co-0'), ...acts(c, 'co-1')] }, c, brief)
-      expect(notes.join(' ')).toContain('Split 12 bullets by relevance: Co 0 6 (relevance 5), Co 1 6 (relevance 5).')
+      expect(notes.join(' ')).toContain('Allotted 11 bullets by recency (relevance shifts one at most): Co 0 7 (relevance 5), Co 1 4 (relevance 5).')
     })
 
     it('scores an employer the model left unscored as the lowest in a model run, not by the relative derived score', () => {
@@ -518,20 +521,20 @@ describe('fallbackSelection', () => {
     expect(s.projects).toHaveLength(2)
     expect(s.education).toHaveLength(2)
     for (const e of withBullets) expect(e.bullets.length).toBeGreaterThanOrEqual(MIN_ACTIVITIES_PER_EMPLOYER)
-    expect(withBullets.reduce((n, e) => n + e.bullets.length, 0)).toBeLessThanOrEqual(TOTAL_ACTIVITY_BUDGET)
-    // The employer that matches the brief gets the most bullets, not the most recent one.
-    expect(bulletsOf(s, 'co-2')).toBeGreaterThan(bulletsOf(s, 'co-0'))
+    expect(withBullets.reduce((n, e) => n + e.bullets.length, 0)).toBeLessThanOrEqual(MAX_TOTAL_BULLETS)
+    // Recency sets the bands: the matching older employer does not outrank the current one.
+    expect(bulletsOf(s, 'co-0')).toBeGreaterThanOrEqual(bulletsOf(s, 'co-2'))
     expect(s.dropped.filter((d) => d.why === 'role_header_only' || d.why === 'role_not_kept')).toEqual([])
   })
 
-  it('splits bullets by derived relevance, not recency, on a realistic profile', () => {
+  it('shifts the previous employer up by derived relevance, inside its recency band, on a realistic profile', () => {
     const c = realistic()
     c.employers[1].activities.forEach((a, i) => { a.text = `Platform migration programme step ${i}` })
     const r = fallbackSelection(buildBriefFor({ leadWith: leads(['Platform migration']), emphasise: [] }), c)
     const s = r.selection
     expect(s.employers[1].relevance).toBe(5)
-    expect(bulletsOf(s, 'co-1')).toBe(MAX_ACTIVITIES_PER_EMPLOYER)
-    expect(bulletsOf(s, 'co-1')).toBeGreaterThan(bulletsOf(s, 'co-0'))
+    expect(bulletsOf(s, 'co-1')).toBe(4) // the previous employer's band is 3-4
+    expect(bulletsOf(s, 'co-0')).toBeGreaterThan(bulletsOf(s, 'co-1'))
   })
 
   it('also matches the job’s requirement terms', () => {
@@ -706,12 +709,13 @@ describe('selectPrompt', () => {
     expect(r.selection.employers.filter((e) => !e.headerOnly)).toHaveLength(4)
   })
 
-  it('explains the bullet allocation rule: a total, a minimum and maximum, split by relevance and not by recency', () => {
+  it('explains the bullet allocation rule: bands by recency, relevance moving one at most', () => {
     const text = selectPrompt(buildBriefFor(), bigCandidates(2, 2))
-    expect(text).toContain(`${TOTAL_ACTIVITY_BUDGET} activities in all (at most ${MAX_TOTAL_BULLETS})`)
-    expect(text).toContain('at least 2 and at most 6')
-    expect(text).toContain('relevance score (1-5)')
-    expect(text).toContain('Recency does not set the split')
+    expect(text).toContain(`at most ${MAX_TOTAL_BULLETS} in all`)
+    expect(text).toContain('shows 5-7 (up to 8 when the profile holds 3+ roles there), the previous one 3-4, older ones 2-3 (1-2 when they ended over ten years ago)')
+    expect(text).toContain('relevance score (5 = central')
+    expect(text).toContain('it never reorders recency')
+    expect(text).toContain('Never pad')
   })
 
   it('lists employers with their progression, and the role each activity came from', () => {
@@ -896,13 +900,13 @@ describe('name pin quality and the layered-employer cap', () => {
     expect(ids).not.toContain('u-a27')
   })
 
-  it('lets an employer with three or more roles show up to 8 bullets, others stay at 6', () => {
+  it('lets an employer with three or more roles show up to 8 bullets, others stay in their bands', () => {
     const c = realistic()
     const unity = c.employers[0]
     const r = enforceSelection({ ...empty, employers: epick([unity.key, 5], ['co-1', 1]), activities: pick(...unity.activities.map((a) => a.id)) }, c, buildBriefFor({ leadWith: [], emphasise: [] }))
     expect(bulletsOf(r.selection, unity.key)).toBe(8)
     expect(r.selection.employers.reduce((n, e) => n + e.bullets.length, 0)).toBeLessThanOrEqual(MAX_TOTAL_BULLETS)
-    for (const e of r.selection.employers) if (e.key !== unity.key) expect(e.bullets.length).toBeLessThanOrEqual(MAX_ACTIVITIES_PER_EMPLOYER)
+    for (const e of r.selection.employers) if (e.key !== unity.key) expect(e.bullets.length).toBeLessThanOrEqual(4)
   })
 })
 
@@ -1043,19 +1047,14 @@ describe('budgets are ceilings, not floors', () => {
     expect(s.employers.filter((e) => e.headerOnly).map((e) => e.key)).toEqual(['co-3', 'co-4'])
   })
 
-  it('splits about 17 bullets by relevance, at least 2 per employer and at most 6, never past the ceiling', () => {
+  it('allots about 12-16 bullets over four employers by recency, never past the ceiling', () => {
     const c = bigCandidates(5, 8)
     const out: SelectOutput = { ...empty, employers: epick(['co-0', 5], ['co-1', 4], ['co-2', 3], ['co-3', 2]), activities: [0, 1, 2, 3].flatMap((i) => acts(c, `co-${i}`, 6)) }
     const { selection: s } = enforceSelection(out, c, brief)
     const counts = s.employers.filter((e) => !e.headerOnly).map((e) => e.bullets.length)
-    expect(counts.reduce((a, b) => a + b, 0)).toBe(TOTAL_ACTIVITY_BUDGET)
-    expect(TOTAL_ACTIVITY_BUDGET).toBeGreaterThanOrEqual(16)
-    expect(TOTAL_ACTIVITY_BUDGET).toBeLessThanOrEqual(18)
-    for (const n of counts) {
-      expect(n).toBeGreaterThanOrEqual(MIN_ACTIVITIES_PER_EMPLOYER)
-      expect(n).toBeLessThanOrEqual(MAX_ACTIVITIES_PER_EMPLOYER)
-    }
-    expect(counts[0]).toBeGreaterThan(counts[3]) // relevance, not position
+    expect(counts).toEqual([6, 4, 2, 2]) // relevance 4 earns the previous employer one more; the current one is held to the 6 picked; 3 and 2 stay at the older minimum
+    for (const n of counts) expect(n).toBeGreaterThanOrEqual(MIN_ACTIVITIES_PER_EMPLOYER)
+    expect(counts[0]).toBeGreaterThan(counts[3]) // recency band
     expect(counts.reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(MAX_TOTAL_BULLETS)
   })
 
@@ -1281,7 +1280,7 @@ describe('figure-rich evidence', () => {
     expect(kept).toContain('e0a5')
     expect(kept).toContain('e0a0') // the pick the model made stays
     expect(kept).toContain('e0a6') // the other figure-rich match comes in too (two swaps at most)
-    expect(kept.length).toBeLessThanOrEqual(MAX_ACTIVITIES_PER_EMPLOYER)
+    expect(kept.length).toBeLessThanOrEqual(7)
     expect(kept.length).toBe(bulletsOf(s, 'co-0')) // the cap is unchanged
     expect(notes.join(' ')).toContain('states a figure and matches a brief item')
     const swapped = s.dropped.filter((d) => d.section === 'activities' && d.why === 'over_cap').map((d) => d.id)
@@ -1293,8 +1292,8 @@ describe('figure-rich evidence', () => {
     const out = withModel(c, ['e0a0', 'e0a1', 'e0a2', 'e0a3', 'e0a4', 'e0a5'])
     const { selection: s } = enforceSelection(out, c, brief2)
     const total = s.employers.filter((e) => !e.headerOnly).reduce((n, e) => n + e.bullets.length, 0)
-    expect(total).toBeLessThanOrEqual(TOTAL_ACTIVITY_BUDGET)
-    for (const e of s.employers.filter((x) => !x.headerOnly)) expect(e.bullets.length).toBeLessThanOrEqual(MAX_ACTIVITIES_PER_EMPLOYER)
+    expect(total).toBeLessThanOrEqual(MAX_TOTAL_BULLETS)
+    for (const e of s.employers.filter((x) => !x.headerOnly)) expect(e.bullets.length).toBeLessThanOrEqual(7)
   })
 
   it('prefers a figure-rich match when topping an employer up (the model picked too few)', () => {
