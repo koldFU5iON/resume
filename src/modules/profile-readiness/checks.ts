@@ -38,7 +38,11 @@ export const UNMEASURED_MIN_SHARE = 0.5
 export const FILLER_RESPONSIBILITY_WORDS = 6
 /** An activity of more words than this is several bullets in one. */
 export const LONG_ACTIVITY_WORDS = 60
-/** Two items at one employer must share this many content words to be compared. */
+/** At most this many concurrent-role findings (one per role): four board seats must not crowd out everything else. */
+export const CONCURRENT_MAX_FINDINGS = 3
+/** Two items at one employer must share at least this share (Jaccard) of content words to be compared... */
+export const CONFLICT_MIN_SIMILARITY = 0.5
+/** ...and at least this many content words. */
 export const CONFLICT_SHARED_WORDS = 3
 /** At most this many possible conflicts are raised: the check is deliberately conservative. */
 export const CONFLICT_MAX_FINDINGS = 3
@@ -256,21 +260,29 @@ export function checkExperienceDates(vault: Vault, now: Date): Candidate[] {
   }
   const endOf = (e: ExperienceNote) => e.props.endDate ?? now
 
+  const overlaps = new Map<string, { note: ExperienceNote; with: { note: ExperienceNote; months: number }[] }>()
   for (let i = 0; i < valid.length; i++) {
     for (let j = i + 1; j < valid.length; j++) {
       const [a, b] = valid[i].props.startDate <= valid[j].props.startDate ? [valid[i], valid[j]] : [valid[j], valid[i]]
       if (normalizeName(a.props.company) === normalizeName(b.props.company)) continue
-      const start = b.props.startDate
-      const end = endOf(a) < endOf(b) ? endOf(a) : endOf(b)
-      const overlap = monthsBetween(start, end)
-      if (overlap < CONCURRENT_MIN_OVERLAP_MONTHS) continue
-      out.push(about(b, {
-        kind: 'concurrent_roles', severity: 'consider', impact: 2 + Math.min(overlap / 12, 2),
-        title: `${b.props.company} alongside ${a.props.company}`,
-        message: `${roleName(b)} (${span(b)}) ran alongside ${roleName(a)} (${span(a)}) for about ${Math.round(overlap)} months.`,
-        suggestion: 'If that is right, say in the role that it was concurrent (a side engagement, part-time, a board seat) so the CV does not look like double-counting; if not, correct the dates.',
-      }, `:${a.id}`))
+      const months = monthsBetween(b.props.startDate, endOf(a) < endOf(b) ? endOf(a) : endOf(b))
+      if (months < CONCURRENT_MIN_OVERLAP_MONTHS) continue
+      const entry = overlaps.get(b.id) ?? { note: b, with: [] }
+      entry.with.push({ note: a, months })
+      overlaps.set(b.id, entry)
     }
+  }
+  const concurrent = [...overlaps.values()]
+    .map((o) => ({ ...o, longest: Math.max(...o.with.map((w) => w.months)) }))
+    .sort((x, y) => y.longest - x.longest)
+    .slice(0, CONCURRENT_MAX_FINDINGS)
+  for (const { note: b, with: others, longest } of concurrent) {
+    out.push(about(b, {
+      kind: 'concurrent_roles', severity: 'consider', impact: 2 + Math.min(longest / 12, 2),
+      title: `${b.props.company} alongside ${others.map((o) => o.note.props.company).join(', ')}`,
+      message: `${roleName(b)} (${span(b)}) ran alongside ${others.map((o) => `${roleName(o.note)} (${span(o.note)})`).join(', ')}.`,
+      suggestion: 'If that is right, say in the role that it was concurrent (a side engagement, part-time, a board seat) so the CV does not look like double-counting; if not, correct the dates.',
+    }))
   }
 
   const byStart = [...valid].sort((a, b) => a.props.startDate.getTime() - b.props.startDate.getTime())
@@ -347,14 +359,15 @@ export function checkEvidenceQuality(vault: Vault): Candidate[] {
 }
 
 // ── Possibly conflicting figures ───────────────────────────────────────
-const NUMBER = /(?<![\p{L}\p{N}])\d[\d,]*(?:\.\d+)?(?:\s?(?:%|bn|[km]\b|x\b))?/giu
+const NUMBER = /(?<![\p{L}\p{N}])[£$€]?\d[\d,]*(?:\.\d+)?(?:\s?(?:%|bn|[km]\b|x\b))?/giu
 
-function figuresOf(text: string): Set<string> {
-  const out = new Set<string>()
+/** Figures in a text, each with a unit class so 30% is never compared with 12 episodes. */
+function figuresOf(text: string): Map<string, string> {
+  const out = new Map<string, string>()
   for (const m of text.match(NUMBER) ?? []) {
     const n = m.replace(/[,\s]/g, '').toLowerCase()
     if (/^(19|20)\d\d$/.test(n)) continue // a year, not a figure
-    out.add(n)
+    out.set(n, n.endsWith('%') ? 'percent' : /^[£$€]/.test(n) ? 'currency' : n.endsWith('x') ? 'multiple' : 'count')
   }
   return out
 }
@@ -369,11 +382,13 @@ export function checkConflictingFigures(vault: Vault): Candidate[] {
     for (let i = 0; i < items.length; i++) {
       for (let j = i + 1; j < items.length; j++) {
         const [a, b] = [items[i], items[j]]
-        if ([...a.figures].some((f) => b.figures.has(f))) continue
+        if ([...a.figures.keys()].some((f) => b.figures.has(f))) continue
+        if (![...a.figures.values()].some((u) => [...b.figures.values()].includes(u))) continue
+        if (jaccard(a.words, b.words) < CONFLICT_MIN_SIMILARITY) continue
         if ([...a.words].filter((w) => b.words.has(w)).length < CONFLICT_SHARED_WORDS) continue
         out.push(about(b.e, {
           kind: 'conflicting_figures', severity: 'consider', impact: 3, title: `Two figures for similar work at ${exp.props.company}`,
-          message: `At ${exp.props.company}, ${quote(a.e.props.description)} (${[...a.figures].join(', ')}) and ${quote(b.e.props.description)} (${[...b.figures].join(', ')}) look like the same work with different figures. Is one out of date?`,
+          message: `At ${exp.props.company}, ${quote(a.e.props.description)} (${[...a.figures.keys()].join(', ')}) and ${quote(b.e.props.description)} (${[...b.figures.keys()].join(', ')}) look like the same work with different figures. Is one out of date?`,
           suggestion: 'If they are the same result, keep one figure; if they differ (two periods, two scopes), say so in the text so the CV does not pick the wrong one.',
         }, `:${a.e.id}`))
       }

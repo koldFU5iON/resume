@@ -207,6 +207,22 @@ describe('checkConflictingFigures', () => {
   })
 })
 
+describe('review follow-ups', () => {
+  it('conflicting figures need the same unit and mostly the same words', () => {
+    const mk = (a: string, ai: string, b: string, bi: string) => vaultOf({ experiences: [role('r', 'Co', 'x', '2020-01', null, 'x', [
+      activity('a', { experienceId: 'r' }, 'achievement', a, ai), activity('b', { experienceId: 'r' }, 'achievement', b, bi)])] })
+    expect(checkConflictingFigures(mk('Grew the audience of the weekly show', 'Up 30%', 'Grew the audience of the weekly show', 'Up 12 episodes'))).toEqual([])
+    expect(checkConflictingFigures(mk('Grew the audience of the weekly show', 'Up 30%', 'Grew the audience, cut hosting cost, hired editors, launched newsletter, ran events', 'Down 55%'))).toEqual([])
+  })
+  it('concurrent roles: one finding per role, capped', () => {
+    const seats = [1, 2, 3, 4].map((i) => role(`s${i}`, `Board ${i}`, 'Board member', `202${i}-01`, null, 'x'))
+    const v = vaultOf({ experiences: [role('m', 'Main Co', 'Director', '2015-01', null, 'x'), ...seats] })
+    const f = checkExperienceDates(v, NOW).filter((x) => x.kind === 'concurrent_roles')
+    expect(f).toHaveLength(3)
+    expect(new Set(f.map((x) => x.noteId)).size).toBe(3)
+  })
+})
+
 describe('checkCapabilities', () => {
   it('lists claimed-only capabilities as one aggregate', () => {
     const f = checkCapabilities(messyImport()).find((x) => x.kind === 'claimed_only_capabilities')!

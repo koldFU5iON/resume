@@ -78,6 +78,7 @@ export function GenerateCvForJob({ jobId, hasCvGeneration, onStarted, readinessF
       {readinessFixCount > 0 && (
         <p className="text-xs text-muted-foreground">
           {readinessFixCount === 1 ? "1 thing in your profile limits the CV." : `${readinessFixCount} things in your profile limit the CV.`}{" "}
+          {/* "profile-readiness" is READINESS_PANEL_ID (cv-generation/_components/readiness-panel.tsx); not imported because that is a client file of another route. */}
           <Link href={`${jobCvGenerationHref(jobId)}#profile-readiness`} onClick={onStarted} className="underline underline-offset-2 hover:text-foreground">Review profile readiness</Link>
         </p>
       )}
