@@ -542,14 +542,6 @@ export function checkContact(vault: Vault): Candidate[] {
       suggestion: 'Add your city or region to your profile overview.',
     }, link, vault.identity))
   }
-  const eligibility = vault.preferences.props.eligibility
-  if (eligibility && (eligibility.citizenships.length > 0 || eligibility.visas.length > 0)) {
-    out.push(overall({
-      kind: 'right_to_work_not_shown', severity: 'consider', impact: 1, title: 'Right to work is not shown on the CV',
-      message: 'Your search preferences record where you can work, but the CV header cannot show right to work yet.',
-      suggestion: 'If a job asks for it, add a line to the CV by hand after generating.',
-    }, link, vault.identity))
-  }
   return out
 }
 

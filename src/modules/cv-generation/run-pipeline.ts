@@ -33,6 +33,7 @@ import { getLLMConfigStatus } from '@/modules/llm/client'
 import { LLMError } from '@/modules/llm/errors'
 import { loadVault } from '@/modules/profile-map/load'
 import { toProfileSnapshot } from '@/modules/profile/snapshot'
+import { headerFacts } from './header-facts'
 import { assembleCv, bodyWordCount, employerOrderOf, lengthNote, recheckMarkdown } from './assemble'
 import { runBrief } from './brief'
 import type { CallUsage } from './call'
@@ -287,6 +288,7 @@ export async function runCvGenerationStages(runId: string, profileId: string, op
     const assembled = assembleCv({
       name: vault.identity.props.name,
       headline: written.headline,
+      headerFacts: headerFacts(vault, new Date()),
       sections: written.sections,
       employerOrder: employerOrderOf(selection),
       checkNotes: written.checkNotes,

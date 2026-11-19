@@ -311,11 +311,6 @@ describe('checkContact', () => {
   it('is quiet when everything is present', () => {
     expect(checkContact(cleanProfile())).toEqual([])
   })
-  it('says so when right-to-work details exist, since the CV header cannot show them yet', () => {
-    const v = vaultOf({}, { settings: { searchProfile: { eligibility: { citizenships: ['FR'] } }, updatedAt: new Date() } } as never)
-    expect(checkContact(v).find((f) => f.kind === 'right_to_work_not_shown')?.severity).toBe('consider')
-    expect(checkContact(cleanProfile()).map((f) => f.kind)).not.toContain('right_to_work_not_shown')
-  })
   it('never repeats contact details in a finding', () => {
     const text = JSON.stringify(checkContact(cleanProfile()))
     expect(text).not.toContain('robin@example.test')
