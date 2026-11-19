@@ -380,7 +380,6 @@ export function applyEdits(doc: ReviewDoc, edits: ReviewOutput['edits'], ctx: Ap
       if (!ex.emp) { discard('this entry has no evidence to check an edit against'); continue }
       const emp = ex.emp
       if (!bulletId) { discard('name a bullet ("b1"...) or "summary" to edit in an experience entry'); continue }
-      const profileText = doc.profile?.paragraph ?? ''
       const active = () => ex.bullets.filter((b) => !b.removed)
       const activeTexts = () => active().map((b) => b.text)
       if (bulletId.toLowerCase() === 'summary') {
