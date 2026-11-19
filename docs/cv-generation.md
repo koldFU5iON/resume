@@ -343,7 +343,7 @@ A re-run on unchanged inputs skips Brief and Select (about $0.06 less and about 
 - **More than 8 employers**: the oldest are left out (4 with bullets + 4 header-only); the no-gaps promise holds only up to 8.
 - **Document limit**: a job holds at most 10 writing desk documents; with none reusable the run fails `document_limit` before any spend.
 - **No GET API, no bearer-token or MCP entry** for CV generation.
-- **Quality of real runs beyond the logged ones is unmeasured**: the suite mocks the model; prompts were tuned from a handful of real production runs.
+- **Quality of real runs beyond the logged ones is unmeasured**: the suite mocks the model; prompts were tuned from a handful of real production runs on one profile. Section 21 records what those runs showed and why further generator tuning is paused.
 
 ---
 
@@ -418,6 +418,7 @@ The legacy generator (`createAndGenerateCV` in `src/modules/cv/actions.ts`, `src
 | Round 3a | `feat/cv-gen-round-3a` | General pipeline work from the expert review (recruiter and hiring-manager guidance), good for any profile: padding floors removed (budgets are ceilings: skills 12, tools 10, competencies 8, certifications 4, education 2; no top-up except an empty section; one relevant in-progress certification at most; short courses never under Education; weak-cert rule independent of the section size); bullets by recency band (5-7 / 3-4 / 2-3, 1-2 beyond 10 years, relevance moves one at most, ceiling 20); profile of 70-90 words with a computed "N+ years" opener, up to two figures that may repeat a bullet's, copy and self-description checks; paraphrase safety (negation and scope-qualifier checks, prompt rules); no approach-only bullets; Review checks meaning drift and the top third of page 1; `SELECTION_PIPELINE_VERSION` 5; no migration. |
 | Round 3a fix | `fix/cv-gen-years-summary` | Review keeps the code-supplied years phrase (prompt input, recheck allows exactly it); the experience writer may not spend a selected activity on the summary: prompt rule, uncited-activity soft check with one retry, log note; no migration. |
 | Project notes | `fix/cv-gen-project-notes` | The generator read only a project's `description` and `highlights`, so a project with an empty description and a long notes body looked title-only and a 7k notes body never reached Select or the writers. New `projectEvidenceText` (notes digest + atoms, above); project atoms become Select activity candidates (`fromProject`); `PROJECT_EVIDENCE_MAX_CHARS` 2,000; atoms already bullets are left out of the project text; name pins pin a project's best atoms; `SELECTION_PIPELINE_VERSION` 7; no migration. |
+| Pause | 2026-11-19 (this PR) | Tuning stopped at the point of diminishing returns; see section 21. Issue #440 covers the profile changes. |
 | 5 | pending | Remove the legacy generator (list above). |
 
 ---
@@ -463,3 +464,35 @@ There is deliberately no spell-check and no date-format check.
 **Generality suite.** `src/modules/profile-readiness/__fixtures__/profiles.ts` builds synthetic vaults of different shapes: `cleanProfile` (must give zero `fix` findings), `earlyCareer`, `longCareer` (concurrent roles and a gap), `careerChanger` and `messyImport` (duplicates, status in names, empty narratives). Reuse them in any test that must hold for "any user's profile" rather than writing another one-person fixture. Every name and figure in them is invented.
 
 **Adding a check.** Write a small pure function in `checks.ts`, give it named thresholds, add its kind to `READINESS_KINDS`, call it in `checkProfileReadiness`, and test it against the fixtures, including that the clean profile stays quiet.
+
+---
+
+## 21. Status and the input problem
+
+**State (2026-11-19).** The pipeline is complete and merged: Gather, Brief, Select, Write, Assemble, Review, Land, the run log, the readiness check and the project-evidence retrieval (sections 2 to 20). Tuning is **paused**, not abandoned. After ten PRs of calibration against one real job (a Senior Product Marketing Manager role at an open-source company, one owner's profile), each fix was moving the problem rather than removing it. The working conclusion: the generator is on the right track, and what stops the CV being nearly ready is the **shape of the profile data**.
+
+**Last measured run (2026-11-19, after the project-evidence change, `SELECTION_PIPELINE_VERSION` 7).** About $0.63, 11 calls, 2 minutes 31 seconds, one retry. Brief $0.07, Select under $0.01, Write $0.37, Review $0.18. Target remains about $0.45 to $0.55.
+
+**What worked.** The figures in a project's notes and achievements (reach, click-through, turnaround, first-day views) now reach the CV as bullets; before the change they were never read. No figure retries came from the overview or duplicates; the years opener, header, Earlier Experience, certifications and education were right; Review's concerns were real data questions.
+
+**What the run still showed, and where each one comes from.**
+
+| Symptom in the run | Cause | Where it is fixed |
+|---|---|---|
+| Two asset-turnaround figures that disagree ("3 weeks to 1 hour" and "4 weeks to 1 week"); Review raises a coach concern | Figures live in prose, no baseline or period fields | Profile (issue #440, item 1) |
+| "Heroes of the Storm 2 launch"; "150+ articles" with no event named | Campaign, product and outcome are one text string and not linked | Profile (items 2 and 3) |
+| Lead-with "Workflow Automation" uncovered; no automation bullet | The capability has no linked evidence | Profile (item 5) |
+| A retry forced a bullet for a budget-management activity that Review then deleted because the brief plays budget down | Select keeps an activity the Brief plays down; the writer's "uncited selected activity" retry then forces it | **Generator**, a small remaining fix (below) |
+| Two Unity bullets prefixed "Project name:", the rest not | Writer prompt does not say when to drop the prefix | **Generator**, small |
+| 4 of 8 tools kept, AI tools left out for an automation-minded job | Select ranking for tools | **Generator**, small |
+| One Marketing Request Form project never reached the writer | Select chose two other projects (budget 2) | Profile and Brief (no fault; not testable on this run) |
+
+**Remaining generator work (small, held).** (1) Select must not keep an activity the Brief plays down, or the uncited-activity retry must skip it, so no retry is forced for something Review removes. (2) One rule for the "Project name:" bullet prefix. (3) Tools ceiling filled by relevance. None of these is worth doing before the profile is cleaned, because the next run will show different problems.
+
+**Held rounds (round 3b).** Vault-link retrieval for lead-with and emphasise items (follow a capability's `demonstrates` and `uses` links, keyword fallback), the generality suite that runs the whole pipeline on the synthetic profile fixtures, and the header location and right-to-work field (profile field and migration). The first depends on profile links existing; the last is item 7 of the issue.
+
+**Optional cost levers, undecided.** A cheaper default model for the writers (about $0.19 to $0.20 a run saved, but it moves every `default` feature), or a CV-only model setting. Editable default prompts are issue #437.
+
+**How to resume.** Clean the profile against issue #440 (the readiness panel on the CV generation page lists the worst items per profile), run the same job with "fresh", and read the log against section 17. The check for success: no figure retries, no conflicting-figure or missing-evidence concerns, every lead-with item covered, cost in the target range. Only then pick up the remaining generator work and round 3b.
+
+**Legacy removal (Phase 5)** still waits until a few real CVs have gone out from this flow.
