@@ -104,13 +104,27 @@ describe('planBackfill', () => {
       expect(r.projectFolds[0].after).toBe(`## Overview\nThe launch.\n\n${FOLD_LEAD_IN}\n- Owned the calendar`)
       expect(formatReport(r)).toContain('project "Project p1": added to the end of its existing ## Overview')
     })
-    it('a responsibility with both a role and a project belongs to the role, not the project note', () => {
+    it('a responsibility with both a role and its project\'s role is still the project\'s: it folds into the project note, not the role\'s', () => {
       const r = planBackfill({
         experiences: [exp('e1')], projects: [proj('p1', 'e1')],
         activities: [resp({ experienceId: 'e1', projectId: 'p1', description: 'Owned the calendar' })],
       })
-      expect(r.folds[0].responsibilities).toEqual(['Owned the calendar'])
+      expect(r.folds).toEqual([])
+      expect(r.projectFolds[0]).toMatchObject({ projectId: 'p1', responsibilities: ['Owned the calendar'] })
+    })
+    it('one whose role differs from its project\'s role is the role\'s own', () => {
+      const r = planBackfill({
+        experiences: [exp('e1'), exp('e2')], projects: [proj('p1', 'e2')],
+        activities: [resp({ experienceId: 'e1', projectId: 'p1', description: 'Owned the calendar' })],
+      })
+      expect(r.folds[0]).toMatchObject({ experienceId: 'e1', responsibilities: ['Owned the calendar'] })
       expect(r.projectFolds).toEqual([])
+    })
+    it('assigning a role changes where a responsibility folds not at all', () => {
+      const before = planBackfill({ experiences: [exp('e1')], projects: [proj('p1', 'e1')], activities: [resp({ projectId: 'p1', description: 'Owned the calendar' })] })
+      const after = planBackfill({ experiences: [exp('e1')], projects: [proj('p1', 'e1')], activities: [resp({ experienceId: 'e1', projectId: 'p1', description: 'Owned the calendar' })] })
+      expect(after.projectFolds).toEqual(before.projectFolds)
+      expect(after.folds).toEqual(before.folds)
     })
     it('checks project responsibilities against the project achievements only, and is idempotent', () => {
       const long = 'Developed the concept for a European media tour bringing the game to journalists via two custom chests'
