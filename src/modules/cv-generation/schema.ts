@@ -149,9 +149,14 @@ export const MAX_OUTPUT_TOKENS = {
   /** Skills grouping: names only. */
   writeSkills: 1_500,
   writeSkillsRetry: 3_000,
-  /** Profile, headline and competencies. */
-  writeProfile: 1_500,
-  writeProfileRetry: 3_000,
+  /**
+   * Profile, headline and competencies. The answer itself is about 300 tokens
+   * (110 words, a headline, 8 labels), but the default role may be a model that
+   * thinks first and thinking counts against the cap: 1,500 was cut off in a
+   * real run (2.5k out, retried).
+   */
+  writeProfile: 4_000,
+  writeProfileRetry: 8_000,
   /** Review: at most 8 edits and 5 concerns, each short. */
   review: 3_000,
   reviewRetry: 6_000,
@@ -172,7 +177,7 @@ export const SELECTION_REUSE_WINDOW_MS = SELECTION_REUSE_WINDOW_DAYS * 24 * 60 *
  * writers): a stored selection from before the change must not be reused. A prompt
  * edit by the user needs no bump: the effective prompt texts are hashed too.
  */
-export const SELECTION_PIPELINE_VERSION = 3
+export const SELECTION_PIPELINE_VERSION = 4
 
 /** A failed run whose Brief and Select were paid for may still donate them: only these failures happened AFTER Select (at Land), so the stored pair is whole. */
 export const REUSABLE_FAILURE_KINDS = ['draft_exists', 'document_limit'] as const

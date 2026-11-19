@@ -844,6 +844,38 @@ describe('tools and skills top-up does not pad with claimed-only items', () => {
   })
 })
 
+describe('claimed-only top-up needs the whole name, not one shared word', () => {
+  const tools = () => {
+    const c = bigCandidates(2, 4)
+    c.tools = [
+      ...['Figma', 'Jira'].map((l, i) => ({ id: `tp${i}`, label: l, detail: null, proven: true })),
+      { id: 'oa', label: 'OpenAI API', detail: null, proven: false },
+      { id: 'zp', label: 'Zapier', detail: null, proven: false },
+      { id: 'ms', label: 'Meltwater', detail: null, proven: false },
+    ]
+    return c
+  }
+  it('a requirement that only says "API" does not pad with OpenAI API or an unnamed Zapier', () => {
+    const r = enforceSelection({ ...empty, employers: epick(['co-0', 4]) }, tools(), brief, 'model', { requirementTerms: ['rest', 'api', 'integration'] })
+    expect(r.selection.tools.map((t) => t.id)).toEqual(['tp0', 'tp1'])
+  })
+  it('names in the requirements admit them: "openai" admits OpenAI API, "zapier" admits Zapier', () => {
+    const r = enforceSelection({ ...empty, employers: epick(['co-0', 4]) }, tools(), brief, 'model', { requirementTerms: ['openai', 'zapier'] })
+    expect(r.selection.tools.map((t) => t.id)).toEqual(['tp0', 'tp1', 'oa', 'zp'])
+  })
+})
+
+describe('accent-insensitive name matching', () => {
+  it('matches Wētā Tools to Weta Tools & Games, and Müller to Muller, both ways', () => {
+    expect(matchesName('Weta Tools & Games pipeline', 'Wētā Tools')).toBe(true)
+    expect(matchesName('Led the Muller account', 'Müller')).toBe(true)
+    expect(matchesName('Straße project', 'Strasse')).toBe(true)
+  })
+  it('still does not match unrelated names', () => {
+    expect(matchesName('Weta Digital', 'Wētā Tools')).toBe(false)
+  })
+})
+
 describe('name pin quality and the layered-employer cap', () => {
   it('pins the better of several matches: more words, then a figure, never a bland short one', () => {
     const c = realistic()
