@@ -29,12 +29,18 @@ export async function getExperienceWithSuggestionContext(
       summary: true,
       revision: true,
       activities: {
-        select: { id: true, description: true, kind: true },
+        select: { id: true, description: true, kind: true, projectId: true, experienceId: true },
         orderBy: ACTIVITY_ORDER,
       },
     },
   })
   if (!experience) return null
+
+  // Only the role's own evidence is offered for matching and replacing: an activity labelled with a project is
+  // that project's, and a suggestion from the role's note must not overwrite it.
+  const projects = await prisma.project.findMany({ where: { profileId }, select: { id: true, experienceId: true } })
+  const projectRoles = new Map(projects.map((p) => [p.id, p.experienceId] as const))
+  const own = roleOwnEvidence(experience.activities, projectRoles).map(({ id, description, kind }) => ({ id, description, kind }))
 
   const skills = await prisma.skill.findMany({
     where: { profileId },
@@ -42,7 +48,7 @@ export async function getExperienceWithSuggestionContext(
     orderBy: { name: 'asc' },
   })
 
-  return { experience, skills }
+  return { experience: { ...experience, activities: own }, skills }
 }
 
 // Same, for a project: its description and notes, its role (for context) and
@@ -55,14 +61,17 @@ export async function getProjectWithSuggestionContext(projectId: string, profile
       name: true,
       description: true,
       notes: true,
+      experienceId: true,
       experience: { select: { role: true, company: true } },
       activities: {
-        select: { id: true, description: true, kind: true },
+        select: { id: true, description: true, kind: true, experienceId: true },
         orderBy: ACTIVITY_ORDER,
       },
     },
   })
   if (!project) return null
+  // The project's own evidence: not another role's evidence that happens to carry its label.
+  const own = projectEvidenceOf(project.activities, project.experienceId).map(({ id, description, kind }) => ({ id, description, kind }))
 
   const skills = await prisma.skill.findMany({
     where: { profileId },
@@ -70,7 +79,7 @@ export async function getProjectWithSuggestionContext(projectId: string, profile
     orderBy: { name: 'asc' },
   })
 
-  return { project, skills }
+  return { project: { ...project, activities: own }, skills }
 }
 
 // Loads the signed-in user's whole profile context store as domain types:

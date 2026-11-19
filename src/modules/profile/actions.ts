@@ -202,7 +202,8 @@ export async function acceptSuggestions(payload: AcceptSuggestionsPayload) {
     ...payload.activities.map((a) =>
       a.replaceId
         ? prisma.roleActivity.update({
-            where: { id: a.replaceId, ...owner },
+            // A role's note replaces only the role's own evidence, never an activity labelled with a project.
+            where: { id: a.replaceId, ...owner, ...('experienceId' in owner ? { projectId: null } : {}) },
             data: { description: a.description, impact: a.impact ?? undefined, kind: a.kind },
           })
         : prisma.roleActivity.create({
