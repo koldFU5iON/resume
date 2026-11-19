@@ -826,21 +826,25 @@ describe('Phase 3c', () => {
   })
 
   describe('project evidence sent to the writer is capped, the numbers check still sees all of it', () => {
-    const long = `${demoText} ${'Filler sentence about the studio and the launch plan. '.repeat(60)} Final tally 777,000 wishlists.`
+    const long = `${demoText} ${'Filler sentence about the studio and the launch plan. '.repeat(90)} Final tally 777,000 wishlists.`
     const lv = writeVault([projectRow('pa', 'Enemies Demo Campaign', long, { experienceId: 'e-u2' })])
     const lev = evidenceFromVault(lv, writeSelection(lv, { projects: [{ id: 'pa', reason: '' }] }))
     const emp = lev.employers.find((e) => e.employer.key === UNITY)!
 
-    it('cuts the text in the prompt to the per-project limit but keeps the full text as evidence', () => {
+    it('cuts the project text to the per-project limit: the evidence is what the writer was shown', () => {
       expect(long.length).toBeGreaterThan(PROJECT_EVIDENCE_MAX_CHARS * 2)
       const p = experiencePrompt({ brief: buildBriefFor(), strategy }, emp)
       const line = p.split('\n').find((l) => l.startsWith('[P1] project'))!
       expect(line.length).toBeLessThan(PROJECT_EVIDENCE_MAX_CHARS + 100)
       expect(line).toContain('14,000+')
       expect(line).not.toContain('777,000')
-      expect(emp.projects[0].text).toContain('777,000')
+      expect(emp.projects[0].text.length).toBeLessThanOrEqual(PROJECT_EVIDENCE_MAX_CHARS)
+      expect(emp.projects[0].text).not.toContain('777,000')
+      // A figure the writer never saw is not evidence.
       const a = analyseExperience({ summary: 'Ran release.', bullets: ['Ran the Enemies Demo Campaign to 777,000 wishlists.', good.bullets[0], good.bullets[1]] }, ctx({ evidence: lev }), emp)
-      expect(a.unsupported).toEqual([])
+      expect(a.unsupported.length).toBeGreaterThan(0)
+      const b = analyseExperience({ summary: 'Ran release.', bullets: ['Ran the Enemies Demo Campaign to 14,000+ wishlists.', good.bullets[0], good.bullets[1]] }, ctx({ evidence: lev }), emp)
+      expect(b.unsupported).toEqual([])
     })
   })
 })

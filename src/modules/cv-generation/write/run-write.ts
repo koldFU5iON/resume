@@ -267,6 +267,7 @@ export async function runWrite(
 
     // Nothing selected is dropped silently: a project no entry could carry, and an item no longer in the profile, are named.
     for (const p of evidence.unroutedProjects) notes.push(`Selected project "${p.name}" is not on the CV: ${p.why}.`)
+    for (const n of evidence.projectNotes ?? []) notes.push(n)
     for (const u of evidence.unresolved) notes.push(`A selected ${SECTION_WORD[u.section] ?? u.section} item is no longer in your profile, so it is not on the CV.`)
     const checkNotes = [...checks]
       .sort((a, b) => CHECK_KIND_RANK[a.kind] - CHECK_KIND_RANK[b.kind] || a.order - b.order)

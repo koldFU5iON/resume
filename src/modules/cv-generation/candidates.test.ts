@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { buildVault } from '@/modules/profile-map/build'
 import { vaultSource } from '@/modules/profile-map/__fixtures__/source'
 import { buildCandidates, candidatesToPrompt, labelIndex, profileOutline } from './candidates'
-import { writeVault, writeVaultSource } from './__fixtures__/write'
+import { UNITY, writeVault, writeVaultSource } from './__fixtures__/write'
+import { ATOMS_B, SHAPE_A, SHAPE_B, SHAPE_TITLE, atomRow } from './__fixtures__/projects'
 
 const vault = buildVault(vaultSource())
 
@@ -169,5 +170,33 @@ describe('education candidates are degrees and diplomas only', () => {
     // ... and is offered as a certification candidate instead, flagged as coming from Education.
     const certs = buildCandidates(buildVault(src), new Date('2026-11-18T00:00:00Z')).certifications
     expect(certs.find((c) => c.label.includes('On-screen Presenting'))).toMatchObject({ fromEducation: true, detail: expect.stringContaining('Evening Media School') })
+  })
+})
+
+describe('buildCandidates: project notes and atoms', () => {
+  const v = writeVault([SHAPE_A, SHAPE_B, SHAPE_TITLE])
+  const c = buildCandidates(v)
+
+  it('is thin only for the title-only project', () => {
+    expect(c.projects.map((p) => [p.id, p.thin])).toEqual([['pa', false], ['pbk', false], ['pt', true]])
+  })
+
+  it('offers each project atom to its role employer, with its real id and a fromProject marker', () => {
+    const unity = c.employers.find((e) => e.key === UNITY)!
+    const from = unity.activities.filter((a) => a.fromProject)
+    expect(from.map((a) => a.id).sort()).toEqual(ATOMS_B.map((a) => a.id).sort())
+    expect(from.every((a) => a.experienceId === 'e-u2' && a.fromProject!.name === 'Campaign Platform')).toBe(true)
+    expect(candidatesToPrompt(c)).toContain('(from project Campaign Platform)')
+    expect(labelIndex(c).get('pb-a2')).toContain('Rebuilt the operating model')
+  })
+
+  it('does not duplicate a role activity with the same text', () => {
+    const dup = writeVault([{ ...SHAPE_B, activities: [atomRow('dup', 'Shipped 12 titles on schedule')] }])
+    expect(buildCandidates(dup).employers.flatMap((e) => e.activities).filter((a) => a.text === 'Shipped 12 titles on schedule')).toHaveLength(1)
+  })
+
+  it('keeps independent projects and archived projects out of the activity pool', () => {
+    const v2 = writeVault([{ ...SHAPE_B, experienceId: null }, { ...SHAPE_B, id: 'arch', status: 'archived', activities: [atomRow('z1', 'Zeta result 5%')] }])
+    expect(buildCandidates(v2).employers.flatMap((e) => e.activities).some((a) => a.fromProject)).toBe(false)
   })
 })

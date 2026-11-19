@@ -3,6 +3,7 @@ import { buildVault } from '@/modules/profile-map/build'
 import { vaultSource } from '@/modules/profile-map/__fixtures__/source'
 import { BLIZZARD, OLD_CO, UNITY, projectRow, writeSelection, writeVault, writeVaultSource } from '../__fixtures__/write'
 import { evidenceFromVault, evidenceTexts } from './evidence'
+import { SHAPE_A, SHAPE_B, SHAPE_TITLE } from '../__fixtures__/projects'
 
 describe('evidenceFromVault', () => {
   const vault = writeVault()
@@ -195,5 +196,32 @@ describe('projects ride along as evidence for the employer they belong to', () =
     const e = evidenceFromVault(v, writeSelection(v))
     expect(e.employers.some((emp) => (emp.overview ?? '').length > 100)).toBe(true)
     for (const emp of e.employers) expect((emp.overview ?? '').length).toBeLessThanOrEqual(600)
+  })
+})
+
+describe('evidenceFromVault: project notes and atoms', () => {
+  const v = writeVault([SHAPE_A, SHAPE_B, SHAPE_TITLE])
+  const sel = (bullets: string[]) => {
+    const s = writeSelection(v)
+    s.projects = [{ id: 'pa', reason: '' }, { id: 'pbk', reason: '' }, { id: 'pt', reason: '' }] as never
+    s.employers[0].bullets = [...s.employers[0].bullets, ...bullets.map((id) => ({ id, reason: '' }))] as never
+    return s
+  }
+
+  it('gives the writer the notes digest and atoms, and marks only the title-only project thin', () => {
+    const ev = evidenceFromVault(v, sel([]))
+    const ps = ev.employers.find((e) => e.employer.key === UNITY)!.projects
+    expect(ps.map((p) => [p.id, p.thin])).toEqual([['pa', false], ['pbk', false], ['pt', true]])
+    expect(ps.find((p) => p.id === 'pa')!.text).toContain('~1,400 requests')
+    expect(ps.find((p) => p.id === 'pbk')!.text).toContain('3 weeks to 1 hour')
+  })
+
+  it('leaves atoms already selected as bullets out of the project text, and says so', () => {
+    const ev = evidenceFromVault(v, sel(['pb-a2']))
+    const unity = ev.employers.find((e) => e.employer.key === UNITY)!
+    expect(unity.activities.map((a) => a.id)).toContain('pb-a2')
+    expect(unity.projects.find((p) => p.id === 'pbk')!.text).not.toContain('Rebuilt the operating model')
+    expect(ev.projectNotes?.join(' ')).toContain('Campaign Platform')
+    expect(evidenceTexts(unity).join('\n')).toContain('75% lead-time cut')
   })
 })

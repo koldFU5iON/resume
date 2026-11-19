@@ -11,6 +11,20 @@ import {
 
 const kinds = (fs: { kind: string }[]) => fs.map((f) => f.kind)
 
+describe('checkThinNarratives: project notes and atoms', () => {
+  it('does not flag a project with an empty description and a long notes body, or one with a short description, long notes and atoms', () => {
+    const v = vaultOf({ projects: [
+      project('pa', 'Support Assistant', '', { notes: '## Problem\n\nStaff answered the same questions by hand.\n\n## Results\n\n- Handled ~1,400 requests in the first quarter.' }),
+      project('pb', 'Campaign Platform', 'A platform.', { activities: [activity('x1', { projectId: 'pb' }, 'achievement', 'Rebuilt the operating model for the campaign pages', 'turnaround 3 weeks to 1 hour')] }),
+    ] })
+    expect(checkThinNarratives(v, NOW).map((f) => f.noteId)).not.toContain('pa')
+    expect(checkThinNarratives(v, NOW).map((f) => f.noteId)).not.toContain('pb')
+  })
+  it('still flags a title-only project', () => {
+    expect(checkThinNarratives(vaultOf({ projects: [project('pt', 'Atlas', 'Atlas.')] }), NOW).map((f) => f.noteId)).toEqual(['pt'])
+  })
+})
+
 describe('checkThinNarratives', () => {
   it('flags a project with only its title, naming it and asking for what and result', () => {
     const f = checkThinNarratives(messyImport(), NOW).find((x) => x.noteId === 'pr1')!

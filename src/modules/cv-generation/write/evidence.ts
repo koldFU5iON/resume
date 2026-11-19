@@ -15,6 +15,7 @@ import type { Vault } from '@/modules/profile-map/types'
 import { makeContactScrubber } from '@/modules/profile-map/pii'
 import { stripWikilinks } from '@/modules/profile-map/links'
 import { buildCandidates, type CandidateActivity } from '../candidates'
+import { activityPromptText, projectEvidenceText } from '../project-evidence'
 import type { CvSelection, SelectedEmployer } from '../schema'
 import { capOverview, capProjectText } from './limits'
 import { certificationStatus, educationStatus, isClaimedCapability } from './status'
@@ -23,8 +24,10 @@ import { certificationStatus, educationStatus, isClaimedCapability } from './sta
 export type ProjectEvidence = {
   id: string
   name: string
-  /** Description, then the highlights; contact-scrubbed. */
+  /** Description, a digest of the notes and the project's own atoms that are not bullets themselves; contact-scrubbed (project-evidence.ts). */
   text: string
+  /** Only a title to write from (project-evidence.ts); undefined = decide from `text`. */
+  thin?: boolean
 }
 
 export type EmployerEvidence = {
@@ -85,6 +88,8 @@ export type Evidence = {
   unroutedProjects: Array<{ name: string; why: string }>
   /** Selected items whose id is no longer in the profile (edited since the run), by section: noted, never invented. */
   unresolved: Array<{ section: string; id: string }>
+  /** Log notes about project evidence (atoms left out of a project's text because they are bullets of their own). */
+  projectNotes?: string[]
   /** Every certification and qualification name in the profile, with whether it is still in progress: what a writer must not present as held. */
   credentials: Array<{ name: string; inProgress: boolean }>
 }
@@ -172,17 +177,19 @@ export function evidenceFromVault(vault: Vault, selection: CvSelection, now: Dat
   // Selected projects ride along with the employer they belong to. None is dropped silently: an unroutable one is reported.
   const unroutedProjects: Evidence['unroutedProjects'] = []
   const unresolved: Evidence['unresolved'] = []
+  const projectNotes: string[] = []
   for (const { id } of selection.projects) {
     const n = vault.notes.get(id)
     if (n?.type !== 'project') { unresolved.push({ section: 'projects', id }); continue }
     const routed = routeProject(employers, n.props)
     const label = n.props.name
     if (!('index' in routed)) { unroutedProjects.push({ name: label, why: routed.why }); continue }
-    employers[routed.index].projects.push({
-      id,
-      name: label,
-      text: [n.props.description, ...n.props.highlights].map((t) => clean(String(t))).filter(Boolean).join('\n'),
-    })
+    // An atom that is already a bullet of this employer is not repeated in the project's text.
+    const taken = new Set(employers[routed.index].activities.map((a) => a.id))
+    const { text, atoms, thin } = projectEvidenceText(n, vault, { excludeAtomIds: taken })
+    const dropped = atoms.filter((a) => taken.has(a.id)).length
+    if (dropped > 0) projectNotes.push(`Project "${label}": ${dropped === 1 ? '1 achievement is' : `${dropped} achievements are`} already a bullet of its own, so ${dropped === 1 ? 'it is' : 'they are'} not repeated in the project text.`)
+    employers[routed.index].projects.push({ id, name: label, text, thin })
   }
 
   const caps = (ids: ReadonlyArray<{ id: string }>, section: string): CapabilityEvidence[] =>
@@ -233,18 +240,17 @@ export function evidenceFromVault(vault: Vault, selection: CvSelection, now: Dat
     ].filter((c) => c.name.trim().length >= 2),
     unroutedProjects,
     unresolved,
+    projectNotes,
     claimedNames: notesOf(vault, 'capability').filter((c) => isClaimedCapability(vault, c, now)).map((c) => c.props.name),
   }
 }
 
 /**
  * The text of one activity exactly as the experience writer is shown it
- * (without its E-label). The Review stage uses the same function, so the
- * reviewer judges a bullet against what the writer could see.
+ * (without its E-label); project-evidence.ts. The Review stage uses the same
+ * function, so the reviewer judges a bullet against what the writer could see.
  */
-export function activityPromptText(a: Pick<CandidateActivity, 'kind' | 'text' | 'impact'>): string {
-  return `${a.kind}: ${a.text}${a.impact ? ` — impact: ${a.impact}` : ''}`
-}
+export { activityPromptText }
 
 /** A project's text exactly as the experience writer is shown it (capped at PROJECT_EVIDENCE_MAX_CHARS). */
 export function projectPromptText(p: Pick<ProjectEvidence, 'text'>): string {
