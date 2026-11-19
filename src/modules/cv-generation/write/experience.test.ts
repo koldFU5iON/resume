@@ -1073,7 +1073,7 @@ describe('polish 2: overview as summary evidence, project slots', () => {
   it('a bullet that states the same figure with no activity evidence still retries', () => {
     const a = analyseExperience({ summary: 'Runs a catalogue of 100+ titles.', bullets: ['Launched 100+ titles across 10-15 markets.', good.bullets[1], good.bullets[2]] }, ctx(), withOverview)
     expect(a.unsupported.join(' ')).toMatch(/100/)
-    expect(a.why.join(' ')).toMatch(/figure .* not in evidence/)
+    expect((a.why ?? []).join(' ')).toMatch(/figure .* not in evidence/)
     const summaryOnly = analyseExperience({ summary: 'Runs a catalogue of 100+ titles.', bullets: good.bullets }, ctx(), withOverview)
     expect(summaryOnly.unsupported).toEqual([])
   })
@@ -1089,13 +1089,13 @@ describe('polish 2: overview as summary evidence, project slots', () => {
     it('a bullet that merges a project into an unrelated activity is a retry reason', () => {
       const merged = { summary: 'Ran release and planning.', bullets: [{ text: 'Ran the quarterly planning cycle and delivered the Annual Conference Keynote.', sources: ['E2', 'P1'] }, good.bullets[0], good.bullets[2]] }
       const a = analyseExperience(merged, pctx, emp)
-      expect(a.why.join(' ')).toMatch(/project merged into an unrelated bullet 1/)
+      expect((a.why ?? []).join(' ')).toMatch(/project merged into an unrelated bullet 1/)
       expect(a.soft.join(' ')).toMatch(/own bullet/)
     })
 
     it('an own bullet citing only the project is fine, and so is a bullet whose activity shares the project\'s subject', () => {
       const own = { summary: 'Ran release and planning.', bullets: [...good.bullets, { text: 'Presented the Annual Conference Keynote to global audiences.', sources: ['P1'] }] }
-      expect(analyseExperience(own, pctx, emp).why.join(' ')).not.toMatch(/unrelated/)
+      expect((analyseExperience(own, pctx, emp).why ?? []).join(' ')).not.toMatch(/unrelated/)
     })
   })
 })

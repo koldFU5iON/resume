@@ -73,7 +73,7 @@ export function substantiveProjects<P extends { name: string; text?: string }>(p
  * adds nothing. An employer with only project evidence (no activities) may
  * still have one bullet.
  */
-export function bulletAllowance(emp: Pick<EmployerEvidence, 'activities' | 'projects'>, _brief?: Pick<CvBrief, 'leadWith'>): number {
+export function bulletAllowance(emp: Pick<EmployerEvidence, 'activities' | 'projects'>): number {
   const extra = substantiveProjects(emp.projects).length * PROJECT_EXTRA_BULLETS
   return Math.max(emp.activities.length + extra, emp.projects.length > 0 ? 1 : 0)
 }

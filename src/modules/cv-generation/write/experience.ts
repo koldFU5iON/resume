@@ -62,7 +62,7 @@ ${JSON.stringify(z.toJSONSchema(ExperienceOutputSchema, { io: 'input' }))}
 
 /** The user message of an experience call. Pure; carries no name, employer, title or contact detail. */
 export function experiencePrompt(ctx: Pick<WriteContext, 'brief' | 'strategy'>, emp: EmployerEvidence): string {
-  const max = bulletAllowance(emp, ctx.brief)
+  const max = bulletAllowance(emp)
   const leads = new Map(leadWithProjects(emp.projects, ctx.brief.leadWith).map((l) => [l.name, l]))
   // Short stable labels (E1.., P1..), never the real ids: the writer cites them per bullet and code maps them back (provenance.ts).
   const items = emp.activities.map((a, i) => `[E${i + 1}] ${activityPromptText(a)}${a.highlighted ? ' (the candidate highlighted this)' : ''}`)
@@ -154,7 +154,7 @@ export function analyseExperience(out: ExperienceOutput, ctx: Pick<WriteContext,
   const unknownSources = resolved.reduce((n, r) => n + r.unknown, 0)
   const texts = evidenceTexts(emp)
   const evidenceText = texts.join('\n')
-  const max = bulletAllowance(emp, ctx.brief)
+  const max = bulletAllowance(emp)
 
   // Not plain (or first person): retried once with feedback like any soft problem; the kept text is cleaned either way.
   // Verbatim names from the candidate's own text ("My Talking Tom launch") are not first person.
@@ -266,7 +266,7 @@ export function fallbackExperience(emp: EmployerEvidence): { summary: string; bu
 
 /** Writes one employer's entry. Throws LLMError (invalid_output, timeout, ...). */
 export async function writeExperience(ctx: WriteContext, emp: EmployerEvidence, instructions: { rules: string; brief: string | null; prompt: string }): Promise<ExperienceOutcome> {
-  const allowance = bulletAllowance(emp, ctx.brief)
+  const allowance = bulletAllowance(emp)
   const caps = experienceTokenCaps(allowance, emp.projects.length > 0)
   const call = await completeChecked(ctx.profileId, experiencePrompt(ctx, emp), ExperienceOutputSchema, {
     role: 'default',
