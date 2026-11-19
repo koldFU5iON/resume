@@ -61,7 +61,7 @@ async function main() {
       }),
       prisma.project.findMany({
         where: { profileId: profile.id },
-        select: { id: true, name: true, experienceId: true },
+        select: { id: true, name: true, experienceId: true, notes: true, revision: true },
         orderBy: { name: 'asc' },
       }),
       // Activities belong to the profile through their role or their project.

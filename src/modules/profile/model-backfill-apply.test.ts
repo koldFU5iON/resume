@@ -4,7 +4,7 @@ import { applyFold, foldFingerprint, summarisePlan, type BackfillTx } from './mo
 
 const input = (over: Partial<BackfillInput> = {}): BackfillInput => ({
   experiences: [{ id: 'e1', company: 'Co', role: 'Lead', type: 'employment', summary: '## Achievements\n- x', revision: 4 }],
-  projects: [{ id: 'p1', name: 'Launch', experienceId: 'e1' }],
+  projects: [{ id: 'p1', name: 'Launch', experienceId: 'e1', notes: '', revision: 2 }],
   activities: [
     { id: 'a1', kind: 'achievement', description: 'Shipped the launch', experienceId: null, projectId: 'p1' },
     { id: 'a2', kind: 'responsibility', description: 'Owned the regional budget', experienceId: 'e1', projectId: null },
@@ -12,7 +12,10 @@ const input = (over: Partial<BackfillInput> = {}): BackfillInput => ({
   ...over,
 })
 
-const tx = () => ({ experience: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) } }) satisfies BackfillTx
+const tx = () => ({
+  experience: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+  project: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+}) satisfies BackfillTx
 
 describe('applyFold', () => {
   let t: ReturnType<typeof tx>
@@ -30,6 +33,25 @@ describe('applyFold', () => {
     expect(call.data).toMatchObject({ notesUpdatedAt: now, revision: { increment: 1 } })
     expect(call.data.summary.startsWith('## Achievements\n- x')).toBe(true)
     expect(call.data.summary).toContain('- Owned the regional budget')
+  })
+
+  it('folds a project-only responsibility into the project note, guarded by profile and revision', async () => {
+    const i = input({ activities: [{ id: 'a9', kind: 'responsibility', description: 'Ran the tour logistics', experienceId: null, projectId: 'p1' }] })
+    const report = planBackfill(i)
+    const res = await applyFold(t, 'prof1', i, report, foldFingerprint(report, i))
+    expect(res).toEqual({ notesFolded: 1, responsibilitiesFolded: 1 })
+    expect(t.experience.updateMany).not.toHaveBeenCalled()
+    const call = t.project.updateMany.mock.calls[0][0]
+    expect(call.where).toEqual({ id: 'p1', profileId: 'prof1', revision: 2 })
+    expect(call.data).toMatchObject({ revision: { increment: 1 } })
+    expect(call.data.notes).toContain('- Ran the tour logistics')
+  })
+
+  it('aborts when a project note was edited meanwhile', async () => {
+    t.project.updateMany.mockResolvedValue({ count: 0 })
+    const i = input({ activities: [{ id: 'a9', kind: 'responsibility', description: 'Ran the tour logistics', experienceId: null, projectId: 'p1' }] })
+    const report = planBackfill(i)
+    await expect(applyFold(t, 'prof1', i, report, foldFingerprint(report, i))).rejects.toThrow(/project "Launch" changed/)
   })
 
   it('refuses when what would be written is not what was approved, and writes nothing', async () => {

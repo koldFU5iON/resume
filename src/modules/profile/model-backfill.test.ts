@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { FOLD_LEAD_IN, foldIntoOverview, formatReport, isNearDuplicate, planBackfill, type BackfillInput } from './model-backfill'
 
 const exp = (id: string, summary = '', type = 'employment') => ({ id, company: `Co ${id}`, role: `Role ${id}`, type, summary, revision: 1 })
-const proj = (id: string, experienceId: string | null) => ({ id, name: `Project ${id}`, experienceId })
+const proj = (id: string, experienceId: string | null, notes = '') => ({ id, name: `Project ${id}`, experienceId, notes, revision: 1 })
 let n = 0
 const act = (over: Partial<BackfillInput['activities'][number]>) => ({
   id: `a${++n}`, kind: 'achievement', description: `did thing ${n}`, experienceId: null, projectId: null, ...over,
@@ -89,15 +89,42 @@ describe('planBackfill', () => {
   describe('responsibility fold', () => {
     const resp = (over: Partial<BackfillInput['activities'][number]>) => act({ kind: 'responsibility', ...over })
 
-    it('folds role responsibilities, and those that reach a role through a project', () => {
+    it('folds a role\'s own responsibilities into the role, and a project-only one into the project note', () => {
       const r = planBackfill({
         experiences: [exp('e1', '## Achievements\n- shipped x')],
-        projects: [proj('p1', 'e1')],
+        projects: [proj('p1', 'e1', '## Overview\nThe launch.')],
         activities: [resp({ experienceId: 'e1', description: 'Ran weekly reporting' }), resp({ projectId: 'p1', description: 'Owned the calendar' })],
       })
       expect(r.folds).toHaveLength(1)
-      expect(r.folds[0].responsibilities).toEqual(['Ran weekly reporting', 'Owned the calendar'])
-      expect(r.folds[0].after).toContain(`${FOLD_LEAD_IN}\n- Ran weekly reporting\n- Owned the calendar`)
+      expect(r.folds[0].responsibilities).toEqual(['Ran weekly reporting'])
+      expect(r.folds[0].after).toContain(`${FOLD_LEAD_IN}\n- Ran weekly reporting`)
+      expect(r.folds[0].after).not.toContain('Owned the calendar')
+      expect(r.projectFolds).toHaveLength(1)
+      expect(r.projectFolds[0]).toMatchObject({ projectId: 'p1', responsibilities: ['Owned the calendar'], placement: 'existing_overview', before: '## Overview\nThe launch.' })
+      expect(r.projectFolds[0].after).toBe(`## Overview\nThe launch.\n\n${FOLD_LEAD_IN}\n- Owned the calendar`)
+      expect(formatReport(r)).toContain('project "Project p1": added to the end of its existing ## Overview')
+    })
+    it('a responsibility with both a role and a project belongs to the role, not the project note', () => {
+      const r = planBackfill({
+        experiences: [exp('e1')], projects: [proj('p1', 'e1')],
+        activities: [resp({ experienceId: 'e1', projectId: 'p1', description: 'Owned the calendar' })],
+      })
+      expect(r.folds[0].responsibilities).toEqual(['Owned the calendar'])
+      expect(r.projectFolds).toEqual([])
+    })
+    it('checks project responsibilities against the project achievements only, and is idempotent', () => {
+      const long = 'Developed the concept for a European media tour bringing the game to journalists via two custom chests'
+      const r = planBackfill({
+        experiences: [exp('e1')], projects: [proj('p1', 'e1'), proj('p2', 'e1')],
+        activities: [act({ projectId: 'p1', description: long + ', each holding four consoles' }), resp({ projectId: 'p1', description: long }), resp({ projectId: 'p2', description: long })],
+      })
+      expect(r.nearDuplicates).toMatchObject([{ projectId: 'p1', owner: 'project "Project p1"', responsibility: long }])
+      expect(r.projectFolds.map((f) => f.projectId)).toEqual(['p2'])
+      const again = planBackfill({
+        experiences: [exp('e1')], projects: [proj('p1', 'e1'), { ...proj('p2', 'e1'), notes: r.projectFolds[0].after }],
+        activities: [resp({ projectId: 'p2', description: long })],
+      })
+      expect(again.projectFolds).toEqual([])
     })
     it('skips wording already in the Overview, repeats, blanks and achievements', () => {
       const r = planBackfill({

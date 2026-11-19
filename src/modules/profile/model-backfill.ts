@@ -8,7 +8,7 @@
 // only after the owner has read this report.
 
 export type BackfillExperience = { id: string; company: string; role: string; type: string; summary: string; revision: number }
-export type BackfillProject = { id: string; name: string; experienceId: string | null }
+export type BackfillProject = { id: string; name: string; experienceId: string | null; notes: string; revision: number }
 export type BackfillActivity = {
   id: string
   kind: string
@@ -47,7 +47,7 @@ export type BackfillReport = {
     projectName: string
     projectExperienceId: string
   }[]
-  /** Roles whose responsibilities would be folded into the Overview text. */
+  /** Roles whose own responsibilities would be folded into the Overview text. */
   folds: ({
     /** Responsibilities that would be added to the Overview. */
     responsibilities: string[]
@@ -61,10 +61,24 @@ export type BackfillReport = {
     before: string
     after: string
   } & Role)[]
-  /** Responsibilities left out of the fold because an achievement in the same role already says almost the same thing. Nothing is lost: the achievement keeps the wording. */
-  nearDuplicates: ({ responsibility: string; achievementId: string; achievement: string } & Role)[]
-  /** Roles left out of the fold because their note was already folded once; they still have responsibilities not in the Overview. */
-  foldsSkipped: ({ reason: 'already_folded'; responsibilities: string[] } & Role)[]
+  /**
+   * Responsibilities that belong only to a project (no role of their own) are folded into that project's
+   * note, not into the role's: they describe the project. The same rules apply as for a role.
+   */
+  projectFolds: {
+    projectId: string
+    name: string
+    responsibilities: string[]
+    alreadyInNote: string[]
+    placement: 'existing_overview' | 'new_section'
+    addition: string
+    before: string
+    after: string
+  }[]
+  /** Responsibilities left out of the fold because an achievement of the same role or project already says almost the same thing. Nothing is lost: the achievement keeps the wording. */
+  nearDuplicates: { owner: string; experienceId?: string; projectId?: string; responsibility: string; achievementId: string; achievement: string }[]
+  /** Notes left out of the fold because they were already folded once; they still have responsibilities not in the Overview. */
+  foldsSkipped: { owner: string; experienceId?: string; projectId?: string; reason: 'already_folded'; responsibilities: string[] }[]
   counts: {
     experiences: number
     independentExperiences: number
@@ -149,6 +163,44 @@ export function foldIntoOverview(
   return { addition: block, after, placement: 'existing_overview' }
 }
 
+type FoldPlan =
+  | { skip: 'nothing' }
+  | { skip: 'already_folded'; responsibilities: string[] }
+  | { skip?: undefined; responsibilities: string[]; alreadyInNote: string[]; placement: 'existing_overview' | 'new_section'; addition: string; after: string }
+
+/**
+ * What to do with one note: which responsibilities go into its Overview, which are already there,
+ * and which an achievement (of the same role or project) already restates.
+ */
+function planNoteFold(
+  note: string,
+  responsibilities: { description: string }[],
+  achievements: { id: string; description: string }[],
+  onNearDuplicate: (d: { responsibility: string; achievementId: string; achievement: string }) => void,
+): FoldPlan {
+  // "Already there" means the same line is in the Overview, not merely somewhere in the note: text under a
+  // Responsibilities heading still has to reach the Overview.
+  const inOverview = overviewLines(note)
+  const seen = new Set<string>()
+  const toAdd: string[] = []
+  const alreadyInNote: string[] = []
+  for (const a of responsibilities) {
+    const text = a.description.trim()
+    if (!text) continue
+    const key = normalize(text)
+    if (seen.has(key)) continue
+    seen.add(key)
+    if (inOverview.has(key)) { alreadyInNote.push(text); continue }
+    const twin = achievements.find((x) => isNearDuplicate(text, x.description))
+    if (twin) { onNearDuplicate({ responsibility: text, achievementId: twin.id, achievement: twin.description }); continue }
+    toAdd.push(text)
+  }
+  if (!toAdd.length) return { skip: 'nothing' }
+  if (note.includes(FOLD_LEAD_IN)) return { skip: 'already_folded', responsibilities: toAdd }
+  const { addition, after, placement } = foldIntoOverview(note, toAdd)
+  return { responsibilities: toAdd, alreadyInNote, placement, addition, after }
+}
+
 export function planBackfill(input: BackfillInput): BackfillReport {
   const experienceById = new Map(input.experiences.map((e) => [e.id, e]))
   const projectById = new Map(input.projects.map((p) => [p.id, p]))
@@ -167,14 +219,16 @@ export function planBackfill(input: BackfillInput): BackfillReport {
   const activitiesToAssign: BackfillReport['activitiesToAssign'] = []
   const activitiesUnresolved: BackfillReport['activitiesUnresolved'] = []
   const activitiesMismatched: BackfillReport['activitiesMismatched'] = []
-  // The role each activity will end up with, for the responsibility fold.
+  // The role each activity will end up with (for matching achievements), and the activities that have a role of their own.
   const effectiveRole = new Map<string, string>()
+  const ownRole = new Map<string, string>()
 
   for (const a of input.activities) {
     const project = a.projectId ? projectById.get(a.projectId) ?? null : null
     const owner = a.experienceId && experienceById.has(a.experienceId) ? a.experienceId : null
     if (owner) {
       effectiveRole.set(a.id, owner)
+      ownRole.set(a.id, owner)
       if (project?.experienceId && project.experienceId !== owner && experienceById.has(project.experienceId)) {
         activitiesMismatched.push({
           id: a.id, description: a.description, experienceId: owner,
@@ -197,38 +251,29 @@ export function planBackfill(input: BackfillInput): BackfillReport {
   }
 
   const folds: BackfillReport['folds'] = []
+  const projectFolds: BackfillReport['projectFolds'] = []
   const foldsSkipped: BackfillReport['foldsSkipped'] = []
   const nearDuplicates: BackfillReport['nearDuplicates'] = []
+
   for (const e of input.experiences) {
-    const mine = input.activities.filter((a) => a.kind === 'responsibility' && effectiveRole.get(a.id) === e.id && a.description.trim())
+    const owner = `${e.role} at ${e.company}`
+    const mine = input.activities.filter((a) => a.kind === 'responsibility' && ownRole.get(a.id) === e.id)
     if (!mine.length) continue
-    // "Already there" means the same line is in the Overview, not merely somewhere in the note: text under a
-    // Responsibilities heading still has to reach the Overview.
-    const inOverview = overviewLines(e.summary)
     const achievements = input.activities.filter((a) => a.kind === 'achievement' && effectiveRole.get(a.id) === e.id)
-    const seen = new Set<string>()
-    const toAdd: string[] = []
-    const alreadyInNote: string[] = []
-    for (const a of mine) {
-      const text = a.description.trim()
-      const key = normalize(text)
-      if (seen.has(key)) continue
-      seen.add(key)
-      if (inOverview.has(key)) { alreadyInNote.push(text); continue }
-      const twin = achievements.find((x) => isNearDuplicate(text, x.description))
-      if (twin) {
-        nearDuplicates.push({ experienceId: e.id, company: e.company, role: e.role, responsibility: text, achievementId: twin.id, achievement: twin.description })
-        continue
-      }
-      toAdd.push(text)
-    }
-    if (!toAdd.length) continue
-    if (e.summary.includes(FOLD_LEAD_IN)) {
-      foldsSkipped.push({ experienceId: e.id, company: e.company, role: e.role, reason: 'already_folded', responsibilities: toAdd })
-      continue
-    }
-    const { addition, after, placement } = foldIntoOverview(e.summary, toAdd)
-    folds.push({ experienceId: e.id, company: e.company, role: e.role, responsibilities: toAdd, alreadyInNote, placement, addition, before: e.summary, after })
+    const plan = planNoteFold(e.summary, mine, achievements, (d) => nearDuplicates.push({ owner, experienceId: e.id, ...d }))
+    if (plan.skip === 'already_folded') foldsSkipped.push({ owner, experienceId: e.id, reason: 'already_folded', responsibilities: plan.responsibilities })
+    else if (!plan.skip) folds.push({ experienceId: e.id, company: e.company, role: e.role, responsibilities: plan.responsibilities, alreadyInNote: plan.alreadyInNote, placement: plan.placement, addition: plan.addition, before: e.summary, after: plan.after })
+  }
+
+  for (const p of input.projects) {
+    const owner = `project "${p.name}"`
+    // Only responsibilities that have no role of their own: those belong to the project.
+    const mine = input.activities.filter((a) => a.kind === 'responsibility' && a.projectId === p.id && !ownRole.has(a.id))
+    if (!mine.length) continue
+    const achievements = input.activities.filter((a) => a.kind === 'achievement' && a.projectId === p.id)
+    const plan = planNoteFold(p.notes, mine, achievements, (d) => nearDuplicates.push({ owner, projectId: p.id, ...d }))
+    if (plan.skip === 'already_folded') foldsSkipped.push({ owner, projectId: p.id, reason: 'already_folded', responsibilities: plan.responsibilities })
+    else if (!plan.skip) projectFolds.push({ projectId: p.id, name: p.name, responsibilities: plan.responsibilities, alreadyInNote: plan.alreadyInNote, placement: plan.placement, addition: plan.addition, before: p.notes, after: plan.after })
   }
 
   return {
@@ -237,6 +282,7 @@ export function planBackfill(input: BackfillInput): BackfillReport {
     activitiesUnresolved,
     activitiesMismatched,
     folds,
+    projectFolds,
     foldsSkipped,
     nearDuplicates,
     counts: {
@@ -282,19 +328,24 @@ export function formatReport(r: BackfillReport): string {
   for (const a of r.activitiesMismatched) out.push(`   - [${a.projectName}] ${clip(a.description)}  (you decide which role is right)`)
   out.push('')
 
-  out.push(`5. Responsibilities to fold into a role's Overview: ${r.folds.reduce((n, f) => n + f.responsibilities.length, 0)} in ${r.folds.length} roles`)
+  out.push(`5. Responsibilities to fold into an Overview: ${r.folds.reduce((n, f) => n + f.responsibilities.length, 0)} in ${r.folds.length} roles, ${r.projectFolds.reduce((n, f) => n + f.responsibilities.length, 0)} in ${r.projectFolds.length} projects`)
   for (const f of r.folds) {
     const where = f.placement === 'existing_overview' ? 'added to the end of its existing ## Overview' : 'a new ## Overview section added at the end of the note'
     out.push(`   ${roleLabel(f)}: ${where}${f.alreadyInNote.length ? ` (${f.alreadyInNote.length} already in the Overview, skipped)` : ''}`)
     for (const line of f.addition.split('\n')) out.push(`   | ${line}`)
   }
+  for (const f of r.projectFolds) {
+    const where = f.placement === 'existing_overview' ? 'added to the end of its existing ## Overview' : 'a new ## Overview section added at the end of the note'
+    out.push(`   project "${f.name}": ${where}${f.alreadyInNote.length ? ` (${f.alreadyInNote.length} already in the Overview, skipped)` : ''}`)
+    for (const line of f.addition.split('\n')) out.push(`   | ${line}`)
+  }
   for (const f of r.foldsSkipped) {
-    out.push(`   ${roleLabel(f)}: NOT folded, its note was already folded once; ${f.responsibilities.length} newer responsibilities are not in the Overview`)
+    out.push(`   ${f.owner}: NOT folded, its note was already folded once; ${f.responsibilities.length} newer responsibilities are not in the Overview`)
   }
   out.push('')
   out.push(`6. Responsibilities left out because an achievement already says almost the same: ${r.nearDuplicates.length}`)
   for (const d of r.nearDuplicates) {
-    out.push(`   ${roleLabel(d)}`)
+    out.push(`   ${d.owner}`)
     out.push(`   | responsibility: ${clip(d.responsibility, 140)}`)
     out.push(`   | achievement:    ${clip(d.achievement, 140)}`)
   }

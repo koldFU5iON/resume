@@ -51,7 +51,7 @@ async function main() {
     const load = async (db: Pick<typeof prisma, 'experience' | 'project' | 'roleActivity'>) => {
       const [experiences, projects, rows] = await Promise.all([
         db.experience.findMany({ where: { profileId }, select: { id: true, company: true, role: true, type: true, summary: true, revision: true }, orderBy: { startDate: 'desc' } }),
-        db.project.findMany({ where: { profileId }, select: { id: true, name: true, experienceId: true }, orderBy: { name: 'asc' } }),
+        db.project.findMany({ where: { profileId }, select: { id: true, name: true, experienceId: true, notes: true, revision: true }, orderBy: { name: 'asc' } }),
         db.roleActivity.findMany({
           where: { OR: [{ experience: { profileId } }, { project: { profileId } }] },
           select: {
