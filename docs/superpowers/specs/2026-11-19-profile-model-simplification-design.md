@@ -156,7 +156,7 @@ Screens that shrink: the project note's own evidence list (it becomes a filtered
 
 | PR | Content | Needs owner |
 |---|---|---|
-| 1 | Migration A with a **dry-run backfill report** (projects with no role, activities with only a project, responsibilities to fold into Overview). No constraint tightened yet. | Approves the report |
+| 1 | (built: `npm run profile:backfill-report -- --profile <id\|email>`, read-only; migration adds only `Experience.type`) Migration A with a **dry-run backfill report** (projects with no role, activities with only a project, responsibilities to fold into Overview). No constraint tightened yet. | Approves the report |
 | 2 | Apply constraints and the Overview fold, `type` flag, "Independent projects" creation, date/gap checks skip it | Chooses the experience's name |
 | 3 | Achievement form: project dropdown, grouping on the role page, Move reduced to role picker; project note becomes a filtered view | None |
 | 4 | **Clean-and-extract draft layer** (§9): extraction proposes cleaned achievements with result and project, a saved draft with edit, accept and skip, de-duplication against all the role's achievements | None (extraction prompts are profile capture, not generator prompts) |
