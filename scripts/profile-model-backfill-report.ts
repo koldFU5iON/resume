@@ -42,12 +42,16 @@ async function main() {
   const { planBackfill, formatReport } = await import('../src/modules/profile/model-backfill')
 
   try {
+    // An id, or the sign-in email of the account. (Profile.email is an editable contact address and not unique.)
     const who = values.profile!
-    const profile = await prisma.profile.findFirst({
-      where: { OR: [{ id: who }, { email: who }, { user: { email: who } }] },
+    const matches = await prisma.profile.findMany({
+      where: { OR: [{ id: who }, { user: { email: who } }] },
       select: { id: true },
+      take: 2,
     })
-    if (!profile) fail('No profile found for that id or email.')
+    if (matches.length === 0) fail('No profile found for that id or sign-in email.')
+    if (matches.length > 1) fail('More than one profile matches. Use the profile id.')
+    const profile = matches[0]
 
     const [experiences, projects, activities] = await Promise.all([
       prisma.experience.findMany({
@@ -63,12 +67,22 @@ async function main() {
       // Activities belong to the profile through their role or their project.
       prisma.roleActivity.findMany({
         where: { OR: [{ experience: { profileId: profile.id } }, { project: { profileId: profile.id } }] },
-        select: { id: true, kind: true, description: true, experienceId: true, projectId: true },
+        select: {
+          id: true, kind: true, description: true, experienceId: true, projectId: true,
+          experience: { select: { profileId: true } }, project: { select: { profileId: true } },
+        },
         orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
       }),
     ])
 
-    const report = planBackfill({ experiences, projects, activities })
+    // A row whose role and project belong to different profiles is corrupt; leave it out and say so.
+    const crossProfile = activities.filter((a) => a.experience && a.project && a.experience.profileId !== a.project.profileId)
+    if (crossProfile.length) console.warn(`WARNING: ${crossProfile.length} activities link a role and a project of different profiles and are left out of this report.\n`)
+    const clean = activities
+      .filter((a) => !crossProfile.includes(a))
+      .map(({ id, kind, description, experienceId, projectId }) => ({ id, kind, description, experienceId, projectId }))
+
+    const report = planBackfill({ experiences, projects, activities: clean })
     console.log(values.json ? JSON.stringify(report, null, 2) : formatReport(report))
   } finally {
     await prisma.$disconnect()

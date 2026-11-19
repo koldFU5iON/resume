@@ -27,7 +27,7 @@ type Role = { experienceId: string; company: string; role: string }
 
 export type BackfillReport = {
   /** Projects with no role. Only the owner can choose where each goes (default offered: Independent projects). */
-  projectsWithoutRole: { id: string; name: string; activityCount: number }[]
+  projectsWithoutRole: { id: string; name: string; activityCount: number; activitiesWithRole: number }[]
   /** Activities owned only by a project that has a role: they will take that role as their owner. */
   activitiesToAssign: ({ id: string; description: string; projectId: string; projectName: string } & Role)[]
   /** Activities that cannot get a role from the data alone. */
@@ -53,11 +53,16 @@ export type BackfillReport = {
     responsibilities: string[]
     /** Responsibilities whose wording is already in the note; nothing to add for these. */
     alreadyInNote: string[]
+    /** Where it goes: the end of the note's existing Overview section, or a new Overview section at the end of the note. */
+    placement: 'existing_overview' | 'new_section'
     /** The exact text appended to the note. */
     addition: string
-    /** The note after the fold. */
+    /** The note before and after the fold. */
+    before: string
     after: string
   } & Role)[]
+  /** Roles left out of the fold because their note was already folded once; they still have responsibilities not in the Overview. */
+  foldsSkipped: ({ reason: 'already_folded'; responsibilities: string[] } & Role)[]
   counts: {
     experiences: number
     independentExperiences: number
@@ -76,19 +81,36 @@ const ANY_HEADING = /^#{1,2}\s+\S/
 
 const normalize = (t: string) => t.toLowerCase().replace(/\s+/g, ' ').replace(/[\s.;:,]+$/, '').trim()
 
+/** The lines of the note's Overview section, as bullets or prose, normalised; empty when there is no Overview. */
+function overviewLines(summary: string): Set<string> {
+  const lines = summary.split(/\r?\n/)
+  const start = lines.findIndex((l) => OVERVIEW_HEADING.test(l.trim()))
+  const found = new Set<string>()
+  if (start === -1) return found
+  for (let i = start + 1; i < lines.length; i++) {
+    if (ANY_HEADING.test(lines[i].trim())) break
+    const text = normalize(lines[i].replace(/^\s*[-*]\s+/, ''))
+    if (text) found.add(text)
+  }
+  return found
+}
+
 /**
  * Adds a block of responsibilities to the Overview section of a note: at the end
  * of an existing `## Overview` section, or as a new `## Overview` section at the
  * end of the note. Wording is never changed. Returns the appended text and the
  * resulting note.
  */
-export function foldIntoOverview(summary: string, responsibilities: string[]): { addition: string; after: string } {
+export function foldIntoOverview(
+  summary: string,
+  responsibilities: string[],
+): { addition: string; after: string; placement: 'existing_overview' | 'new_section' } {
   const block = `${FOLD_LEAD_IN}\n${responsibilities.map((r) => `- ${r}`).join('\n')}`
   const lines = summary.split('\n')
   const start = lines.findIndex((l) => OVERVIEW_HEADING.test(l.trim()))
   if (start === -1) {
     const addition = `## Overview\n\n${block}`
-    return { addition, after: summary.trim() ? `${summary.replace(/\s+$/, '')}\n\n${addition}\n` : `${addition}\n` }
+    return { addition, placement: 'new_section', after: summary.trim() ? `${summary.replace(/\s+$/, '')}\n\n${addition}\n` : `${addition}\n` }
   }
   let end = lines.length
   for (let i = start + 1; i < lines.length; i++) {
@@ -100,7 +122,7 @@ export function foldIntoOverview(summary: string, responsibilities: string[]): {
   const before = lines.slice(0, insertAt)
   const rest = lines.slice(insertAt)
   const after = [...before, '', ...block.split('\n'), ...(rest.length && rest[0].trim() !== '' ? [''] : []), ...rest].join('\n')
-  return { addition: block, after }
+  return { addition: block, after, placement: 'existing_overview' }
 }
 
 export function planBackfill(input: BackfillInput): BackfillReport {
@@ -113,7 +135,10 @@ export function planBackfill(input: BackfillInput): BackfillReport {
 
   const projectsWithoutRole = input.projects
     .filter((p) => !p.experienceId || !experienceById.has(p.experienceId))
-    .map((p) => ({ id: p.id, name: p.name, activityCount: input.activities.filter((a) => a.projectId === p.id).length }))
+    .map((p) => {
+      const mine = input.activities.filter((a) => a.projectId === p.id)
+      return { id: p.id, name: p.name, activityCount: mine.length, activitiesWithRole: mine.filter((a) => a.experienceId && experienceById.has(a.experienceId)).length }
+    })
 
   const activitiesToAssign: BackfillReport['activitiesToAssign'] = []
   const activitiesUnresolved: BackfillReport['activitiesUnresolved'] = []
@@ -148,11 +173,13 @@ export function planBackfill(input: BackfillInput): BackfillReport {
   }
 
   const folds: BackfillReport['folds'] = []
+  const foldsSkipped: BackfillReport['foldsSkipped'] = []
   for (const e of input.experiences) {
-    if (e.summary.includes(FOLD_LEAD_IN)) continue
     const mine = input.activities.filter((a) => a.kind === 'responsibility' && effectiveRole.get(a.id) === e.id && a.description.trim())
     if (!mine.length) continue
-    const note = normalize(e.summary)
+    // "Already there" means the same line is in the Overview, not merely somewhere in the note: text under a
+    // Responsibilities heading still has to reach the Overview.
+    const inOverview = overviewLines(e.summary)
     const seen = new Set<string>()
     const toAdd: string[] = []
     const alreadyInNote: string[] = []
@@ -161,11 +188,15 @@ export function planBackfill(input: BackfillInput): BackfillReport {
       const key = normalize(text)
       if (seen.has(key)) continue
       seen.add(key)
-      ;(note.includes(key) ? alreadyInNote : toAdd).push(text)
+      ;(inOverview.has(key) ? alreadyInNote : toAdd).push(text)
     }
     if (!toAdd.length) continue
-    const { addition, after } = foldIntoOverview(e.summary, toAdd)
-    folds.push({ experienceId: e.id, company: e.company, role: e.role, responsibilities: toAdd, alreadyInNote, addition, after })
+    if (e.summary.includes(FOLD_LEAD_IN)) {
+      foldsSkipped.push({ experienceId: e.id, company: e.company, role: e.role, reason: 'already_folded', responsibilities: toAdd })
+      continue
+    }
+    const { addition, after, placement } = foldIntoOverview(e.summary, toAdd)
+    folds.push({ experienceId: e.id, company: e.company, role: e.role, responsibilities: toAdd, alreadyInNote, placement, addition, before: e.summary, after })
   }
 
   return {
@@ -174,6 +205,7 @@ export function planBackfill(input: BackfillInput): BackfillReport {
     activitiesUnresolved,
     activitiesMismatched,
     folds,
+    foldsSkipped,
     counts: {
       experiences: input.experiences.length,
       independentExperiences: input.experiences.filter((e) => e.type === 'independent').length,
@@ -198,7 +230,9 @@ export function formatReport(r: BackfillReport): string {
 
   out.push(`1. Projects with no role: ${r.projectsWithoutRole.length}`)
   if (r.projectsWithoutRole.length) out.push('   You choose where each goes. Default offered: "Independent projects".')
-  for (const p of r.projectsWithoutRole) out.push(`   - ${p.name} (${p.activityCount} activities)`)
+  for (const p of r.projectsWithoutRole) {
+    out.push(`   - ${p.name} (${p.activityCount} activities${p.activitiesWithRole ? `, ${p.activitiesWithRole} already have a role of their own: check it matches the role you choose` : ''})`)
+  }
   out.push('')
 
   out.push(`2. Activities owned only by a project (will take the project's role): ${r.activitiesToAssign.length}`)
@@ -217,8 +251,12 @@ export function formatReport(r: BackfillReport): string {
 
   out.push(`5. Responsibilities to fold into a role's Overview: ${r.folds.reduce((n, f) => n + f.responsibilities.length, 0)} in ${r.folds.length} roles`)
   for (const f of r.folds) {
-    out.push(`   ${roleLabel(f)}${f.alreadyInNote.length ? ` (${f.alreadyInNote.length} already in the note, skipped)` : ''}`)
+    const where = f.placement === 'existing_overview' ? 'added to the end of its existing ## Overview' : 'a new ## Overview section added at the end of the note'
+    out.push(`   ${roleLabel(f)}: ${where}${f.alreadyInNote.length ? ` (${f.alreadyInNote.length} already in the Overview, skipped)` : ''}`)
     for (const line of f.addition.split('\n')) out.push(`   | ${line}`)
+  }
+  for (const f of r.foldsSkipped) {
+    out.push(`   ${roleLabel(f)}: NOT folded, its note was already folded once; ${f.responsibilities.length} newer responsibilities are not in the Overview`)
   }
   return out.join('\n')
 }

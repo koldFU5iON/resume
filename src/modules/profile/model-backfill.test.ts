@@ -35,9 +35,18 @@ describe('planBackfill', () => {
       activities: [act({ projectId: 'p1' }), act({ projectId: 'p1' })],
     })
     expect(r.projectsWithoutRole).toEqual([
-      { id: 'p1', name: 'Project p1', activityCount: 2 },
-      { id: 'p2', name: 'Project p2', activityCount: 0 },
+      { id: 'p1', name: 'Project p1', activityCount: 2, activitiesWithRole: 0 },
+      { id: 'p2', name: 'Project p2', activityCount: 0, activitiesWithRole: 0 },
     ])
+  })
+
+  it('warns when activities of a role-less project already have a role of their own', () => {
+    const r = planBackfill({
+      experiences: [exp('e1')], projects: [proj('p1', null)],
+      activities: [act({ experienceId: 'e1', projectId: 'p1' }), act({ projectId: 'p1' })],
+    })
+    expect(r.projectsWithoutRole[0]).toMatchObject({ activityCount: 2, activitiesWithRole: 1 })
+    expect(formatReport(r)).toContain('1 already have a role of their own')
   })
 
   it('assigns a project-only activity to the project role, and leaves role-owned ones alone', () => {
@@ -82,9 +91,9 @@ describe('planBackfill', () => {
       expect(r.folds[0].responsibilities).toEqual(['Ran weekly reporting', 'Owned the calendar'])
       expect(r.folds[0].after).toContain(`${FOLD_LEAD_IN}\n- Ran weekly reporting\n- Owned the calendar`)
     })
-    it('skips wording already in the note, repeats, blanks and achievements', () => {
+    it('skips wording already in the Overview, repeats, blanks and achievements', () => {
       const r = planBackfill({
-        experiences: [exp('e1', '## Responsibilities\n- Ran weekly reporting.')],
+        experiences: [exp('e1', '## Overview\n- Ran weekly reporting.\n\n## Achievements\n- Cut cost 30%')],
         projects: [],
         activities: [
           resp({ experienceId: 'e1', description: 'ran  weekly reporting' }),
@@ -96,10 +105,25 @@ describe('planBackfill', () => {
       })
       expect(r.folds[0].responsibilities).toEqual(['Budget owner'])
       expect(r.folds[0].alreadyInNote).toEqual(['ran  weekly reporting'])
+      expect(r.folds[0].placement).toBe('existing_overview')
     })
-    it('adds nothing when everything is already in the note, or the note was already folded', () => {
+    it('still folds text that sits only under a Responsibilities heading', () => {
+      const note = '## Responsibilities\n- Ran weekly reporting'
+      const r = planBackfill({ experiences: [exp('e1', note)], projects: [], activities: [resp({ experienceId: 'e1', description: 'Ran weekly reporting' })] })
+      expect(r.folds[0].responsibilities).toEqual(['Ran weekly reporting'])
+      expect(r.folds[0].placement).toBe('new_section')
+      expect(r.folds[0].before).toBe(note)
+    })
+    it('matches whole lines, not substrings', () => {
+      const r = planBackfill({
+        experiences: [exp('e1', '## Overview\n- Cut the budget by 30%')], projects: [],
+        activities: [resp({ experienceId: 'e1', description: 'Budget' })],
+      })
+      expect(r.folds[0].responsibilities).toEqual(['Budget'])
+    })
+    it('adds nothing when everything is already in the Overview, or the note was already folded', () => {
       const covered = planBackfill({
-        experiences: [exp('e1', '- Budget owner')], projects: [], activities: [resp({ experienceId: 'e1', description: 'Budget owner' })],
+        experiences: [exp('e1', '## Overview\n- Budget owner')], projects: [], activities: [resp({ experienceId: 'e1', description: 'Budget owner' })],
       })
       expect(covered.folds).toEqual([])
       const first = planBackfill({ experiences: [exp('e1', '')], projects: [], activities: [resp({ experienceId: 'e1', description: 'Budget owner' })] })
@@ -107,6 +131,24 @@ describe('planBackfill', () => {
         experiences: [exp('e1', first.folds[0].after)], projects: [], activities: [resp({ experienceId: 'e1', description: 'Budget owner' })],
       })
       expect(second.folds).toEqual([])
+      expect(second.foldsSkipped).toEqual([])
+    })
+    it('says so when a note was already folded but has newer responsibilities', () => {
+      const first = planBackfill({ experiences: [exp('e1', '')], projects: [], activities: [resp({ experienceId: 'e1', description: 'Budget owner' })] })
+      const r = planBackfill({
+        experiences: [exp('e1', first.folds[0].after)], projects: [],
+        activities: [resp({ experienceId: 'e1', description: 'Budget owner' }), resp({ experienceId: 'e1', description: 'New duty' })],
+      })
+      expect(r.folds).toEqual([])
+      expect(r.foldsSkipped).toMatchObject([{ experienceId: 'e1', reason: 'already_folded', responsibilities: ['New duty'] }])
+      expect(formatReport(r)).toContain('NOT folded')
+    })
+    it('puts the fold in an Overview that is not the first section', () => {
+      const r = planBackfill({
+        experiences: [exp('e1', '## Achievements\n- a\n\n## Overview\nLed it.\n\n## Skills\n- x')], projects: [],
+        activities: [resp({ experienceId: 'e1', description: 'Duty' })],
+      })
+      expect(r.folds[0].after).toBe(`## Achievements\n- a\n\n## Overview\nLed it.\n\n${FOLD_LEAD_IN}\n- Duty\n\n## Skills\n- x`)
     })
     it('does not fold responsibilities that have no role', () => {
       const r = planBackfill({ experiences: [exp('e1')], projects: [], activities: [resp({ description: 'Floating' })] })
