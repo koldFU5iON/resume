@@ -9,6 +9,7 @@ import { projectEvidenceText } from '@/modules/cv-generation/project-evidence'
 import { isThinProject, THIN_PROJECT_MIN_CHARS } from '@/modules/cv-generation/write/limits'
 import { notesOf } from '@/modules/profile-map/build'
 import { formatMonth, normalizeName, oneLine } from '@/modules/profile-map/format'
+import { formatResult, type Result } from '@/modules/profile/result'
 import type { EvidenceNote, ExperienceNote, Note, ProjectNote, Vault } from '@/modules/profile-map/types'
 import { capabilitiesHref, overviewHref, vaultNoteHref } from '@/modules/profile/note-index'
 import type { Candidate, ReadinessKind, ReadinessSeverity } from './schema'
@@ -47,6 +48,8 @@ export const CONFLICT_MIN_SIMILARITY = 0.5
 export const CONFLICT_SHARED_WORDS = 3
 /** At most this many possible conflicts are raised: the check is deliberately conservative. */
 export const CONFLICT_MAX_FINDINGS = 3
+/** Achievements with a figure in their text but no structured result are raised when there are at least this many. */
+export const FIGURE_IN_PROSE_MIN = 3
 /** Claimed-only capabilities are raised when there are at least this many. */
 export const CLAIMED_ONLY_MIN = 3
 /** Evidence with no capability link is raised when at least this many items, and this share of all evidence. */
@@ -352,6 +355,15 @@ export function checkEvidenceQuality(vault: Vault): Candidate[] {
     }, vaultNoteHref(worst[0]), worst[0]))
   }
 
+  const inProse = achievements.filter((e) => !e.props.result && figuresOf(evidenceText(e)).size > 0)
+  if (inProse.length >= FIGURE_IN_PROSE_MIN) {
+    out.push(overall({
+      kind: 'figure_in_prose', severity: 'consider', impact: 3, title: 'Figures typed into text',
+      message: `${plural(inProse.length, 'achievement')} state${inProse.length === 1 ? 's' : ''} a figure in the text with no result recorded, so the CV cannot tell what it measures, where it started or when. For example: ${inProse.slice(0, LIST_LIMIT).map((e) => quote(e.props.description)).join('; ')}.`,
+      suggestion: 'Open the achievement and fill in Result: what it measures, the figure, where it started and the period. Two figures for the same thing then show up as a clear conflict.',
+    }, vaultNoteHref(inProse[0]), inProse[0]))
+  }
+
   const filler = evidence.filter((e) => e.props.kind === 'responsibility' && words(e.props.description) < FILLER_RESPONSIBILITY_WORDS)
   if (filler.length > 0) {
     out.push(overall({
@@ -387,15 +399,36 @@ function figuresOf(text: string): Map<string, string> {
 }
 const contentWords = (text: string) => new Set((text.toLowerCase().match(/\p{L}{4,}/gu) ?? []).filter((w) => !STOPWORDS.has(w)))
 
+/** Two structured results disagree when they measure the same thing over the same period and state different results. */
+function structuredConflict(a: Result, b: Result): boolean {
+  const sameMeasure = normalizeName(a.measure) === normalizeName(b.measure) || jaccard(contentWords(a.measure), contentWords(b.measure)) >= CONFLICT_MIN_SIMILARITY
+  if (!sameMeasure) return false
+  if (normalizeName(a.period ?? '') !== normalizeName(b.period ?? '')) return false
+  const key = (r: Result) => `${normalizeName(r.value)}|${normalizeName(r.baseline ?? '')}`
+  return key(a) !== key(b)
+}
+
 export function checkConflictingFigures(vault: Vault): Candidate[] {
   const out: Candidate[] = []
   for (const exp of notesOf(vault, 'experience')) {
     const items = roleEvidence(vault, exp)
       .map((e) => ({ e, text: evidenceText(e), figures: figuresOf(evidenceText(e)), words: contentWords(evidenceText(e)) }))
-      .filter((i) => i.figures.size > 0)
+      .filter((i) => i.figures.size > 0 || i.e.props.result)
     for (let i = 0; i < items.length; i++) {
       for (let j = i + 1; j < items.length; j++) {
         const [a, b] = [items[i], items[j]]
+        // Both structured: compare exactly (what it measures, the period, the figures), never by words in the prose.
+        if (a.e.props.result && b.e.props.result) {
+          if (structuredConflict(a.e.props.result, b.e.props.result)) {
+            out.push(about(b.e, {
+              kind: 'conflicting_figures', severity: 'consider', impact: 3, title: `Two results for the same measure at ${exp.props.company}`,
+              message: `At ${exp.props.company}, ${quote(a.e.props.description)} (${formatResult(a.e.props.result)}) and ${quote(b.e.props.description)} (${formatResult(b.e.props.result)}) measure the same thing over the same period with different results. Is one out of date?`,
+              suggestion: 'If they are the same result, keep one; if they differ (two periods, two scopes), give each its own period or measure so the CV does not pick the wrong one.',
+            }, `:${a.e.id}`))
+          }
+          continue
+        }
+        if (a.figures.size === 0 || b.figures.size === 0) continue
         if ([...a.figures.keys()].some((f) => b.figures.has(f))) continue
         if (![...a.figures.values()].some((u) => [...b.figures.values()].includes(u))) continue
         if (jaccard(a.words, b.words) < CONFLICT_MIN_SIMILARITY) continue

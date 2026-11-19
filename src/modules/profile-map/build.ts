@@ -4,6 +4,7 @@
 
 import { parseJsonField } from '@/lib/utils'
 import { evidenceLine, projectHighlights } from '@/modules/profile/project-highlights'
+import { combineImpact, parseResult } from '@/modules/profile/result'
 import { normalizeSearchProfile } from '@/modules/search-profile/schema'
 import { formatMonth, formatSpan, normalizeName, oneLine } from './format'
 import { findMentions, parseWikilinks, stripWikilinks } from './links'
@@ -172,21 +173,24 @@ export function buildVault(row: VaultSource): Vault {
     const ids: string[] = []
     for (const a of activities) {
       const kind = a.kind === 'achievement' ? 'achievement' : 'responsibility'
+      const result = parseResult(a.result)
+      const impact = combineImpact(a.impact, result)
       const note: EvidenceNote = {
         id: a.id,
         type: 'evidence',
         title: oneLine(a.description, 80),
-        gist: oneLine(evidenceLine(a)),
+        gist: oneLine(evidenceLine({ description: a.description, impact })),
         props: {
           kind,
           description: a.description,
-          impact: a.impact,
+          impact,
+          result,
           highlighted: a.highlighted,
           parentId,
         },
         links: derivedLinks(
           a.id,
-          [a.description, a.impact].filter(Boolean).join('\n'),
+          [a.description, impact].filter(Boolean).join('\n'),
           'demonstrates',
           capLinks(a.skills.filter((l) => l.status === 'confirmed'), 'demonstrates'),
           new Set(a.skills.filter((l) => l.status === 'rejected').map((l) => alias.get(l.skillId) ?? l.skillId)),

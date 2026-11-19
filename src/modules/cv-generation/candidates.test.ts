@@ -36,6 +36,14 @@ describe('buildCandidates', () => {
     expect(text).not.toContain('robin@example.test')
   })
 
+  it('gives the generator a structured result as the activity impact, with its baseline and period', () => {
+    const src = vaultSource()
+    Object.assign(src.experiences[0].activities[0], { impact: 'Cut from 6 weeks to 2', result: { measure: 'release cycle', value: '2 weeks', baseline: '6 weeks', period: 'FY23' } })
+    const act = buildCandidates(buildVault(src)).employers[0].activities[0]
+    expect(act.impact).toBe('release cycle: 2 weeks (from 6 weeks), FY23')
+    expect(candidatesToPrompt(buildCandidates(buildVault(src)))).toContain('release cycle: 2 weeks (from 6 weeks), FY23')
+  })
+
   it('labels every candidate id', () => {
     const labels = labelIndex(c)
     expect(labels.get('fictional-freight')).toBe('Program Manager — Fictional Freight')

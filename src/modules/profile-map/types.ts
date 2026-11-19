@@ -9,6 +9,7 @@
 // Evidence notes sit between them: atomic claims extracted from a narrative,
 // linked to the capabilities they demonstrate.
 
+import type { Result } from '@/modules/profile/result'
 import type { SearchProfile } from '@/modules/search-profile/schema'
 
 export type NoteType =
@@ -109,7 +110,10 @@ export type ProjectNote = NoteBase<'project', {
 export type EvidenceNote = NoteBase<'evidence', {
   kind: 'responsibility' | 'achievement'
   description: string
+  /** The impact as readers see it: the structured `result` first, then the free text unless it only restates it (profile/result.ts combineImpact). */
   impact: string | null
+  /** The structured figure of an achievement, when the owner entered one. */
+  result: Result | null
   highlighted: boolean
   /** The narrative note that owns this atom: an experience id, or a project id. */
   parentId: string

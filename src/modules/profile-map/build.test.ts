@@ -78,7 +78,7 @@ describe('buildVault', () => {
 describe('project-owned evidence', () => {
   const base = vaultSource()
   const act = (id: string, description: string, order: number, over = {}) => ({
-    id, experienceId: null, projectId: 'pr1', kind: 'achievement', description, impact: null, highlighted: false,
+    id, experienceId: null, projectId: 'pr1', kind: 'achievement', description, impact: null, result: null, highlighted: false,
     order, tags: '[]', createdAt: t, updatedAt: t, skills: [], ...over,
   })
   const withEvidence = () => buildVault(vaultSource({
@@ -370,5 +370,27 @@ describe('capLines', () => {
     const { capLines } = await import('./format')
     expect(capLines('aaaa\nbbbb\ncccc', 10, 'narrow it')).toBe('aaaa\nbbbb\n[1 more lines omitted; narrow it]')
     expect(capLines('short', 10)).toBe('short')
+  })
+})
+
+describe('structured results', () => {
+  const t0 = new Date('2026-01-01')
+  const withResult = (result: unknown, impact: string | null) => {
+    const src = vaultSource()
+    src.experiences[0].activities = [{ id: 'r1', experienceId: 'e1', projectId: null, kind: 'achievement', description: 'Sped up asset hand-offs', impact, result, highlighted: false, order: 0, tags: '[]', createdAt: t0, updatedAt: t0, skills: [] }] as never
+    const v = buildVault(src)
+    return v.notes.get('r1') as import('./types').EvidenceNote
+  }
+  it('shows the structured result as the impact, with the figures once', () => {
+    const e = withResult({ measure: 'asset turnaround time', value: '1 hour', baseline: '3 weeks' }, 'Cut from 3 weeks to 1 hour')
+    expect(e.props.impact).toBe('asset turnaround time: 1 hour (from 3 weeks)')
+    expect(e.props.result).toMatchObject({ value: '1 hour', baseline: '3 weeks', period: null })
+    expect(e.gist).toContain('asset turnaround time: 1 hour')
+  })
+  it('keeps the free text when there is no result, and ignores an unreadable stored result', () => {
+    expect(withResult(null, 'Cut release time').props.impact).toBe('Cut release time')
+    const bad = withResult({ junk: 1 }, 'Cut release time')
+    expect(bad.props.result).toBeNull()
+    expect(bad.props.impact).toBe('Cut release time')
   })
 })

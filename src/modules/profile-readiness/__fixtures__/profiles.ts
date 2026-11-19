@@ -21,9 +21,9 @@ export const NOW = new Date('2026-11-19T00:00:00Z')
 type Rows = Pick<VaultSource, 'experiences' | 'projects' | 'skills' | 'educations' | 'certifications' | 'languages'>
 type Over = Partial<VaultSource>
 
-export function activity(id: string, owner: { experienceId?: string; projectId?: string }, kind: 'achievement' | 'responsibility', description: string, impact: string | null = null, skillIds: string[] = [], order = 0) {
+export function activity(id: string, owner: { experienceId?: string; projectId?: string }, kind: 'achievement' | 'responsibility', description: string, impact: string | null = null, skillIds: string[] = [], order = 0, result: Record<string, string> | null = null) {
   return {
-    id, experienceId: owner.experienceId ?? null, projectId: owner.projectId ?? null, kind, description, impact,
+    id, experienceId: owner.experienceId ?? null, projectId: owner.projectId ?? null, kind, description, impact, result,
     highlighted: false, order, tags: '[]', createdAt: t, updatedAt: t,
     skills: skillIds.map((skillId) => ({ skillId, status: 'confirmed' })),
   }
@@ -76,12 +76,12 @@ export function cleanProfile(): Vault {
   return vaultOf({
     experiences: [
       role('e1', 'Fictional Freight', 'Program Manager', '2022-09', null, LONG_SUMMARY, [
-        activity('a1', { experienceId: 'e1' }, 'achievement', 'Cut the release cycle for the freight platform', 'From 6 weeks to 2 weeks across 14 teams', ['s1']),
-        activity('a2', { experienceId: 'e1' }, 'achievement', 'Moved the tracking migration to schedule after a late start', 'Delivered 3 weeks early', ['s2']),
+        activity('a1', { experienceId: 'e1' }, 'achievement', 'Cut the release cycle for the freight platform', 'From 6 weeks to 2 weeks across 14 teams', ['s1'], 0, { measure: 'release cycle', value: '2 weeks', baseline: '6 weeks' }),
+        activity('a2', { experienceId: 'e1' }, 'achievement', 'Moved the tracking migration to schedule after a late start', 'Delivered 3 weeks early', ['s2'], 0, { measure: 'delivery against plan', value: '3 weeks early' }),
         activity('a3', { experienceId: 'e1' }, 'responsibility', 'Run the monthly steering group and agree priorities with the business', null, ['s3']),
       ]),
       role('e2', 'Example Logistics', 'Delivery Lead', '2019-01', '2022-06', LONG_SUMMARY, [
-        activity('a4', { experienceId: 'e2' }, 'achievement', 'Introduced a single intake process for all warehouse change requests', 'Backlog fell by 40%', ['s3']),
+        activity('a4', { experienceId: 'e2' }, 'achievement', 'Introduced a single intake process for all warehouse change requests', 'Backlog fell by 40%', ['s3'], 0, { measure: 'change-request backlog', value: '40% smaller' }),
         activity('a5', { experienceId: 'e2' }, 'responsibility', 'Coordinate vendors and internal teams through weekly planning sessions', null, ['s2']),
       ]),
     ],

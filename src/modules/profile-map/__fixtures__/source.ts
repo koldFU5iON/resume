@@ -18,8 +18,8 @@ export function vaultSource(over: Partial<VaultSource> = {}): VaultSource {
       createdAt: t, updatedAt: t,
       skills: [{ skillId: 's2' }],
       activities: [
-        { id: 'a1', experienceId: 'e1', projectId: null, kind: 'achievement', description: 'Cut release time', impact: '6 weeks → 2 weeks', highlighted: true, order: 0, tags: '[]', createdAt: t, updatedAt: t, skills: [{ skillId: 's1', status: 'confirmed' }] },
-        { id: 'a2', experienceId: 'e1', projectId: null, kind: 'oddity', description: 'Ran standups', impact: null, highlighted: false, order: 1, tags: '[]', createdAt: t, updatedAt: t, skills: [] },
+        { id: 'a1', experienceId: 'e1', projectId: null, kind: 'achievement', description: 'Cut release time', impact: '6 weeks → 2 weeks', result: null, highlighted: true, order: 0, tags: '[]', createdAt: t, updatedAt: t, skills: [{ skillId: 's1', status: 'confirmed' }] },
+        { id: 'a2', experienceId: 'e1', projectId: null, kind: 'oddity', description: 'Ran standups', impact: null, result: null, highlighted: false, order: 1, tags: '[]', createdAt: t, updatedAt: t, skills: [] },
       ],
     }],
     projects: [{
