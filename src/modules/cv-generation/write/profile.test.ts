@@ -365,15 +365,31 @@ describe('Phase 3b: no cross-section repetition, short competency labels, voice'
     }
   })
 
+  it('flags a years statement that is not exactly the supplied phrase, but does not require one', () => {
+    const c = { ...ctx(), yearsOfExperience: 10 }
+    expect(analyseProfile({ ...good, profile: "I've spent 10 years on delivery." }, c, allowed).why).toContain('years phrase not exact')
+    expect(analyseProfile({ ...good, profile: "I've spent 12+ years on delivery." }, c, allowed).why).toContain('years phrase not exact')
+    expect(analyseProfile({ ...good, profile: "I've spent 10+ years on delivery." }, c, allowed).why).not.toContain('years phrase not exact')
+    expect(analyseProfile(good, c, allowed).why).not.toContain('years phrase not exact')
+  })
+
   describe('copying a bullet', () => {
+    it('never drops the second (figure) sentence, and uses a higher threshold for a sentence with a figure', () => {
+      const bl = ['Cut platform release time by 40% across 8 teams.']
+      const p = 'I lead delivery for platform organisations. I cut platform release time by 40% across 8 teams. I run planning for large programmes. I mentor leads through growth. I coach managers.'
+      expect(dropCopiedSentences(p, bl).dropped).toEqual([]) // sentence 2 is the figure sentence: never dropped
+      const p3 = 'I lead delivery for platform organisations. I run planning for large programmes. I cut platform release time by 40% for the finance teams. I mentor leads. I coach managers.'
+      expect(dropCopiedSentences(p3, bl).dropped).toEqual([]) // a figure sentence needs a near-identical match (here 83%)
+      expect(copiesBullet('Cut platform release time by 40% across 8 teams.', bl)).toBe(true)
+    })
     const bullets = ['Cut platform release time by 40% across 8 teams.', 'Shipped 12 titles on schedule.']
     it('drops a profile sentence that restates a bullet, never the first, keeping at least three sentences', () => {
-      const p = 'I lead delivery for platform organisations. I cut platform release time by 40% across 8 teams. I run planning for large programmes. I mentor leads through growth.'
+      const p = 'I lead delivery for platform organisations. I run planning for large programmes. I cut platform release time by 40% across 8 teams. I mentor leads through growth.'
       const r = dropCopiedSentences(p, bullets)
       expect(r.profile).toBe('I lead delivery for platform organisations. I run planning for large programmes. I mentor leads through growth.')
       expect(r.dropped).toEqual(['I cut platform release time by 40% across 8 teams.'])
       // Dropping would leave only two sentences: nothing is dropped, and it is reported.
-      const short = dropCopiedSentences('I lead delivery for platform organisations. I cut platform release time by 40% across 8 teams. I mentor leads.', bullets)
+      const short = dropCopiedSentences('I lead delivery for platform organisations. I run planning for programmes. I cut platform release time by 40% across 8 teams.', bullets)
       expect(short.profile).toContain('cut platform release time')
       expect(short.kept).toHaveLength(1)
     })
@@ -382,7 +398,7 @@ describe('Phase 3b: no cross-section repetition, short competency labels, voice'
       expect(copiesBullet('I build platform release programmes for large organisations.', bullets)).toBe(false)
     })
     it('is applied by writeProfile, with a note', async () => {
-      const profile = 'I lead delivery for platform organisations. I cut platform release time by 40% across 8 teams. I run planning for large programmes. I mentor leads through growth.'
+      const profile = 'I lead delivery for platform organisations. I run planning for large programmes. I cut platform release time by 40% across 8 teams. I mentor leads through growth.'
       const s = scripted((t, sch) => extractJSON(t, sch as never), [{ ...good, profile }])
       mockJSON.mockImplementation(s.impl as never)
       const r = await writeProfile(ctx(), digest, instructions, bullets)
@@ -541,7 +557,7 @@ describe('Phase 3b: no cross-section repetition, short competency labels, voice'
     })
     it('allows two figures, repeating a bullet figure in the profile only', () => {
       expect(p).toMatch(/at most 2 in the profile and headline together/)
-      expect(p).toMatch(/profile MAY repeat a headline figure the experience section also states/)
+      expect(p).toMatch(/profile MAY repeat the strongest figure the experience section also states/)
       expect(p).toMatch(/the experience section uses: 40%, 2M/)
     })
     it('asks for 4-5 sentences, 70-90 words, first person, no copying and no personality claims', () => {

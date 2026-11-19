@@ -91,4 +91,22 @@ describe('allocateByRecency', () => {
   it('is deterministic', () => {
     expect(allocateByRecency(long(4))).toEqual(allocateByRecency(long(4)))
   })
+
+  it('property: whole numbers, never above supply or the total ceiling, never reordering bands', () => {
+    let seed = 7
+    const rnd = (n: number) => { seed = (seed * 48271) % 2147483647; return seed % n }
+    for (let k = 0; k < 400; k++) {
+      const n = 1 + rnd(5)
+      const claims = Array.from({ length: n }, (_, i): RecencyClaim => ({ relevance: 1 + rnd(5), supply: rnd(12), roles: 1 + rnd(4), yearsSinceEnd: i === 0 ? 0 : rnd(25), tenureYears: rnd(12) }))
+      const r = allocateByRecency(claims)
+      expect(r).toHaveLength(n)
+      expect(sum(r)).toBeLessThanOrEqual(MAX_TOTAL_BULLETS)
+      r.forEach((c, i) => {
+        expect(Number.isInteger(c)).toBe(true)
+        expect(c).toBeGreaterThanOrEqual(0)
+        expect(c).toBeLessThanOrEqual(claims[i].supply)
+        expect(c).toBeLessThanOrEqual(i === 0 ? 8 : i === 1 ? 4 : 3)
+      })
+    }
+  })
 })

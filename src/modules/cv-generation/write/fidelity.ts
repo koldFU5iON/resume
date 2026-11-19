@@ -55,28 +55,43 @@ const FIGURE_QUALIFIERS = new Set(['at the time', 'to date'])
 
 export type ScopeDrift = { claim: string; qualifier: string }
 
+/** The qualifier must sit within this many words of the claim (or figure) in the evidence sentence to count as its scope. */
+export const SCOPE_PROXIMITY_WORDS = 4
+/** Words after a claim word that make it a non-claim ("first quarter", "most senior", "only a few"...). */
+const NON_CLAIM_NEXT = /^(?:quarter|half|year|month|week|day|line|step|phase|draft|time|senior|recent|common|of|a|an|few)\b/i
+
+/** Words between two character positions of a sentence. */
+function wordsBetween(sentence: string, i: number, j: number): number {
+  const [a, b] = i <= j ? [i, j] : [j, i]
+  return sentence.slice(a, b).trim().split(/\s+/).filter(Boolean).length
+}
+
 /**
  * Claims or figures of `text` that lose the qualifier the evidence gives them.
- * Each evidence sentence that holds a claim and a qualifier is checked: a
- * bullet that repeats the claim without the qualifier is a drift. A sentence
- * with "to date" / "at the time" and a figure the bullet also states is a drift
- * when the bullet leaves the qualifier out. Once per qualifier. Pure.
+ * An evidence sentence is checked when a claim word and a qualifier stand
+ * within SCOPE_PROXIMITY_WORDS of each other (and the claim word is a real
+ * claim, not "first quarter" or "most senior"): a bullet that repeats the
+ * claim without the qualifier is a drift. "to date" / "at the time" next to a
+ * figure the bullet also states must be kept too. Once per qualifier. Pure.
  */
 export function scopeDrift(text: string, evidence: readonly string[]): ScopeDrift[] {
   const out: ScopeDrift[] = []
   const add = (d: ScopeDrift) => { if (!out.some((o) => o.qualifier === d.qualifier)) out.push(d) }
   const bulletFigures = new Set(figuresIn(text).map((f) => f.key))
   for (const sentence of evidence.flatMap((e) => splitSentences(e))) {
-    const qualifiers = QUALIFIERS.filter(([, re]) => re.test(sentence)).map(([name]) => name)
-    if (qualifiers.length === 0) continue
-    for (const q of qualifiers) {
-      const qre = QUALIFIERS.find(([name]) => name === q)![1]
-      if (qre.test(text)) continue
-      const claim = CLAIMS.find(([, re]) => re.test(sentence) && re.test(text))
-      if (claim) { add({ claim: claim[0], qualifier: q }); continue }
-      if (FIGURE_QUALIFIERS.has(q)) {
-        const shared = figuresIn(sentence).find((f) => bulletFigures.has(f.key))
-        if (shared) add({ claim: shared.raw, qualifier: q })
+    for (const [qname, qre] of QUALIFIERS) {
+      const qm = qre.exec(sentence)
+      if (!qm || qre.test(text)) continue
+      const claim = CLAIMS.find(([, re]) => {
+        const m = re.exec(sentence)
+        if (!m || !re.test(text)) return false
+        if (NON_CLAIM_NEXT.test(sentence.slice(m.index + m[0].length).trim())) return false
+        return wordsBetween(sentence, m.index, qm.index) <= SCOPE_PROXIMITY_WORDS
+      })
+      if (claim) { add({ claim: claim[0], qualifier: qname }); continue }
+      if (FIGURE_QUALIFIERS.has(qname)) {
+        const shared = figuresIn(sentence).find((f) => bulletFigures.has(f.key) && sentence.indexOf(f.raw) >= 0 && wordsBetween(sentence, sentence.indexOf(f.raw), qm.index) <= SCOPE_PROXIMITY_WORDS + 1)
+        if (shared) add({ claim: shared.raw, qualifier: qname })
       }
     }
   }

@@ -152,10 +152,10 @@ Phase 4b added no migration. Never use `db:push`; see AGENTS.md.
 |---|---|---|---|
 | Current / most recent | 5-7 | 6 | 8 (base 7, min 5) only when the profile holds `LAYERED_EMPLOYER_MIN_ROLES` (3) or more roles there |
 | Previous | 3-4 | 3 | |
-| Older | 2-3 | 2 | ended more than `OLD_EMPLOYER_YEARS` (10) years ago: 1-2 (min 1) |
+| Older (third employer with bullets onward) | 2-3 | 2 | ended more than `OLD_EMPLOYER_YEARS` (10) years ago: 1-2 (min 1) |
 | Any, tenure under `SHORT_TENURE_YEARS` (1.5) | max 4 / 3 / 2 for current / previous / older | | proportionally fewer for a short career |
 
-Relevance 4-5 adds one bullet, 1-2 takes one off, 3 changes nothing; the result is clamped to the band, so relevance can never reorder the bands. The count is also capped by what the employer can supply (what the model picked, topped up to `MIN_ACTIVITIES_PER_EMPLOYER` 2 only when the profile has that many): **nothing is padded with filler to reach a number.** The total is capped at `MAX_TOTAL_BULLETS` (20, the oldest employers give up bullets first). A long career lands on about 12-16 bullets (4 employers: 6+3+2+2 = 13 neutral, up to 16 at full relevance), a one-employer or short career on proportionally fewer. Header-only employers and Earlier Experience are unchanged. A lead-with project's extra bullet (writer side, `LEAD_WITH_PROJECT_EXTRA_BULLETS`) is on top.
+Bands count among the employers that show bullets (the old-employer rule applies to the third onward; the previous employer keeps 3-4 whatever its age). Relevance 4-5 adds one bullet, 1-2 takes one off, 3 changes nothing; the result is clamped to the band, so relevance can never reorder the bands. The count is also capped by what the employer can supply (what the model picked, topped up to `MIN_ACTIVITIES_PER_EMPLOYER` 2 only when the profile has that many): **nothing is padded with filler to reach a number.** The total is capped at `MAX_TOTAL_BULLETS` (20, the oldest employers give up bullets first). A long career lands on about 12-16 bullets (4 employers: 6+3+2+2 = 13 neutral, up to 16 at full relevance, or 18 when the current employer holds 3+ roles), a one-employer or short career on proportionally fewer. Header-only employers and Earlier Experience are unchanged. A lead-with project's extra bullet (writer side, `LEAD_WITH_PROJECT_EXTRA_BULLETS`) is on top.
 
 **Calibration 2** (`fix/cv-gen-calibration-2`, after a second real run):
 

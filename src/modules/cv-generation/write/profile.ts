@@ -75,28 +75,31 @@ export function experienceDigest(employers: ReadonlyArray<{ summary: string; bul
 export const PROFILE_COPY_SHARE = 0.8
 /** ... and it has at least this many content words (a short sentence cannot "copy" anything). */
 export const PROFILE_COPY_MIN_WORDS = 5
+/** A sentence that carries a figure (the profile's proof sentence) is a copy only at this higher share. */
+export const PROFILE_COPY_SHARE_WITH_FIGURE = 0.95
 /** Sentences the profile keeps at least, whatever it copies. */
 export const PROFILE_MIN_SENTENCES = 3
 
 /** Whether `sentence` restates a bullet nearly verbatim (like repeatsSummary, but figures count: the profile may carry them). Pure. */
 export function copiesBullet(sentence: string, bullets: readonly string[]): boolean {
+  const share = /\d/.test(sentence) ? PROFILE_COPY_SHARE_WITH_FIGURE : PROFILE_COPY_SHARE
   const s = [...contentStems(sentence, 3)]
   if (s.length < PROFILE_COPY_MIN_WORDS) return false
   return bullets.some((b) => {
     const have = contentStems(b, 3)
-    return s.filter((w) => have.has(w)).length / s.length >= PROFILE_COPY_SHARE
+    return s.filter((w) => have.has(w)).length / s.length >= share
   })
 }
 
 /**
  * The profile freed of sentences that copy a bullet. The first sentence (the
- * role and domain opener) is never dropped and at least PROFILE_MIN_SENTENCES
+ * role and domain opener) and the second (the strongest-result sentence) are never dropped and at least PROFILE_MIN_SENTENCES
  * stay: when dropping would go below that, nothing is dropped and the copies
  * are only reported. Pure.
  */
 export function dropCopiedSentences(profile: string, bullets: readonly string[]): { profile: string; dropped: string[]; kept: string[] } {
   const sentences = splitSentences(profile)
-  const copies = sentences.map((s, i) => i > 0 && copiesBullet(s, bullets))
+  const copies = sentences.map((s, i) => i > 1 && copiesBullet(s, bullets))
   const drop = copies.filter(Boolean).length
   if (drop === 0) return { profile, dropped: [], kept: [] }
   if (sentences.length - drop < PROFILE_MIN_SENTENCES) return { profile, dropped: [], kept: sentences.filter((_, i) => copies[i]) }
@@ -124,7 +127,7 @@ export function profilePrompt(
     data('experience', digest || '(no experience bullets)'),
     `# Competencies chosen for this CV\n\nThe candidate's own competencies for this role: use their wording where it fits. Claim nothing the experience section does not support.`,
     data('competencies', competencies.length > 0 ? competencies.map((c) => `- ${c.name}`).join('\n') : '(none: return an empty list)'),
-    `# Limits\n\n- Profile: ${PROFILE_SENTENCES} sentences, ${PROFILE_TARGET_MIN_WORDS} to ${PROFILE_MAX_WORDS} words, in the first person ("I build ...", "I've designed ..."; here and nowhere else). The FIRST sentence names the target role or domain in the job ad's own terms (what kind of company or product it is, the audience) and the years of experience when one is given below. The second gives the strongest result with its figure. The rest say what the candidate does and what comes of it, plainly. No slogans, no storyteller phrases.\n- Figures: at most ${PROFILE_MAX_FIGURES} in the profile and headline together. The profile MAY repeat a headline figure the experience section also states (it is the top of page 1: the best proof belongs there); the headline and competency labels may not repeat one${used.length > 0 ? ` (the experience section uses: ${used.join(', ')})` : ''}.${yearsRule}\n- Never restate a bullet's sentence: the profile frames the story and points at proof; it does not copy the bullets.\n- Never write unsupported working-style or personality claims ("I work best where ...", "I thrive ...", "passionate", "a team player"). Say what was done, not what the candidate is like.\n- Headline: at most ${HEADLINE_MAX_WORDS} words, a descriptor and never a job title or seniority level; no first person.\n- Competencies: ${maxLabels === 0 ? 'none: return an empty list' : `write ${minLabels > 0 ? `${Math.min(minLabels, maxLabels)} to ` : 'up to '}${maxLabels} labels (only as many as the experience supports, up to the limit), built from the chosen competencies above and the key terms of the job's requirements where the experience section shows them; each a short noun phrase of ${COMPETENCY_LABEL_MIN_WORDS} to ${COMPETENCY_LABEL_MAX_WORDS} words, with no numbers and no sentence`}.\n- Plain text only: no Markdown, links, HTML or ":::".\n- Numbers exactly as in the evidence, whether you write them as digits or words; no title, company or date.\n- The brief's lead-with and emphasise lines are direction, not evidence. Claim no outcome, programme, result or framing for a project or theme the experience section has no bullet about, even when the brief names it.`,
+    `# Limits\n\n- Profile: ${PROFILE_SENTENCES} sentences, ${PROFILE_TARGET_MIN_WORDS} to ${PROFILE_MAX_WORDS} words, in the first person ("I build ...", "I've designed ..."; here and nowhere else). The FIRST sentence names the target role or domain in the job ad's own terms (what kind of company or product it is, the audience) and the years of experience when one is given below. The second gives the strongest result with its figure. The rest say what the candidate does and what comes of it, plainly. No slogans, no storyteller phrases.\n- Figures: at most ${PROFILE_MAX_FIGURES} in the profile and headline together. The profile MAY repeat the strongest figure the experience section also states (it is the top of page 1: the best proof belongs there); the headline and competency labels may not repeat one${used.length > 0 ? ` (the experience section uses: ${used.join(', ')})` : ''}.${yearsRule}\n- Never restate a bullet's sentence: the profile frames the story and points at proof; it does not copy the bullets.\n- Never write unsupported working-style or personality claims ("I work best where ...", "I thrive ...", "passionate", "a team player"). Say what was done, not what the candidate is like.\n- Headline: at most ${HEADLINE_MAX_WORDS} words, a descriptor and never a job title or seniority level; no first person.\n- Competencies: ${maxLabels === 0 ? 'none: return an empty list' : `write ${minLabels > 0 ? `${Math.min(minLabels, maxLabels)} to ` : 'up to '}${maxLabels} labels (only as many as the experience supports, up to the limit), built from the chosen competencies above and the key terms of the job's requirements where the experience section shows them; each a short noun phrase of ${COMPETENCY_LABEL_MIN_WORDS} to ${COMPETENCY_LABEL_MAX_WORDS} words, with no numbers and no sentence`}.\n- Plain text only: no Markdown, links, HTML or ":::".\n- Numbers exactly as in the evidence, whether you write them as digits or words; no title, company or date.\n- The brief's lead-with and emphasise lines are direction, not evidence. Claim no outcome, programme, result or framing for a project or theme the experience section has no bullet about, even when the brief names it.`,
     'Return the profile, headline and competency labels as one JSON object matching the schema, in a ```json code block.',
   ].join('\n\n')
 }
@@ -223,6 +226,12 @@ export function analyseProfile(
   const own = distinctNotableFigures([profile, headline].join('\n'), ignored)
   const excess = own.length > PROFILE_MAX_FIGURES ? own.slice(PROFILE_MAX_FIGURES) : []
   if (excess.length > 0) problem(`the profile and headline may use at most ${PROFILE_MAX_FIGURES} figures; keep the most important and drop: ${excess.join(', ')}`, `more than ${PROFILE_MAX_FIGURES} figures in the profile`)
+  // The years phrase is exact: "10+ years", never "10 years" or another number.
+  if (typeof ctx.yearsOfExperience === 'number' && ctx.yearsOfExperience > 0) {
+    const phrase = yearsPhrase(ctx.yearsOfExperience)
+    const wrong = [...profile.matchAll(/\b(\d{1,2})(\+?)\s*(?:years|yrs)\b/gi)].filter((m) => Number(m[1]) !== ctx.yearsOfExperience || m[2] !== '+').map((m) => m[0])
+    if (wrong.length > 0) problem(`state the years of experience exactly as "${phrase}" (those words, no other number of years): found ${wrong.map((w) => `"${w}"`).join(', ')}`, 'years phrase not exact')
+  }
   const selfDescribed = selfDescriptions(profile)
   if (selfDescribed.length > 0) problem(`the profile makes working-style or personality claims the evidence cannot back; say what was done instead: ${selfDescribed.map((p) => `"${p}"`).join(', ')}`, 'unsupported self-description')
   const headlineUnsupported = headline ? unsupportedFigures(headline, sources, ignored) : []

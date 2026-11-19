@@ -58,4 +58,11 @@ describe('scopeDrift: a superlative keeps its scope qualifier, or is dropped', (
     expect(scopeDrift('Grew sign-ups to 14,000 to date.', ['Sign-ups reached 14,000 to date.'])).toEqual([])
     expect(scopeDrift('Grew the team.', ['Sign-ups reached 14,000 to date.'])).toEqual([])
   })
+
+  it('requires the qualifier near the claim in the evidence, and skips non-claim uses', () => {
+    // Far apart: "ever" is not the scope of "best".
+    expect(scopeDrift('Delivered the best onboarding.', ['Delivered the best onboarding flow our small remote team had, and we have ever so many users now.'])).toEqual([])
+    expect(scopeDrift('Led the first quarter plan.', ['Led the first quarter plan for the region.'])).toEqual([])
+    expect(scopeDrift('Managed the most senior stakeholders.', ['Managed the most senior stakeholders in the company.'])).toEqual([])
+  })
 })
