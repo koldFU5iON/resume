@@ -199,4 +199,21 @@ describe('buildCandidates: project notes and atoms', () => {
     const v2 = writeVault([{ ...SHAPE_B, experienceId: null }, { ...SHAPE_B, id: 'arch', status: 'archived', activities: [atomRow('z1', 'Zeta result 5%')] }])
     expect(buildCandidates(v2).employers.flatMap((e) => e.activities).some((a) => a.fromProject)).toBe(false)
   })
+
+  it('skips an atom that near-duplicates a role activity (the role activity stays), and one with identical text', () => {
+    const dup = writeVault([{ ...SHAPE_B, activities: [atomRow('d1', 'Cut platform release time by forty per cent across 8 teams, 40%', 'saved 2 weeks'), atomRow('d2', 'Shipped 12 titles on schedule')] }])
+    const acts = buildCandidates(dup).employers.find((e) => e.key === UNITY)!.activities
+    expect(acts.map((a) => a.id)).toContain('ua1')
+    expect(acts.map((a) => a.id)).not.toContain('d2')
+    expect(acts.map((a) => a.id)).not.toContain('d1')
+  })
+
+  it('offers at most 5 atoms per project, figure-rich first, and says how many were left out', () => {
+    const many = Array.from({ length: 8 }, (_, i) => atomRow(`m${i}`, `Atom number ${'abcdefgh'[i]}${'ijklmnop'[i]} did a distinct thing`, i === 7 ? 'gained 12% reach' : null))
+    const c2 = buildCandidates(writeVault([{ ...SHAPE_B, activities: many }]))
+    const from = c2.employers.find((e) => e.key === UNITY)!.activities.filter((a) => a.fromProject)
+    expect(from).toHaveLength(5)
+    expect(from.map((a) => a.id)).toContain('m7')
+    expect(c2.projectAtomNotes?.join(' ')).toMatch(/3 .*Campaign Platform|Campaign Platform.*3/)
+  })
 })

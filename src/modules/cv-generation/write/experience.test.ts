@@ -826,7 +826,7 @@ describe('Phase 3c', () => {
   })
 
   describe('project evidence sent to the writer is capped, the numbers check still sees all of it', () => {
-    const long = `${demoText} ${'Filler sentence about the studio and the launch plan. '.repeat(90)} Final tally 777,000 wishlists.`
+    const long = `${demoText} ${Array.from({ length: 200 }, (_, i) => `Wave ${i + 1} reached ${1000 + i * 7} players.`).join(' ')} Final tally 777,000 wishlists.`
     const lv = writeVault([projectRow('pa', 'Enemies Demo Campaign', long, { experienceId: 'e-u2' })])
     const lev = evidenceFromVault(lv, writeSelection(lv, { projects: [{ id: 'pa', reason: '' }] }))
     const emp = lev.employers.find((e) => e.employer.key === UNITY)!

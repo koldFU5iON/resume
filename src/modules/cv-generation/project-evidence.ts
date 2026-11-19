@@ -7,6 +7,12 @@
  * an empty description and a long notes body "thin" and hid the figures of a
  * long notes body.
  *
+ * The text is built ONCE: one line, parts joined with " — " and at most
+ * PROJECT_EVIDENCE_MAX_CHARS. The writer prompt, the figures check and Review all
+ * use exactly that string, so a figure the writer never saw is never evidence.
+ * Scrubbing covers the owner's own contact values and email addresses
+ * (profile-map/pii.ts), not other people's phone numbers.
+ *
  * Pure: no DB, no network.
  */
 
@@ -15,16 +21,19 @@ import { stripWikilinks } from '@/modules/profile-map/links'
 import type { ProjectNote, Vault } from '@/modules/profile-map/types'
 import { PROJECT_EVIDENCE_MAX_CHARS, isThinProject } from './write/limits'
 
-export const RESULT_WORDING = /\b(?:reduced|increased|grew|cut|saved|delivered|generated|launched|achieved|won|drove|scaled|doubled|tripled|halved|improved|boosted|accelerated|exceeded|surpassed|secured|earned|raised|expanded|eliminated|enabled|unlocked|resulting|resulted|led to|from\s+\S+\s+to)\b/i
+export const RESULT_WORDING = /\b(?:reduced|increased|grew|fell|cut|saved|delivered|generated|launched|achieved|won|drove|scaled|doubled|tripled|halved|improved|boosted|accelerated|exceeded|surpassed|secured|earned|raised|expanded|eliminated|enabled|unlocked|resulting|resulted|led to|from\s+\S+\s+to)\b/i
 
-/** A heading with one of these words makes every line under it a result line. */
-const RESULT_HEADING = /result|outcome|metric|impact|learning/i
-/** The first paragraph of the notes is always kept, up to this many characters. */
+/** A heading with one of these words makes every line under it a result line (English; French, German and Spanish equivalents). */
+const RESULT_HEADING = /result|outcome|metric|impact|learning|r[ée]sultat|ergebnis|resultado|m[ée]trica|m[ée]trique|kennzahl|logro|erfolg|aprendizaje|enseignement/i
+/** The first sentences of the notes are always kept, up to this many characters. */
 export const NOTES_LEAD_MAX_CHARS = 300
-/** The description is kept up to this many characters when the budget is tight. */
-const DESCRIPTION_MAX_CHARS = 500
-/** Notes digest budget kept free when atoms are long. */
+/** A sentence longer than this is split at ; and , (then at a word) so no single unit can swallow the budget. */
+const UNIT_MAX_CHARS = 240
+/** Room kept for the description and the notes digest when atoms are long. */
+const DESCRIPTION_RESERVE_CHARS = 500
 const DIGEST_MIN_CHARS = 500
+/** Separator between the parts of the shown text. */
+const SEP = ' — '
 
 export type ProjectAtom = { id: string; kind: 'responsibility' | 'achievement'; text: string; impact: string | null; highlighted: boolean }
 
@@ -34,6 +43,37 @@ export function activityPromptText(a: { kind: string; text: string; impact: stri
 }
 
 const keyOf = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
+const YEAR = /\b(?:19|20)\d{2}\b/g
+
+/** The figures a text states, normalised ("2.4M", "3.8%", "1,400" → "1400"); a bare 4-digit year is not a figure. */
+export function figureKeys(t: string): Set<string> {
+  const out = new Set<string>()
+  for (const m of t.replace(YEAR, ' ').matchAll(/\d[\d,]*(?:\.\d+)?\s?(?:%|[kKmMbB]\b)?/g)) out.add(m[0].replace(/[,\s]/g, '').toLowerCase())
+  return out
+}
+const hasFigure = (t: string) => figureKeys(t).size > 0
+const stems = (t: string) => new Set((t.toLowerCase().match(/\p{L}{3,}/gu) ?? []).map((w) => w.slice(0, 5)))
+const overlap = (a: Set<string>, b: Set<string>) => {
+  if (a.size === 0 || b.size === 0) return 0
+  let n = 0
+  for (const x of a) if (b.has(x)) n++
+  return n / Math.min(a.size, b.size)
+}
+
+/**
+ * Two texts that state the same thing: the same figures AND at least `minOverlap` of the shorter one's word stems in
+ * common. With `subset`, the figures of `a` need only be stated by `b` (a notes sentence that an atom already covers).
+ * Text without figures is a duplicate only when its words match exactly. Pure.
+ */
+export function nearDuplicate(a: string, b: string, opts: { minOverlap?: number; subset?: boolean } = {}): boolean {
+  const ka = keyOf(a)
+  if (ka && ka === keyOf(b)) return true
+  const fa = figureKeys(a)
+  const fb = figureKeys(b)
+  if (fa.size === 0) return false
+  const same = opts.subset ? [...fa].every((f) => fb.has(f)) : fa.size === fb.size && [...fa].every((f) => fb.has(f))
+  return same && overlap(stems(a), stems(b)) >= (opts.minOverlap ?? 0.6)
+}
 
 function cutWords(text: string, max: number): string {
   if (text.length <= max) return text
@@ -42,7 +82,7 @@ function cutWords(text: string, max: number): string {
   return `${(at > max / 2 ? cut.slice(0, at) : cut).trimEnd()}…`
 }
 
-/** Markdown simplified to plain lines: headings reported separately, emphasis, bullets, quotes, link syntax and table pipes removed. */
+/** Markdown simplified to plain lines: headings reported separately; emphasis, bullets, list numbers, quotes, link syntax and table pipes removed. */
 function plainLines(body: string): Array<{ text: string; heading: string | null; blankBefore: boolean }> {
   const out: Array<{ text: string; heading: string | null; blankBefore: boolean }> = []
   let heading: string | null = null
@@ -52,7 +92,7 @@ function plainLines(body: string): Array<{ text: string; heading: string | null;
     const clean = (h ? h[1] : raw)
       .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
       .replace(/^\s*>\s?/, '')
-      .replace(/^\s*(?:[-*+•]|\d+[.)])\s+/, (m) => (/\d/.test(m) ? m : ''))
+      .replace(/^\s*(?:[-*+•]|\d{1,3}[.)])\s+/, '')
       .replace(/(\*\*|__|`|~~)/g, '')
       .replace(/(^|\s)\*([^*\s][^*]*)\*(?=\s|$|[.,;:])/g, '$1$2')
       .replace(/\|/g, ' ')
@@ -67,73 +107,78 @@ function plainLines(body: string): Array<{ text: string; heading: string | null;
   return out
 }
 
+/** A text as sentences, none over UNIT_MAX_CHARS: long ones are split at ; and ,, then at a word (never inside a figure). */
+function units(text: string): string[] {
+  const out: string[] = []
+  for (const s of text.split(/(?<=[.!?])\s+/)) {
+    if (s.length <= UNIT_MAX_CHARS) { out.push(s); continue }
+    let acc = ''
+    for (const piece of s.split(/(?<=[;,])\s+|\s+/)) {
+      if (acc && acc.length + 1 + piece.length > UNIT_MAX_CHARS) { out.push(acc); acc = piece } else acc = acc ? `${acc} ${piece}` : piece
+    }
+    if (acc) out.push(acc)
+  }
+  return out.filter(Boolean)
+}
+
 /**
- * A long notes body reduced to what carries evidence, in original order: the
- * first paragraph (up to NOTES_LEAD_MAX_CHARS), then every sentence with a digit
- * or result wording, or under a Results/Outcomes/Metrics/Impact/Learnings
- * heading; repeats and anything an atom already states are left out. Cut at
- * line or sentence boundaries, never above `max`. A body that fits whole (after
- * those removals) is returned whole. Pure.
+ * A long text reduced to what carries evidence, in original order: its first sentences (up to NOTES_LEAD_MAX_CHARS),
+ * then every later sentence with a figure or result wording, or under a Results/Outcomes/Metrics/Impact/Learnings
+ * heading. Repeats, and anything an atom already states (`exclude`), are left out. Cut at sentence boundaries, never
+ * above `max` (`sep` is the length of the separator between kept pieces). A text that fits whole is returned whole.
  */
-export function digestNotes(body: string, opts: { max?: number; exclude?: readonly string[] } = {}): string {
+export function digestUnits(body: string, opts: { max?: number; exclude?: readonly string[]; sep?: number } = {}): string[] {
   const max = opts.max ?? PROJECT_EVIDENCE_MAX_CHARS
+  const sep = opts.sep ?? 1
   const lines = plainLines(body)
-  if (lines.length === 0 || max <= 0) return ''
-  const exclude = (opts.exclude ?? []).map(keyOf).filter((k) => k.length >= 12)
+  if (lines.length === 0 || max <= 0) return []
+  const exclude = opts.exclude ?? []
   const seen = new Set<string>()
   const keep = (text: string): boolean => {
     const k = keyOf(text)
     if (!k || seen.has(k)) return false
-    if (exclude.some((e) => e.includes(k) || (k.length >= 12 && k.includes(e)))) return false
+    const figs = figureKeys(text)
+    const stated = (e: string) => {
+      const fe = figureKeys(e)
+      return [...figs].every((f) => fe.has(f))
+    }
+    // Dropped when an atom already states it: near-identical, or one contains the other and the sentence has no figure the atom lacks.
+    if (exclude.some((e) => e.trim().length >= 12 && ((figs.size > 0 && nearDuplicate(text, e, { subset: true, minOverlap: 0.3 })) || (stated(e) && (keyOf(e).includes(k) || k.includes(keyOf(e))))))) return false
     seen.add(k)
     return true
   }
-
-  // First paragraph: the first run of lines with no blank line between.
-  const leadEnd = lines.findIndex((l, i) => i > 0 && l.blankBefore)
-  const lead = lines.slice(0, leadEnd < 0 ? lines.length : leadEnd)
-  const leadText = lead.map((l) => l.text).join(' ')
-  const units: Array<{ text: string; hot: boolean; lead: boolean }> = []
-  if (leadEnd < 0 && leadText.length <= max) {
-    // Everything is one paragraph: keep it whole when it fits.
-  }
-  const sentences = (t: string) => t.split(/(?<=[.!?])\s+/).filter(Boolean)
-  lines.forEach((l, i) => {
-    const inLead = i < (leadEnd < 0 ? lines.length : leadEnd)
-    if (inLead) return
+  const all: Array<{ text: string; hot: boolean }> = []
+  for (const l of lines) {
     const hotHeading = l.heading !== null && RESULT_HEADING.test(l.heading)
-    for (const s of sentences(l.text)) units.push({ text: s, hot: hotHeading || /\d/.test(s) || RESULT_WORDING.test(s), lead: false })
-  })
-
-  const whole = [leadText, ...units.map((u) => u.text)]
-  const wholeLen = whole.reduce((n, t) => n + t.length + 1, -1)
+    for (const u of units(l.text)) all.push({ text: u, hot: hotHeading || hasFigure(u) || RESULT_WORDING.test(u) })
+  }
   const picked: string[] = []
   let used = 0
-  const add = (t: string, force = false): boolean => {
-    const piece = t.trim()
-    if (!piece) return false
-    const extra = piece.length + (picked.length > 0 ? 1 : 0)
-    if (used + extra > max && !force) return false
-    if (!keep(piece)) return false
-    picked.push(piece)
+  const add = (t: string): boolean => {
+    const extra = t.length + (picked.length > 0 ? sep : 0)
+    if (used + extra > max || !keep(t)) return false
+    picked.push(t)
     used += extra
     return true
   }
-  if (wholeLen <= max) {
-    for (const t of whole) add(t)
-    return picked.join('\n')
+  const total = all.reduce((n, u) => n + u.text.length + sep, -sep)
+  if (total <= max) { for (const u of all) add(u.text); return picked }
+  // The lead: the first sentences up to NOTES_LEAD_MAX_CHARS (the first one always, cut at a word when it is longer).
+  let leadLen = 0
+  let i = 0
+  for (; i < all.length; i++) {
+    const t = all[i].text
+    if (i > 0 && leadLen + t.length + 1 > Math.min(NOTES_LEAD_MAX_CHARS, max)) break
+    add(i === 0 ? cutWords(t, Math.min(NOTES_LEAD_MAX_CHARS, max)) : t)
+    leadLen += t.length + 1
   }
-  const leadCap = Math.min(NOTES_LEAD_MAX_CHARS, max)
-  let leadOut = leadText
-  if (leadOut.length > leadCap) {
-    const ss = sentences(leadOut)
-    let acc = ''
-    for (const s of ss) { if ((acc ? acc.length + 1 : 0) + s.length > leadCap) break; acc = acc ? `${acc} ${s}` : s }
-    leadOut = acc || cutWords(leadOut, leadCap)
-  }
-  add(leadOut)
-  for (const u of units) if (u.hot) add(u.text)
-  return picked.join('\n')
+  for (; i < all.length; i++) if (all[i].hot) add(all[i].text)
+  return picked
+}
+
+/** `digestUnits` joined with newlines. */
+export function digestNotes(body: string, opts: { max?: number; exclude?: readonly string[] } = {}): string {
+  return digestUnits(body, opts).join('\n')
 }
 
 /** The notes part of a project's body (the body is description + notes, build.ts). */
@@ -143,10 +188,10 @@ function notesOf(note: ProjectNote): string {
   return desc && body.startsWith(desc) ? body.slice(desc.length).trim() : body
 }
 
-const figureRich = (a: ProjectAtom) => Number(Boolean(a.impact?.trim())) + Number(/\d/.test(a.text))
+export const figureRich = (a: Pick<ProjectAtom, 'text' | 'impact'>) => Number(Boolean(a.impact?.trim())) + Number(hasFigure(a.text))
 
 export type ProjectEvidenceText = {
-  /** Description, notes digest and atoms, contact-scrubbed, at most PROJECT_EVIDENCE_MAX_CHARS. */
+  /** Description, notes digest and atoms, contact-scrubbed: ONE line joined with " — ", at most PROJECT_EVIDENCE_MAX_CHARS. */
   text: string
   /** Every atom the project owns (also those left out of `text`), figure-rich first. */
   atoms: ProjectAtom[]
@@ -154,11 +199,13 @@ export type ProjectEvidenceText = {
   thin: boolean
 }
 
+const oneLine = (t: string) => t.replace(/\s*\n+\s*/g, SEP).replace(/\s+/g, ' ').trim()
+
 /**
- * The evidence text of one project note: description + digest of the notes + its
- * own atoms rendered like activityPromptText. `excludeAtomIds` are atoms that are
- * bullets of their own (the writer must not repeat them): left out of `text`,
- * still counted for `thin`. Pure.
+ * The evidence text of one project note: description + digest of the notes + its own atoms rendered like
+ * activityPromptText. The description gets whatever the digest and atoms leave (up to the cap); only when the total
+ * would exceed it is the description digested (its first sentences, then its figure sentences). `excludeAtomIds` are
+ * atoms that are bullets of their own (the writer must not repeat them): left out of `text`, still counted for `thin`.
  */
 export function projectEvidenceText(note: ProjectNote, vault: Vault, opts: { excludeAtomIds?: ReadonlySet<string> } = {}): ProjectEvidenceText {
   const scrub = makeContactScrubber(vault.identity.props.contact)
@@ -172,26 +219,30 @@ export function projectEvidenceText(note: ProjectNote, vault: Vault, opts: { exc
   // Legacy highlights only stand in when there are no atoms (profile/project-highlights.ts).
   const legacy = atoms.length === 0 ? note.props.highlights.map(clean).filter(Boolean) : []
   const atomLines = [...atoms.map(activityPromptText), ...legacy]
-  const shown = [...atoms.filter((a) => !opts.excludeAtomIds?.has(a.id)).map(activityPromptText), ...legacy]
+  const shown = [...atoms.filter((a) => !opts.excludeAtomIds?.has(a.id)).map(activityPromptText), ...legacy].map(oneLine)
 
   const max = PROJECT_EVIDENCE_MAX_CHARS
-  const description = cutWords(clean(note.props.description), DESCRIPTION_MAX_CHARS)
+  const descFull = oneLine(clean(note.props.description))
   const rawNotes = clean(notesOf(note))
-  const atomKeys = [...atoms.flatMap((a) => [a.text, a.impact ?? '', `${a.text} ${a.impact ?? ''}`]), ...legacy]
-  const fullDigest = digestNotes(rawNotes, { max, exclude: [...atomKeys, description] })
+  const exclude = [...atoms.flatMap((a) => [a.text, a.impact ?? '', `${a.text} ${a.impact ?? ''}`]), ...legacy, descFull]
+  const fullDigest = digestUnits(rawNotes, { max, exclude, sep: SEP.length })
+  const digestFullLen = fullDigest.join(SEP).length
 
-  let used = description.length
+  // Atoms first (they are the strongest evidence), keeping room for a description and a digest.
+  const atomBudget = max - Math.min(descFull.length, DESCRIPTION_RESERVE_CHARS) - Math.min(digestFullLen, DIGEST_MIN_CHARS) - 2 * SEP.length
   const atomOut: string[] = []
-  const atomBudget = max - used - Math.min(fullDigest.length, DIGEST_MIN_CHARS)
   let atomUsed = 0
   for (const l of shown) {
-    if (atomUsed + l.length + 1 > atomBudget) continue
+    if (atomUsed + l.length + SEP.length > atomBudget) continue
     atomOut.push(l)
-    atomUsed += l.length + 1
+    atomUsed += l.length + SEP.length
   }
-  used += atomUsed + 1
-  const digest = fullDigest.length <= max - used ? fullDigest : digestNotes(rawNotes, { max: Math.max(0, max - used - 1), exclude: [...atomKeys, description] })
-  const text = [description, digest, ...atomOut].filter(Boolean).join('\n')
-  const thin = isThinProject({ name: note.props.name, text: [description, fullDigest, ...atomLines].join('\n') })
+  // The description takes what the atoms and the digest leave; cut (figure sentences kept) only when it must be.
+  const descBudget = max - atomUsed - Math.min(digestFullLen, DIGEST_MIN_CHARS) - (digestFullLen > 0 ? SEP.length : 0)
+  const description = descFull.length <= descBudget ? descFull : digestUnits(descFull, { max: Math.max(0, descBudget), sep: SEP.length }).join(SEP)
+  const digestBudget = max - atomUsed - description.length - (description ? SEP.length : 0)
+  const digest = digestFullLen <= digestBudget ? fullDigest : digestUnits(rawNotes, { max: Math.max(0, digestBudget - SEP.length), exclude, sep: SEP.length })
+  const text = [description, ...digest, ...atomOut].filter(Boolean).join(SEP)
+  const thin = isThinProject({ name: note.props.name, text: [descFull, ...fullDigest, ...atomLines].join('\n') })
   return { text, atoms, thin }
 }

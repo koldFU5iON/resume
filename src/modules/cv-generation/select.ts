@@ -255,7 +255,7 @@ export function enforceSelection(
   mode: CvSelection['mode'] = 'model',
   opts: { requirementTerms?: readonly string[]; now?: Date } = {},
 ): EnforceResult {
-  const notes: string[] = []
+  const notes: string[] = [...(cands.projectAtomNotes ?? [])]
   const now = opts.now ?? new Date()
   const labels = labelIndex(cands)
   const dropReason = new Map<string, DropReason>()
@@ -379,6 +379,8 @@ export function enforceSelection(
   const claimedFor = claimsByItem(out.emphasise)
   const claimedIds = new Set([...claimedFor.values()].flat())
   const pinnedProjects: Array<{ id: string; reason: string }> = []
+  /** The atoms pinned for each named project, best first: an employer with a small bullet limit keeps only the first of each. */
+  const projectPinGroups: string[][] = []
   const textOf = (a: CandidateActivity) => `${a.text} ${a.impact ?? ''}`
   const projText = (c: Candidates['projects'][number]) => `${c.label} ${c.detail ?? ''}`
   const bulletCands = cands.employers.filter((e) => bulletKeys.has(e.key))
@@ -409,10 +411,11 @@ export function enforceSelection(
       // The project's own achievements (figure-rich first) are pinned too: the project text alone would not carry its figures.
       const atoms = bulletCands
         .flatMap((e) => e.activities.map((a, idx) => ({ a, key: e.key, idx })))
-        .filter((h) => h.a.fromProject?.id === proj.id && !pickedActs.has(h.a.id))
+        .filter((h) => h.a.fromProject?.id === proj.id && !pickedActs.has(h.a.id) && !isApproachOnly(h.a))
         .sort((x, y) => Number(hasOutcome(y.a)) - Number(hasOutcome(x.a)) || activityRank(y.a) - activityRank(x.a) || x.idx - y.idx)
         .slice(0, PROJECT_ATOM_PINS)
-      for (const h of atoms.reverse()) {
+      if (atoms.length > 0) projectPinGroups.push(atoms.map((h) => h.a.id))
+      for (const h of [...atoms].reverse()) {
         byEmployer.set(h.key, [{ id: h.a.id, reason: `Named in the brief: “${n.name}” (from project ${proj.label})` }, ...(byEmployer.get(h.key) ?? [])])
         pickedActs.add(h.a.id)
       }
@@ -443,7 +446,8 @@ export function enforceSelection(
   const approachNotes: string[] = []
   bulletEmployers.forEach((e, i) => {
     const limit = split[i]
-    const allPicks = byEmployer.get(e.key) ?? []
+    const shed = limit <= SMALL_LIMIT_BULLETS ? new Set(projectPinGroups.flatMap((g) => g.slice(1))) : new Set<string>()
+    const allPicks = (byEmployer.get(e.key) ?? []).filter((p) => !shed.has(p.id))
     const picks = allPicks.filter((p) => !weakPick(p))
     const weakPicks = allPicks.filter(weakPick)
     const kept: SelectedActivity[] = picks.slice(0, limit).map((p) => ({ ...item(p.id, p.reason), experienceId: experienceOf.get(p.id)! }))
@@ -661,6 +665,8 @@ function employerCarries(e: Pick<CandidateEmployer, 'company'>, name: string): b
 
 /** A pinned project also pins at most this many of its own achievements. */
 const PROJECT_ATOM_PINS = 2
+/** With a bullet limit this small an employer keeps only the best pinned atom of a project. */
+const SMALL_LIMIT_BULLETS = 3
 
 /** A name pin never takes an activity shorter than this many words when a longer one matches. */
 const MIN_PIN_WORDS = 8

@@ -20,7 +20,7 @@ import type { Vault } from '@/modules/profile-map/types'
 import { FLAT_SECTIONS, type FlatSection } from './caps'
 import { countOf } from './text'
 import { employerPeriod, groupEmployers, type EmployerGroup } from './employers'
-import { projectEvidenceText, RESULT_WORDING } from './project-evidence'
+import { nearDuplicate, projectEvidenceText, RESULT_WORDING } from './project-evidence'
 import { ALREADY_MARKED, certificationStatus, educationStatus, isClaimedCapability, isDegreeLike } from './write/status'
 
 export type CandidateActivity = {
@@ -63,7 +63,10 @@ export type CandidateItem = {
   thin?: boolean
 }
 
-export type Candidates = { employers: CandidateEmployer[] } & Record<FlatSection, CandidateItem[]>
+/** At most this many of a project's own achievements are offered to Select (figure-rich first). */
+export const MAX_PROJECT_ATOMS = 5
+
+export type Candidates = { employers: CandidateEmployer[]; /** Log notes about project achievements left out of the menu. */ projectAtomNotes?: string[] } & Record<FlatSection, CandidateItem[]>
 
 export function emptyCandidates(): Candidates {
   return { employers: [], skills: [], tools: [], competencies: [], certifications: [], education: [], projects: [] }
@@ -110,6 +113,7 @@ export function buildCandidates(vault: Vault, now: Date = new Date()): Candidate
 
   // Achievements attached to a project compete as activities of the employer that owns the project's role.
   // An independent project, or one whose role is unknown, keeps its text in the project candidate only.
+  const projectAtomNotes: string[] = []
   const employerOfRole = new Map(employers.flatMap((e) => e.roles.map((r) => [r.experienceId, e] as const)))
   const norm = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
   for (const pn of notesOf(vault, 'project')) {
@@ -117,14 +121,23 @@ export function buildCandidates(vault: Vault, now: Date = new Date()): Candidate
     const emp = employerOfRole.get(pn.props.experienceId)
     if (!emp) continue
     const have = new Set(emp.activities.map((a) => norm(a.text)))
+    const ids = new Set(emp.activities.map((a) => a.id))
+    const role = emp.activities.filter((a) => !a.fromProject)
+    let offered = 0
+    let leftOut = 0
     for (const atom of projectEvidenceText(pn, vault).atoms) {
-      if (!atom.text || have.has(norm(atom.text))) continue
+      const full = `${atom.text} ${atom.impact ?? ''}`
+      if (!atom.text || ids.has(atom.id) || have.has(norm(atom.text)) || role.some((a) => nearDuplicate(`${a.text} ${a.impact ?? ''}`, full))) continue
+      if (offered >= MAX_PROJECT_ATOMS) { leftOut++; continue }
+      offered++
       have.add(norm(atom.text))
+      ids.add(atom.id)
       emp.activities.push({
         id: atom.id, experienceId: pn.props.experienceId, kind: atom.kind, text: atom.text, impact: atom.impact,
         highlighted: atom.highlighted, fromProject: { id: pn.id, name: pn.props.name },
       })
     }
+    if (leftOut > 0) projectAtomNotes.push(`${countOf(leftOut, 'achievement')} of the project “${pn.props.name}” left out of the menu (at most ${MAX_PROJECT_ATOMS} per project, figure-rich first).`)
   }
 
   const caps = notesOf(vault, 'capability')
@@ -137,6 +150,7 @@ export function buildCandidates(vault: Vault, now: Date = new Date()): Candidate
 
   return {
     employers,
+    projectAtomNotes,
     skills: caps.filter((n) => n.props.kind === 'skill').map(capItem),
     tools: caps.filter((n) => n.props.kind === 'tool').map(capItem),
     competencies: caps.filter((n) => n.props.kind === 'competency').map(capItem),

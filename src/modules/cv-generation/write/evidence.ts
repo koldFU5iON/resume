@@ -252,7 +252,7 @@ export function evidenceFromVault(vault: Vault, selection: CvSelection, now: Dat
  */
 export { activityPromptText }
 
-/** A project's text exactly as the experience writer is shown it (capped at PROJECT_EVIDENCE_MAX_CHARS). */
+/** A project's text exactly as the experience writer and Review are shown it: the one string projectEvidenceText built (already one line and within the cap, so the cap here is a no-op safety net). */
 export function projectPromptText(p: Pick<ProjectEvidence, 'text'>): string {
-  return capProjectText(p.text.replace(/\n+/g, ' — '))
+  return capProjectText(p.text)
 }
