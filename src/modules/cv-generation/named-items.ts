@@ -10,6 +10,7 @@
  */
 
 import type { BriefItem } from './schema'
+import { foldText } from './text'
 
 export type NamedItem = BriefItem & { kind: 'lead-with' | 'emphasise' }
 
@@ -38,8 +39,7 @@ function stem(w: string): string {
 
 /** The words of a text as stems: lower-case, years, ordinals and filler removed. */
 export function nameTokens(text: string): string[] {
-  return text
-    .toLowerCase()
+  return foldText(text)
     .split(/[^a-z0-9+#.]+/)
     .map((w) => w.replace(/^\.+|\.+$/g, ''))
     .filter((w) => w.length >= 2 && !FILLER.has(w) && !YEAR_OR_ORDINAL.test(w))

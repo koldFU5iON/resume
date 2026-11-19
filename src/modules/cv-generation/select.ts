@@ -68,7 +68,7 @@ import {
   type SelectedItem,
   employersWithBullets,
 } from './schema'
-import { countOf } from './text'
+import { countOf, foldText } from './text'
 
 type Gathered = Extract<GatherResult, { ok: true }>
 
@@ -673,20 +673,33 @@ function topUpOrder(section: FlatSection, items: readonly CandidateItem[], terms
     // (no evidence in an activity or project) pads a list only when the brief or the job's requirements name it.
     const scored = items.map((c, idx) => ({ c, idx, m: matches(`${c.label} ${c.detail ?? ''}`, terms).length }))
     return scored
-      .filter(({ c, m }) => section === 'competencies' || c.proven || m > 0)
+      .filter(({ c }) => section === 'competencies' || c.proven || namedIn(c.label, terms))
       .sort((x, y) => Number(y.c.proven) - Number(x.c.proven) || y.m - x.m || x.idx - y.idx)
       .map(({ c }) => c)
   }
   return [...items]
 }
 
+/** Words that do not make a claimed tool "named" on their own: "OpenAI API" is not named by a job that only asks for "API". */
+const GENERIC_TOOL_WORDS = new Set(['api', 'apis', 'sdk', 'app', 'apps', 'software', 'tool', 'tools', 'platform', 'cloud', 'suite', 'studio', 'pro', 'ai', 'web', 'online', 'service', 'services'])
+
+/**
+ * Whether the brief or the job's requirements (their `terms`) name an item:
+ * every distinctive word of its label is among them (a label of only generic
+ * words is never named). One shared word is not enough. Pure.
+ */
+function namedIn(label: string, terms: readonly string[]): boolean {
+  const words = foldText(label).split(/[^a-z0-9+#.]+/).map((w) => w.replace(/^\.+|\.+$/g, '')).filter((w) => w.length >= 2 && !GENERIC_TOOL_WORDS.has(w))
+  return words.length > 0 && words.every((w) => terms.includes(w))
+}
+
 function termsOf(text: string): string[] {
-  const words = text.toLowerCase().split(/[^a-z0-9+#.]+/).map((w) => w.replace(/^\.+|\.+$/g, '')).filter((w) => w.length >= 3 && !STOPWORDS.has(w))
+  const words = foldText(text).split(/[^a-z0-9+#.]+/).map((w) => w.replace(/^\.+|\.+$/g, '')).filter((w) => w.length >= 3 && !STOPWORDS.has(w))
   return [...new Set(words)]
 }
 
 function matches(text: string, terms: readonly string[]): string[] {
-  const words = new Set(text.toLowerCase().split(/[^a-z0-9+#.]+/).map((w) => w.replace(/^\.+|\.+$/g, '')))
+  const words = new Set(foldText(text).split(/[^a-z0-9+#.]+/).map((w) => w.replace(/^\.+|\.+$/g, '')))
   return terms.filter((t) => words.has(t))
 }
 

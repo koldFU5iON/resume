@@ -34,10 +34,10 @@ beforeEach(() => {
 })
 
 describe('output caps', () => {
-  it('are brief 4000/8000, select 8000/16000, the skills and profile writers 1500/3000, the review 3000/6000 (the experience writer scales: experienceTokenCaps)', () => {
+  it('are brief 4000/8000, select 8000/16000, the skills writer 1500/3000, the profile writer 4000/8000, the review 3000/6000 (the experience writer scales: experienceTokenCaps)', () => {
     expect(MAX_OUTPUT_TOKENS).toEqual({
       brief: 4_000, briefRetry: 8_000, select: 8_000, selectRetry: 16_000,
-      writeSkills: 1_500, writeSkillsRetry: 3_000, writeProfile: 1_500, writeProfileRetry: 3_000,
+      writeSkills: 1_500, writeSkillsRetry: 3_000, writeProfile: 4_000, writeProfileRetry: 8_000,
       review: 3_000, reviewRetry: 6_000,
     })
   })
