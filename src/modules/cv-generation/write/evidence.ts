@@ -10,7 +10,7 @@
  * given a vault: no DB, no network.
  */
 
-import { notesOf } from '@/modules/profile-map/build'
+import { jobNotes, notesOf } from '@/modules/profile-map/build'
 import type { Vault } from '@/modules/profile-map/types'
 import { makeContactScrubber } from '@/modules/profile-map/pii'
 import { stripWikilinks } from '@/modules/profile-map/links'
@@ -223,7 +223,8 @@ export function evidenceFromVault(vault: Vault, selection: CvSelection, now: Dat
       : []
   })
 
-  const experiences = notesOf(vault, 'experience')
+  // Jobs only: "Independent projects" is not a title or an employer the CV may claim.
+  const experiences = jobNotes(vault)
   return {
     employers,
     skills: caps(selection.skills, 'skills'),

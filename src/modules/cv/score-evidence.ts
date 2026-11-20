@@ -1,4 +1,5 @@
 import * as z from 'zod'
+import { experienceLabel } from '@/modules/profile/experience-type'
 import { completeStructured, type LlmAttribution } from '@/modules/llm/client'
 import { loadEvidenceScoringPrompt, composeSystem } from '@/modules/llm/prompt-context'
 import type { ProfileSnapshot } from '@/modules/profile/snapshot'
@@ -18,6 +19,12 @@ const EvidenceScoringResultSchema = z.object({
 // Activities per role, indexed by recency: [current, previous, older]
 const ROLE_BUDGETS = [5, 4, 3]
 
+/** Recency rank among JOBS only: the independent experience has no recency, so it takes the smallest budget and does not push real jobs down. */
+function budgetIndexes(experiences: ProfileSnapshot['experiences']): number[] {
+  let jobs = 0
+  return experiences.map((e) => (e.type === 'independent' ? ROLE_BUDGETS.length - 1 : jobs++))
+}
+
 function getBudget(roleIndex: number): number {
   return ROLE_BUDGETS[Math.min(roleIndex, ROLE_BUDGETS.length - 1)]
 }
@@ -27,7 +34,7 @@ export function applyRoleBudgets(snapshot: ProfileSnapshot): ProfileSnapshot {
     ...snapshot,
     experiences: snapshot.experiences.map((exp, ei) => ({
       ...exp,
-      activities: exp.activities.slice(0, getBudget(ei)),
+      activities: exp.activities.slice(0, getBudget(budgetIndexes(snapshot.experiences)[ei])),
     })),
   }
 }
@@ -40,7 +47,7 @@ export async function scoreEvidence(
 ): Promise<ProfileSnapshot> {
   const activitiesText = snapshot.experiences
     .map((exp, ei) => {
-      const header = `[Role ${ei}] ${exp.role} at ${exp.company}`
+      const header = `[Role ${ei}] ${experienceLabel(exp)}`
       const rows = exp.activities.map(
         (act, ai) =>
           `[${ei}.${ai}] ${act.kind}: ${act.description}${act.impact ? ' — ' + act.impact : ''}`,
@@ -96,7 +103,7 @@ function applyScores(
   return {
     ...snapshot,
     experiences: snapshot.experiences.map((exp, ei) => {
-      const budget = getBudget(ei)
+      const budget = getBudget(budgetIndexes(snapshot.experiences)[ei])
 
       const ranked = exp.activities
         .map((_, ai) => {

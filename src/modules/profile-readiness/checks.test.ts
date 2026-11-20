@@ -5,7 +5,7 @@ import {
   checkEvidenceQuality, checkExperienceDates, checkExperienceEvidence, checkOutcomeProjects, checkRoleOverview, checkThinNarratives,
 } from './checks'
 import {
-  NOW, activity, careerChanger, certification, cleanProfile, earlyCareer, education, longCareer, messyImport, project,
+  NOW, activity, careerChanger, certification, cleanProfile, earlyCareer, education, independentRole, longCareer, messyImport, project,
   role, skill, vaultOf,
 } from './__fixtures__/profiles'
 
@@ -393,5 +393,34 @@ describe('checkOutcomeProjects', () => {
   })
   it('is quiet on the healthy fixtures', () => {
     for (const v of [cleanProfile(), earlyCareer(), careerChanger(), longCareer()]) expect(checkOutcomeProjects(v)).toEqual([])
+  })
+})
+
+describe('the independent experience is never read as a job', () => {
+  const withIndependent = () => vaultOf({
+    experiences: [
+      role('r1', 'Acme', 'Engineer', '2020-01', null, 'Built and ran the platform for a mid-size retailer across three markets, owning delivery and the on-call rota for the whole team.', [
+        activity('a1', { experienceId: 'r1' }, 'achievement', 'Cut checkout latency by 40% across all three markets', '40% faster'),
+      ]),
+      independentRole('ind', []),
+    ],
+    projects: [project('pp', 'Side tool', 'A personal tool.', { experienceId: 'ind' })],
+  })
+  it('raises no date, gap, overlap or evidence finding for it, however empty or old its sentinel date', () => {
+    const v = withIndependent()
+    const found = [...checkExperienceDates(v, NOW), ...checkExperienceEvidence(v, NOW), ...checkRoleOverview(v, NOW)]
+    expect(found.filter((f) => f.noteId === 'ind')).toEqual([])
+    expect(kinds(found)).not.toContain('employment_gap')
+    expect(kinds(found)).not.toContain('concurrent_roles')
+  })
+  it('does not turn the sentinel date into a gap before the first real job', () => {
+    expect(kinds(checkExperienceDates(withIndependent(), NOW))).toEqual([])
+  })
+})
+
+describe('the independent experience: thin narratives', () => {
+  it('is never flagged as a thin role (it is a heading, not a narrative)', () => {
+    const v = vaultOf({ experiences: [independentRole('ind', [])] })
+    expect(checkThinNarratives(v, NOW).map((f) => f.noteId)).not.toContain('ind')
   })
 })

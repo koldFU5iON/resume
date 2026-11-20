@@ -15,7 +15,7 @@ type Experience = CandidateSource['experiences'][number]
 
 function exp(role: string, company: string, start: string, end: string | null, summary = '', activities: string[] = []): Experience {
   return {
-    role, company, startDate: d(start), endDate: end ? d(end) : null, location: '12 Rue Exemple, Lyon', remote: false, summary,
+    type: 'employment', role, company, startDate: d(start), endDate: end ? d(end) : null, location: '12 Rue Exemple, Lyon', remote: false, summary,
     activities: activities.map((description) => ({ kind: 'responsibility', description, impact: null, highlighted: false })),
   }
 }
@@ -180,6 +180,16 @@ describe('buildCandidateState', () => {
   it('leaves a normal profile untouched by the budget', () => {
     const { state } = buildCandidateState(snapshot())
     expect(state.roles.role_1.description).toBe('Runs the delivery program.\nPlanned quarterly roadmaps.\nWrote about delivery.')
+  })
+})
+
+describe('buildCandidateState: the independent experience', () => {
+  it('is not a role: it never reaches the roles or the timeline, whatever its sentinel date', () => {
+    const s = snapshot()
+    s.experiences = [...s.experiences, { ...exp('Independent projects', 'Independent projects', '1970-01', null, '', ['Built a tool']), type: 'independent' }]
+    const { state, timeline } = buildCandidateState(s)
+    expect(Object.keys(state.roles)).toEqual(['role_1', 'role_2'])
+    expect(timeline.map((t) => t.label)).toEqual(['Program Manager', 'Project Coordinator'])
   })
 })
 

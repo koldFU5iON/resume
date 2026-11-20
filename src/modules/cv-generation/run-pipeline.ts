@@ -25,7 +25,7 @@
  */
 
 import { statedYears } from './write/years'
-import { notesOf } from '@/modules/profile-map/build'
+import { jobNotes, notesOf } from '@/modules/profile-map/build'
 import { after } from 'next/server'
 import type { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
@@ -324,7 +324,7 @@ export async function runCvGenerationStages(runId: string, profileId: string, op
       const outcome = await runReview(
         {
           assembled: cv, selection, brief: briefValue, strategy: g.strategy, evidence: reviewEvidence,
-          yearsOfExperience: statedYears(notesOf(vault, 'experience').map((e) => e.props.startDate), new Date()),
+          yearsOfExperience: statedYears(jobNotes(vault).map((e) => e.props.startDate), new Date()),
           validate: (markdown) => recheckMarkdown(markdown, snapshot).errors,
         },
         { profileId, jobApplicationId: jobId, runId, writingDeskDocumentId, deadline: deadline - LAND_RESERVE_MS },

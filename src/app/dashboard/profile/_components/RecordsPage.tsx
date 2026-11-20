@@ -4,8 +4,9 @@ import type { FullProfile } from '@/app/types/profile'
 /** Years since the earliest role, at least one; the skill gauges are drawn against it. */
 export function careerYears(profile: Pick<FullProfile, 'experiences'>): number {
   const now = new Date().getFullYear()
-  const earliest = profile.experiences.length > 0
-    ? Math.min(...profile.experiences.map(e => new Date(e.startDate).getFullYear()))
+  const jobs = profile.experiences.filter(e => e.type !== 'independent') // the independent experience has no start
+  const earliest = jobs.length > 0
+    ? Math.min(...jobs.map(e => new Date(e.startDate).getFullYear()))
     : now - 10
   return Math.max(now - earliest, 1)
 }

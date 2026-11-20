@@ -63,3 +63,14 @@ describe('where a vault note or gap area lands', () => {
     expect(areaHref('experience')).toBe('/dashboard/profile/n/overview')
   })
 })
+
+describe('buildNoteIndex: the independent experience', () => {
+  it('goes last, with its name only and no period, whatever its sentinel date', () => {
+    const index = buildNoteIndex({
+      ...profile,
+      experiences: [{ id: 'ind', type: 'independent', role: 'Independent projects', company: 'Independent projects', startDate: new Date('2030-01-01'), endDate: null }, ...profile.experiences],
+    })
+    expect(index.experiences.map((e) => e.id)).toEqual(['new', 'old', 'ind'])
+    expect(index.experiences[2]).toMatchObject({ title: 'Independent projects', period: '' })
+  })
+})

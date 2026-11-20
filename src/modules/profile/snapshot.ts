@@ -12,6 +12,7 @@ import { formatMonth as formatMonthUtc } from '@/modules/profile-map/format'
 import { stripWikilinks as plain } from '@/modules/profile-map/links'
 import { makeContactScrubber, type PiiMode } from '@/modules/profile-map/pii'
 import type { Vault } from '@/modules/profile-map/types'
+import type { ExperienceType } from '@/modules/profile/experience-type'
 
 export type ProfileSnapshot = {
   name: string
@@ -26,6 +27,8 @@ export type ProfileSnapshot = {
   summary: string | null
 
   experiences: Array<{
+    /** 'independent' = personal projects, not a job: no dates or employer. */
+    type: ExperienceType
     role: string
     company: string
     startDate: Date
@@ -105,6 +108,7 @@ export function toProfileSnapshot(vault: Vault): ProfileSnapshot {
     headline: id.headline,
     summary: vault.identity.body ? plain(vault.identity.body) : null,
     experiences: notesOf(vault, 'experience').map((e) => ({
+      type: e.props.experienceType,
       role: e.props.role,
       company: e.props.company,
       startDate: e.props.startDate,
@@ -180,24 +184,33 @@ export function serializeProfileForLLM(snapshot: ProfileSnapshot, opts: { pii?: 
   if (snapshot.location) lines.push(`\n**Location:** ${snapshot.location}`)
   if (snapshot.summary?.trim()) lines.push(`\n## Summary\n\n${scrub(snapshot.summary.trim())}`)
 
-  // Experience
-  if (snapshot.experiences.length > 0) {
-    lines.push('\n## Experience\n')
-    for (const exp of snapshot.experiences) {
+  // Experience: jobs only. The independent experience follows as its own section, never as a job.
+  const writeExperience = (exp: ProfileSnapshot['experiences'][number], independent: boolean) => {
+    if (independent) {
+      lines.push(`### ${exp.role}`)
+    } else {
       const dates = `${formatMonth(exp.startDate)} – ${exp.endDate ? formatMonth(exp.endDate) : 'present'}`
       const place = [exp.location, exp.remote ? 'Remote' : null].filter(Boolean).join(' · ')
       lines.push(`### ${exp.role} — ${exp.company}`)
       lines.push(`*${dates}${place ? ` · ${place}` : ''}*`)
-      if (exp.summary) lines.push(`\n${scrub(exp.summary)}`)
-      if (exp.activities.length > 0) {
-        for (const act of exp.activities) {
-          const star = act.highlighted ? '⭐ ' : ''
-          const impact = act.impact ? ` — *${act.impact}*` : ''
-          lines.push(`- ${star}**${act.kind}:** ${scrub(act.description)}${impact}`)
-        }
-      }
-      lines.push('')
     }
+    if (exp.summary) lines.push(`\n${scrub(exp.summary)}`)
+    for (const act of exp.activities) {
+      const star = act.highlighted ? '⭐ ' : ''
+      const impact = act.impact ? ` — *${act.impact}*` : ''
+      lines.push(`- ${star}**${act.kind}:** ${scrub(act.description)}${impact}`)
+    }
+    lines.push('')
+  }
+  const jobs = snapshot.experiences.filter((e) => e.type !== 'independent')
+  const independent = snapshot.experiences.filter((e) => e.type === 'independent')
+  if (jobs.length > 0) {
+    lines.push('\n## Experience\n')
+    for (const exp of jobs) writeExperience(exp, false)
+  }
+  if (independent.length > 0) {
+    lines.push('\n## Independent projects (personal work, not employment)\n')
+    for (const exp of independent) writeExperience(exp, true)
   }
 
   // Skills — grouped by category for readability

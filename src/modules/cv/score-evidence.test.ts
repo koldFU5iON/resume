@@ -37,6 +37,7 @@ const MOCK_SNAPSHOT: ProfileSnapshot = {
   tools: [],
   experiences: [
     {
+      type: 'employment',
       role: 'Director',
       company: 'Acme',
       startDate: new Date('2020-01-01'),
@@ -52,6 +53,7 @@ const MOCK_SNAPSHOT: ProfileSnapshot = {
       ],
     },
     {
+      type: 'employment',
       role: 'Manager',
       company: 'Beta',
       startDate: new Date('2016-01-01'),
@@ -313,5 +315,34 @@ describe('scoreEvidence', () => {
     const [, userMessage] = mockCompleteStructured.mock.calls[0]
     expect(userMessage).toContain('== JOB INTELLIGENCE ==')
     expect(userMessage).not.toContain('Risks:')
+  })
+})
+
+describe('applyRoleBudgets: the independent experience', () => {
+  it('does not take a job\'s recency slot, so the real jobs keep their budgets', () => {
+    const base = MOCK_SNAPSHOT.experiences[0]
+    const many = Array.from({ length: 10 }, (_, i) => makeActivity('achievement', `Did thing ${i}`))
+    const snapshot: ProfileSnapshot = {
+      ...MOCK_SNAPSHOT,
+      experiences: [
+        { ...base, type: 'independent', role: 'Independent projects', company: 'Independent projects', activities: many },
+        { ...base, activities: many },
+      ],
+    }
+    const [independent, job] = applyRoleBudgets(snapshot).experiences
+    expect(job.activities).toHaveLength(5)
+    expect(independent.activities).toHaveLength(3)
+  })
+})
+
+describe('scoreEvidence: the independent experience', () => {
+  it('is labelled by name only in the scoring prompt, not "at <company>"', async () => {
+    const base = MOCK_SNAPSHOT.experiences[0]
+    mockCompleteStructured.mockResolvedValue({ object: { scores: [] } } as never)
+    const snapshot = { ...MOCK_SNAPSHOT, experiences: [{ ...base, type: 'independent' as const, role: 'Independent projects', company: 'Independent projects' }] }
+    await scoreEvidence(PROFILE_ID, snapshot, { mustHave: [], niceToHave: [], risks: [] } as never).catch(() => undefined)
+    const prompt = String(mockCompleteStructured.mock.calls.at(-1)?.[1] ?? '')
+    expect(prompt).toContain('[Role 0] Independent projects')
+    expect(prompt).not.toContain('Independent projects at')
   })
 })

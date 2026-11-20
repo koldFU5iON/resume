@@ -10,8 +10,8 @@ const profile = {
   name: 'Ada Lovelace',
   email: null, phone: null, website: null, linkedin: null, github: null, location: null, headline: null, summary: null, tools: [],
   experiences: [
-    { role: 'Senior Engineer', company: 'Acme Corp Ltd', startDate: d(2019, 3), endDate: null, location: null, remote: false, summary: '', activities: [] },
-    { role: 'Developer', company: 'Globex', startDate: d(2016, 1), endDate: d(2019, 2), location: null, remote: false, summary: '', activities: [] },
+    { type: 'employment', role: 'Senior Engineer', company: 'Acme Corp Ltd', startDate: d(2019, 3), endDate: null, location: null, remote: false, summary: '', activities: [] },
+    { type: 'employment', role: 'Developer', company: 'Globex', startDate: d(2016, 1), endDate: d(2019, 2), location: null, remote: false, summary: '', activities: [] },
   ],
   skills: [],
   educations: [
@@ -198,5 +198,16 @@ describe('checkFacts', () => {
     }
     expect(checkFacts('## Experience\n### Globex\nLyon · Remote · 2016 - 2019', profile)).toEqual([])
     expect(checkFacts('## Experience\n### Globex\nI was in Lyon, France, and then moved on · 2014 - 2019 and more', profile)).toEqual([])
+  })
+})
+
+describe('checkFacts: the independent experience', () => {
+  it('is not an employer, so an entry naming it is not checked against its sentinel dates', () => {
+    const withIndependent = {
+      ...profile,
+      experiences: [...profile.experiences, { type: 'independent', role: 'Independent projects', company: 'Independent projects', startDate: d(1970, 1), endDate: null, location: null, remote: false, summary: '', activities: [] }],
+    } as ProfileSnapshot
+    const w = checkFacts('## Experience\n### Independent projects\n2023 – Present', withIndependent)
+    expect(w.map(x => x.kind)).toEqual(['employer'])
   })
 })
