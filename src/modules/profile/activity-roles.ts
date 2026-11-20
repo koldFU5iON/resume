@@ -8,6 +8,8 @@
 
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
+import { INDEPENDENT_EXPERIENCE_TYPE } from './experience-type'
+import { ensureIndependentExperience } from './independent-experience'
 
 /** The slice of a transaction client `lockRow` needs. */
 type RawTx = { $queryRaw: (q: TemplateStringsArray | Prisma.Sql, ...v: unknown[]) => Promise<unknown> }
@@ -78,19 +80,29 @@ export async function experienceDeleteImpact(profileId: string, id: string) {
 }
 
 /**
- * Deletes a role. `keep` leaves its projects standalone and keeps their evidence (the evidence loses the
- * role it carried, because the role is going); `delete` removes the projects and their evidence too.
- * Evidence of another role that sits under one of these projects is always kept, as that role's own.
- * One transaction. A role that is already gone is a no-op.
+ * Deletes a role. `keep` MOVES its projects, with their evidence, to the independent experience ("Independent
+ * projects", created if need be), so nothing the owner chose to keep is lost or left homeless; `delete` removes
+ * the projects and their evidence too. Evidence of another role that sits under one of these projects is always
+ * kept, as that role's own. The independent experience itself cannot be deleted with `keep` (there is nowhere to
+ * move to). One transaction. A role that is already gone is a no-op.
  */
 export async function deleteExperienceRow(profileId: string, id: string, projects: 'keep' | 'delete'): Promise<void> {
-  const experience = await prisma.experience.findFirst({ where: { id, profileId }, select: { id: true } })
+  const experience = await prisma.experience.findFirst({ where: { id, profileId }, select: { id: true, type: true } })
   if (!experience) return
+  if (projects === 'keep' && experience.type === INDEPENDENT_EXPERIENCE_TYPE) {
+    throw new Error('Independent projects is where kept projects live: delete its projects too, or move them to a role first.')
+  }
   await prisma.$transaction(async (tx) => {
     await lockRow(tx, 'Experience', id, profileId)
     if (projects === 'keep') {
-      // These stay as the projects' evidence; the cascade from the role would delete them.
-      await tx.roleActivity.updateMany({ where: { experienceId: id, project: { experienceId: id, profileId } }, data: { experienceId: null } })
+      const home = await ensureIndependentExperience(tx, profileId)
+      // This role's evidence under its projects moves with them (the cascade from the role would delete it)...
+      await tx.roleActivity.updateMany({ where: { experienceId: id, project: { experienceId: id, profileId } }, data: { experienceId: home } })
+      // A legacy project-only row takes the role the project is moving to, like every write keeps it (a project's
+      // evidence carries the project's role).
+      await tx.roleActivity.updateMany({ where: { experienceId: null, project: { experienceId: id, profileId } }, data: { experienceId: home } })
+      // ...and the projects themselves.
+      await tx.project.updateMany({ where: { experienceId: id, profileId }, data: { experienceId: home } })
     } else {
       // The projects are going: another role's evidence under them must not go with them. It keeps its role and
       // loses only the label. (When the projects are kept it keeps the label too; readers trust its own role.)

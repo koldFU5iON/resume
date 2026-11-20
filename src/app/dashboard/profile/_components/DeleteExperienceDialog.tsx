@@ -31,7 +31,9 @@ export function DeleteExperienceDialog({
   const [typed, setTyped] = useState('')
   const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [projectChoice, setProjectChoice] = useState<'keep' | 'delete'>('keep')
+  // "Independent projects" is where kept projects live, so there is nowhere to keep them if it goes.
+  const isIndependent = experience.type === 'independent'
+  const [projectChoice, setProjectChoice] = useState<'keep' | 'delete'>(isIndependent ? 'delete' : 'keep')
   // Counts come from the database, not client state: the server deletes what it holds.
   const [impact, setImpact] = useState<DeleteImpact | null>(null)
   const target = experience.company
@@ -76,16 +78,18 @@ export function DeleteExperienceDialog({
               <legend className="mb-1 text-muted-foreground">
                 This role has {plural(impact.projects, 'project')}.
               </legend>
-              <label className="flex items-start gap-2">
-                <input
-                  type="radio"
-                  name="delete-projects"
-                  className="mt-1"
-                  checked={projectChoice === 'keep'}
-                  onChange={() => setProjectChoice('keep')}
-                />
-                <span>Keep {plural(impact.projects, 'project')} as standalone</span>
-              </label>
+              {!isIndependent && (
+                <label className="flex items-start gap-2">
+                  <input
+                    type="radio"
+                    name="delete-projects"
+                    className="mt-1"
+                    checked={projectChoice === 'keep'}
+                    onChange={() => setProjectChoice('keep')}
+                  />
+                  <span>Keep {plural(impact.projects, 'project')}, moved to Independent projects</span>
+                </label>
+              )}
               <label className="flex items-start gap-2">
                 <input
                   type="radio"

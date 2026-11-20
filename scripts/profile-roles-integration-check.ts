@@ -15,6 +15,7 @@ async function main() {
 
   const { prisma } = await import('../src/lib/db')
   const { activityFieldsFor, deleteExperienceRow, deleteProjectRow, experienceDeleteImpact } = await import('../src/modules/profile/activity-roles')
+  const { ensureIndependentExperience } = await import('../src/modules/profile/independent-experience')
   const { saveProjectProperties } = await import('../src/modules/profile/properties')
   const { mergeProjects } = await import('../src/modules/profile/project-merge')
 
@@ -61,12 +62,31 @@ async function main() {
 
     // What deleting the role counts and does.
     assert.deepEqual(await experienceDeleteImpact(profileId, w.e1.id), { evidence: 1, projects: 1, projectEvidence: 2 })
+    const hadIndependent = await prisma.experience.findFirst({ where: { profileId, type: 'independent' }, select: { id: true } })
     await deleteExperienceRow(profileId, w.e1.id, 'keep')
+    const home = (await prisma.experience.findFirstOrThrow({ where: { profileId, type: 'independent' }, orderBy: { createdAt: 'asc' } }))
+    if (!hadIndependent) experiences.push(home.id) // created by this run: removed again by clean()
+    assert.deepEqual({ type: home.type, company: home.company, role: home.role }, { type: 'independent', company: 'Independent projects', role: 'Independent projects' })
     assert.equal(await row(w.own.id), null, 'role-only evidence goes with its role')
-    assert.deepEqual(await row(w.both.id), { experienceId: null, projectId: w.p1.id }, 'kept project keeps its evidence')
-    assert.deepEqual(await row(w.legacy.id), { experienceId: null, projectId: w.p1.id })
+    assert.deepEqual(await row(w.both.id), { experienceId: home.id, projectId: w.p1.id }, 'kept project keeps its evidence, now under Independent projects')
+    assert.deepEqual(await row(w.legacy.id), { experienceId: home.id, projectId: w.p1.id }, 'a project-only row takes the project\'s new role')
     assert.deepEqual(await row(w.other.id), { experienceId: w.e2.id, projectId: w.p1.id }, "another role's evidence is untouched when the projects are kept")
-    assert.equal((await prisma.project.findUnique({ where: { id: w.p1.id } }))?.experienceId, null, 'the project stands alone')
+    assert.equal((await prisma.project.findUnique({ where: { id: w.p1.id } }))?.experienceId, home.id, 'the project moved to Independent projects')
+    await assert.rejects(deleteExperienceRow(profileId, home.id, 'keep'), /Independent projects/, 'its own kept projects have nowhere to go')
+    assert.ok(await prisma.experience.findUnique({ where: { id: home.id } }), 'and nothing was deleted')
+
+    // Concurrent first use never makes two homes.
+    const soloUser = await prisma.user.create({ data: { id: `${TAG}-${Date.now()}`, name: TAG, email: `${TAG}-${Date.now()}@example.test` } })
+    const solo = await prisma.profile.create({ data: { name: `${TAG} solo`, userId: soloUser.id }, select: { id: true, userId: true } })
+    try {
+      const ids = await Promise.all(Array.from({ length: 6 }, () => prisma.$transaction((tx) => ensureIndependentExperience(tx, solo.id))))
+      assert.equal(new Set(ids).size, 1, 'six concurrent callers get one experience')
+      assert.equal(await prisma.experience.count({ where: { profileId: solo.id, type: 'independent' } }), 1)
+    } finally {
+      await prisma.experience.deleteMany({ where: { profileId: solo.id } })
+      await prisma.profile.delete({ where: { id: solo.id } })
+      await prisma.user.delete({ where: { id: solo.userId } })
+    }
     await clean()
 
     w = await world()
