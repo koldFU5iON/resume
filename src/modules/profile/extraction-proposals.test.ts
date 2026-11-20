@@ -173,3 +173,50 @@ describe('extraction review regressions', () => {
     expect(getLLMConfigStatus).not.toHaveBeenCalled()
   })
 })
+
+
+describe('conservative metrics and distinct source blocks', () => {
+  it('retains the complete local result when a model returns only supported fragments', async () => {
+    const original = 'I cut API latency from 10 seconds to 2 seconds in Q3 2025.'
+    vi.mocked(getLLMConfigStatus).mockResolvedValue({ configured: true } as never)
+    vi.mocked(completeStructured).mockResolvedValue({ object: { activities: [{ ...claim, original, description: 'I cut API latency.', result: { measure: 'latency', value: '2', baseline: null, period: null } }], skills: [] } } as never)
+    const proposed = await proposeDraft('p', { body: original, noun: 'role', facts: '' }, [], null)
+    expect(proposed.items[0]).toMatchObject({ result: { measure: 'API latency', value: '2 seconds', baseline: '10 seconds', period: 'Q3 2025' } })
+  })
+
+  it('falls back to source wording for unverifiable quantitative paraphrases', () => {
+    const original = 'I cut API latency from 10 seconds to 2 seconds in Q3 2025.'
+    const rewritten = { ...claim, original, description: 'I measured API latency at 10 seconds (previously 2 seconds).', impact: '10 seconds, previously 2 seconds', result: null }
+    expect(groundClaim(rewritten, original, original)).toMatchObject({ description: original, impact: null })
+  })
+
+  it('preserves case-sensitive units during grounding and replacement', () => {
+    const existing = { measure: 'Power', value: '2 mW', baseline: '10 mW', period: null }
+    const proposed = { ...existing, value: '2 MW', baseline: null }
+    expect(extractionResultsConflict(existing, proposed)).toBe(true)
+    expect(extractionResultsConflict({ ...existing, measure: 'Power (mW)', value: '2' }, { ...existing, measure: 'Power (MW)', value: '2' })).toBe(true)
+    expect(mergeExtractionResult(existing, proposed)).toEqual(proposed)
+    const original = 'I cut power from 10 mW to 2 mW.'
+    expect(groundClaim({ ...claim, original, description: 'I cut power to 2 MW.', result: proposed }, original, original)).toBeNull()
+    expect(groundClaim({ ...claim, original, description: 'I cut power.', result: proposed }, original, original)?.result).toBeNull()
+  })
+
+  it('keeps repeated claims with distinct project details and changes identity after a metric correction', async () => {
+    const body = '## Achievements\n- Shipped migration\n  > Project: Atlas\n  > Turnaround: 2 hours\n- Shipped migration\n  > Project: Vega\n  > Turnaround: 3 hours'
+    const result = await proposeDraft('p', { body, noun: 'role', facts: '' }, [], null)
+    expect(result.items).toHaveLength(2)
+    expect(result.items).toMatchObject([{ project: { kind: 'new', name: 'Atlas' } }, { project: { kind: 'new', name: 'Vega' } }])
+    expect(result.items[0].key).not.toBe(result.items[1].key)
+    expect(extractionPassageKey(body, 'Shipped migration\n  > Project: Atlas')).toBe(result.items[0].key)
+    expect(extractionPassageKey(body, 'Turnaround: 2 hours')).toBe(result.items[0].key)
+    const corrected = body.replace('Turnaround: 2 hours', 'Turnaround: 4 hours')
+    const updated = await proposeDraft('p', { body: corrected, noun: 'role', facts: '' }, [], null)
+    expect(updated.items[0].key).not.toBe(result.items[0].key)
+    expect(updated.items[1].key).toBe(result.items[1].key)
+  })
+
+  it('preserves punctuation in skill identities', async () => {
+    const result = await proposeDraft('p', { body: '## Skills\nC++\nC#\nC++', noun: 'role', facts: '' }, [], null)
+    expect(result.items).toMatchObject([{ kind: 'skill', name: 'C++' }, { kind: 'skill', name: 'C#' }])
+  })
+})

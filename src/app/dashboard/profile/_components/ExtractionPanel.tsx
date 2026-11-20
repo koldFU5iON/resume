@@ -9,7 +9,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { extractFromNotes, reviewExtractionItem } from '@/modules/profile/extract'
 import type { ExtractionReview } from '@/modules/profile/extraction-draft'
 import type { DraftChange, DraftItem, ExtractionOwner } from '@/modules/profile/extract-schema'
-import { combineImpact } from '@/modules/profile/result'
+import { formatResult } from '@/modules/profile/result'
 import { selectClass } from './PropertyFields'
 
 const kinds = { achievement: 'Achievement', scope: 'Scope', skill: 'Skill' }
@@ -203,7 +203,6 @@ export function ExtractionPanel({ owner, review }: { owner: ExtractionOwner; rev
           const project = item.kind === 'achievement' ? item.project : null
           const projectText = project?.kind === 'new' ? `New project: ${project.name}`
             : project ? review.projects.find((p) => p.id === project.id)?.name ?? 'Unavailable project' : null
-          const impact = item.kind === 'achievement' ? combineImpact(item.impact, item.result) : null
           const text = item.kind === 'skill' ? item.name : item.description
           return (
             <li key={item.id} className="space-y-3 py-3">
@@ -219,7 +218,8 @@ export function ExtractionPanel({ owner, review }: { owner: ExtractionOwner; rev
                   <div className="min-w-0 space-y-1 [overflow-wrap:anywhere]">
                     {item.kind !== 'skill' && <p className="text-xs text-muted-foreground">Cleaned wording</p>}
                     <p className="text-sm">{text}</p>
-                    {impact && <p className="text-xs text-muted-foreground">{impact}</p>}
+                    {item.kind === 'achievement' && item.result && <p className="text-xs text-muted-foreground">Suggested structured result: {formatResult(item.result)}</p>}
+                    {item.kind === 'achievement' && item.impact && <p className="whitespace-pre-wrap text-xs text-muted-foreground">Suggested outcome: {item.impact}</p>}
                     {projectText && <p className="text-xs text-muted-foreground">{projectText}</p>}
                     {item.kind === 'skill' && (item.category || item.level) && <p className="text-xs text-muted-foreground">{[item.category, item.level].filter(Boolean).join(' · ')}</p>}
                   </div>
@@ -238,10 +238,14 @@ export function ExtractionPanel({ owner, review }: { owner: ExtractionOwner; rev
                     {match.replaceable ? 'Similar profile evidence' : 'Match unavailable for replacement'}{match.project ? ` · ${match.project}` : ''} — {match.text}
                     {match.replaceable && item.kind === 'achievement' && !item.projectEdited && ' Replacement keeps the existing project label.'}
                   </p>}
-                  {match && item.kind === 'achievement' && combineImpact(match.impact, match.result) && (
-                    <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">Existing result: {combineImpact(match.impact, match.result)}</p>
+                  {match && item.kind === 'achievement' && match.result && (
+                    <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">Existing structured result: {formatResult(match.result)}</p>
                   )}
-                  {match?.resultConflict && <p className="text-xs text-muted-foreground">The results differ. Choose which result to keep when replacing.</p>}
+                  {match && item.kind === 'achievement' && match.impact && (
+                    <p className="whitespace-pre-wrap text-xs text-muted-foreground [overflow-wrap:anywhere]">Existing outcome: {match.impact}</p>
+                  )}
+                  {match?.replaceable && item.kind === 'achievement' && item.impact && <p className="text-xs text-muted-foreground">Replacement uses the suggested outcome.</p>}
+                  {match?.resultConflict && <p className="text-xs text-muted-foreground">The structured results differ. Choose which structured result to keep when replacing.</p>}
                   <div className="flex flex-wrap gap-2">
                     {!match && <Button size="sm" className={actionSize} disabled={disabled || review.stale || review.archived}
                       onClick={() => decide(item, 'accept', item.kind === 'scope' ? 'Scope added to the note.' : 'Suggestion accepted.')}>
@@ -254,11 +258,11 @@ export function ExtractionPanel({ owner, review }: { owner: ExtractionOwner; rev
                     {match?.replaceable && match.resultConflict && <>
                       <Button size="sm" variant="outline" className={actionSize} disabled={disabled || review.stale || review.archived}
                         onClick={() => decide(item, 'replace', 'Existing evidence updated.', { id: match.id, version: match.version, resultChoice: 'existing' })}>
-                        Replace · keep existing result
+                        Replace · keep existing structured result
                       </Button>
                       <Button size="sm" variant="outline" className={actionSize} disabled={disabled || review.stale || review.archived}
                         onClick={() => decide(item, 'replace', 'Existing evidence updated.', { id: match.id, version: match.version, resultChoice: 'suggestion' })}>
-                        Replace · use suggested result
+                        Replace · use suggested structured result
                       </Button>
                     </>}
                     <Button size="sm" variant="outline" className={actionSize} disabled={disabled}

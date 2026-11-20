@@ -222,6 +222,22 @@ describe.skipIf(!enabled)('saved extraction drafts in Postgres', () => {
     expect(await prisma.roleActivity.count({ where: owner })).toBe(0)
   })
 
+  it('revisits only the corrected project block after a quoted metric changes', async () => {
+    const body = '## Achievements\n- Shipped migration\n  > Project: Atlas\n  > Turnaround: 2 hours\n- Shipped migration\n  > Project: Vega\n  > Turnaround: 3 hours'
+    const row = await role(body)
+    const owner = { experienceId: row.id }
+    let draft = await regenerate(owner)
+    expect(draft.items).toHaveLength(2)
+    await decide(owner, draft, 0, 'skip')
+    draft = await review(owner)
+    await decide(owner, draft, 0, 'skip')
+    expect((await regenerate(owner)).items).toEqual([])
+    await saveExperienceNote(profileId, row.id, body.replace('Turnaround: 2 hours', 'Turnaround: 4 hours'), row.revision)
+    const corrected = await regenerate(owner)
+    expect(corrected.items).toHaveLength(1)
+    expect(corrected.items[0].item).toMatchObject({ project: { kind: 'new', name: 'Atlas' }, result: { value: '4 hours' } })
+  })
+
   it('rejects foreign and archived project labels and replacement targets, leaving the draft and rows intact', async () => {
     const e1 = await role('## Achievements\n- Fixed the invoice bug\n- Rebuilt mobile search')
     const e2 = await role('')
