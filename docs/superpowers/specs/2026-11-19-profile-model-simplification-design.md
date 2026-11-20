@@ -1,6 +1,6 @@
 # Simplifying the profile model: roles own achievements, projects are labels
 
-**Date:** 2026-11-19 · **Status:** Approved in direction; decisions recorded in §12. Nothing here is built.
+**Date:** 2026-11-19 · **Status:** Implemented through step 3e on the feature branch. The saved extraction draft and CV Projects output are pending. Generator tuning is paused.
 **Builds on:** `2026-11-11-profile-map-design.md` (the vault), issue #440 and its PRs #442–#444, `docs/cv-generation.md` §20–21.
 **Constraint kept:** the CV generator stays general and is never tuned to one person's data. Profile data is never changed without the owner seeing it first.
 
@@ -44,13 +44,13 @@ This is not a retrieval problem. A vector database would not fix any row above. 
 - No embeddings or vector store in this work (§8).
 - No change to Education, Certification, Language or Capability notes.
 
-## 4. Today's model (verified against `prisma/schema/profile.prisma`)
+## 4. Model before the role-owns switch
 
 - `Experience`: company, role, dates, location, a markdown `summary` note (Overview / Responsibilities / Achievements / Skills headings that feed extraction), tags.
 - `Project`: `experienceId` is **nullable** (`onDelete: SetNull`), name, description, markdown `notes`, status, dates, urls.
 - `RoleActivity`: `experienceId` and `projectId` are **both nullable**. `kind` is `responsibility | achievement`. `description`, free-text `impact`, structured `result` (Json), `highlighted`, `order`, skill links.
-- Exactly-one-owner is enforced only in code (`ownedTarget`, `moveActivity` in `src/modules/profile/actions.ts`).
-- The same content can live in three places: the note markdown, the `RoleActivity` rows extracted from it, and the project `highlights` column.
+- Exactly-one-owner was enforced in code and by a database check.
+- The same content can live in the note markdown, the extracted `RoleActivity` rows, and the project `highlights` column.
 
 ## 5. Proposed model
 
@@ -69,7 +69,7 @@ Outcomes and results stop being a concept of their own. They are the `result` on
 
 The owner builds side projects (including this one) that have not "done anything yet". They should still appear, and never float free of any context.
 
-- Give each profile an experience of a new `type` (§6) such as `independent`, titled e.g. "Independent projects". Personal projects hang under it. It is created on demand and is never required. It is **timeless**: no start or end date is shown anywhere, and the date columns are not read for it.
+- Personal projects belong to an experience with `type = independent`, titled "Independent projects". It is created on demand. It is **timeless**: no start or end date is shown anywhere, and the date columns are not read for it.
 - **Position on the CV (decided): a Projects section after Experience.** Side work never reads as a job. Promoting selected independent work into Experience for a thin-history job is a possible later option, and would be a generator change.
 - It must **not** be treated as a job. Today `experience_dates_reversed`, `concurrent_roles`, `employment_gap`, `thin_narrative`, the employer progression line, header right-to-work and the CV's Experience section all read experiences as employment. A type flag lets each of them skip or specialise it.
 - In the CV it renders in a **Projects** section, not in Experience, and only when selected for the job.
@@ -87,29 +87,29 @@ Scope lives in the role's existing **Overview** text; there is no new column (de
 
 One migration per phase, each created with `npm run db:migrate -- --name <name>`.
 
-**Migration A (shape)**
+**Role ownership (built)**
 
 - `Experience.type String @default("employment")`, values `employment | independent`.
-- `Project.experienceId` becomes required. Backfill: every project that has an `experienceId` keeps it; every project without one is **reported to the owner and attached only after they choose a role** (default offered: the "Independent projects" experience).
-- `RoleActivity.experienceId` becomes required. Backfill: a row with only `projectId` gets that project's `experienceId`. A row with both keeps both (the project label). The `projectId` column stays.
-- Add a database check that when `projectId` is set the activity's `experienceId` equals the project's `experienceId`, or enforce it in the action (a check across tables needs a trigger; the action guard already exists, so start there).
+- `Project.experienceId` is required. Projects keep their recorded role. Projects without a role go to the oldest existing Independent projects experience in their profile, or a new one if needed.
+- `RoleActivity.experienceId` is required. A project-only activity takes its project’s role after project backfill. Existing roles and project labels are preserved. Missing or cross-profile provenance aborts the migration.
+- Create, edit and move check that a selected project belongs to the selected role. A direct role delete is refused while projects reference it. Whole-profile deletion can still cascade.
 
 **Data backfill (not a schema change), also a dry run first**
 
 - For each experience, the content of its `responsibility` rows is appended to the Overview text under a clear marker, in order, wording unchanged. The report shows every role's before and after for the owner to approve. The rows themselves stay until the owner chooses to remove them.
 
-**Not in migration A**
+**Scope and activity kinds**
 
 - No new scope column (decision O1).
 - `kind` stays as is.
 
-**Rollback:** all changes are additive or tighten a constraint after a backfill. The backfill is run as a dry-run report first; the owner approves the list before the constraint is applied.
+**Rollback.** Step 3e preserves the backfilled owners. Any rollback to writers that can submit null owners needs a compatible schema first.
 
 ## 7. How the pieces read the model
 
 **Vault and Profile Map** (`src/modules/profile-map`)
 
-- An achievement note always has `contains`/`has` from one experience. Its optional project becomes a property and a `part_of` style link, not a second owner. This removes the "evidence under a project note" special case in `build.ts`.
+- An achievement is shown once. A matching project label groups it under that project in the vault. The recorded role determines ownership.
 - Gists keep merging `result` into impact once (`combineImpact`). No change.
 
 **CV generator** (changes are for the generator phase, gated on the owner lifting the pause)
@@ -146,33 +146,32 @@ The question of a vector store came up. Position:
    - Propose, per achievement: a cleaned stand-alone first-person claim, a structured result (measure, value, baseline, period) where the text states one, and a project label from the role's projects, or a new project name. Never invent a figure.
    - Check against **all** of the role's achievements, including project-labelled ones, so re-extracting does not duplicate (closes the #443 gap).
 3. **Draft.** Suggestions are saved as a draft attached to the note, so they survive leaving the page and a second run updates the draft instead of stacking. Each item shows the original wording beside the cleaned one. The owner edits, accepts, replaces or skips. Only accepted items become achievements. A draft is never read by the generator, the vault or readiness.
-4. **Edit later.** An accepted achievement has a form: text, optional result, optional project (dropdown of the role's projects, "new project" inline). Moving an achievement means changing its role; the Move dialog from #443 reduces to a role picker plus the project dropdown.
+4. **Edit later (built in 3e).** The form has text, an optional result, a role picker and an optional dropdown of that role’s projects. Move uses the same two ownership fields. If the wording names a project in the role, the form offers to link it.
 
 The extraction runs on the owner's own LLM key and is started by the owner, as today. Running it automatically on save is a possible later option.
 
-Screens that shrink: the project note's own evidence list (it becomes a filtered view of the role's achievements), the Move dialog, and the ownership explanation text.
+The role note groups labelled evidence by project. The project note shows the evidence in that role with the matching label.
 
 ## 10. Phasing: small PRs, each reviewed
 
 | PR | Content | Needs owner |
 |---|---|---|
-| 1 | (built: `npm run profile:backfill-report -- --profile <id\|email>`, read-only; migration adds only `Experience.type`) Migration A with a **dry-run backfill report** (projects with no role, activities with only a project, responsibilities to fold into Overview). No constraint tightened yet. | Approves the report |
+| 1 | (built: `npm run profile:backfill-report -- --profile <id\|email>`, read-only; migration adds only `Experience.type`) Add a **dry-run backfill report** (projects with no role, activities with only a project, responsibilities to fold into Overview). No constraint tightened yet. | Approves the report |
 | 2 | **Overview fold only**: guarded apply script (`npm run profile:backfill-apply`: dry run prints a fingerprint, `--apply --confirm <fingerprint>` writes it in one transaction), near-duplicate responsibilities left out of the fold. Changes only `Experience.summary`; no activity row is touched. | Approves the fingerprint, then runs it |
-| 3 | **Role-owns switch**, in five steps 3a–3e (§13). Readers and writers first, then data, then the constraint. | Chooses the experience's name (3d) |
-| 3b | Achievement form: project dropdown, grouping on the role page, Move reduced to role picker; project note becomes a filtered view | None |
+| 3 | **Role-owns switch** (built through 3e, §13). Includes the achievement form, role grouping, project-filtered view, Move, and the inline project suggestion that replaces the readiness finding. | Decisions recorded in §12 |
 | 4 | **Clean-and-extract draft layer** (§9): extraction proposes cleaned achievements with result and project, a saved draft with edit, accept and skip, de-duplication against all the role's achievements | None (extraction prompts are profile capture, not generator prompts) |
-| 5 | Vault build and readiness: remove `outcome_without_project`, add the link suggestion; CV renders independent work in a Projects section | None |
+| 5 | Render independent work in a CV Projects section. | Pending |
 | 6 | Generator: Select shortlist with handles; project name rule | **Lifts the generator pause** |
 | 7 | Optional embeddings spike | Decides after PR 6 |
 
-**Why the assignment waits for PR 3.** Review of the apply script found that giving a project-only activity a role *before* the code expects it breaks things: deleting a role would cascade-delete the achievements of its "kept" projects (`RoleActivity.experience` is `onDelete: Cascade`); moving a project to another role, or merging two projects, would leave activities on the old role; `moveActivity`/`ownedTarget` clear the other owner column; the vault would add the same evidence twice (once through the role, once through the project), doubling readiness counts; archived projects' evidence would reach the generator through the role; and the generator would stop applying its project-evidence cap. PR 3 must handle each of these, with tests, before any row is assigned. The assignment step also guards on `projectId` (an activity moved to another project meanwhile must not be assigned).
+The role-aware readers and writers shipped before the constraints. They account for project archiving, evidence ordering and the existing generator project-evidence cap.
 
 Items 4, 5, 6 and 8 of #440 (inline date checks, `Project.product`, results section in the template, certification status) are not blocked by this and are mostly absorbed or made unnecessary: `Project.product` is not needed if the project label and an owner's wording are enough.
 
 ## 11. Risks
 
 - **The independent experience leaks into employment logic.** Mitigated by the `type` flag and a test in each date/gap/employer check.
-- **Backfill guesses wrong.** Mitigated by the dry-run report and owner approval before any constraint.
+- **Unresolved provenance.** The migration rejects missing or cross-profile references and preserves existing role assignments when a same-profile label differs.
 - **Extraction duplicates** (re-extracting a role recreates an achievement already labelled with a project). The label makes the check simple: compare against all of the role's achievements. This closes the gap left in #443.
 - **Two sources of truth.** The note markdown and the rows can still drift. The draft layer (§9) narrows this: the note is where the owner writes, accepted rows are the profile data, and the draft is the visible bridge between them. A note edited after extraction does not silently change accepted rows.
 
@@ -180,7 +179,7 @@ Items 4, 5, 6 and 8 of #440 (inline date checks, `Project.product`, results sect
 
 - **O1. Where does scope live?** Reuse the role's Overview text. No new column.
 - **O2. Existing responsibilities.** Wrap any content into the main body (the Overview), so nothing is lost; unpick later. Done by a reviewed backfill (§6).
-- **O3. Independent experience.** Timeless (no dates shown). Positioned as a **Projects section after Experience**. The experience's name is still to choose.
+- **O3. Independent experience.** Timeless (no dates shown). Positioned as a **Projects section after Experience**. The shipped name is **Independent projects**. Keeping projects when deleting a role moves them and their evidence there.
 - **O4. Capture.** The note stays the capture surface. A clean-and-extract layer, built on the existing extraction, produces a draft the owner can change before anything counts (§9, PR 4).
 - **O5. External check.** Deferred. The owner may ask a recruiter later; the evidence below is thin and vendor-heavy. Responsibilities are demoted to scope, not deleted, so the decision is reversible.
 
@@ -193,47 +192,21 @@ Items 4, 5, 6 and 8 of #440 (inline date checks, `Project.product`, results sect
 
 ## 13. Plan for PR 3: the role-owns switch
 
-Principle: **make every reader and writer correct for "a role owns it, a project may label it" before any row changes, change the rows, and only then tighten the database.** Each step is its own PR, reviewed, and none is irreversible until 3e. The current code treats the two owners as exclusive in many places (found in review of PR 2), so changing rows first would break them.
+### 3a. Tolerant readers
+Built. The vault shows each activity once. Activities labelled with a project in their own role sit under that project. When a historical label disagrees, readers trust the activity’s role. The generator still uses the project label for evidence caps and archiving. Legacy fixtures and the golden check cover the transition from project-only to role-owned evidence.
 
-### 3a. Tolerant readers (no data change)
-- **Vault** (`src/modules/profile-map/build.ts`): the vault keeps the hierarchy role → project → evidence. An activity that names a project is read as that project's evidence (the project sits inside the role), whether or not it also carries the role, so it is added **once** and counted once (readiness counts, the role gist). Rule (`belongsToProject` in `src/modules/profile/ownership.ts`): it is the project's when it has no role of its own or the project's role; if the two roles disagree the activity's own role is trusted and it stays the role's. This is what makes assigning roles invisible to readers. (An earlier draft of this plan put the activity "through the role"; keeping it under the project is what keeps every reader's output identical.)
-- **Candidates** (`src/modules/cv-generation/candidates.ts`): the `fromProject` label and the `MAX_PROJECT_ATOMS` cap are derived from the evidence's project label instead of from project-owned notes; archived projects' evidence is left out as today. This is plumbing to keep the generator's input identical, not tuning.
-- **Profile UI** (`queries.ts`, role page, project page): a role shows its achievements once, grouped by project label; the project page is a filtered view.
-- **Golden test and check:** `src/modules/cv-generation/role-owns.test.ts`, and `npm run profile:golden-check` (read-only) which fingerprints the vault, CV candidates, readiness, profile map and LLM snapshot for a real profile as it is and with the assignment simulated in memory; run it before and after 3c, the "current" fingerprint must not change. Build the candidates for a fixture profile with project-only activities, then again with the same activities assigned to the role (both owners set). The two must be **identical** (same items, labels, caps, order). Also run on the owner's real profile read-only before and after 3c.
+### 3b. Safe writers
+Built. The at-least-one-owner check shipped first so both references could be set. Project moves, merges and deletes account for both references, and the role and project notes consume the role-aware evidence groups.
 
-Known follow-ups found in review, not in 3a: role extraction (`getExperienceWithSuggestionContext`) still reads all of a role's activities, so after 3c a suggestion could match a project-labelled row (belongs with the draft layer, PR 4); `nextActivityOrder` ignores the project label (ordering only, 3b); the backfill planner treats a responsibility with a role as the role's, which is right for the one-off fold already applied.
+### 3c. Assign existing project evidence
+Built. The guarded apply script assigned project-only activity to its project's role while the old schema allowed it. Step 3e handles any remaining null owners. The apply script now handles the Overview fold only.
 
-### 3b. Safe writers (no data change; one constraint relaxed)
-**Found while building 3b:** the database enforces "exactly one owner" with a CHECK constraint (`RoleActivity_exactly_one_owner_check`, migration `20261114004748`), so a row with both a role and a project is impossible today, and the writers below would fail. 3b therefore includes a migration that relaxes it to "at least one owner" (`RoleActivity_at_least_one_owner_check`). Every existing row satisfies it; it only permits the new shape. 3e later replaces it with NOT NULL on the role. Code ships after the migration (the deploy runs it first). New and moved activities that name a project now carry the project's role. **Rollback:** reverting the code is safe (old writers satisfy the new check), but the old constraint cannot be re-added once a row has both owners, without rewriting data first. Writes that delete or move evidence lock the role or project row first, so a concurrent write waits instead of landing between the steps. `npm run profile:roles-check` runs every write against a real local Postgres (the unit tests mock Prisma).
+### 3d. Independent projects
+Built. Independent projects has a separate type and is created on demand. Profile and employment readers account for the type. Creating a personal project or deleting an employment role and keeping its projects uses this home. Project locks are acquired in id order when keeping projects during a role delete.
 
-Tests first for each; today's behaviour is kept while a project can still have no role.
-- `deleteExperience(…, 'keep')`: before deleting, detach the role from the kept projects' activities, because `RoleActivity.experience` is `onDelete: Cascade` and would otherwise delete them. (After 3e this becomes "move the kept projects and their activities to Independent projects".) The delete dialog's counts say what really happens.
-- `saveProjectProperties` (moving a project to another role, or to none): also moves its activities' `experienceId`.
-- `mergeProjects`: when the two projects belong to different roles, the merged activities follow the kept project's role.
-- `createActivity` from a project note: sets the project's role as well as the project. `moveActivity`/`ownedTarget`: moving to a project keeps the role (the project's); moving to a role clears the project label. No operation may leave an activity whose role disagrees with its project's role.
-- Assignment guard: the apply step filters on `projectId` as well as "no role yet", so a concurrent move cannot assign a stale role.
+### 3e. Require roles
+Built on the feature branch. One migration performs the backfill, sets both role columns to NOT NULL, replaces the project foreign key’s delete behavior with NO ACTION, and removes the redundant activity check. It preserves existing rows and fields outside the two owner assignments. Profile ownership changes are serialized, and an activity keeps its own role when a different role’s project label is removed.
 
-### 3c. Assign the roles (data)
-Needs the 3b constraint change (otherwise the database refuses a row with both). Built: the guarded apply script (`npm run profile:backfill-apply`) now gives each project-only activity its project's role (guarded on: still no role, same project, project still has that role; refuses while anything needs the owner's decision) as well as folding notes, under one fingerprint. A responsibility with both a role and its project's role still folds into the *project's* note, so assigning changes nothing about where it folds. Extend the guarded apply script (dry run, fingerprint, `--apply --confirm`, one transaction) to give project-only activities their project's role. Your report lists the 19. Verification: candidates and vault built from production before and after must be identical (3a's golden check, read-only); readiness findings must not change.
+The role note groups evidence by project and the project note filters that evidence by label. Add, Edit and Move use a role and an optional same-role project label. Independent projects is available on demand, and its unlabelled evidence can be opened from the Independent projects section. The achievement form suggests a label when the wording names a project in the selected role.
 
-### 3d. The independent experience
-- `Experience.type = 'independent'`, created on demand, named by the owner (placeholder "Independent projects"), timeless.
-- **Reader audit.** About thirty places read experiences as jobs (readiness date/gap/concurrent/thin checks, the vault and Profile Map, `employers.ts` and candidates, header facts, `snapshot.ts`, profile import and commit, the CV PDF and section rail, `master-cv`, `ats-score`, chat context, job-assessment candidate state, the writing-desk fact check, MCP tools). Each is checked and either skips independent experiences or renders them as projects. A test per reader. This is the largest step and is deliberately separate.
-- Personal projects can be created under it from the UI.
-
-### 3e. Tighten
-- One migration: backfill deterministically (a project-only activity takes its project's role; a profile with a project or activity that still has no role gets an independent experience and they move to it), then `RoleActivity.experienceId` and `Project.experienceId` become NOT NULL. The migration is self-sufficient so the deploy (which runs it automatically) cannot fail or need a manual step. It is tested first against a copy of the production database.
-- Remove the legacy project-only paths; the Move dialog becomes a role picker plus the project label; the achievement form gets its project dropdown; `outcome_without_project` is replaced by the link suggestion.
-
-### Order and why
-3a, 3b can ship in either order and change no data. 3c needs both. 3d is independent of 3c but must precede 3e (the migration needs somewhere to put orphans). 3e last.
-
-### Risks
-- **Generator input drifts.** Guarded by the golden test and the before/after check on production data.
-- **A reader missed in 3d.** Mitigated by a grep-driven checklist in the PR and a test per reader.
-- **The 3e migration on production.** Dry-run on a database copy; additive backfill before NOT NULL.
-- **The generator pause.** 3a touches `candidates.ts` only to preserve its output; no prompt or pipeline behaviour changes. Anything beyond that waits for the owner to lift the pause (PR 6).
-
-### Decisions needed from the owner
-1. The independent experience's name (needed by 3d).
-2. Deleting a role while keeping its projects: move them to Independent projects (recommended) or refuse unless they are moved or deleted first.
+The migration was validated first on an isolated production snapshot and then against synthetic legacy rows. The saved draft, extraction changes, CV Projects rendering and generator tuning remain in later phases.

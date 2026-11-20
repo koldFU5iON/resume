@@ -79,4 +79,15 @@ describe('buildNoteIndex: the independent experience', () => {
     expect(index.experiences.map((e) => e.id)).toEqual(['new', 'old'])
     expect(index.projects.map((p) => p.name)).toEqual(['Alpha', 'Beta', 'Zeta'])
   })
+  it('links independent evidence with no project from the independent section', () => {
+    const independent = {
+      ...profile,
+      experiences: [...profile.experiences, { ...profile.experiences[0], id: 'ind', type: 'independent', activities: [{}] }],
+    }
+    const index = buildNoteIndex(independent)
+    expect(index.independentEvidence).toEqual(['ind'])
+    expect(index.experiences.map(e => e.id)).not.toContain('ind')
+    expect(findNote(independent, 'ind')).toEqual({ kind: 'experience', id: 'ind' })
+  })
+
 })

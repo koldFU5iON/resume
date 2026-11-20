@@ -13,13 +13,14 @@ export const noteHref = (id: string) => `${NOTE_BASE}/n/${id}`
 export const capabilitiesHref = () => `${NOTE_BASE}/records/capabilities`
 export const credentialsHref = () => `${NOTE_BASE}/records/credentials`
 
-type IndexExperience = { id: string; type?: string | null; role: string; company: string; startDate: Date | string; endDate: Date | string | null }
+type IndexExperience = { id: string; activities?: readonly unknown[]; type?: string | null; role: string; company: string; startDate: Date | string; endDate: Date | string | null }
 type IndexProject = { id: string; name: string; experienceId: string | null }
 
 export type NoteIndex = {
   /** Newest first; each carries its projects, oldest first. */
   experiences: { id: string; title: string; role: string; company: string; period: string; projects: { id: string; name: string }[] }[]
-  /** Personal projects (under the independent experience, or with no role yet), by name. */
+  independentEvidence: string[]
+  /** Personal projects, by name. */
   projects: { id: string; name: string }[]
 }
 
@@ -27,8 +28,9 @@ const year = (d: Date | string) => new Date(d).getFullYear()
 
 export function buildNoteIndex(profile: { experiences: IndexExperience[]; projects: IndexProject[] }): NoteIndex {
   const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name)
-  // The independent experience is not a note of its own: its projects are listed under "Independent projects".
-  const independentIds = new Set(profile.experiences.filter((e) => !isEmployment(e)).map((e) => e.id))
+  const independent = profile.experiences.filter((e) => !isEmployment(e))
+  const independentIds = new Set(independent.map((e) => e.id))
+  const independentEvidence = independent.filter(e => e.activities?.length).map(e => e.id)
   const experiences = profile.experiences
     .filter((e) => isEmployment(e))
     .sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime())
@@ -44,7 +46,7 @@ export function buildNoteIndex(profile: { experiences: IndexExperience[]; projec
     .filter((p) => !p.experienceId || independentIds.has(p.experienceId))
     .map((p) => ({ id: p.id, name: p.name }))
     .sort(byName)
-  return { experiences, projects }
+  return { experiences, independentEvidence, projects }
 }
 
 export type NoteRef =
@@ -53,9 +55,9 @@ export type NoteRef =
   | { kind: 'project'; id: string; experienceId: string | null }
 
 /** What a note URL's id points at, or null when it isn't one of this profile's notes. */
-export function findNote(profile: { experiences: { id: string; type?: string | null }[]; projects: { id: string; experienceId: string | null }[] }, id: string): NoteRef | null {
+export function findNote(profile: { experiences: { id: string; type?: string | null; activities?: readonly unknown[] }[]; projects: { id: string; experienceId: string | null }[] }, id: string): NoteRef | null {
   if (id === OVERVIEW_ID) return { kind: 'overview' }
-  if (profile.experiences.some((e) => e.id === id && isEmployment(e))) return { kind: 'experience', id }
+  if (profile.experiences.some((e) => e.id === id && (isEmployment(e) || e.activities?.length))) return { kind: 'experience', id }
   const project = profile.projects.find((p) => p.id === id)
   return project ? { kind: 'project', id, experienceId: project.experienceId } : null
 }

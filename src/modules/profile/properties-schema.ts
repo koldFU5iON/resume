@@ -42,8 +42,8 @@ export const ProjectPropertiesSchema = z
     repoUrl: optionalUrl,
     startDate: optionalDate,
     endDate: optionalDate,
-    /** The role the project belongs to; null for a project of its own. */
-    experienceId: z.string().min(1).nullish().transform((v) => v ?? null),
+    /** The selected role. An empty selection resolves to Independent projects. */
+    experienceId: z.string().nullish().transform((v) => v || null),
   })
   .refine(dateOrder, { message: 'The end date is before the start date', path: ['endDate'] })
 

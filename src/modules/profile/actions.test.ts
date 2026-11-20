@@ -19,11 +19,11 @@ import { prisma } from '@/lib/db'
 import { acceptSuggestions, createActivity, createProject, deleteActivity, deleteExperience, deleteProject, getExperienceDeleteImpact, moveActivity, updateActivity } from './actions'
 
 const data = { kind: 'achievement', description: 'Shipped A' }
-const OWNED = { OR: [{ experience: { profileId: 'p1' } }, { project: { profileId: 'p1' } }] }
+const OWNED = { experience: { profileId: 'p1' } }
 
 beforeEach(() => {
   vi.clearAllMocks()
-  vi.mocked(prisma.experience.findFirst).mockReset()
+  vi.mocked(prisma.experience.findFirst).mockReset().mockResolvedValue({ id: 'e1' } as never)
   vi.mocked(prisma.$queryRaw).mockReset().mockResolvedValue([])
   prismaMock.current = prisma
 })
@@ -31,17 +31,17 @@ beforeEach(() => {
 describe('createActivity', () => {
   it('labels evidence with the profile\'s own project and gives it the project\'s role', async () => {
     vi.mocked(prisma.project.findFirst).mockResolvedValue({ id: 'pr1', experienceId: 'e1' } as never)
-    await createActivity({ projectId: 'pr1' }, data)
-    expect(prisma.project.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'pr1', profileId: 'p1' } }))
+    await createActivity({ experienceId: 'e1', projectId: 'pr1' }, data)
+    expect(prisma.project.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'pr1', profileId: 'p1', ...OWNED } }))
     expect(prisma.roleActivity.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ projectId: 'pr1', experienceId: 'e1', description: 'Shipped A' }),
     })
   })
 
-  it('gives evidence of a project with no role no role', async () => {
-    vi.mocked(prisma.project.findFirst).mockResolvedValue({ id: 'pr1', experienceId: null } as never)
-    await createActivity({ projectId: 'pr1' }, data)
-    expect(vi.mocked(prisma.roleActivity.create).mock.calls[0][0].data).toMatchObject({ projectId: 'pr1', experienceId: null })
+  it('refuses a project label from a different role', async () => {
+    vi.mocked(prisma.project.findFirst).mockResolvedValue({ id: 'pr1', experienceId: 'e2' } as never)
+    await expect(createActivity({ experienceId: 'e1', projectId: 'pr1' }, data)).rejects.toThrow('another role')
+    expect(prisma.roleActivity.create).not.toHaveBeenCalled()
   })
 
   it('creates role-owned evidence for the profile\'s own experience', async () => {
@@ -53,25 +53,34 @@ describe('createActivity', () => {
 
   it('refuses a foreign project or experience', async () => {
     vi.mocked(prisma.project.findFirst).mockResolvedValue(null)
+    await expect(createActivity({ experienceId: 'e1', projectId: 'foreign' }, data)).rejects.toThrow('Project not found')
     vi.mocked(prisma.experience.findFirst).mockResolvedValue(null)
-    await expect(createActivity({ projectId: 'foreign' }, data)).rejects.toThrow('Project not found')
     await expect(createActivity({ experienceId: 'foreign' }, data)).rejects.toThrow('Experience not found')
     expect(prisma.roleActivity.create).not.toHaveBeenCalled()
   })
 })
 
 describe('updateActivity / deleteActivity', () => {
-  it('filter by ownership through a role or a project', async () => {
+  it('filter by ownership through the activity role', async () => {
     vi.mocked(prisma.roleActivity.findFirst).mockResolvedValue({ id: 'a1' } as never)
-    await updateActivity('a1', data)
-    expect(prisma.roleActivity.findFirst).toHaveBeenCalledWith({ where: { id: 'a1', ...OWNED } })
+    await updateActivity('a1', null, data)
+    expect(prisma.roleActivity.findFirst).toHaveBeenCalledWith({ where: { id: 'a1', ...OWNED }, select: { experienceId: true, projectId: true } })
     await deleteActivity('a1')
     expect(prisma.roleActivity.deleteMany).toHaveBeenCalledWith({ where: { id: 'a1', ...OWNED } })
   })
 
+  it('keeps the order when editing text in the existing group', async () => {
+    vi.mocked(prisma.roleActivity.findFirst).mockResolvedValue({ experienceId: 'e1', projectId: null } as never)
+    await updateActivity('a1', null, data)
+    expect(prisma.roleActivity.update).toHaveBeenCalledWith({
+      where: { id: 'a1', ...OWNED },
+      data,
+    })
+  })
+
   it('refuses to update a foreign activity', async () => {
     vi.mocked(prisma.roleActivity.findFirst).mockResolvedValue(null)
-    await expect(updateActivity('foreign', data)).rejects.toThrow('Activity not found')
+    await expect(updateActivity('foreign', { experienceId: 'e1' }, data)).rejects.toThrow('Activity not found')
     expect(prisma.roleActivity.update).not.toHaveBeenCalled()
   })
 })
@@ -108,7 +117,7 @@ describe('deleteExperience', () => {
     vi.mocked(prisma.$queryRaw).mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 'pr1' }])
     await deleteExperience('e1', { projects: 'keep' })
     expect(prisma.experience.create).not.toHaveBeenCalled()
-    expect(prisma.roleActivity.updateMany).toHaveBeenCalledWith({ where: { projectId: { in: ['pr1'] }, OR: [{ experienceId: 'e1' }, { experienceId: null }] }, data: { experienceId: 'ind' } })
+    expect(prisma.roleActivity.updateMany).toHaveBeenCalledWith({ where: { projectId: { in: ['pr1'] }, experienceId: 'e1' }, data: { experienceId: 'ind' } })
     expect(prisma.project.updateMany).toHaveBeenCalledWith({ where: { id: { in: ['pr1'] }, profileId: 'p1' }, data: { experienceId: 'ind' } })
     expect(prisma.experience.deleteMany).toHaveBeenCalledWith({ where: { id: 'e1', profileId: 'p1' } })
     expect(prisma.project.deleteMany).not.toHaveBeenCalled()
@@ -130,7 +139,7 @@ describe('deleteExperience', () => {
     vi.mocked(prisma.experience.findFirst).mockResolvedValue({ id: 'e1', type: 'employment' } as never)
     await deleteExperience('e1', { projects: 'keep' })
     expect(prisma.experience.create).not.toHaveBeenCalled()
-    expect(prisma.$executeRaw).not.toHaveBeenCalled()
+    expect(prisma.$executeRaw).toHaveBeenCalledTimes(1)
     expect(prisma.roleActivity.updateMany).not.toHaveBeenCalled()
     expect(prisma.project.updateMany).not.toHaveBeenCalled()
     expect(prisma.experience.deleteMany).toHaveBeenCalledWith({ where: { id: 'e1', profileId: 'p1' } })
@@ -157,7 +166,7 @@ describe('deleteExperience', () => {
   it('when the projects are deleted, another role\'s evidence under them keeps its role and loses only the label; when kept, it is left alone', async () => {
     vi.mocked(prisma.experience.findFirst).mockResolvedValue({ id: 'e1' } as never)
     const detach = {
-      where: { project: { experienceId: 'e1', profileId: 'p1' }, AND: [{ experienceId: { not: null } }, { experienceId: { not: 'e1' } }] },
+      where: { project: { experienceId: 'e1', profileId: 'p1' }, experienceId: { not: 'e1' } },
       data: { projectId: null },
     }
     await deleteExperience('e1', { projects: 'delete' })
@@ -189,16 +198,12 @@ describe('deleteProject', () => {
     vi.mocked(prisma.project.findFirst).mockResolvedValue({ id: 'pr1', experienceId: 'e1' } as never)
     await deleteProject('pr1')
     expect(prisma.roleActivity.updateMany).toHaveBeenCalledWith({
-      where: { projectId: 'pr1', AND: [{ experienceId: { not: null } }, { experienceId: { not: 'e1' } }] },
+      where: { projectId: 'pr1', experienceId: { not: 'e1' } },
       data: { projectId: null },
     })
     expect(prisma.project.deleteMany).toHaveBeenCalledWith({ where: { id: 'pr1', profileId: 'p1' } })
   })
-  it('for a project with no role, any activity carrying a role is detached', async () => {
-    vi.mocked(prisma.project.findFirst).mockResolvedValue({ id: 'pr1', experienceId: null } as never)
-    await deleteProject('pr1')
-    expect(prisma.roleActivity.updateMany).toHaveBeenCalledWith({ where: { projectId: 'pr1', AND: [{ experienceId: { not: null } }] }, data: { projectId: null } })
-  })
+
 })
 
 describe('getExperienceDeleteImpact', () => {
@@ -210,10 +215,10 @@ describe('getExperienceDeleteImpact', () => {
       where: {
         experienceId: 'e1',
         experience: { profileId: 'p1' },
-        OR: [{ projectId: null }, { project: { is: { experienceId: null } } }, { project: { is: { experienceId: { not: 'e1' } } } }],
+        OR: [{ projectId: null }, { project: { is: { experienceId: { not: 'e1' } } } }],
       },
     })
-    expect(prisma.roleActivity.count).toHaveBeenCalledWith({ where: { project: { experienceId: 'e1', profileId: 'p1' }, OR: [{ experienceId: null }, { experienceId: 'e1' }] } })
+    expect(prisma.roleActivity.count).toHaveBeenCalledWith({ where: { project: { experienceId: 'e1', profileId: 'p1' }, experienceId: 'e1' } })
     expect(prisma.project.count).toHaveBeenCalledWith({ where: { experienceId: 'e1', profileId: 'p1' } })
   })
 })
@@ -222,8 +227,8 @@ describe('evidence order', () => {
   it('puts new evidence after the owner\'s last item instead of tying at 0', async () => {
     vi.mocked(prisma.project.findFirst).mockResolvedValue({ id: 'pr1', experienceId: 'e1' } as never)
     vi.mocked(prisma.roleActivity.findFirst).mockResolvedValue({ order: 4 } as never)
-    await createActivity({ projectId: 'pr1' }, data)
-    expect(prisma.roleActivity.findFirst).toHaveBeenCalledWith({ where: { projectId: 'pr1' }, orderBy: { order: 'desc' }, select: { order: true } })
+    await createActivity({ experienceId: 'e1', projectId: 'pr1' }, data)
+    expect(prisma.roleActivity.findFirst).toHaveBeenCalledWith({ where: { experienceId: 'e1', projectId: 'pr1' }, orderBy: { order: 'desc' }, select: { order: true } })
     expect(vi.mocked(prisma.roleActivity.create).mock.calls[0][0].data).toMatchObject({ order: 5 })
   })
 
@@ -244,7 +249,7 @@ describe('acceptSuggestions into a project', () => {
     vi.mocked(prisma.project.findFirst).mockResolvedValue({ id: 'pr1', experienceId: 'e1' } as never)
     vi.mocked(prisma.roleActivity.findFirst).mockResolvedValue({ order: 2 } as never)
     await acceptSuggestions({ projectId: 'pr1', activities: [accepted, { ...accepted, description: 'Second' }], skills: [] })
-    expect(prisma.project.findFirst).toHaveBeenCalledWith({ where: { id: 'pr1', profileId: 'p1' }, select: { id: true, experienceId: true } })
+    expect(prisma.project.findFirst).toHaveBeenCalledWith({ where: { id: 'pr1', profileId: 'p1', ...OWNED }, select: { id: true, experienceId: true, status: true } })
     const created = vi.mocked(prisma.roleActivity.create).mock.calls.map(c => c[0].data)
     expect(created).toEqual([
       expect.objectContaining({ projectId: 'pr1', experienceId: 'e1', description: 'Cut hotfix time', order: 3 }),
@@ -256,7 +261,7 @@ describe('acceptSuggestions into a project', () => {
     vi.mocked(prisma.project.findFirst).mockResolvedValue({ id: 'pr1', experienceId: 'e1' } as never)
     vi.mocked(prisma.roleActivity.findFirst).mockResolvedValue(null)
     await acceptSuggestions({ projectId: 'pr1', activities: [{ ...accepted, replaceId: 'a9' }], skills: [] })
-    expect(prisma.roleActivity.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'a9', projectId: 'pr1' } }))
+    expect(prisma.roleActivity.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'a9', experienceId: 'e1', projectId: 'pr1' } }))
   })
 
   it('refuses a project that is not the caller\'s and writes nothing', async () => {
@@ -279,47 +284,48 @@ describe('moveActivity', () => {
     vi.mocked(prisma.roleActivity.findFirst).mockReset()
     vi.mocked(prisma.project.findFirst).mockReset()
     vi.mocked(prisma.experience.findFirst).mockReset()
-    vi.mocked(prisma.project.count).mockReset().mockResolvedValue(0)
+    vi.mocked(prisma.experience.findFirst).mockResolvedValue({ id: 'e1' } as never)
   })
 
   it('moves evidence to the profile\'s own project, taking the project\'s role and going to the end of its list', async () => {
     vi.mocked(prisma.roleActivity.findFirst).mockResolvedValueOnce({ id: 'a1' } as never).mockResolvedValueOnce({ order: 3 } as never)
     vi.mocked(prisma.project.findFirst).mockResolvedValue({ id: 'pr1', experienceId: 'e9' } as never)
-    await moveActivity('a1', { projectId: 'pr1' })
-    expect(prisma.roleActivity.findFirst).toHaveBeenCalledWith({ where: { id: 'a1', ...OWNED }, select: { id: true } })
-    expect(prisma.project.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'pr1', profileId: 'p1' } }))
-    expect(prisma.roleActivity.update).toHaveBeenCalledWith({ where: { id: 'a1' }, data: { experienceId: 'e9', projectId: 'pr1', order: 4 } })
+    await moveActivity('a1', { experienceId: 'e9', projectId: 'pr1' })
+    expect(prisma.roleActivity.findFirst).toHaveBeenCalledWith({ where: { id: 'a1', ...OWNED }, select: { experienceId: true, projectId: true } })
+    expect(prisma.project.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'pr1', profileId: 'p1', ...OWNED } }))
+    expect(prisma.roleActivity.update).toHaveBeenCalledWith({ where: { id: 'a1', ...OWNED }, data: { experienceId: 'e9', projectId: 'pr1', order: 4 } })
   })
 
   it('moves evidence from a project back to a role, clearing the project', async () => {
     vi.mocked(prisma.roleActivity.findFirst).mockResolvedValueOnce({ id: 'a1' } as never).mockResolvedValueOnce(null)
     vi.mocked(prisma.experience.findFirst).mockResolvedValue({ id: 'e1' } as never)
     await moveActivity('a1', { experienceId: 'e1' })
-    expect(prisma.roleActivity.update).toHaveBeenCalledWith({ where: { id: 'a1' }, data: { experienceId: 'e1', projectId: null, order: 0 } })
+    expect(prisma.roleActivity.update).toHaveBeenCalledWith({ where: { id: 'a1', ...OWNED }, data: { experienceId: 'e1', projectId: null, order: 0 } })
   })
 
-  it('moving into a project with no role leaves the activity with no role', async () => {
-    vi.mocked(prisma.roleActivity.findFirst).mockResolvedValueOnce({ id: 'a1' } as never).mockResolvedValueOnce(null)
-    vi.mocked(prisma.project.findFirst).mockResolvedValue({ id: 'pr1', experienceId: null } as never)
-    await moveActivity('a1', { projectId: 'pr1' })
-    expect(prisma.roleActivity.update).toHaveBeenCalledWith({ where: { id: 'a1' }, data: { experienceId: null, projectId: 'pr1', order: 0 } })
+  it('moving to Independent projects creates the home when needed', async () => {
+    vi.mocked(prisma.roleActivity.findFirst).mockResolvedValueOnce({ experienceId: 'e1', projectId: null } as never).mockResolvedValueOnce(null)
+    vi.mocked(prisma.experience.findFirst).mockResolvedValue(null)
+    await moveActivity('a1', { experienceId: null })
+    expect(prisma.roleActivity.update).toHaveBeenCalledWith({
+      where: { id: 'a1', ...OWNED }, data: { experienceId: 'ind-new', projectId: null, order: 0 },
+    })
   })
 
   it('refuses an archived project and a target with no id', async () => {
     vi.mocked(prisma.roleActivity.findFirst).mockResolvedValue({ id: 'a1' } as never)
-    vi.mocked(prisma.project.findFirst).mockResolvedValue({ id: 'pr1', experienceId: 'e1' } as never)
-    vi.mocked(prisma.project.count).mockResolvedValueOnce(1)
-    await expect(moveActivity('a1', { projectId: 'pr1' })).rejects.toThrow('archived')
+    vi.mocked(prisma.project.findFirst).mockResolvedValue({ id: 'pr1', experienceId: 'e1', status: 'archived' } as never)
+    await expect(moveActivity('a1', { experienceId: 'e1', projectId: 'pr1' })).rejects.toThrow('archived')
     await expect(moveActivity('a1', {} as never)).rejects.toThrow('Experience not found')
     expect(prisma.roleActivity.update).not.toHaveBeenCalled()
   })
 
   it('refuses a foreign activity or a foreign target, and changes nothing', async () => {
     vi.mocked(prisma.roleActivity.findFirst).mockResolvedValueOnce(null)
-    await expect(moveActivity('foreign', { projectId: 'pr1' })).rejects.toThrow('Activity not found')
+    await expect(moveActivity('foreign', { experienceId: 'e1', projectId: 'pr1' })).rejects.toThrow('Activity not found')
     vi.mocked(prisma.roleActivity.findFirst).mockResolvedValueOnce({ id: 'a1' } as never)
     vi.mocked(prisma.project.findFirst).mockResolvedValue(null)
-    await expect(moveActivity('a1', { projectId: 'foreign' })).rejects.toThrow('Project not found')
+    await expect(moveActivity('a1', { experienceId: 'e1', projectId: 'foreign' })).rejects.toThrow('Project not found')
     expect(prisma.roleActivity.update).not.toHaveBeenCalled()
   })
 })

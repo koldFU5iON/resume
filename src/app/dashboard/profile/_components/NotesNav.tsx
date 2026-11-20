@@ -12,8 +12,7 @@ import { capabilitiesHref, credentialsHref, noteHref, overviewHref, type NoteInd
 import { ExperienceDialog } from './Experience'
 
 /**
- * The profile's notes: Overview, roles with their projects nested, projects
- * with no role, and the Records. Every entry is a real link. Arrow keys move
+ * The profile's notes include Overview, roles, independent projects and Records. Arrow keys move
  * between visible controls; Tab reaches each link and disclosure, Home and End jump to the ends.
  */
 export function NotesNav({ index, profileId }: { index: NoteIndex; profileId: string }) {
@@ -233,6 +232,7 @@ export function NotesNav({ index, profileId }: { index: NoteIndex; profileId: st
           {addButton('Add experience', () => setAddingRole(true))}
 
           <h2 className={heading}>Independent projects</h2>
+          {index.independentEvidence.map(id => noteLink(noteHref(id), <span>Evidence</span>))}
           {index.projects.map(project => noteLink(noteHref(project.id), <span className="min-w-0 break-words">{project.name}</span>))}
           {addingProjectFor === 'standalone'
             ? projectInput('standalone')

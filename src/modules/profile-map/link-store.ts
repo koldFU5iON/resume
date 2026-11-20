@@ -5,6 +5,7 @@
 
 import { prisma } from '@/lib/db'
 import { completeStructured } from '@/modules/llm/client'
+import { experienceLabel } from '@/modules/profile/experience-type'
 import { activityOwnedBy } from '@/modules/profile/ownership'
 import { loadVault } from './load'
 import { buildSuggestionPrompt, pairKey, resolveSuggestions, SuggestionSchema, type CapabilitySuggestion } from './suggest'
@@ -72,8 +73,8 @@ export async function listPendingSuggestions(profileId: string): Promise<Pending
       roleActivity: {
         select: {
           description: true,
-          experience: { select: { role: true, company: true } },
-          project: { select: { name: true, experience: { select: { role: true, company: true } } } },
+          experience: { select: { id: true, role: true, company: true, type: true } },
+          project: { select: { name: true, experienceId: true } },
         },
       },
     },
@@ -81,13 +82,12 @@ export async function listPendingSuggestions(profileId: string): Promise<Pending
   })
   return rows.map((r) => {
     const { experience, project } = r.roleActivity
-    const owner = experience ?? project?.experience
-    const role = owner ? `${owner.role} at ${owner.company}` : ''
+    const role = experienceLabel(experience)
     return {
       evidenceId: r.roleActivityId,
       capabilityId: r.skillId,
       evidence: r.roleActivity.description,
-      role: project ? [project.name, role].filter(Boolean).join(' — ') : role,
+      role: project?.experienceId === experience.id ? `${project.name} — ${role}` : role,
       capability: r.skill.name,
       reason: r.reason,
     }

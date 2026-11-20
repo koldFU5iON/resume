@@ -1,8 +1,6 @@
-import type { Prisma } from '@prisma/client'
-
-/** Evidence belongs to a role or a project; either way it must trace back to the profile. */
-export function activityOwnedBy(profileId: string): Prisma.RoleActivityWhereInput {
-  return { OR: [{ experience: { profileId } }, { project: { profileId } }] }
+/** The role is the authority for access to evidence. */
+export function activityOwnedBy(profileId: string) {
+  return { experience: { profileId } }
 }
 
 /** A project's role by project id, for the profile's own projects. */
@@ -16,7 +14,7 @@ export type ProjectRoles = ReadonlyMap<string, string | null>
  * project, which sits inside the role, so it never appears twice. Without this, giving a project-only
  * activity its role would double it in the vault, the readiness counts, the profile page and the CV menu.
  *
- * It is the project's when it has no role of its own (today's project-only evidence) or the same role as
+ * It is the project's when it has no role of its own (legacy snapshots) or the same role as
  * the project. If the two roles disagree, the activity's own role is trusted and it stays the role's: it is
  * never hidden under a project of another role.
  */

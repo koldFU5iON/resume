@@ -22,6 +22,7 @@ export async function getExperienceWithSuggestionContext(
       id: true,
       company: true,
       role: true,
+      type: true,
       location: true,
       remote: true,
       startDate: true,
@@ -62,7 +63,7 @@ export async function getProjectWithSuggestionContext(projectId: string, profile
       description: true,
       notes: true,
       experienceId: true,
-      experience: { select: { role: true, company: true } },
+      experience: { select: { role: true, company: true, type: true } },
       activities: {
         select: { id: true, description: true, kind: true, experienceId: true },
         orderBy: ACTIVITY_ORDER,

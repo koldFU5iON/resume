@@ -1,5 +1,4 @@
-// Applies the profile model backfill for one profile. WRITES to the database. Gives each project-only activity
-// its project's role (the project stays as its label) and folds responsibilities into Overview notes.
+// Folds responsibilities into Overview notes for one profile. WRITES to the database.
 // Nothing is deleted and no wording changes.
 // Read the dry-run report first (npm run profile:backfill-report).
 //
@@ -76,7 +75,7 @@ async function main() {
     if (blocked) fail(blocked)
     const plan = summarisePlan(report)
     const fingerprint = planFingerprint(report, input)
-    console.log(`This run would give ${plan.activitiesAssigned} activities their project's role and fold ${plan.responsibilitiesFolded} responsibilities into ${plan.notesFolded} notes. Fingerprint: ${fingerprint}`)
+    console.log(`This run would fold ${plan.responsibilitiesFolded} responsibilities into ${plan.notesFolded} notes. Fingerprint: ${fingerprint}`)
     if (!values.apply) {
       console.log(`DRY RUN: nothing changed. To apply: --apply --confirm ${fingerprint}`)
       return
@@ -88,7 +87,7 @@ async function main() {
       const fresh = await load(tx)
       return applyPlan(tx, profileId, fresh, planBackfill(fresh), values.confirm!)
     }, { timeout: 60_000 })
-    console.log(`APPLIED: gave ${result.activitiesAssigned} activities their project's role and folded ${result.responsibilitiesFolded} responsibilities into ${result.notesFolded} notes.`)
+    console.log(`APPLIED: folded ${result.responsibilitiesFolded} responsibilities into ${result.notesFolded} notes.`)
   } finally {
     await prisma.$disconnect()
   }
