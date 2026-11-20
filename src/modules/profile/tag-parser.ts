@@ -1,133 +1,93 @@
 import type { ExtractedActivity, ExtractedSkill } from './extract-schema'
+import { parseResult } from './result'
 
-// Recognized H2 heading tags. Case-insensitive match.
-const RECOGNIZED_HEADINGS = ['overview', 'responsibilities', 'achievements', 'skills'] as const
-type RecognizedHeading = (typeof RECOGNIZED_HEADINGS)[number]
-
-export type ParseResult = {
-  overview: string | null
-  activities: ExtractedActivity[]
-  skills: ExtractedSkill[]
-  unparsed: string // prose under no recognized heading; fed to LLM tier
-}
-
-// Matches "## SomeHeading" (leading/trailing whitespace tolerated).
 const H2_RE = /^#{1,2}\s+(.+)$/
+const BULLET_RE = /^\s*(?:[-*+] |\d+\. )(.+)$/
+const IMPACT_RE = /^\s*>\s*(.*)$/
+const headings = ['overview', 'responsibilities', 'scope', 'achievements', 'skills']
 
-function normalizeHeading(raw: string): RecognizedHeading | null {
-  const lower = raw.trim().toLowerCase()
-  return (RECOGNIZED_HEADINGS as readonly string[]).includes(lower)
-    ? (lower as RecognizedHeading)
-    : null
+const duty = /^(?:(?:I (?:am|was) )?responsible for|(?:my )?duties (?:include|included)|(?:I )?(?:oversee|maintain|manage|support)\b)/i
+const action = /^(?:built|cut|grew|led|ran|made|wrote|won|set|drove|took|brought|met|hit|kept|oversaw|[a-z]+ed)\b/i
+const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1)
+
+export function cleanClaim(raw: string): string {
+  const text = raw.trim().replace(/^\*\*(.+?)\*\*(?=\s|$)/, '$1').replace(/\s+/g, ' ')
+  if (/^(?:i\b|my\b)/i.test(text)) return text
+  if (/^we\s+/i.test(text)) return `I was part of the team that ${text.slice(3)}`
+  if (/^responsible for\b/i.test(text)) return `I was ${lowerFirst(text)}`
+  if (action.test(text) || duty.test(text)) return `I ${lowerFirst(text)}`
+  return text
 }
 
-// A bullet line: starts with "- " or "* " after optional leading whitespace.
-const BULLET_RE = /^\s*[-*]\s+(.+)$/
+/** Recognize only explicit measurements. The rest stays in the verbatim impact. */
+export function localResult(description: string, impact: string | null) {
+  const comparisonVerb = /^(?:I )?(?:reduced|cut|increased|raised|lowered|improved)\s+/i
+  const labelled = impact?.match(/^([^:\n]+):\s*(.+?)\s*(?:\(from ([^)]+)\))?(?:,\s+(.+))?$/i)
+  const comparison = impact ?? (comparisonVerb.test(description) ? description : null)
+  const range = comparison?.replace(comparisonVerb, '').match(/^([^:\n]+?)\s+from\s+(.+?)\s+to\s+(.+?)(?:\s+(?:in|over|during)\s+(.+?))?[.!]?$/i)
+  const [measure, value, baseline, period] = labelled
+    ? [labelled[1], labelled[2], labelled[3], labelled[4]]
+    : [range?.[1], range?.[3], range?.[2], range?.[4]]
+  if (!value || !/\d/.test(value)) return null
+  return parseResult({ measure, value, baseline, period })
+}
 
-// An impact line: starts with ">" after optional leading whitespace.
-const IMPACT_RE = /^\s*>\s*(.*)$/
+export function parseNotes(markdown: string) {
+  let heading: string | null = null
+  const activities: ExtractedActivity[] = []
+  const fallback: ExtractedActivity[] = []
+  const skills: ExtractedSkill[] = []
+  const unparsed: string[] = []
+  let offset = 0
+  let previous: { claim: ExtractedActivity; start: number } | undefined
 
-export function parseNotes(markdown: string): ParseResult {
-  if (!markdown.trim()) {
-    return { overview: null, activities: [], skills: [], unparsed: '' }
-  }
-
-  const lines = markdown.split('\n')
-
-  let currentHeading: RecognizedHeading | null = null
-  const buckets: Record<RecognizedHeading, string[]> = {
-    overview: [],
-    responsibilities: [],
-    achievements: [],
-    skills: [],
-  }
-  const unparsedLines: string[] = []
-
-  // We track the last bullet added to the current bucket so that a following
-  // `>` impact line can be stitched to it.
-  let lastBucketTarget: string[] | null = null
-  let lastBulletIndex = -1 // index into lastBucketTarget
-
-  for (const line of lines) {
-    const h2Match = line.match(H2_RE)
-    if (h2Match) {
-      const heading = normalizeHeading(h2Match[1])
-      currentHeading = heading
-      lastBucketTarget = null
-      lastBulletIndex = -1
-      // If it's an unrecognized H2, subsequent lines still need a home.
-      // They'll fall through to the unparsed branch below.
+  for (const raw of markdown.split('\n')) {
+    const start = offset
+    offset += raw.length + 1
+    const line = raw.trimEnd()
+    const title = line.match(H2_RE)?.[1].toLowerCase()
+    if (title) {
+      heading = headings.includes(title) ? title : null
+      if (!heading) unparsed.push(raw)
+      previous = undefined
       continue
     }
-
-    if (currentHeading === null) {
-      // Pre-heading prose or under an unrecognized heading → unparsed.
-      unparsedLines.push(line)
-      lastBucketTarget = null
-      lastBulletIndex = -1
-      continue
-    }
-
-    const bucket = buckets[currentHeading]
-
-    const bulletMatch = line.match(BULLET_RE)
-    if (bulletMatch) {
-      bucket.push(bulletMatch[1].trim())
-      lastBucketTarget = bucket
-      lastBulletIndex = bucket.length - 1
-      continue
-    }
-
-    const impactMatch = line.match(IMPACT_RE)
-    if (impactMatch && lastBucketTarget !== null && lastBulletIndex >= 0) {
-      // Attach impact to the preceding bullet using a sentinel delimiter.
-      // Parsed downstream when converting bucket lines → items.
-      const impactText = impactMatch[1].trim()
-      if (impactText) {
-        lastBucketTarget[lastBulletIndex] =
-          lastBucketTarget[lastBulletIndex] + '\x00' + impactText
+    if (!heading) unparsed.push(raw)
+    const impact = line.match(IMPACT_RE)?.[1].trim()
+    if (impact && previous) {
+      const { claim } = previous
+      claim.original = markdown.slice(previous.start, start + raw.length).trim()
+      const projectName = impact.match(/^project:\s*(.+)$/i)?.[1].trim()
+      if (projectName) {
+        claim.projectName = projectName
+      } else {
+        claim.impact = claim.impact ? `${claim.impact}\n${impact}` : impact
+        if (claim.kind === 'achievement') claim.result = localResult(claim.description, impact) ?? claim.result
       }
       continue
     }
-
-    // Non-bullet, non-impact lines inside a recognized heading:
-    // plain prose paragraphs — keep them in the bucket as-is (overview uses
-    // them; for activity/skill headings they're noise but still user content).
-    if (line.trim()) {
-      bucket.push(line.trim())
-      lastBucketTarget = bucket
-      lastBulletIndex = bucket.length - 1
-    } else {
-      // Blank lines reset the impact-attachment cursor.
-      lastBucketTarget = null
-      lastBulletIndex = -1
+    previous = undefined
+    const bullet = line.match(BULLET_RE)?.[1].trim()
+    const text = bullet ?? line.trim()
+    if (!text || impact || heading === 'overview') continue
+    if (heading === 'skills') {
+      const name = text.slice(0, 120)
+      if (name) skills.push({ name, category: null, level: null, source: 'parser', original: line.trim() })
+      continue
     }
+    if (!heading && !/^(I|We)\s/i.test(text) && !(bullet && (action.test(text) || duty.test(text)))) continue
+
+    const scope = heading === 'scope' || heading === 'responsibilities' || duty.test(text)
+    const cleaned = cleanClaim(text)
+    if (!cleaned || (!heading && !bullet && cleaned === text && !/^(?:I\b|My\b)/i.test(text))) continue
+    const description = /^(?:I\b|My\b)/i.test(cleaned) ? cleaned : `I worked on ${cleaned}`
+    const claim: ExtractedActivity = {
+      source: 'parser', kind: scope ? 'scope' : 'achievement', description,
+      original: line.trim(), impact: null, result: scope ? null : localResult(description, null), projectName: null,
+    }
+    const bucket = heading ? activities : fallback
+    bucket.push(claim)
+    previous = { claim, start }
   }
-
-  // Build structured outputs from buckets.
-  const activities: ExtractedActivity[] = []
-
-  for (const raw of buckets.responsibilities) {
-    const [description, impact = null] = raw.split('\x00')
-    activities.push({ kind: 'responsibility', description, impact, source: 'parser' })
-  }
-
-  for (const raw of buckets.achievements) {
-    const [description, impact = null] = raw.split('\x00')
-    activities.push({ kind: 'achievement', description, impact, source: 'parser' })
-  }
-
-  const skills: ExtractedSkill[] = buckets.skills.map((raw) => {
-    const [name] = raw.split('\x00')
-    return { name, category: null, level: null, source: 'parser' }
-  })
-
-  const overview =
-    buckets.overview.length > 0 ? buckets.overview.join('\n').trim() : null
-
-  const unparsed = unparsedLines
-    .join('\n')
-    .trim()
-
-  return { overview, activities, skills, unparsed }
+  return { activities, fallback, skills, unparsed: unparsed.join('\n').trim() }
 }

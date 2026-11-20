@@ -1,6 +1,7 @@
 'use client'
 
 import type { FullProfile } from '@/app/types/profile'
+import type { ExtractionReview } from '@/modules/profile/extraction-draft'
 import type { PendingSuggestion } from '@/modules/profile-map/link-store'
 import type { NoteCapabilityLink } from '@/modules/profile-map/note-links'
 import { getNoteLiveState, updateExperienceNotes } from '@/modules/profile/actions'
@@ -18,9 +19,9 @@ const month = (d: Date | string) => new Date(d).toLocaleDateString('en-GB', { mo
  * A role as a note: its title and period above, its Markdown note as the
  * document, and Properties, Evidence and Links in the details region.
  */
-export function ExperienceNote({ experience, skills, projects, roles, links, pending }: {
+export function ExperienceNote({ experience, extractionReview, projects, roles, links, pending }: {
   experience: FullProfile['experiences'][number]
-  skills: { id: string; name: string }[]
+  extractionReview: ExtractionReview | null
   /** The role's projects, whose evidence shows under the role's own. */
   projects: FullProfile['projects']
   roles: EvidenceRole[]
@@ -60,7 +61,7 @@ export function ExperienceNote({ experience, skills, projects, roles, links, pen
                   key={experience.id}
                   owner={{ experienceId: experience.id }}
                   activities={experience.activities}
-                  skills={skills}
+                  extractionReview={extractionReview}
                   fromProjects={projects.map(p => ({ id: p.id, name: p.name, activities: p.activities ?? [] }))}
                   roles={roles}
                 />

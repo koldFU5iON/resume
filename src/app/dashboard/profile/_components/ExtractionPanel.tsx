@@ -1,473 +1,281 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useId, useRef, useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Separator } from '@/components/ui/separator'
-import { extractFromNotes, type ExtractionOwner, type ExtractionSource } from '@/modules/profile/extract'
-import {
-  acceptSuggestions,
-  type AcceptSuggestionsPayload,
-} from '@/modules/profile/actions'
-import type { ActivityWithMatch, SkillWithMatch } from '@/modules/profile/duplicate-detect'
-import { Bot, Check, Loader2, RefreshCw, ScanText, X, AlertCircle } from 'lucide-react'
-import clsx from 'clsx'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import { extractFromNotes, reviewExtractionItem } from '@/modules/profile/extract'
+import type { ExtractionReview } from '@/modules/profile/extraction-draft'
+import type { DraftChange, DraftItem, ExtractionOwner } from '@/modules/profile/extract-schema'
+import { formatResult } from '@/modules/profile/result'
+import { selectClass } from './PropertyFields'
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+const kinds = { achievement: 'Achievement', scope: 'Scope', skill: 'Skill' }
+const actionSize = 'max-md:h-11'
+const emptyResult = { measure: '', value: '', baseline: '', period: '' }
+const resultFields = [
+  ['measure', 'What it measures', 120],
+  ['value', 'Result', 80],
+  ['baseline', 'Started at', 80],
+  ['period', 'Period', 80],
+] as const
 
-type SuggestionDecision = 'accept' | 'replace' | 'skip'
+type Stamp = Pick<ExtractionReview, 'version' | 'sourceVersion'>
 
-type ActivityRow = ActivityWithMatch & {
-  decision: SuggestionDecision
-  editedDescription: string
-  editedImpact: string
-}
-
-type SkillRow = SkillWithMatch & {
-  decision: SuggestionDecision
-  editedName: string
-  editedCategory: string
-}
-
-// ── Source meta header ────────────────────────────────────────────────────────
-
-function SourceHeader({ source, llmError }: { source: ExtractionSource; llmError?: string }) {
-  const messages: Record<ExtractionSource, string> = {
-    parser: 'Parsed from tags.',
-    'parser+llm': 'Parsed from tags · LLM filled the gaps.',
-    'parser-only-no-key':
-      'Parsed from tags · Add an LLM key in Settings to also extract from prose.',
-    'parser-llm-error': 'Parsed from tags · LLM unavailable, prose not extracted.',
-  }
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/40 rounded-md px-3 py-2">
-        <ScanText size={13} className="shrink-0" />
-        {messages[source]}
-      </div>
-      {source === 'parser-llm-error' && llmError && (
-        <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-50/50 dark:bg-amber-950/20 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-          <AlertCircle size={13} className="shrink-0 mt-0.5" />
-          {llmError}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ── Source badge ──────────────────────────────────────────────────────────────
-
-function SourceBadge({ source }: { source: 'parser' | 'llm' }) {
-  return source === 'llm' ? (
-    <span title="Extracted by LLM from unstructured prose">
-      <Bot size={11} className="text-blue-500" />
-    </span>
-  ) : (
-    <span title="Parsed from tagged headings">
-      <ScanText size={11} className="text-green-600" />
-    </span>
-  )
-}
-
-// ── Decision controls ─────────────────────────────────────────────────────────
-
-function DecisionControls({
-  decision,
-  hasNearMatch,
-  onDecide,
-}: {
-  decision: SuggestionDecision
-  hasNearMatch: boolean
-  onDecide: (d: SuggestionDecision) => void
+function SuggestionEdit({ item, projects, disabled, canSave, onSave, onCancel }: {
+  item: DraftItem
+  projects: ExtractionReview['projects']
+  disabled: boolean
+  canSave: boolean
+  onSave: (edit: DraftChange['edit']) => void
+  onCancel: () => void
 }) {
-  return (
-    <div className="flex gap-1 shrink-0">
-      {hasNearMatch ? (
-        <>
-          <Button
-            variant={decision === 'accept' ? 'default' : 'outline'}
-            size="sm"
-            className="h-7 text-xs px-2 max-md:h-11 max-md:px-3"
-            onClick={() => onDecide('accept')}
-          >
-            Add new
-          </Button>
-          <Button
-            variant={decision === 'replace' ? 'default' : 'outline'}
-            size="sm"
-            className="h-7 text-xs px-2 max-md:h-11 max-md:px-3"
-            onClick={() => onDecide('replace')}
-          >
-            Replace
-          </Button>
-          <Button
-            variant={decision === 'skip' ? 'secondary' : 'ghost'}
-            size="sm"
-            className="h-7 text-xs px-2 max-md:h-11 max-md:px-3"
-            onClick={() => onDecide('skip')}
-          >
-            Skip
-          </Button>
-        </>
-      ) : (
-        <>
-          <Button
-            variant={decision === 'accept' ? 'default' : 'outline'}
-            size="icon"
-            className="h-7 w-7 max-md:size-11"
-            onClick={() => onDecide('accept')}
-            aria-label="Accept"
-          >
-            <Check size={12} />
-          </Button>
-          <Button
-            variant={decision === 'skip' ? 'secondary' : 'ghost'}
-            size="icon"
-            className="h-7 w-7 max-md:size-11"
-            onClick={() => onDecide('skip')}
-            aria-label="Skip"
-          >
-            <X size={12} />
-          </Button>
-        </>
-      )}
-    </div>
-  )
-}
+  const id = useId()
+  const [edit, setEdit] = useState(item)
+  const [result, setResult] = useState(() => item.kind === 'achievement' ? item.result ?? emptyResult : emptyResult)
+  const hasResult = Object.values(result).some((value) => value?.trim())
+  const selectedProjectId = edit.kind === 'achievement' && edit.project?.kind === 'existing' ? edit.project.id : null
 
-// ── Activity row ──────────────────────────────────────────────────────────────
-
-function ActivitySuggestionRow({
-  row,
-  existingDescription,
-  onUpdate,
-}: {
-  row: ActivityRow
-  existingDescription: string | undefined
-  onUpdate: (patch: Partial<ActivityRow>) => void
-}) {
   return (
-    <div
-      className={clsx(
-        'rounded-md border px-3 py-2 space-y-1 transition-colors',
-        row.decision === 'skip' && 'opacity-40',
-        row.decision !== 'skip' && 'border-border',
-      )}
-    >
-      <div className="flex items-start gap-2">
-        <div className="flex-1 min-w-0 space-y-1">
-          <div className="flex items-center gap-1.5">
-            <SourceBadge source={row.source} />
-            <Badge
-              variant="outline"
-              className={clsx(
-                'text-[10px] py-0 px-1.5',
-                row.kind === 'responsibility'
-                  ? 'border-green-500/50 text-green-700 dark:text-green-400'
-                  : 'border-amber-500/50 text-amber-700 dark:text-amber-400',
-              )}
-            >
-              {row.kind}
-            </Badge>
+    <form onSubmit={(event) => {
+      event.preventDefault()
+      if (!canSave) return
+      onSave(edit.kind === 'achievement' ? { ...edit, result: hasResult ? result : null } : edit)
+    }}>
+      <fieldset disabled={disabled} className="min-w-0 space-y-3">
+        <legend className="sr-only">Edit {kinds[item.kind].toLowerCase()} suggestion</legend>
+        {edit.kind === 'skill' ? (
+          <>
+            <div className="space-y-1">
+              <Label htmlFor={`${id}-name`}>Skill name</Label>
+              <Input id={`${id}-name`} value={edit.name} maxLength={120} required autoFocus className={actionSize} onChange={(e) => setEdit({ ...edit, name: e.target.value })} />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor={`${id}-category`}>Category</Label>
+              <Input id={`${id}-category`} value={edit.category ?? ''} maxLength={80} className={actionSize} onChange={(e) => setEdit({ ...edit, category: e.target.value || null })} />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor={`${id}-level`}>Level</Label>
+              <select id={`${id}-level`} className={selectClass} value={edit.level ?? ''} onChange={(e) => setEdit({ ...edit, level: (e.target.value || null) as typeof edit.level })}>
+                <option value="">Unspecified</option>
+                {['Beginner', 'Intermediate', 'Advanced', 'Expert'].map((level) => <option key={level}>{level}</option>)}
+              </select>
+            </div>
+          </>
+        ) : (
+          <div className="space-y-1">
+            <Label htmlFor={`${id}-description`}>Cleaned wording</Label>
+            <Textarea id={`${id}-description`} required autoFocus rows={3} value={edit.description} onChange={(e) => setEdit({ ...edit, description: e.target.value })} />
           </div>
-          <input
-            type="text"
-            value={row.editedDescription}
-            onChange={(e) => onUpdate({ editedDescription: e.target.value })}
-            className="w-full text-sm bg-transparent border-0 outline-none focus:ring-0 p-0 max-md:min-h-11"
-          />
-          {row.decision !== 'skip' && (
-            <input
-              type="text"
-              value={row.editedImpact}
-              onChange={(e) => onUpdate({ editedImpact: e.target.value })}
-              placeholder="Impact (optional)"
-              className="w-full text-xs text-muted-foreground bg-transparent border-0 outline-none focus:ring-0 p-0 placeholder:text-muted-foreground/50 max-md:min-h-11"
-            />
-          )}
-          {row.nearMatchId && existingDescription && (
-            <p className="text-[10px] text-amber-600 dark:text-amber-400">
-              Similar to existing: &ldquo;{existingDescription}&rdquo;
-            </p>
-          )}
+        )}
+        {edit.kind === 'achievement' && (
+          <>
+            <div className="space-y-1">
+              <Label htmlFor={`${id}-impact`}>Outcome (optional)</Label>
+              <Input id={`${id}-impact`} value={edit.impact ?? ''} className={actionSize} onChange={(e) => setEdit({ ...edit, impact: e.target.value || null })} />
+            </div>
+            <fieldset className="grid min-w-0 gap-2 @min-[26rem]:grid-cols-2">
+              <legend className="mb-1 text-sm font-medium">Structured result (optional)</legend>
+              {resultFields.map(([field, label, maxLength]) => (
+                <div key={field} className="min-w-0 space-y-1">
+                  <Label htmlFor={`${id}-${field}`}>{label}</Label>
+                  <Input id={`${id}-${field}`} maxLength={maxLength} className={actionSize} value={result[field] ?? ''}
+                    required={hasResult && (field === 'measure' || field === 'value')}
+                    onChange={(e) => setResult({ ...result, [field]: e.target.value })} />
+                </div>
+              ))}
+            </fieldset>
+            <div className="space-y-1">
+              <Label htmlFor={`${id}-project`}>Project label</Label>
+              <select id={`${id}-project`} className={selectClass}
+                value={selectedProjectId ? `project:${selectedProjectId}` : edit.project?.kind ?? ''}
+                onChange={(e) => {
+                  const value = e.target.value
+                  const project = value === 'new' ? { kind: 'new' as const, name: '' }
+                    : value ? { kind: 'existing' as const, id: value.slice('project:'.length) } : null
+                  setEdit({ ...edit, project, projectEdited: true })
+                }}>
+                <option value="">No project</option>
+                {selectedProjectId && !projects.some((project) => project.id === selectedProjectId) && (
+                  <option value={`project:${selectedProjectId}`} disabled>Unavailable project</option>
+                )}
+                {projects.map((project) => <option key={project.id} value={`project:${project.id}`}>{project.name}</option>)}
+                <option value="new">New project…</option>
+              </select>
+            </div>
+            {edit.project?.kind === 'new' && (
+              <div className="space-y-1">
+                <Label htmlFor={`${id}-project-name`}>New project name</Label>
+                <Input id={`${id}-project-name`} required maxLength={160} className={actionSize} value={edit.project.name}
+                  onChange={(e) => setEdit({ ...edit, project: { kind: 'new', name: e.target.value }, projectEdited: true })} />
+              </div>
+            )}
+          </>
+        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="submit" size="sm" className={actionSize} disabled={!canSave}>Save edits</Button>
+          <Button type="button" variant="ghost" size="sm" className={actionSize} onClick={onCancel}>Cancel</Button>
         </div>
-        <DecisionControls
-          decision={row.decision}
-          hasNearMatch={!!row.nearMatchId}
-          onDecide={(d) => onUpdate({ decision: d })}
-        />
-      </div>
-    </div>
+      </fieldset>
+    </form>
   )
 }
 
-// ── Skill row ─────────────────────────────────────────────────────────────────
+export function ExtractionPanel({ owner, review }: { owner: ExtractionOwner; review: ExtractionReview }) {
+  const router = useRouter()
+  const heading = useRef<HTMLHeadingElement>(null)
+  const busy = useRef(false)
+  const [pending, startTransition] = useTransition()
+  const [editing, setEditing] = useState<{ id: string; stamp: Stamp } | null>(null)
+  const [confirm, setConfirm] = useState<Stamp | null>(null)
+  const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null)
+  const stamp = { version: review.version, sourceVersion: review.sourceVersion }
+  const activeEditing = editing && review.items.some(({ item }) => item.id === editing.id) ? editing : null
+  const disabled = pending || activeEditing !== null || confirm !== null
 
-function SkillSuggestionRow({
-  row,
-  existingName,
-  onUpdate,
-}: {
-  row: SkillRow
-  existingName: string | undefined
-  onUpdate: (patch: Partial<SkillRow>) => void
-}) {
-  return (
-    <div
-      className={clsx(
-        'rounded-md border px-3 py-2 space-y-1 transition-colors',
-        row.decision === 'skip' && 'opacity-40',
-        row.decision !== 'skip' && 'border-border',
-      )}
-    >
-      <div className="flex items-start gap-2">
-        <div className="flex-1 min-w-0 space-y-1">
-          <div className="flex items-center gap-1.5">
-            <SourceBadge source={row.source} />
-          </div>
-          <input
-            type="text"
-            value={row.editedName}
-            onChange={(e) => onUpdate({ editedName: e.target.value })}
-            className="w-full text-sm font-medium bg-transparent border-0 outline-none focus:ring-0 p-0 max-md:min-h-11"
-          />
-          <input
-            type="text"
-            value={row.editedCategory}
-            onChange={(e) => onUpdate({ editedCategory: e.target.value })}
-            placeholder="Category (e.g. Backend, DevOps)"
-            className="w-full text-xs text-muted-foreground bg-transparent border-0 outline-none focus:ring-0 p-0 placeholder:text-muted-foreground/50 max-md:min-h-11"
-          />
-          {row.nearMatchId && existingName && (
-            <p className="text-[10px] text-amber-600 dark:text-amber-400">
-              Similar to existing: &ldquo;{existingName}&rdquo;
-            </p>
-          )}
-        </div>
-        <DecisionControls
-          decision={row.decision}
-          hasNearMatch={!!row.nearMatchId}
-          onDecide={(d) => onUpdate({ decision: d })}
-        />
-      </div>
-    </div>
-  )
-}
-
-// ── Main panel ────────────────────────────────────────────────────────────────
-
-type Props = {
-  /** The role or project whose note is read, and whose evidence the accepted items join. */
-  owner: ExtractionOwner
-  existingActivities: { id: string; description: string; kind: string }[]
-  existingSkills: { id: string; name: string }[]
-}
-
-type PanelState =
-  | { stage: 'idle' }
-  | { stage: 'extracting' }
-  | { stage: 'error'; message: string }
-  | {
-      stage: 'review'
-      source: ExtractionSource
-      llmError?: string
-      activityRows: ActivityRow[]
-      skillRows: SkillRow[]
-      acceptError?: string
-    }
-
-export function ExtractionPanel({ owner, existingActivities, existingSkills }: Props) {
-  const [panel, setPanel] = useState<PanelState>({ stage: 'idle' })
-  const [isAccepting, startAccepting] = useTransition()
-
-  const runExtract = async () => {
-    setPanel({ stage: 'extracting' })
-    let result: Awaited<ReturnType<typeof extractFromNotes>>
-    try {
-      result = await extractFromNotes(owner)
-    } catch {
-      setPanel({ stage: 'error', message: 'Could not extract. Check your connection and try again.' })
-      return
-    }
-
-    if (!result.ok) {
-      setPanel({ stage: 'error', message: result.message })
-      return
-    }
-
-    const activityRows: ActivityRow[] = result.suggestions.activities.map((a) => ({
-      ...a,
-      decision: 'accept',
-      editedDescription: a.description,
-      editedImpact: a.impact ?? '',
-    }))
-    const skillRows: SkillRow[] = result.suggestions.skills.map((s) => ({
-      ...s,
-      decision: 'accept',
-      editedName: s.name,
-      editedCategory: s.category ?? '',
-    }))
-
-    setPanel({ stage: 'review', source: result.meta.source, llmError: result.meta.llmError, activityRows, skillRows })
-  }
-
-  const updateActivityRow = (idx: number, patch: Partial<ActivityRow>) => {
-    setPanel((prev) => {
-      if (prev.stage !== 'review') return prev
-      const rows = [...prev.activityRows]
-      rows[idx] = { ...rows[idx], ...patch }
-      return { ...prev, activityRows: rows }
-    })
-  }
-
-  const updateSkillRow = (idx: number, patch: Partial<SkillRow>) => {
-    setPanel((prev) => {
-      if (prev.stage !== 'review') return prev
-      const rows = [...prev.skillRows]
-      rows[idx] = { ...rows[idx], ...patch }
-      return { ...prev, skillRows: rows }
-    })
-  }
-
-  const handleAcceptAll = () => {
-    if (panel.stage !== 'review') return
-    startAccepting(async () => {
-      const payload: AcceptSuggestionsPayload = {
-        ...owner,
-        activities: panel.activityRows
-          .filter((r) => r.decision !== 'skip' && r.editedDescription.trim())
-          .map((r) => ({
-            kind: r.kind,
-            description: r.editedDescription.trim(),
-            impact: r.editedImpact.trim() || null,
-            ...(r.decision === 'replace' && r.nearMatchId
-              ? { replaceId: r.nearMatchId }
-              : {}),
-          })),
-        skills: panel.skillRows
-          .filter((r) => r.decision !== 'skip' && r.editedName.trim())
-          .map((r) => ({
-            name: r.editedName.trim(),
-            category: r.editedCategory.trim() || null,
-            level: r.level,
-            ...(r.decision === 'replace' && r.nearMatchId
-              ? { replaceId: r.nearMatchId }
-              : {}),
-          })),
-      }
-
+  function run(operation: () => Promise<{ ok: true } | { ok: false; message: string }>, success: string) {
+    if (busy.current) return
+    busy.current = true
+    setMessage(null)
+    startTransition(async () => {
       try {
-        await acceptSuggestions(payload)
-        setPanel({ stage: 'idle' })
+        const result = await operation()
+        if (!result.ok) {
+          setMessage({ text: result.message, error: true })
+          return
+        }
+        setConfirm(null)
+        setEditing(null)
+        setMessage({ text: success, error: false })
+        heading.current?.focus()
       } catch {
-        setPanel((prev) => (prev.stage === 'review' ? { ...prev, acceptError: 'Could not add the suggestions. Nothing was changed; try again.' } : prev))
+        setMessage({ text: 'Could not update the draft. Reload it to check whether your change was saved.', error: true })
+      } finally {
+        busy.current = false
       }
     })
   }
 
-  const acceptedCount =
-    panel.stage === 'review'
-      ? panel.activityRows.filter((r) => r.decision !== 'skip').length +
-        panel.skillRows.filter((r) => r.decision !== 'skip').length
-      : 0
+  function decide(item: DraftItem, decision: DraftChange['decision'], success: string, target?: DraftChange['target']) {
+    run(() => reviewExtractionItem(owner, { ...stamp, itemId: item.id, decision, target }), success)
+  }
 
   return (
-    <div className="space-y-4">
-      <Separator />
-
-      <div className="flex items-center justify-between">
-        <span className="text-base font-medium">Extract suggestions</span>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={panel.stage === 'extracting' || isAccepting}
-          onClick={runExtract}
-          className="gap-1.5 max-md:h-11"
-        >
-          {panel.stage === 'extracting' ? (
-            <Loader2 size={13} className="animate-spin" />
-          ) : (
-            <RefreshCw size={13} />
-          )}
-          {panel.stage === 'extracting' ? 'Extracting…' : 'Extract'}
+    <section className="@container space-y-3 border-t pt-4" aria-labelledby="extraction-heading" aria-busy={pending}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 id="extraction-heading" ref={heading} tabIndex={-1} className="text-sm font-semibold">Extraction draft</h3>
+        <Button type="button" variant="outline" size="sm" className={actionSize} disabled={disabled || review.archived}
+          onClick={() => review.items.length ? setConfirm(stamp) : run(() => extractFromNotes(owner, stamp, false), 'Extraction complete.')}>
+          {review.version ? 'Extract again' : 'Extract from saved note'}
         </Button>
       </div>
-
-      {panel.stage === 'error' && (
-        <div className="flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-          <AlertCircle size={14} className="shrink-0 mt-0.5" />
-          {panel.message}
+      {confirm && (
+        <div className="space-y-2 rounded-md border p-3">
+          <p className="text-sm">Extract again and replace pending suggestions and their edits?</p>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" className={actionSize} disabled={pending}
+              onClick={() => run(() => extractFromNotes(owner, confirm, true), 'Draft refreshed.')}>Replace pending suggestions</Button>
+            <Button size="sm" variant="ghost" className={actionSize} disabled={pending} onClick={() => { setConfirm(null); heading.current?.focus() }}>Cancel</Button>
+          </div>
         </div>
       )}
-
-      {panel.stage === 'review' && (
-        <div className="space-y-4">
-          <SourceHeader source={panel.source} llmError={panel.llmError} />
-
-          {panel.activityRows.length > 0 && (
-            <div className="space-y-2">
-              <p className="text-sm font-medium text-muted-foreground">Activities</p>
-              {panel.activityRows.map((row, idx) => (
-                <ActivitySuggestionRow
-                  key={idx}
-                  row={row}
-                  existingDescription={
-                    row.nearMatchId
-                      ? existingActivities.find((a) => a.id === row.nearMatchId)?.description
-                      : undefined
-                  }
-                  onUpdate={(patch) => updateActivityRow(idx, patch)}
-                />
-              ))}
-            </div>
-          )}
-
-          {panel.skillRows.length > 0 && (
-            <div className="space-y-2">
-              <p className="text-sm font-medium text-muted-foreground">Skills</p>
-              {panel.skillRows.map((row, idx) => (
-                <SkillSuggestionRow
-                  key={idx}
-                  row={row}
-                  existingName={
-                    row.nearMatchId
-                      ? existingSkills.find((s) => s.id === row.nearMatchId)?.name
-                      : undefined
-                  }
-                  onUpdate={(patch) => updateSkillRow(idx, patch)}
-                />
-              ))}
-            </div>
-          )}
-
-          {panel.activityRows.length === 0 && panel.skillRows.length === 0 && (
-            <p className="text-sm text-muted-foreground text-center py-4">
-              No suggestions found. Try adding more detail to your notes.
-            </p>
-          )}
-
-          {panel.acceptError && <p role="alert" className="text-sm text-destructive">{panel.acceptError}</p>}
-
-          {(panel.activityRows.length > 0 || panel.skillRows.length > 0) && (
-            <div className="flex items-center justify-end gap-2">
-              <Button variant="ghost" size="sm" className="max-md:h-11" onClick={() => setPanel({ stage: 'idle' })}>
-                Discard
-              </Button>
-              <Button
-                size="sm"
-                disabled={isAccepting || acceptedCount === 0}
-                onClick={handleAcceptAll}
-                className="gap-1.5 max-md:h-11"
-              >
-                {isAccepting && <Loader2 size={13} className="animate-spin" />}
-                {isAccepting
-                  ? 'Saving…'
-                  : `Save ${acceptedCount} item${acceptedCount === 1 ? '' : 's'}`}
-              </Button>
-            </div>
-          )}
+      {review.archived && <p className="text-sm text-muted-foreground">This project is archived. You can still review the saved draft.</p>}
+      {review.stale && review.items.length > 0 && <p className="text-sm text-muted-foreground">The saved note changed. Extract again before accepting suggestions.</p>}
+      {review.notice && <p className="text-xs text-muted-foreground">{review.notice}</p>}
+      {pending && <p role="status" className="text-sm text-muted-foreground">Updating draft…</p>}
+      {message && (
+        <div className="space-y-1">
+          <p role={message.error ? 'alert' : 'status'} className={message.error ? 'text-sm text-destructive' : 'text-sm text-muted-foreground'}>{message.text}</p>
+          {message.error && <Button variant="outline" size="sm" className={actionSize} disabled={pending} onClick={() => {
+            setConfirm(null)
+            setMessage(null)
+            startTransition(() => router.refresh())
+          }}>Reload draft</Button>}
         </div>
       )}
-    </div>
+      {review.version > 0 && review.items.length === 0 && <p className="text-sm text-muted-foreground">No pending suggestions.</p>}
+      <ul className="divide-y">
+        {review.items.map(({ item, match }) => {
+          const activeEdit = activeEditing?.id === item.id ? activeEditing : null
+          const canSave = !activeEdit || (activeEdit.stamp.version === stamp.version && activeEdit.stamp.sourceVersion === stamp.sourceVersion)
+          const project = item.kind === 'achievement' ? item.project : null
+          const projectText = project?.kind === 'new' ? `New project: ${project.name}`
+            : project ? review.projects.find((p) => p.id === project.id)?.name ?? 'Unavailable project' : null
+          const text = item.kind === 'skill' ? item.name : item.description
+          return (
+            <li key={item.id} className="space-y-3 py-3">
+              <h4 className="text-xs font-medium text-muted-foreground">{kinds[item.kind]}</h4>
+              <div className="grid gap-3 @min-[26rem]:grid-cols-2">
+                {item.original && (
+                  <div className="min-w-0">
+                    <p className="mb-1 text-xs text-muted-foreground">Original wording</p>
+                    <blockquote className="whitespace-pre-wrap text-sm text-muted-foreground [overflow-wrap:anywhere]">{item.original}</blockquote>
+                  </div>
+                )}
+                {!activeEdit && (
+                  <div className="min-w-0 space-y-1 [overflow-wrap:anywhere]">
+                    {item.kind !== 'skill' && <p className="text-xs text-muted-foreground">Cleaned wording</p>}
+                    <p className="text-sm">{text}</p>
+                    {item.kind === 'achievement' && item.result && <p className="text-xs text-muted-foreground">Suggested structured result: {formatResult(item.result)}</p>}
+                    {item.kind === 'achievement' && item.impact && <p className="whitespace-pre-wrap text-xs text-muted-foreground">Suggested outcome: {item.impact}</p>}
+                    {projectText && <p className="text-xs text-muted-foreground">{projectText}</p>}
+                    {item.kind === 'skill' && (item.category || item.level) && <p className="text-xs text-muted-foreground">{[item.category, item.level].filter(Boolean).join(' · ')}</p>}
+                  </div>
+                )}
+              </div>
+              {activeEdit ? (
+                <>
+                  {!canSave && <p role="status" className="text-sm text-muted-foreground">The saved version changed. Copy any edits you want to keep, then cancel and reopen the suggestion.</p>}
+                  <SuggestionEdit item={item} projects={review.projects} disabled={pending} canSave={canSave}
+                    onCancel={() => { setEditing(null); heading.current?.focus() }}
+                    onSave={(edit) => run(() => reviewExtractionItem(owner, { ...activeEdit.stamp, itemId: item.id, decision: 'save', edit }), 'Draft edits saved.')} />
+                </>
+              ) : (
+                <>
+                  {match && <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
+                    {match.replaceable ? 'Similar profile evidence' : 'Match unavailable for replacement'}{match.project ? ` · ${match.project}` : ''} — {match.text}
+                    {match.replaceable && item.kind === 'achievement' && !item.projectEdited && ' Replacement keeps the existing project label.'}
+                  </p>}
+                  {match && item.kind === 'achievement' && match.result && (
+                    <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">Existing structured result: {formatResult(match.result)}</p>
+                  )}
+                  {match && item.kind === 'achievement' && match.impact && (
+                    <p className="whitespace-pre-wrap text-xs text-muted-foreground [overflow-wrap:anywhere]">Existing outcome: {match.impact}</p>
+                  )}
+                  {match?.replaceable && item.kind === 'achievement' && item.impact && <p className="text-xs text-muted-foreground">Replacement uses the suggested outcome.</p>}
+                  {match?.resultConflict && <p className="text-xs text-muted-foreground">The structured results differ. Choose which structured result to keep when replacing.</p>}
+                  <div className="flex flex-wrap gap-2">
+                    {!match && <Button size="sm" className={actionSize} disabled={disabled || review.stale || review.archived}
+                      onClick={() => decide(item, 'accept', item.kind === 'scope' ? 'Scope added to the note.' : 'Suggestion accepted.')}>
+                      {item.kind === 'scope' ? 'Add to Overview' : 'Accept'}
+                    </Button>}
+                    {item.kind === 'achievement' && match && !match.exact && <Button size="sm" variant="outline" className={actionSize} disabled={disabled || review.stale || review.archived}
+                      onClick={() => decide(item, 'add-distinct', 'Distinct achievement added.')}>Add as distinct achievement</Button>}
+                    {match?.replaceable && !match.resultConflict && <Button size="sm" variant="outline" className={actionSize} disabled={disabled || review.stale || review.archived}
+                      onClick={() => decide(item, 'replace', 'Existing evidence updated.', { id: match.id, version: match.version })}>Replace match</Button>}
+                    {match?.replaceable && match.resultConflict && <>
+                      <Button size="sm" variant="outline" className={actionSize} disabled={disabled || review.stale || review.archived}
+                        onClick={() => decide(item, 'replace', 'Existing evidence updated.', { id: match.id, version: match.version, resultChoice: 'existing' })}>
+                        Replace · keep existing structured result
+                      </Button>
+                      <Button size="sm" variant="outline" className={actionSize} disabled={disabled || review.stale || review.archived}
+                        onClick={() => decide(item, 'replace', 'Existing evidence updated.', { id: match.id, version: match.version, resultChoice: 'suggestion' })}>
+                        Replace · use suggested structured result
+                      </Button>
+                    </>}
+                    <Button size="sm" variant="outline" className={actionSize} disabled={disabled}
+                      onClick={() => setEditing({ id: item.id, stamp })}>Edit</Button>
+                    <Button size="sm" variant="ghost" className={actionSize} disabled={disabled}
+                      onClick={() => decide(item, 'skip', 'Suggestion skipped.')}>Skip</Button>
+                  </div>
+                </>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+    </section>
   )
 }

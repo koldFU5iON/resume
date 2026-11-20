@@ -100,6 +100,7 @@ model Experience {
   activities RoleActivity[]
   skills     ExperienceSkill[]
   projects   Project[]
+  extractionDraft ProfileExtractionDraft?
 
   @@index([profileId])
 }
@@ -151,9 +152,23 @@ model Project {
   experience Experience  @relation(fields: [experienceId], references: [id], onDelete: NoAction)
   skills     ProjectSkill[]
   activities RoleActivity[]
+  extractionDraft ProfileExtractionDraft?
 
   @@index([profileId])
   @@index([experienceId])
+}
+
+// One draft per note. The database requires exactly one source relation.
+model ProfileExtractionDraft {
+  id            String  @id @default(cuid())
+  experienceId  String? @unique
+  projectId     String? @unique
+  sourceVersion String
+  version       Int     @default(1)
+  content       Json
+
+  experience Experience? @relation(fields: [experienceId], references: [id], onDelete: Cascade)
+  project    Project?    @relation(fields: [projectId], references: [id], onDelete: Cascade)
 }
 
 model Education {

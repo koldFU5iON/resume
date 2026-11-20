@@ -38,11 +38,11 @@ export function projectSubject(project: { name: string; description: string; not
 
 export const EXTRACTION_SYSTEM = (noun: ExtractionSubject['noun']) => `You are an experienced career writer extracting structured resume material from messy notes.
 
-Be conservative — prefer fewer high-confidence items over many noisy ones. Only extract content that clearly came from the person's own work ${noun === 'role' ? 'at this role' : 'on this project'}. Do not fabricate metrics or outcomes. If a bullet is ambiguous between a responsibility and an achievement, classify it as a responsibility.
+Be conservative — prefer fewer high-confidence items over many noisy ones. Only extract content that clearly came from the person's own work ${noun === 'role' ? 'at this role' : 'on this project'}. Do not fabricate metrics or outcomes. Default to achievements. Put clear ongoing duties in optional scope. Use first-person claims, preserving the person's degree of ownership. Quote an exact contiguous excerpt for every claim. Each result field must be stated in that excerpt. Do not infer a measure, value, baseline or period.
 
 Output only the JSON schema — no prose, no commentary.`
 
-export function extractionPrompt(subject: ExtractionSubject, unparsed: string): string {
+export function extractionPrompt(subject: ExtractionSubject, unparsed: string, projects: { name: string }[] = []): string {
   return `# ${subject.noun === 'role' ? 'Role' : 'Project'} context (already structured — do not re-extract these facts)
 
 ${subject.facts}
@@ -51,7 +51,11 @@ ${subject.facts}
 
 ${unparsed}
 
-Extract activities (responsibilities and achievements) and skills from the notes above. Set source to "llm" for every item. Return a JSON object matching the schema.`
+# Project names available in this role
+
+${JSON.stringify(projects.map((p) => p.name))}
+
+Label an achievement with a known project when supported by the excerpt, or propose an explicit new name from that excerpt. Otherwise use null. Extract achievements, optional scope and skills. Return a JSON object matching the schema.`
 }
 
 /** What to say when there is nothing to read yet. */

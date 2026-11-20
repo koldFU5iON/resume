@@ -339,7 +339,7 @@ export function useDocumentSave({ recoveryKey, initialContent, initialRevision, 
    * first. Unsaved edits are never overwritten: they stay here, with their
    * recovery copy, and the user compares them with the saved text.
    */
-  async function applyExternalVersion(saved: SavedVersion): Promise<"ignored" | "conflict" | "applied"> {
+  async function applyExternalVersion(saved: SavedVersion, reason: ConflictReason = "accepted"): Promise<"ignored" | "conflict" | "applied"> {
     if (timerRef.current) clearTimeout(timerRef.current)
     // A save that finishes may start another with newer text; let those land too.
     for (let attempt = 0; attempt < 3 && inflightRef.current; attempt++) await inflightRef.current
@@ -359,7 +359,7 @@ export function useDocumentSave({ recoveryKey, initialContent, initialRevision, 
     if (plan.kind === "conflict") {
       conflictRef.current = true
       setConflict(prev => newerSavedVersion(prev, plan.compareWith))
-      setConflictReason("accepted")
+      setConflictReason(reason)
       setSaveState("conflict")
       setConflictOpen(true)
       return "conflict"
