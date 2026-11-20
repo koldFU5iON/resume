@@ -7,7 +7,9 @@ export function buildProfileSummary(profile: FullProfile): string {
     .map(s => s.name)
     .join(', ')
 
-  const experienceLines = profile.experiences
+  // Jobs only: the independent experience ("Independent projects") has no dates or employer.
+  const jobs = profile.experiences.filter(e => e.type !== 'independent')
+  const experienceLines = jobs
     .map(e => {
       const start = new Date(e.startDate).getFullYear()
       const end = e.endDate ? new Date(e.endDate).getFullYear() : 'present'
@@ -19,8 +21,8 @@ export function buildProfileSummary(profile: FullProfile): string {
     ? `${profile.educations[0].qualification}, ${profile.educations[0].institution}`
     : ''
 
-  const careerYears = profile.experiences.length > 0
-    ? new Date().getFullYear() - Math.min(...profile.experiences.map(e => new Date(e.startDate).getFullYear()))
+  const careerYears = jobs.length > 0
+    ? new Date().getFullYear() - Math.min(...jobs.map(e => new Date(e.startDate).getFullYear()))
     : 0
 
   const lines = [

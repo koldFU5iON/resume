@@ -241,7 +241,9 @@ function build(snapshot: CandidateSource, roleCap: number, skillsPerCategory: nu
   )
 
   // Newest first by start date; stable for equal dates.
+  // Jobs only: the independent experience has no dates, so it cannot sit on the timeline.
   const experiences = snapshot.experiences
+    .filter((exp) => exp.type !== 'independent')
     .map((exp, i) => ({ exp, i }))
     .sort((a, b) => b.exp.startDate.getTime() - a.exp.startDate.getTime() || a.i - b.i)
     .map(({ exp }) => exp)

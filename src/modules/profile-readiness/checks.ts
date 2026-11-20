@@ -7,7 +7,7 @@
 import { certificationStatus, educationStatus } from '@/modules/cv-generation/write/status'
 import { projectEvidenceText } from '@/modules/cv-generation/project-evidence'
 import { isThinProject, THIN_PROJECT_MIN_CHARS } from '@/modules/cv-generation/write/limits'
-import { notesOf } from '@/modules/profile-map/build'
+import { jobNotes, notesOf } from '@/modules/profile-map/build'
 import { formatMonth, normalizeName, oneLine } from '@/modules/profile-map/format'
 import { formatResult, type Result } from '@/modules/profile/result'
 import type { EvidenceNote, ExperienceNote, Note, ProjectNote, Vault } from '@/modules/profile-map/types'
@@ -117,7 +117,7 @@ const roleName = (e: ExperienceNote) => `${e.props.role} at ${e.props.company}`
 function thinNotes(vault: Vault): (ExperienceNote | ProjectNote)[] {
   const thin: (ExperienceNote | ProjectNote)[] = []
   for (const p of notesOf(vault, 'project')) if (projectEvidenceText(p, vault).thin) thin.push(p)
-  for (const e of notesOf(vault, 'experience')) if (isThinProject({ name: '', text: narrativeText(vault, e) })) thin.push(e)
+  for (const e of jobNotes(vault)) if (isThinProject({ name: '', text: narrativeText(vault, e) })) thin.push(e)
   return thin
 }
 
@@ -255,7 +255,7 @@ const span = (e: ExperienceNote) => `${formatMonth(e.props.startDate)} – ${e.p
 export function checkExperienceDates(vault: Vault, now: Date): Candidate[] {
   const out: Candidate[] = []
   const valid: ExperienceNote[] = []
-  for (const e of notesOf(vault, 'experience')) {
+  for (const e of jobNotes(vault)) {
     if (e.props.endDate && e.props.endDate.getTime() < e.props.startDate.getTime()) {
       out.push(about(e, {
         kind: 'experience_dates_reversed', severity: 'fix', impact: 8, title: `${roleName(e)}: dates reversed`,
@@ -313,7 +313,7 @@ export function checkExperienceDates(vault: Vault, now: Date): Candidate[] {
 // ── Experience with no evidence ────────────────────────────────────────
 export function checkExperienceEvidence(vault: Vault, now: Date): Candidate[] {
   const thin = new Set(thinNotes(vault).map((n) => n.id))
-  return notesOf(vault, 'experience')
+  return jobNotes(vault)
     .filter((e) => !thin.has(e.id) && roleEvidence(vault, e).length === 0)
     .map((e) => {
       const recent = isRecent(e, now)
@@ -330,7 +330,7 @@ export function checkExperienceEvidence(vault: Vault, now: Date): Candidate[] {
 /** A role with achievements but an overview under THIN_PROJECT_MIN_CHARS gives the CV writer nothing concrete for the summary line, so the summary is left out. */
 export function checkRoleOverview(vault: Vault, now: Date): Candidate[] {
   const thin = new Set(thinNotes(vault).map((n) => n.id))
-  return notesOf(vault, 'experience')
+  return jobNotes(vault)
     .filter((e) => !thin.has(e.id) && roleEvidence(vault, e).length > 0 && (e.body ?? '').trim().length < THIN_PROJECT_MIN_CHARS)
     .map((e) => about(e, {
       kind: 'role_overview_thin', severity: 'consider', impact: isRecent(e, now) ? 3 : 1, title: `${roleName(e)}: no overview`,

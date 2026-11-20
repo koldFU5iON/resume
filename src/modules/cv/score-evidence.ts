@@ -18,6 +18,12 @@ const EvidenceScoringResultSchema = z.object({
 // Activities per role, indexed by recency: [current, previous, older]
 const ROLE_BUDGETS = [5, 4, 3]
 
+/** Recency rank among JOBS only: the independent experience has no recency, so it takes the smallest budget and does not push real jobs down. */
+function budgetIndexes(experiences: ProfileSnapshot['experiences']): number[] {
+  let jobs = 0
+  return experiences.map((e) => (e.type === 'independent' ? ROLE_BUDGETS.length - 1 : jobs++))
+}
+
 function getBudget(roleIndex: number): number {
   return ROLE_BUDGETS[Math.min(roleIndex, ROLE_BUDGETS.length - 1)]
 }
@@ -27,7 +33,7 @@ export function applyRoleBudgets(snapshot: ProfileSnapshot): ProfileSnapshot {
     ...snapshot,
     experiences: snapshot.experiences.map((exp, ei) => ({
       ...exp,
-      activities: exp.activities.slice(0, getBudget(ei)),
+      activities: exp.activities.slice(0, getBudget(budgetIndexes(snapshot.experiences)[ei])),
     })),
   }
 }
@@ -96,7 +102,7 @@ function applyScores(
   return {
     ...snapshot,
     experiences: snapshot.experiences.map((exp, ei) => {
-      const budget = getBudget(ei)
+      const budget = getBudget(budgetIndexes(snapshot.experiences)[ei])
 
       const ranked = exp.activities
         .map((_, ai) => {

@@ -13,7 +13,7 @@
  */
 
 import { formatSpan, oneLine } from '@/modules/profile-map/format'
-import { notesOf } from '@/modules/profile-map/build'
+import { jobNotes, notesOf } from '@/modules/profile-map/build'
 import { makeContactScrubber } from '@/modules/profile-map/pii'
 import { stripWikilinks } from '@/modules/profile-map/links'
 import type { Vault } from '@/modules/profile-map/types'
@@ -83,7 +83,8 @@ export function buildCandidates(vault: Vault, now: Date = new Date()): Candidate
   const scrub = makeContactScrubber(c)
   const text = (s: string) => scrub(stripWikilinks(s)).trim()
 
-  const notes = notesOf(vault, 'experience')
+  // Jobs only: "Independent projects" is never an employer. Its projects stay project candidates until the CV has a Projects section.
+  const notes = jobNotes(vault)
   const activitiesOf = (e: (typeof notes)[number]): CandidateActivity[] =>
     e.links
       .filter((l) => l.type === 'has')

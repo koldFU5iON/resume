@@ -199,8 +199,10 @@ export function checkFacts(markdown: string, profile: ProfileSnapshot): FactWarn
     if (!range) continue
     const scope = context.join('\n')
 
-    let matched = profile.experiences.filter(e => containsName(scope, coreCompanyName(e.company)))
-    if (matched.length === 0) matched = profile.experiences.filter(e => containsName(scope, e.role))
+    // Jobs only: "Independent projects" is not an employer and has no dates to check an entry against.
+    const jobs = profile.experiences.filter(e => e.type !== 'independent')
+    let matched = jobs.filter(e => containsName(scope, coreCompanyName(e.company)))
+    if (matched.length === 0) matched = jobs.filter(e => containsName(scope, e.role))
 
     if (matched.length === 0) {
       warnings.push({

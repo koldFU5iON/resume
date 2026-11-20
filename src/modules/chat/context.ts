@@ -1,6 +1,6 @@
 import { prisma } from '@/lib/db'
 import { loadMemorySummaries } from './memory'
-import { notesOf } from '@/modules/profile-map/build'
+import { jobNotes, notesOf } from '@/modules/profile-map/build'
 import { Prisma } from '@prisma/client'
 import { loadVault } from '@/modules/profile-map/load'
 import type { Vault } from '@/modules/profile-map/types'
@@ -74,7 +74,7 @@ async function buildProfileOverview(profileId: string): Promise<string> {
   }
 
   const { name, headline, location } = vault.identity.props
-  const current = notesOf(vault, 'experience')[0]
+  const current = jobNotes(vault)[0]
   const topSkills = notesOf(vault, 'capability')
     .filter(c => c.props.level && TOP_LEVELS.includes(c.props.level))
     .sort((a, b) => TOP_LEVELS.indexOf(a.props.level!) - TOP_LEVELS.indexOf(b.props.level!))

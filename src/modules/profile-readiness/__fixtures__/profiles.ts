@@ -37,6 +37,11 @@ export function role(id: string, company: string, roleName: string, start: strin
   }
 }
 
+/** The timeless home for personal projects: a sentinel start date that no date check may read. */
+export function independentRole(id: string, activities: ReturnType<typeof activity>[] = []) {
+  return { ...role(id, 'Independent projects', 'Independent projects', '1970-01', null, '', activities), type: 'independent' }
+}
+
 export function project(id: string, name: string, description: string, over: { experienceId?: string | null; notes?: string; highlights?: string[]; activities?: ReturnType<typeof activity>[]; start?: string } = {}) {
   return {
     id, profileId: 'p1', experienceId: over.experienceId ?? null, name, description, notes: over.notes ?? '',

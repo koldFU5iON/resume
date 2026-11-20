@@ -52,6 +52,8 @@ function linkedTitles(vault: Vault, note: Note, type: Note['links'][number]['typ
 }
 
 function roleContext(exp: ExperienceNote): string {
+  // The independent experience is a heading for personal projects, not a job: no "at", no dates.
+  if (exp.props.experienceType === 'independent') return exp.props.role
   const span = formatSpan(exp.props.startDate, exp.props.endDate)
   return `${exp.props.role} at ${exp.props.company}${span ? `, ${span}` : ''}`
 }

@@ -3,6 +3,7 @@
 // that presents them as linked notes.
 
 import { parseJsonField } from '@/lib/utils'
+import { asExperienceType } from '@/modules/profile/experience-type'
 import { projectEvidenceOf, roleOwnEvidence } from '@/modules/profile/ownership'
 import { evidenceLine, projectHighlights } from '@/modules/profile/project-highlights'
 import { combineImpact, parseResult } from '@/modules/profile/result'
@@ -230,6 +231,7 @@ export function buildVault(row: VaultSource): Vault {
         evidenceGist,
       ].filter(Boolean).join(' · '),
       props: {
+        experienceType: asExperienceType(e.type),
         company: e.company,
         role: e.role,
         startDate: e.startDate,
@@ -368,6 +370,11 @@ function capabilityStatus(cap: CapabilityNote): CapabilityStatus {
 }
 
 /** Typed list of a type's notes, in display order. */
+/** Jobs only: the independent experience ("Independent projects") has no dates, employer or tenure to reason about. */
+export function jobNotes(vault: Vault): ExperienceNote[] {
+  return notesOf(vault, 'experience').filter((e) => e.props.experienceType === 'employment')
+}
+
 export function notesOf<T extends NoteType>(vault: Vault, type: T): Extract<Note, { type: T }>[] {
   return vault.byType[type].map((id) => vault.notes.get(id) as Extract<Note, { type: T }>)
 }

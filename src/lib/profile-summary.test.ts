@@ -64,3 +64,15 @@ test('handles empty profile gracefully', () => {
   expect(typeof result).toBe('string')
   expect(result.length).toBeGreaterThan(0)
 })
+
+test('the independent experience is neither a job in the list nor the start of the career', () => {
+  const result = buildProfileSummary(makeProfile({
+    experiences: [
+      { type: 'employment', role: 'Engineer', company: 'Acme', startDate: new Date('2020-01-01'), endDate: null },
+      { type: 'independent', role: 'Independent projects', company: 'Independent projects', startDate: new Date('1970-01-01'), endDate: null },
+    ],
+  }))
+  expect(result).toContain('Engineer @ Acme')
+  expect(result).not.toContain('Independent projects')
+  expect(result).not.toMatch(/5\d years experience/)
+})

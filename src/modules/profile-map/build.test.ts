@@ -394,3 +394,33 @@ describe('structured results', () => {
     expect(bad.props.impact).toBe('Cut release time')
   })
 })
+
+describe('the independent experience', () => {
+  const independent = () => {
+    const base = vaultSource()
+    return vaultSource({
+      experiences: [
+        ...base.experiences,
+        { ...base.experiences[0], id: 'ind', company: 'Independent projects', role: 'Independent projects', type: 'independent', startDate: d('1970-01'), endDate: null, summary: '', activities: [], skills: [] },
+      ],
+    })
+  }
+  const vault = () => buildVault(independent())
+
+  it('is a note with its type, and a normal job says employment', () => {
+    expect(vault().notes.get('ind')).toMatchObject({ type: 'experience', props: { experienceType: 'independent' } })
+    expect(vault().notes.get('e1')).toMatchObject({ props: { experienceType: 'employment' } })
+  })
+  it('is left out of the job-shaped map checks (no "add your work experience", no overlap, no thin-role gap)', () => {
+    const gaps = profileMap(vault()).gaps
+    expect(gaps.filter((g) => g.noteId === 'ind')).toEqual([])
+    expect(gaps.map((g) => g.message).join('\n')).not.toMatch(/Independent projects/)
+  })
+  it('renders as a heading, not "role at company, dates", and shows no dates in the snapshot', () => {
+    expect(renderNote(vault(), 'ind')).not.toMatch(/ at Independent|1970/)
+    expect(renderNote(vault(), 'ind')).toContain('Independent projects')
+    const exp = toProfileSnapshot(vault()).experiences.find((e) => e.type === 'independent')!
+    expect(exp.role).toBe('Independent projects')
+    expect(serializeProfileForLLM(toProfileSnapshot(vault()))).not.toMatch(/1970/)
+  })
+})

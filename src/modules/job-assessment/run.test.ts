@@ -62,7 +62,7 @@ const facts: JobFacts = {
 const snapshot: ProfileSnapshot = {
   name: 'Sam Example', email: null, phone: null, website: null, linkedin: null, github: null, summary: 'Delivery lead.', tools: [], location: null, headline: 'PM',
   experiences: [{
-    role: 'Programme Manager', company: 'Old Co', startDate: new Date('2020-01-01'), endDate: null,
+    type: 'employment', role: 'Programme Manager', company: 'Old Co', startDate: new Date('2020-01-01'), endDate: null,
     location: null, remote: false, summary: 'Ran programmes.', activities: [],
   }],
   skills: [], educations: [], certifications: [], competencies: [], languages: [], projects: [],
@@ -280,7 +280,7 @@ describe('runJobAssessment', () => {
 
   it('asks share questions for the newest roles only when over the cap, and combines on the same roles', async () => {
     const roles = Array.from({ length: 15 }, (_, i) => ({
-      role: `Role ${i}`, company: `Co ${i}`, startDate: new Date(Date.UTC(2010 + i, 0, 1)),
+      type: 'employment' as const, role: `Role ${i}`, company: `Co ${i}`, startDate: new Date(Date.UTC(2010 + i, 0, 1)),
       endDate: i === 14 ? null : new Date(Date.UTC(2011 + i, 0, 1)), location: null, remote: false, summary: 'Work.', activities: [],
     }))
     vi.mocked(buildProfileSnapshot).mockResolvedValueOnce({ ...snapshot, experiences: roles })

@@ -2,7 +2,7 @@
 // decide which notes to open, plus the gaps worth asking the user about.
 
 import { normalize } from '@/modules/profile/duplicate-detect'
-import { notesOf } from './build'
+import { jobNotes, notesOf } from './build'
 import { normalizeName } from './format'
 import type { ExperienceNote, NoteType, Vault } from './types'
 
@@ -81,7 +81,7 @@ function findGaps(vault: Vault): { gaps: Gap[]; checks: number; passed: number }
   const prefs = vault.preferences.props
   check(prefs.roles.length > 0, { noteId: vault.preferences.id, area: 'preferences', message: 'Which roles are you targeting?' })
 
-  const experiences = notesOf(vault, 'experience')
+  const experiences = jobNotes(vault)
   check(experiences.length > 0, { area: 'experience', message: 'Add your work experience, starting with your current or most recent role.' })
   for (const exp of experiences) {
     const ownedBy = [exp.id, ...exp.links.filter((l) => l.type === 'contains').map((l) => l.id)]
@@ -151,7 +151,7 @@ function overlappingRoles(vault: Vault): Gap[] {
   const now = Date.now()
   type Interval = { note: ExperienceNote; start: number; end: number }
   const companies = new Map<string, Interval[]>()
-  for (const note of notesOf(vault, 'experience')) {
+  for (const note of jobNotes(vault)) {
     const start = note.props.startDate.getTime()
     const end = note.props.endDate?.getTime() ?? now
     if (!Number.isFinite(start) || !Number.isFinite(end) || end - start <= OVERLAP_GRACE_MS) continue

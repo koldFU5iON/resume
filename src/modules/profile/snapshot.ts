@@ -12,6 +12,7 @@ import { formatMonth as formatMonthUtc } from '@/modules/profile-map/format'
 import { stripWikilinks as plain } from '@/modules/profile-map/links'
 import { makeContactScrubber, type PiiMode } from '@/modules/profile-map/pii'
 import type { Vault } from '@/modules/profile-map/types'
+import type { ExperienceType } from '@/modules/profile/experience-type'
 
 export type ProfileSnapshot = {
   name: string
@@ -26,6 +27,8 @@ export type ProfileSnapshot = {
   summary: string | null
 
   experiences: Array<{
+    /** 'independent' = personal projects, not a job: no dates or employer. */
+    type: ExperienceType
     role: string
     company: string
     startDate: Date
@@ -105,6 +108,7 @@ export function toProfileSnapshot(vault: Vault): ProfileSnapshot {
     headline: id.headline,
     summary: vault.identity.body ? plain(vault.identity.body) : null,
     experiences: notesOf(vault, 'experience').map((e) => ({
+      type: e.props.experienceType,
       role: e.props.role,
       company: e.props.company,
       startDate: e.props.startDate,
@@ -184,10 +188,14 @@ export function serializeProfileForLLM(snapshot: ProfileSnapshot, opts: { pii?: 
   if (snapshot.experiences.length > 0) {
     lines.push('\n## Experience\n')
     for (const exp of snapshot.experiences) {
-      const dates = `${formatMonth(exp.startDate)} – ${exp.endDate ? formatMonth(exp.endDate) : 'present'}`
-      const place = [exp.location, exp.remote ? 'Remote' : null].filter(Boolean).join(' · ')
-      lines.push(`### ${exp.role} — ${exp.company}`)
-      lines.push(`*${dates}${place ? ` · ${place}` : ''}*`)
+      if (exp.type === 'independent') {
+        lines.push(`### ${exp.role}`)
+      } else {
+        const dates = `${formatMonth(exp.startDate)} – ${exp.endDate ? formatMonth(exp.endDate) : 'present'}`
+        const place = [exp.location, exp.remote ? 'Remote' : null].filter(Boolean).join(' · ')
+        lines.push(`### ${exp.role} — ${exp.company}`)
+        lines.push(`*${dates}${place ? ` · ${place}` : ''}*`)
+      }
       if (exp.summary) lines.push(`\n${scrub(exp.summary)}`)
       if (exp.activities.length > 0) {
         for (const act of exp.activities) {

@@ -10,6 +10,7 @@
 // linked to the capabilities they demonstrate.
 
 import type { Result } from '@/modules/profile/result'
+import type { ExperienceType } from '@/modules/profile/experience-type'
 import type { SearchProfile } from '@/modules/search-profile/schema'
 
 export type NoteType =
@@ -85,6 +86,8 @@ export type IdentityNote = NoteBase<'identity', {
 export type PreferencesNote = NoteBase<'preferences', SearchProfile>
 
 export type ExperienceNote = NoteBase<'experience', {
+  /** 'independent' is the timeless home for personal projects: never read as a job (dates, gaps, employers). */
+  experienceType: ExperienceType
   company: string
   role: string
   startDate: Date

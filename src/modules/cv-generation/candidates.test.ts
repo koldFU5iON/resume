@@ -225,3 +225,14 @@ describe('buildCandidates: project notes and atoms', () => {
     expect(c2.projectAtomNotes?.join(' ')).toMatch(/3 .*Campaign Platform|Campaign Platform.*3/)
   })
 })
+
+describe('buildCandidates: the independent experience', () => {
+  it('is never an employer, whatever its sentinel date', () => {
+    const base = vaultSource()
+    const v = buildVault(vaultSource({
+      experiences: [...base.experiences, { ...base.experiences[0], id: 'ind', company: 'Independent projects', role: 'Independent projects', type: 'independent', startDate: new Date('1970-01-01T00:00:00Z'), endDate: null, summary: '', activities: [], skills: [] }],
+    }))
+    const employers = buildCandidates(v, new Date('2026-11-19T00:00:00Z')).employers
+    expect(employers.map((e) => e.company)).toEqual(['Fictional Freight'])
+  })
+})
