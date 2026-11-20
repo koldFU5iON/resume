@@ -14,12 +14,13 @@ import { LLMError } from '@/modules/llm/errors'
 import { toProfileSnapshot } from '@/modules/profile/snapshot'
 import { assembleCv, recheckMarkdown } from '../assemble'
 import { buildBriefFor } from '../__fixtures__/gathered'
-import { BLIZZARD, UNITY, projectRow, scripted, writeSelection, writeVault } from '../__fixtures__/write'
+import { INDEPENDENT_CLAIM, INDEPENDENT_RESULT, independentProjectsFixture } from '../__fixtures__/independent-projects'
+import { BLIZZARD, UNITY, projectRow, scripted, writeSelection, writeVault, writtenSections } from '../__fixtures__/write'
 import { REVIEW_LIMITS, ReviewOutputContract, ReviewOutputSchema, type CvAssembled, type ReviewOutput } from '../schema'
 import { evidenceFromVault } from './evidence'
 import { experiencePrompt } from './experience'
 import { PROJECT_EVIDENCE_MAX_CHARS, capProjectText } from './limits'
-import { renderEmployerEntry } from './render'
+import { renderEmployerEntry, renderIndependentProject } from './render'
 import {
   REVIEW_SUMMARY_EVIDENCE_MAX, applyEdits, renderExperience, reviewDoc, reviewPrompt, runReview, splitExperience, toConcernRecords, writeBack, type ApplyContext, type ReviewPromptInput,
 } from './review'
@@ -92,6 +93,51 @@ const U = `experience:${UNITY}`
 beforeEach(() => {
   vi.clearAllMocks()
   vi.spyOn(console, 'error').mockImplementation(() => {})
+})
+
+it('gives Review the independent evidence for coverage and concerns and protects it during write-back', async () => {
+  const { vault, selection } = independentProjectsFixture()
+  const evidence = evidenceFromVault(vault, selection)
+  const projects = evidence.independentProjects.flatMap((p) => {
+    const rendered = renderIndependentProject(p)
+    return rendered.markdown ? [wsec(`projects:${p.id}`, 'projects', rendered.markdown, rendered)] : []
+  })
+  const snapshot = toProfileSnapshot(vault)
+  const cv = assembleCv({ name: 'Candidate', headline: null, sections: [...writtenSections(), ...projects], employerOrder: [UNITY, BLIZZARD], checkNotes: [], snapshot })
+  if (!cv.ok) throw new Error(cv.issues.join(', '))
+  const reviewInput = input({ assembled: cv.assembled, selection, evidence })
+  const { prompt, labels } = reviewPrompt(reviewInput, reviewDoc(cv.assembled, selection, evidence))
+  const resultRef = labels.find((l) => l.id === 'workshop-atom')
+  const contextRef = labels.find((l) => l.id === 'assistant')
+  expect(resultRef).toMatchObject({ kind: 'activity', snippet: expect.stringContaining(INDEPENDENT_RESULT) })
+  expect(contextRef).toMatchObject({ kind: 'project', snippet: expect.stringContaining('Handled ~1,400 requests') })
+  expect(prompt).toContain('## projects:workshop [read-only]')
+  expect(prompt).toContain('Workshop Campaign 18')
+  expect(prompt).not.toMatch(/1970|@example|https?:|Pending extraction|Independent sentinel/)
+
+  const reply = scripted(extractJSON as never, [{
+    edits: [
+      edit('projects:workshop', 'b1', 'remove'),
+      edit('projects:assistant', undefined, 'replace', 'A rewritten project.'),
+      edit(U, 'b1', 'replace', `${INDEPENDENT_CLAIM}.`),
+      edit(U, 'b1', 'replace', 'Handled 1,400 requests.'),
+      edit('profile', undefined, 'replace', 'I run release programmes for platform teams.'),
+    ],
+    concerns: [{ kind: 'evidence_gap', title: 'Pilot scope', why: 'Scope could be clearer', question: 'Who used the pilot?', refs: [resultRef!.label, contextRef!.label] }],
+  }])
+  mockJSON.mockImplementation(reply.impl as never)
+  const out = await runReview({ ...reviewInput, validate: (md) => recheckMarkdown(md, snapshot).errors }, {
+    profileId: 'p1', jobApplicationId: 'job', runId: 'run', deadline: Date.now() + 120_000,
+  })
+  expect(out.review.applied.map((edit) => edit.sectionId)).toEqual(['profile'])
+  expect(out.review.discarded.map((d) => d.why)).toEqual([
+    expect.stringContaining('read-only'),
+    expect.stringContaining('read-only'),
+    'attributes independent project evidence to this employer',
+    expect.stringContaining("figures not in the employer's evidence"),
+  ])
+  expect(out.review.concerns[0].refs.map((r) => r.label)).toEqual([resultRef!.label, contextRef!.label])
+  expect(out.assembled.sections.filter((s) => s.kind === 'projects')).toEqual(cv.assembled.sections.filter((s) => s.kind === 'projects'))
 })
 
 describe('splitExperience / renderExperience', () => {
@@ -782,5 +828,36 @@ describe('runReview', () => {
     expect(sent).not.toContain('Robin Placeholder')
     expect(sent).not.toContain('{{contact}}')
     expect(sent).not.toMatch(/[\w.-]+@[\w.-]+\.\w+/)
+  })
+})
+
+
+describe('independent project review regressions', () => {
+  it('refuses to move an independent outcome into an employer even when its description differs', () => {
+    const projects = independentProjectsFixture()
+    const ev = evidenceFromVault(projects.vault, projects.selection)
+    const claim = 'Eliminated manual reconciliation across regional offices'
+    ev.independentProjects[0].atoms[0].impact = claim
+    const doc = freshDoc()
+    const changed = applyEdits(doc, [edit(U, 'b2', 'replace', claim + '.')], actx({ evidence: ev }))
+    expect(changed.applied).toEqual([])
+    expect(changed.discarded[0].why).toContain('attributes independent project evidence to this employer')
+  })
+
+  it('looks up actual project evidence by source ID and cites duplicate evidence text only once', () => {
+    const { vault, selection } = independentProjectsFixture()
+    const ev = evidenceFromVault(vault, selection)
+    const p = ev.independentProjects[0]
+    const rendered = renderIndependentProject(p)
+    // The provenance's displayed text is deliberately different: it must never become its own evidence.
+    const display = { ...rendered, bullets: rendered.bullets.map((b, i) => i === 0 ? { ...b, text: 'DISPLAY ONLY CLAIM' } : b) }
+    const sections = [wsec(`projects:${p.id}`, 'projects', rendered.markdown, display)]
+    const cv = { ...assembled(), sections }
+    const { prompt, labels } = reviewPrompt(input({ assembled: cv, selection, evidence: ev }), reviewDoc(cv, selection, ev))
+    const label = labels.find(l => l.id === 'workshop-atom')!
+    expect(label.snippet).toContain(INDEPENDENT_RESULT)
+    expect(label.snippet).not.toContain('DISPLAY ONLY CLAIM')
+    expect(labels.some(l => l.id === 'workshop-duplicate')).toBe(false)
+    expect(prompt).toContain('DISPLAY ONLY CLAIM')
   })
 })

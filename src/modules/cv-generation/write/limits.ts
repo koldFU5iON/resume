@@ -84,6 +84,8 @@ export function experienceTokenCaps(allowance: number, hasProjectEvidence: boole
 
 /** The most characters of one project's evidence text (description, notes digest and atoms: project-evidence.ts) sent to a writer, shown to Review and read by the numbers check: all three use the same string. */
 export const PROJECT_EVIDENCE_MAX_CHARS = 2_000
+/** Deterministic output budget for all selected independent project entries together. */
+export const INDEPENDENT_PROJECTS_MAX_CHARS = 4_500
 
 /** A project's text cut to PROJECT_EVIDENCE_MAX_CHARS at a word boundary, with an ellipsis; unchanged when it is short enough. */
 export function capProjectText(text: string, max: number = PROJECT_EVIDENCE_MAX_CHARS): string {

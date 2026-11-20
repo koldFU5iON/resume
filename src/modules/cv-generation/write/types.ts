@@ -1,5 +1,5 @@
 import type { CallUsage } from '../call'
-import type { BulletProvenance, CvBrief, SectionLogEntry } from '../schema'
+import type { BulletProvenance, BulletSource, CvBrief, SectionLogEntry } from '../schema'
 import type { Strategy } from '../strategy'
 import type { Evidence } from './evidence'
 
@@ -59,8 +59,10 @@ export type WrittenSection = {
   kind: string
   employerKey?: string
   markdown: string
-  /** An employer entry's bullets with the evidence each came from (display order). */
+  /** An employer or project entry's bullets with the evidence each came from (display order). */
   bullets?: BulletProvenance[]
+  /** The source of an independent project's heading and fallback context. */
+  projectSource?: BulletSource
   model?: string
   tokens?: { input: number; output: number }
   log: SectionLogEntry

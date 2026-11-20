@@ -8,7 +8,7 @@
  * Nothing the model says is trusted:
  * - it may only target an experience bullet, an experience summary or the
  *   profile paragraph; every other section (header, titles, companies, dates,
- *   certifications, education, languages, the {{contact}} placeholder and the
+ *   projects, certifications, education, languages, the {{contact}} placeholder and the
  *   skills, tools and competencies lists) is rendered by code and read-only;
  * - CODE applies an edit only after re-running the writers' own checks on the
  *   new text (plain text and first person, figures verbatim against the
@@ -36,6 +36,7 @@ import {
   type AppliedEdit, type BulletProvenance, type BulletSource, type ConcernRecord, type CvAssembled, type CvBrief, type CvReview, type CvSelection,
   type DiscardedEdit, type ReviewOutput,
 } from '../schema'
+import { nearDuplicate, projectAtomText } from '../project-evidence'
 import type { Strategy } from '../strategy'
 import { isThin } from './thin'
 import { leadWithProjects, leadWithStanding, playDownBullets, shortened, wrongTenseLines } from './bullets'
@@ -145,12 +146,17 @@ export type ReviewPromptInput = {
 /** One distinct piece of evidence shown to the reviewer, by label (S1, S2...). `snippet` is the full text the writer saw (activities whole, projects capped like the writer's), not a short display snippet. */
 export type ReviewLabel = { label: string; id: string; kind: BulletSource['kind']; snippet: string }
 
-function sourceText(evidence: Pick<Evidence, 'employers'>, id: string): string | null {
+function sourceText(evidence: Pick<Evidence, 'employers'> & Partial<Pick<Evidence, 'independentProjects'>>, id: string): string | null {
   for (const e of evidence.employers) {
     const a = e.activities.find((x) => x.id === id)
     if (a) return activityPromptText(a)
     const p = e.projects.find((x) => x.id === id)
     if (p) return `${p.name}: ${projectPromptText(p)}`
+  }
+  for (const p of evidence.independentProjects ?? []) {
+    if (p.id === id) return `${p.name}: ${p.text}`
+    const atom = p.atoms.find((a) => a.id === id)
+    if (atom) return projectAtomText(atom)
   }
   return null
 }
@@ -183,7 +189,7 @@ export function reviewPrompt(input: ReviewPromptInput, doc: ReviewDoc): { prompt
       lines.push(`summary: ${ex.summary || '(none)'}`)
       for (const b of ex.bullets) {
         lines.push(`${b.id}: ${b.text}`)
-        const refs = b.sources.map(labelFor)
+        const refs = b.sources.map((src) => labelFor(src))
         if (refs.length === 0) lines.push('  evidence: (none cited)')
         for (const r of refs) lines.push(`  ${r.label} (${r.kind}): ${r.snippet}`)
       }
@@ -202,6 +208,21 @@ export function reviewPrompt(input: ReviewPromptInput, doc: ReviewDoc): { prompt
       cv.push(lines.join('\n'))
     } else if (s.kind === 'profile' && doc.profile) {
       cv.push(`## profile\n${doc.profile.paragraph || '(none)'}`)
+    } else if (s.kind === 'projects' && s.projectSource) {
+      const project = labelFor(s.projectSource)
+      const lines = [`## ${s.id} [read-only]`, `${project.label} (${project.kind}): ${project.snippet}`]
+      for (const [i, b] of (s.bullets ?? []).entries()) {
+        lines.push(`b${i + 1}: ${b.text}`)
+        const cited = new Set<string>()
+        for (const src of b.sources) {
+          const actual = sourceText(input.evidence, src.id) ?? src.snippet
+          if (cited.has(actual)) continue
+          cited.add(actual)
+          const ref = labelFor(src)
+          lines.push(`  ${ref.label} (${ref.kind}): ${ref.snippet}`)
+        }
+      }
+      cv.push(lines.join('\n'))
     } else if (CONTEXT_KINDS.has(s.kind)) {
       cv.push(`## ${s.id} [read-only]\n${s.markdown.split('\n').filter((l) => /^\s*-\s/.test(l)).map((l) => l.replace(/^\s*-\s+/, '')).join('; ')}`)
     }
@@ -288,6 +309,19 @@ export function recheckText(
   const figureTexts = kind === 'summary' && emp ? summaryEvidenceTexts(emp) : texts
   const unsupported = unsupportedFigures(text, years === null ? figureTexts : [...figureTexts, `${years} years of experience`], names)
   if (unsupported.length > 0) return { why: `figures not in the employer's evidence: ${unsupported.join(', ')}` }
+  if (emp) {
+    const projectClaims = ctx.evidence.independentProjects.flatMap((p) =>
+      p.atoms.length ? p.atoms.flatMap((a) => [a.text, ...(a.impact ?? '').split(/(?<=[.!?])\s+|;\s*/)]) : p.thin ? [] : p.text.split(' — '))
+    const includesClaim = (haystack: string, claim: string) =>
+      ` ${normalised(haystack).join(' ')} `.includes(` ${normalised(claim).join(' ')} `)
+    if (projectClaims.some((rawClaim) => {
+      const claim = rawClaim.replace(/^I\s+/i, '')
+      return wordCount(claim) >= 4 && (includesClaim(text, claim) || nearDuplicate(text, claim)) &&
+        ![scope.old, ...figureTexts].some((own) => includesClaim(own, claim) || nearDuplicate(own, claim))
+    })) {
+      return { why: 'attributes independent project evidence to this employer' }
+    }
+  }
   const notes: string[] = []
   // A bullet states what ITS evidence states: a figure only in the employer's other evidence is rejected.
   // A summary (or profile) may use any selected evidence of the employer, including activities no bullet cites.
@@ -460,7 +494,7 @@ export function applyEdits(doc: ReviewDoc, edits: ReviewOutput['edits'], ctx: Ap
       continue
     }
 
-    discard(CODE_RENDERED.has(sectionId) || sectionId === 'profile'
+    discard(CODE_RENDERED.has(sectionId) || sectionId === 'profile' || sectionId.startsWith('projects:')
       ? 'that section is rendered by code from your profile and is read-only'
       : `there is no editable section "${sectionId}"`)
   }

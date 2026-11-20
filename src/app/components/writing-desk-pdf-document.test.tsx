@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest"
 import { renderToBuffer } from "@react-pdf/renderer"
+import { renderToStaticMarkup } from "react-dom/server"
 import { extractLinks, extractText, extractTextItems, getDocumentProxy } from "unpdf"
+import { INDEPENDENT_RESULT, independentProjectsFixture } from "@/modules/cv-generation/__fixtures__/independent-projects"
+import { assembleCv } from "@/modules/cv-generation/assemble"
+import { toProfileSnapshot } from "@/modules/profile/snapshot"
+import type { WrittenSection } from "@/modules/cv-generation/write/types"
+import { evidenceFromVault } from "@/modules/cv-generation/write/evidence"
+import { renderIndependentProject } from "@/modules/cv-generation/write/render"
 import { WritingDeskPDFDocument } from "./writing-desk-pdf-document"
+import { WritingDeskPreview } from "./writing-desk-preview"
 import type { WritingDeskDocumentType } from "@/modules/writing-desk/schema"
 
 const CV_MARKDOWN = [
@@ -42,6 +50,38 @@ async function render(markdown: string, documentType: WritingDeskDocumentType) {
 }
 
 describe("WritingDeskPDFDocument", () => {
+  it("renders the generated Projects headings, bullets and fallback context in PDF and editor preview", async () => {
+    const { vault, selection } = independentProjectsFixture()
+    const log = { id: 'fixture', label: 'Fixture', status: 'ok' as const, model: null, durationMs: 0, tokens: { input: 0, output: 0 }, costUsd: null, retries: 0, retryReasons: [], notes: [] }
+    const projects: WrittenSection[] = evidenceFromVault(vault, selection).independentProjects.map(project => ({ id: `projects:${project.id}`, kind: 'projects', ...renderIndependentProject(project), log }))
+    const assembled = assembleCv({ name: 'Fixture', headline: null, employerOrder: ['acme'], checkNotes: [], snapshot: toProfileSnapshot(vault), sections: [
+      { id: 'skills', kind: 'skills', markdown: ':::skills\n- Delivery\n:::', log },
+      ...projects,
+      { id: 'earlier-experience', kind: 'earlier-experience', markdown: '- Other Co', log },
+      { id: 'acme', kind: 'experience', employerKey: 'acme', markdown: '### Acme\nProgram Manager · 2021 - Present\n\n:::compact-list\n- Led delivery programmes\n:::', log },
+    ] })
+    if (!assembled.ok) throw new Error(assembled.issues.join(', '))
+    const markdown = assembled.assembled.markdown
+    const { pdf } = await render(markdown, "cv")
+    const { text } = await extractText(pdf, { mergePages: true })
+    const html = renderToStaticMarkup(<WritingDeskPreview markdown={markdown} documentType="cv" />)
+
+    const headings = ["Earlier Experience", "Projects", "Workshop Campaign 18", "Support Assistant", "Skills"]
+    let prior = -1
+    for (const heading of headings) {
+      const index = text.toUpperCase().indexOf(heading.toUpperCase())
+      expect(index).toBeGreaterThan(prior)
+      prior = index
+    }
+    expect(text).toContain(INDEPENDENT_RESULT)
+    expect(text).toContain("Handled ~1,400 requests")
+    expect(html).toContain("<h2>Projects</h2>")
+    expect(html).toContain("<h3>Workshop Campaign 18</h3>")
+    expect(html).toContain("<li>I built billing exports")
+    expect(html).toContain("Handled ~1,400 requests")
+    expect(html).not.toMatch(/@example|preview\.example|Pending extraction/)
+  })
+
   it("renders the CV profile as extractable single-column text", async () => {
     const { pdf } = await render(CV_MARKDOWN, "cv")
     const { text, totalPages } = await extractText(pdf, { mergePages: true })

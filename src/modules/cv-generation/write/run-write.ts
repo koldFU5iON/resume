@@ -35,14 +35,15 @@ import type { Strategy } from '../strategy'
 import { countOf } from '../text'
 import { evidenceFromVault, type EmployerEvidence } from './evidence'
 import { fallbackExperience, writeExperience } from './experience'
-import { ASSEMBLE_RESERVE_MS, MIN_CALL_MS, WAVE2_MIN_START_MS, WAVE2_RESERVE_MS } from './limits'
+import { ASSEMBLE_RESERVE_MS, INDEPENDENT_PROJECTS_MAX_CHARS, MIN_CALL_MS, WAVE2_MIN_START_MS, WAVE2_RESERVE_MS } from './limits'
 import { runPool } from './pool'
 import { experienceDigest, fallbackProfile, writeProfile } from './profile'
 import { statedYears } from './years'
 import { jobNotes, notesOf } from '@/modules/profile-map/build'
 import { requirementText } from './prompt'
-import { renderCertifications, renderEarlierExperience, renderEducation, renderLanguages } from './render'
+import { renderCertifications, renderEarlierExperience, renderEducation, renderIndependentProject, renderLanguages } from './render'
 import { writeSkills } from './skills'
+import { thinProjectNote } from './thin'
 import { CHECK_KIND_RANK, type CheckNote, type WriteContext, type WrittenSection } from './types'
 
 export type WriteResult = {
@@ -164,6 +165,30 @@ export async function runWrite(
       keep({
         id: 'earlier-experience', kind: 'earlier-experience', markdown: earlierMarkdown,
         log: logOf('earlier-experience', 'Earlier experience', { notes: [`${countOf(earlier.length, 'employer')} listed without bullets, one line each, newest first: rendered by code from your profile, no model call.`, ...earlierNotes] }),
+      })
+    }
+
+    let projectChars = 0
+    for (const project of evidence.independentProjects) {
+      const rendered = renderIndependentProject(project)
+      if (projectChars + rendered.markdown.length > INDEPENDENT_PROJECTS_MAX_CHARS) {
+        notes.push(`Selected project "${project.name}" omitted because the independent Projects section reached its ${INDEPENDENT_PROJECTS_MAX_CHARS}-character output budget.`)
+        continue
+      }
+      if (!rendered.markdown) {
+        notes.push(...rendered.notes)
+        const label = project.name ? `Project "${project.name}"` : 'A selected independent project'
+        notes.push(thinProjectNote(label))
+        continue
+      }
+      projectChars += rendered.markdown.length
+      const id = `projects:${project.id}`
+      const detail = rendered.bullets.length
+        ? `${countOf(rendered.bullets.length, 'bullet')} from accepted project evidence.`
+        : 'Context from your project description and notes. No accepted project bullets yet.'
+      keep({
+        id, kind: 'projects', markdown: rendered.markdown, bullets: rendered.bullets, projectSource: rendered.projectSource,
+        log: logOf(id, `Project: ${project.name}`, { notes: [`Rendered by code. ${detail}`, ...rendered.notes] }),
       })
     }
 

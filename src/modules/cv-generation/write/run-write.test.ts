@@ -15,10 +15,16 @@ import { loadCVWriteExperiencePrompt, loadCVWriteProfilePrompt, loadCVWriteSkill
 import { buildVault } from '@/modules/profile-map/build'
 import { vaultSource } from '@/modules/profile-map/__fixtures__/source'
 import { buildCandidates } from '../candidates'
+import { assembleCv } from '../assemble'
+import { toProfileSnapshot } from '@/modules/profile/snapshot'
+import { splitSections } from '@/modules/writing-desk/sections'
+import { validateDraftMarkdown } from '@/modules/writing-desk/validate'
 import { buildBriefFor } from '../__fixtures__/gathered'
+import { INDEPENDENT_RESULT, independentProjectsFixture } from '../__fixtures__/independent-projects'
 import { BLIZZARD, OLD_CO, UNITY, llmReply, projectRow, writeSelection, writeVault, writeVaultSource } from '../__fixtures__/write'
 import { LLMError } from '@/modules/llm/errors'
-import { WRITE_CONCURRENCY } from '../schema'
+import { parseAssembled, WRITE_CONCURRENCY } from '../schema'
+import { evidenceFromVault, figureIgnoredNames } from './evidence'
 import { ASSEMBLE_RESERVE_MS, WAVE2_RESERVE_MS } from './limits'
 import { enforceSelection } from '../select'
 import { runWrite, WriteStageError } from './run-write'
@@ -120,6 +126,90 @@ describe('years of experience reaches the profile prompt (computed from the earl
     expect(await profilePrompt(yearsAgo(12))).toContain('states exactly "10+ years"')
     seen = []
     expect(await profilePrompt(yearsAgo(24))).toContain('states exactly "20+ years"')
+  })
+})
+
+describe('independent Projects output', () => {
+  it.each([false, true])('renders selected evidence with or without employment (independent only: %s)', async (only) => {
+    const { vault, selection } = independentProjectsFixture(only)
+    expect(selection.projects.map((p) => p.id)).toEqual(expect.arrayContaining(['workshop', 'assistant', 'thin']))
+    const picks = {
+      ...selection,
+      projects: [...selection.projects, ...['archived', 'gone', 'workshop'].map((id) => ({ id, label: id, reason: '' }))],
+    }
+    const evidence = evidenceFromVault(vault, picks)
+    const written = await runWrite(vault, buildBriefFor(), picks, strategy, ctx())
+    const assembled = assembleCv({ ...written, name: 'Candidate', employerOrder: picks.employers.map((e) => e.key), snapshot: toProfileSnapshot(vault) })
+    if (!assembled.ok) throw new Error(assembled.issues.join(', '))
+    const { markdown, sections } = assembled.assembled
+    expect(parseAssembled(JSON.parse(JSON.stringify(assembled.assembled)))).toEqual(assembled.assembled)
+    expect(markdown.match(/^## Projects$/gm)).toHaveLength(1)
+    expect(markdown.match(/^### Workshop Campaign 18$/gm)).toHaveLength(1)
+    expect(markdown.indexOf('## Projects')).toBeLessThan(markdown.indexOf('## Tools'))
+    if (only) {
+      expect(markdown).not.toMatch(/## (Professional|Earlier) Experience/)
+      expect(seen.find((c) => c.feature === 'cv-gen-write-profile')?.prompt).toContain('Do not state a number of years of experience.')
+      expect(seen.some((c) => c.feature === 'cv-gen-write-experience')).toBe(false)
+    } else {
+      expect(markdown.indexOf('## Professional Experience')).toBeLessThan(markdown.indexOf('## Earlier Experience'))
+      expect(markdown.indexOf('## Earlier Experience')).toBeLessThan(markdown.indexOf('## Projects'))
+    }
+    expect(figureIgnoredNames(evidence)).not.toContain('Workshop Campaign 18')
+    expect(evidence.profileTitles).not.toContain('Independent projects')
+    expect(evidence.profileCompanies).not.toContain('Independent sentinel company')
+    expect(seen.every((c) => !/billing exports|Workshop Campaign|Handled ~1,400/.test(c.prompt))).toBe(true)
+    expect(markdown.match(/Export latency/g)).toHaveLength(1)
+    expect(markdown).toContain(INDEPENDENT_RESULT)
+    expect(markdown).toContain('Atlas Toolkit setup')
+    expect(markdown).toContain('Handled ~1,400 requests in the first quarter without a person.')
+    expect(markdown).toContain('the team used a shared dashboard')
+    expect(markdown).not.toMatch(/1970|Oct 2022|Independent sentinel|Unlabelled|Archived|Archive-only|Unselected|Undeveloped|Unaccepted|Pending extraction|\[\[|https?:|@example|6 12 34 56 78|Hidden reminder|9,999|Private note|Internal command|CV bullet here|business impact/)
+    expect(sections.find((s) => s.id === 'projects:workshop')).toMatchObject({
+      kind: 'projects',
+      projectSource: { id: 'workshop', kind: 'project' },
+      bullets: [
+        { text: expect.stringContaining(INDEPENDENT_RESULT), sources: [{ id: 'workshop-atom', kind: 'activity' }, { id: 'workshop-duplicate', kind: 'activity' }] },
+        { text: expect.stringContaining('Atlas Toolkit'), sources: [{ id: 'workshop-docs', kind: 'activity' }] },
+      ],
+    })
+    expect(sections.find((s) => s.id === 'projects:assistant')).toMatchObject({ projectSource: { id: 'assistant', kind: 'project' } })
+    expect(written.sections.find((s) => s.id === 'projects:workshop')?.log).toMatchObject({ model: null, tokens: { input: 0, output: 0 } })
+    expect(written.notes.join('\n')).toMatch(/Undeveloped Idea[^\n]+too little text to write from/)
+    expect(written.notes.join('\n')).toContain('A selected project was archived')
+    expect(written.notes.join('\n')).toContain('A selected project item is no longer in your profile')
+    expect(validateDraftMarkdown(markdown)).toEqual({ ok: true, issues: [] })
+    expect(splitSections(markdown).map((s) => s.id)).toEqual(expect.arrayContaining(['projects', 'workshop-campaign-18', 'support-assistant']))
+  })
+
+  it('bounds the whole independent section and logs selected entries that do not fit', async () => {
+    const { vault, selection } = independentProjectsFixture()
+    const base = vault.notes.get('assistant')!
+    if (base.type !== 'project') throw new Error('Expected project')
+    selection.projects = []
+    for (let i = 0; i < 15; i++) {
+      const id = `independent-${i}`
+      vault.notes.set(id, { ...base, id, props: { ...base.props, name: `Independent tooling ${i}` } })
+      selection.projects.push({ id, label: `Independent tooling ${i}`, reason: '' })
+    }
+    const result = await runWrite(vault, buildBriefFor(), selection, strategy, ctx())
+    const projects = result.sections.filter(s => s.kind === 'projects')
+    expect(projects.length).toBeGreaterThan(0)
+    expect(projects.length).toBeLessThan(15)
+    expect(projects.reduce((sum, p) => sum + p.markdown.length, 0)).toBeLessThanOrEqual(4500)
+    expect(result.notes.join(' ')).toContain('4500-character output budget')
+  })
+
+  it('keeps the employment writer inputs and output identical when no independent project is selected', async () => {
+    const { vault, selection } = independentProjectsFixture()
+    const jobsOnly = writeVault()
+    const baseline = await runWrite(jobsOnly, buildBriefFor(), writeSelection(jobsOnly), strategy, ctx())
+    const baselinePrompts = seen.map(({ feature, prompt, system }) => ({ feature, prompt, system }))
+    seen = []
+    const mixed = await runWrite(vault, buildBriefFor(), { ...selection, projects: [] }, strategy, ctx())
+    expect(seen.map(({ feature, prompt, system }) => ({ feature, prompt, system }))).toEqual(baselinePrompts)
+    const content = ({ sections }: typeof mixed) => sections.map(({ id, markdown, bullets }) => ({ id, markdown, bullets }))
+    expect(content(mixed)).toEqual(content(baseline))
+    expect(mixed.sections.some((s) => s.kind === 'projects')).toBe(false)
   })
 })
 
