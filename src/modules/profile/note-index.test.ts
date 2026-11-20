@@ -38,6 +38,12 @@ describe('findNote', () => {
     expect(findNote(profile, 'p2')).toEqual({ kind: 'project', id: 'p2', experienceId: null })
   })
 
+  it('does not resolve the independent experience as a role editor, but still resolves its projects', () => {
+    const independent = { ...profile, experiences: [...profile.experiences, { ...profile.experiences[0], id: 'ind', type: 'independent' }], projects: [{ id: 'personal', name: 'Personal', experienceId: 'ind' }] }
+    expect(findNote(independent, 'ind')).toBeNull()
+    expect(findNote(independent, 'personal')).toEqual({ kind: 'project', id: 'personal', experienceId: 'ind' })
+  })
+
   it('is null for an id that is not this profile\'s', () => {
     expect(findNote(profile, 'someone-elses')).toBeNull()
   })

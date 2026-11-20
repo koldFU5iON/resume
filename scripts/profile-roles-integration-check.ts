@@ -1,6 +1,6 @@
 // Checks the role/project writes against a REAL local Postgres (the unit tests mock Prisma, so they cannot
-// catch wrong SQL, cascades or constraints). Creates its own throwaway rows under the first profile of the
-// local database, asserts what each write does to every row shape, and deletes everything it made.
+// catch wrong SQL, cascades or constraints). Creates a disposable user and profile in the local database,
+// asserts what each write does to every row shape, and deletes everything it made.
 // Refuses any database that is not local.
 //
 //   npm run profile:roles-check
@@ -19,8 +19,9 @@ async function main() {
   const { saveProjectProperties } = await import('../src/modules/profile/properties')
   const { mergeProjects } = await import('../src/modules/profile/project-merge')
 
-  const profileId = (await prisma.profile.findFirstOrThrow({ select: { id: true } })).id
-  const TAG = 'ZZ-roles-check'
+  const TAG = `ZZ-roles-check-${crypto.randomUUID()}`
+  const user = await prisma.user.create({ data: { id: TAG, name: TAG, email: `${TAG}@example.test` } })
+  let profileId = ''
   const experiences: string[] = []
   const projects: string[] = []
   const experience = async (n: number) => {
@@ -46,7 +47,7 @@ async function main() {
     return { e1, e2, p1, own: await activity('own', e1.id, null), both: await activity('both', e1.id, p1.id), legacy: await activity('legacy', null, p1.id), other: await activity('other-role', e2.id, p1.id) }
   }
   const clean = async () => {
-    await prisma.roleActivity.deleteMany({ where: { description: { startsWith: TAG } } })
+    await prisma.roleActivity.deleteMany({ where: { OR: [{ experience: { profileId } }, { project: { profileId } }] } })
     await prisma.project.deleteMany({ where: { id: { in: projects } } })
     await prisma.experience.deleteMany({ where: { id: { in: experiences } } })
     experiences.length = 0
@@ -54,6 +55,10 @@ async function main() {
   }
 
   try {
+    profileId = (await prisma.profile.create({ data: { name: TAG, userId: user.id } })).id
+    const empty = await experience(0)
+    await deleteExperienceRow(profileId, empty.id, 'keep')
+    assert.equal(await prisma.experience.count({ where: { profileId, type: 'independent' } }), 0, 'deleting a role without projects creates no home')
     // The database accepts both shapes and still refuses an activity with no owner.
     let w = await world()
     await assert.rejects(prisma.roleActivity.create({ data: { description: `${TAG} orphan`, kind: 'achievement', tags: '[]', order: 0 } }), /check constraint/)
@@ -62,10 +67,9 @@ async function main() {
 
     // What deleting the role counts and does.
     assert.deepEqual(await experienceDeleteImpact(profileId, w.e1.id), { evidence: 1, projects: 1, projectEvidence: 2 })
-    const hadIndependent = await prisma.experience.findFirst({ where: { profileId, type: 'independent' }, select: { id: true } })
     await deleteExperienceRow(profileId, w.e1.id, 'keep')
     const home = (await prisma.experience.findFirstOrThrow({ where: { profileId, type: 'independent' }, orderBy: { createdAt: 'asc' } }))
-    if (!hadIndependent) experiences.push(home.id) // created by this run: removed again by clean()
+    experiences.push(home.id)
     assert.deepEqual({ type: home.type, company: home.company, role: home.role }, { type: 'independent', company: 'Independent projects', role: 'Independent projects' })
     assert.equal(await row(w.own.id), null, 'role-only evidence goes with its role')
     assert.deepEqual(await row(w.both.id), { experienceId: home.id, projectId: w.p1.id }, 'kept project keeps its evidence, now under Independent projects')
@@ -103,6 +107,50 @@ async function main() {
     assert.deepEqual(await row(w.own.id), { experienceId: w.e1.id, projectId: null })
     await clean()
 
+    // Queue a real Properties move ahead of keep-delete on the same project lock. The delete must
+    // re-read the project after the move commits, leaving both current and legacy evidence in place.
+    w = await world()
+    let release!: () => void
+    let locked!: (pid: number) => void
+    const ready = new Promise<number>((resolve) => { locked = resolve })
+    const unblock = new Promise<void>((resolve) => { release = resolve })
+    const blocker = prisma.$transaction(async (tx) => {
+      const [{ pid }] = await tx.$queryRaw<{ pid: number }[]>`SELECT pg_backend_pid() AS pid`
+      await tx.$queryRaw`SELECT "id" FROM "Project" WHERE "id" = ${w.p1.id} FOR UPDATE`
+      locked(pid)
+      await unblock
+    }, { timeout: 15000 })
+    const blockerPid = await ready
+    const waitForBlocked = async (count: number) => {
+      for (let attempt = 0; attempt < 150; attempt++) {
+        const [{ waiting }] = await prisma.$queryRaw<{ waiting: bigint }[]>`
+          WITH RECURSIVE blocked AS (
+            SELECT pid FROM pg_stat_activity WHERE ${blockerPid} = ANY(pg_blocking_pids(pid))
+            UNION
+            SELECT a.pid FROM pg_stat_activity a JOIN blocked b ON b.pid = ANY(pg_blocking_pids(a.pid))
+          ) SELECT count(*) AS waiting FROM blocked
+        `
+        if (Number(waiting) >= count) return
+        await new Promise((resolve) => setTimeout(resolve, 10))
+      }
+      throw new Error(`Expected ${count} transactions waiting on the project lock`)
+    }
+    const pending: Promise<unknown>[] = [blocker]
+    try {
+      pending.push(saveProjectProperties(profileId, w.p1.id, props('P1', w.e2.id)))
+      await waitForBlocked(1)
+      pending.push(deleteExperienceRow(profileId, w.e1.id, 'keep'))
+      await waitForBlocked(2)
+    } finally {
+      release()
+      await Promise.all(pending)
+    }
+    assert.equal((await prisma.project.findUniqueOrThrow({ where: { id: w.p1.id } })).experienceId, w.e2.id)
+    assert.deepEqual(await row(w.both.id), { experienceId: w.e2.id, projectId: w.p1.id })
+    assert.deepEqual(await row(w.legacy.id), { experienceId: null, projectId: w.p1.id })
+    assert.equal(await prisma.experience.count({ where: { profileId, type: 'independent' } }), 0, 'a project moved away needs no independent home')
+    await clean()
+
     // Moving a project between roles, then to none.
     w = await world()
     await saveProjectProperties(profileId, w.p1.id, props('P1', w.e2.id))
@@ -128,7 +176,11 @@ async function main() {
     assert.deepEqual(await row(w.other.id), { experienceId: w.e2.id, projectId: null }, 'role e2 differs from the kept project\'s role e1: label removed, role kept')
     console.log('ALL OK')
   } finally {
-    await clean()
+    if (profileId) {
+      await clean()
+      await prisma.profile.delete({ where: { id: profileId } })
+    }
+    await prisma.user.delete({ where: { id: user.id } })
     await prisma.$disconnect()
   }
 }

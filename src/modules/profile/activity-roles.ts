@@ -95,14 +95,21 @@ export async function deleteExperienceRow(profileId: string, id: string, project
   await prisma.$transaction(async (tx) => {
     await lockRow(tx, 'Experience', id, profileId)
     if (projects === 'keep') {
-      const home = await ensureIndependentExperience(tx, profileId)
-      // This role's evidence under its projects moves with them (the cascade from the role would delete it)...
-      await tx.roleActivity.updateMany({ where: { experienceId: id, project: { experienceId: id, profileId } }, data: { experienceId: home } })
-      // A legacy project-only row takes the role the project is moving to, like every write keeps it (a project's
-      // evidence carries the project's role).
-      await tx.roleActivity.updateMany({ where: { experienceId: null, project: { experienceId: id, profileId } }, data: { experienceId: home } })
-      // ...and the projects themselves.
-      await tx.project.updateMany({ where: { experienceId: id, profileId }, data: { experienceId: home } })
+      // Lock projects before touching their evidence: a concurrent Properties move must finish first.
+      const locked = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
+        SELECT "id" FROM "Project" WHERE "experienceId" = ${id} AND "profileId" = ${profileId}
+        ORDER BY "id" FOR UPDATE
+      `)
+      const projectIds = locked.map((p) => p.id)
+      if (projectIds.length > 0) {
+        const home = await ensureIndependentExperience(tx, profileId)
+        // Move the projects' own evidence (including legacy project-only rows); other roles' evidence stays.
+        await tx.roleActivity.updateMany({
+          where: { projectId: { in: projectIds }, OR: [{ experienceId: id }, { experienceId: null }] },
+          data: { experienceId: home },
+        })
+        await tx.project.updateMany({ where: { id: { in: projectIds }, profileId }, data: { experienceId: home } })
+      }
     } else {
       // The projects are going: another role's evidence under them must not go with them. It keeps its role and
       // loses only the label. (When the projects are kept it keeps the label too; readers trust its own role.)

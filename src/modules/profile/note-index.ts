@@ -53,9 +53,9 @@ export type NoteRef =
   | { kind: 'project'; id: string; experienceId: string | null }
 
 /** What a note URL's id points at, or null when it isn't one of this profile's notes. */
-export function findNote(profile: { experiences: { id: string }[]; projects: { id: string; experienceId: string | null }[] }, id: string): NoteRef | null {
+export function findNote(profile: { experiences: { id: string; type?: string | null }[]; projects: { id: string; experienceId: string | null }[] }, id: string): NoteRef | null {
   if (id === OVERVIEW_ID) return { kind: 'overview' }
-  if (profile.experiences.some((e) => e.id === id)) return { kind: 'experience', id }
+  if (profile.experiences.some((e) => e.id === id && isEmployment(e))) return { kind: 'experience', id }
   const project = profile.projects.find((p) => p.id === id)
   return project ? { kind: 'project', id, experienceId: project.experienceId } : null
 }

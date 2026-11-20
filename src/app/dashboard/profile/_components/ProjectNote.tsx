@@ -5,7 +5,7 @@ import type { FullProfile } from '@/app/types/profile'
 import type { PendingSuggestion } from '@/modules/profile-map/link-store'
 import type { NoteCapabilityLink } from '@/modules/profile-map/note-links'
 import { getNoteLiveState, updateProjectNotes } from '@/modules/profile/actions'
-import { noteHref } from '@/modules/profile/note-index'
+import { noteHref, overviewHref } from '@/modules/profile/note-index'
 import { NoteEditor } from './NoteEditor'
 import { NoteFrame } from './NoteFrame'
 import { DetailsTabs } from './DetailsTabs'
@@ -49,7 +49,7 @@ export function ProjectNote({ project, parent, siblings = [], roles, skills, lin
         <DetailsTabs
           label="Project details"
           tabs={[
-            { id: 'properties', label: 'Properties', panel: <ProjectProperties key={project.id} project={project} roles={roles} /> },
+            { id: 'properties', label: 'Properties', panel: <ProjectProperties key={project.id} project={project} roles={roles} afterDeleteHref={parent ? noteHref(parent.id) : overviewHref()} /> },
             {
               id: 'evidence',
               label: 'Evidence',

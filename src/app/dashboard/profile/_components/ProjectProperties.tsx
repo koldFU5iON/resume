@@ -12,7 +12,6 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { deleteProject, updateProjectProperties } from '@/modules/profile/actions'
-import { noteHref, overviewHref } from '@/modules/profile/note-index'
 import { ProjectPropertiesSchema } from '@/modules/profile/properties-schema'
 import { PropertiesStatus, PropertyRow, selectClass, toDateInput } from './PropertyFields'
 import { useFieldSaver } from './use-field-saver'
@@ -22,8 +21,9 @@ import { useFieldSaver } from './use-field-saver'
  * another role (or to none); its evidence belongs to the project, so it goes
  * along, and the note keeps its address.
  */
-export function ProjectProperties({ project, roles }: {
+export function ProjectProperties({ project, roles, afterDeleteHref }: {
   project: FullProfile['projects'][number]
+  afterDeleteHref: string
   /** Every role the project could be part of. */
   roles: { id: string; label: string }[]
 }) {
@@ -61,7 +61,7 @@ export function ProjectProperties({ project, roles }: {
     try {
       await deleteProject(project.id)
       setDeleteOpen(false)
-      router.push(project.experienceId ? noteHref(project.experienceId) : overviewHref())
+      router.push(afterDeleteHref)
       router.refresh()
     } catch {
       setDeleteError('Could not delete the project. Nothing was removed; try again.')
