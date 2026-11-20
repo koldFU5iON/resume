@@ -36,7 +36,7 @@ import {
   type AppliedEdit, type BulletProvenance, type BulletSource, type ConcernRecord, type CvAssembled, type CvBrief, type CvReview, type CvSelection,
   type DiscardedEdit, type ReviewOutput,
 } from '../schema'
-import { nearDuplicate } from '../project-evidence'
+import { nearDuplicate, projectAtomText } from '../project-evidence'
 import type { Strategy } from '../strategy'
 import { isThin } from './thin'
 import { leadWithProjects, leadWithStanding, playDownBullets, shortened, wrongTenseLines } from './bullets'
@@ -146,12 +146,17 @@ export type ReviewPromptInput = {
 /** One distinct piece of evidence shown to the reviewer, by label (S1, S2...). `snippet` is the full text the writer saw (activities whole, projects capped like the writer's), not a short display snippet. */
 export type ReviewLabel = { label: string; id: string; kind: BulletSource['kind']; snippet: string }
 
-function sourceText(evidence: Pick<Evidence, 'employers'>, id: string): string | null {
+function sourceText(evidence: Pick<Evidence, 'employers'> & Partial<Pick<Evidence, 'independentProjects'>>, id: string): string | null {
   for (const e of evidence.employers) {
     const a = e.activities.find((x) => x.id === id)
     if (a) return activityPromptText(a)
     const p = e.projects.find((x) => x.id === id)
     if (p) return `${p.name}: ${projectPromptText(p)}`
+  }
+  for (const p of evidence.independentProjects ?? []) {
+    if (p.id === id) return `${p.name}: ${p.text}`
+    const atom = p.atoms.find((a) => a.id === id)
+    if (atom) return projectAtomText(atom)
   }
   return null
 }
@@ -165,11 +170,11 @@ const CONTEXT_KINDS = new Set(['competencies', 'tools', 'skills'])
 /** The user message of a review call and the labels it uses. Pure; carries no name, no contact detail and no whole profile. */
 export function reviewPrompt(input: ReviewPromptInput, doc: ReviewDoc): { prompt: string; labels: ReviewLabel[] } {
   const labels = new Map<string, ReviewLabel>()
-  const labelFor = (src: BulletSource, renderedText?: string): ReviewLabel => {
+  const labelFor = (src: BulletSource): ReviewLabel => {
     const key = `${src.kind}:${src.id}`
     let l = labels.get(key)
     if (!l) {
-      const full = renderedText ?? sourceText(input.evidence, src.id) ?? src.snippet
+      const full = sourceText(input.evidence, src.id) ?? src.snippet
       l = { label: `S${labels.size + 1}`, id: src.id, kind: src.kind, snippet: full }
       labels.set(key, l)
     }
@@ -204,13 +209,16 @@ export function reviewPrompt(input: ReviewPromptInput, doc: ReviewDoc): { prompt
     } else if (s.kind === 'profile' && doc.profile) {
       cv.push(`## profile\n${doc.profile.paragraph || '(none)'}`)
     } else if (s.kind === 'projects' && s.projectSource) {
-      const entry = s.markdown.split('\n').filter((l) => !/^(?:## |:::|- )/.test(l)).join('\n').trim()
-      const project = labelFor(s.projectSource, entry.replace(/^### /, ''))
+      const project = labelFor(s.projectSource)
       const lines = [`## ${s.id} [read-only]`, `${project.label} (${project.kind}): ${project.snippet}`]
       for (const [i, b] of (s.bullets ?? []).entries()) {
         lines.push(`b${i + 1}: ${b.text}`)
+        const cited = new Set<string>()
         for (const src of b.sources) {
-          const ref = labelFor(src, b.text)
+          const actual = sourceText(input.evidence, src.id) ?? src.snippet
+          if (cited.has(actual)) continue
+          cited.add(actual)
+          const ref = labelFor(src)
           lines.push(`  ${ref.label} (${ref.kind}): ${ref.snippet}`)
         }
       }
@@ -303,7 +311,7 @@ export function recheckText(
   if (unsupported.length > 0) return { why: `figures not in the employer's evidence: ${unsupported.join(', ')}` }
   if (emp) {
     const projectClaims = ctx.evidence.independentProjects.flatMap((p) =>
-      p.atoms.length ? p.atoms.map((a) => a.text) : p.thin ? [] : p.text.split(' — '))
+      p.atoms.length ? p.atoms.flatMap((a) => [a.text, ...(a.impact ?? '').split(/(?<=[.!?])\s+|;\s*/)]) : p.thin ? [] : p.text.split(' — '))
     const includesClaim = (haystack: string, claim: string) =>
       ` ${normalised(haystack).join(' ')} `.includes(` ${normalised(claim).join(' ')} `)
     if (projectClaims.some((rawClaim) => {

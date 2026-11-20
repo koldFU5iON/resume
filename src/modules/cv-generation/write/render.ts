@@ -6,12 +6,13 @@
  * Pure: no DB, no network, no model.
  */
 
-import { evidenceLine } from '@/modules/profile/project-highlights'
 import { employerPeriod, stintYears } from '../employers'
 import type { BulletProvenance, BulletSource, SelectedEmployer } from '../schema'
 import type { CertificationEvidence, EducationEvidence, IndependentProjectEvidence } from './evidence'
 import { plainLine } from './plain'
 import { snippetOf } from './provenance'
+import { projectAtomText, substantiveProjectAtom } from '../project-evidence'
+import { PROJECT_EVIDENCE_MAX_CHARS } from './limits'
 import { ALREADY_MARKED, certificationStatus, educationStatus } from './status'
 
 const oneLine = (s: string) => s.replace(/\s+/g, ' ').trim()
@@ -56,23 +57,32 @@ export function renderIndependentProject(project: IndependentProjectEvidence): {
   markdown: string
   bullets: BulletProvenance[]
   projectSource: BulletSource
+  notes: string[]
 } {
   const bullets = new Map<string, BulletProvenance>()
+  const notes: string[] = []
+  let used = 0
+  let omitted = 0
   for (const a of project.atoms) {
-    const impact = a.impact === a.text ? null : a.impact
-    const text = a.text ? evidenceLine({ description: a.text, impact }) : impact ?? ''
-    if (!/[\p{L}\p{N}]/u.test(text)) continue
+    const text = projectAtomText(a)
+    if (!substantiveProjectAtom(a, project.name)) { omitted++; continue }
     const source: BulletSource = { id: a.id, kind: 'activity', snippet: snippetOf(text) }
     const existing = bullets.get(text)
-    if (!existing) bullets.set(text, { text, sources: [source] })
+    if (!existing) {
+      // Keep each complete result or omit the entire atom: no truncation inside a measurement.
+      if (used + text.length + 3 > PROJECT_EVIDENCE_MAX_CHARS) { omitted++; continue }
+      bullets.set(text, { text, sources: [source] })
+      used += text.length + 3
+    }
     else if (!existing.sources.some((s) => s.id === source.id)) existing.sources.push(source)
   }
+  if (omitted) notes.push(`${omitted} accepted project evidence items omitted because they were title-only, too short, or exceeded the ${PROJECT_EVIDENCE_MAX_CHARS}-character entry budget. Complete results were not truncated.`)
   const context = project.atoms.length === 0 && !project.thin ? project.text : ''
   const list = [...bullets.values()]
   const body = list.length ? [':::compact-list', ...list.map((b) => `- ${b.text}`), ':::'].join('\n') : context
   return {
     markdown: project.name && body ? `### ${project.name}\n\n${body}` : '',
-    bullets: list,
+    bullets: list, notes,
     projectSource: { id: project.id, kind: 'project', snippet: snippetOf([project.name, context].filter(Boolean).join(' — ')) },
   }
 }

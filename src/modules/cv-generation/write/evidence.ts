@@ -193,7 +193,9 @@ export function evidenceFromVault(vault: Vault, selection: CvSelection, now: Dat
     }
     const role = n.props.experienceId ? vault.notes.get(n.props.experienceId) : undefined
     if (role?.type === 'experience' && role.props.experienceType === 'independent') {
-      const name = cleanProjectLine(n.props.name, scrub)
+      const fullName = cleanProjectLine(n.props.name, scrub)
+      const name = capProjectText(fullName, 160)
+      if (name !== fullName) projectNotes.push('A selected independent project title was shortened to 160 characters for output.')
       independentProjects.push({ id, name, ...projectEvidenceText(n, vault, { forCvOutput: true }) })
       continue
     }

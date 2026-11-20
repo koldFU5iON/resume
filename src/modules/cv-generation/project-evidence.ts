@@ -22,6 +22,7 @@ import type { ProjectNote, Vault } from '@/modules/profile-map/types'
 import { parseWritingDeskMarkdown } from '@/modules/writing-desk/markdown'
 import { PROJECT_EVIDENCE_MAX_CHARS, isThinProject } from './write/limits'
 import { plainLine } from './write/plain'
+import { formatResult } from '@/modules/profile/result'
 
 export const RESULT_WORDING = /\b(?:reduced|increased|grew|fell|cut|saved|delivered|generated|launched|achieved|won|drove|scaled|doubled|tripled|halved|improved|boosted|accelerated|exceeded|surpassed|secured|earned|raised|expanded|eliminated|enabled|unlocked|resulting|resulted|led to|from\s+\S+\s+to)\b/i
 
@@ -37,7 +38,7 @@ const DIGEST_MIN_CHARS = 500
 /** Separator between the parts of the shown text. */
 const SEP = ' — '
 
-export type ProjectAtom = { id: string; kind: 'responsibility' | 'achievement'; text: string; impact: string | null; highlighted: boolean }
+export type ProjectAtom = { id: string; kind: 'responsibility' | 'achievement'; text: string; impact: string | null; highlighted: boolean; resultText?: string | null }
 
 /** One atom as the experience writer is shown it (without its label). Review uses the same function. */
 export function activityPromptText(a: { kind: string; text: string; impact: string | null }): string {
@@ -204,40 +205,68 @@ export type ProjectEvidenceText = {
 const oneLine = (t: string) => t.replace(/\s*\n+\s*/g, SEP).replace(/\s+/g, ' ').trim()
 
 const NOTE_INSTRUCTIONS = /^(?:\[!|\{\{|:::|(?:tbd|to[ -]?do|instructions?|templates?|placeholders?|drafts?|reminders?|next steps|open questions|notes? to self|contact|e-?mail|phone)\b|(?:add|insert|describe|explain|summarize|summarise|write|replace|list|include|fill in|remember to)\b)/i
-const URL = /\b(?:[a-z][a-z\d+.-]*:\/\/|mailto:|tel:|www\.)[^\s<>]+/gi
+const URL = /\b(?:[a-z][a-z\d+.-]*:\/\/|mailto:|www\.)[^\s<>]+/gi
+const TELEPHONE = /\btel:\s*\+?\d[\d(). \-]*\d|\btel:\s*\+?\d/gi
+const CONTACT_LINK = /\b(?:linkedin\.com\/(?:in|pub)|github\.com|(?:twitter|x|facebook|instagram)\.com)\/[^\s<>]+/gi
 
-/** Strip link destinations and private URLs as well as the standard contact fields. */
-export function cleanProjectLine(text: string, scrub: (text: string) => string): string {
-  const raw = stripWikilinks(text).replace(/<!--[\s\S]*?(?:-->|$)/g, '')
-  return scrub(plainLine(scrub(raw))).replace(URL, '').replace(/\s+/g, ' ').trim()
+type VisibleNode = { type: string; value?: string; url?: string; children?: readonly VisibleNode[] }
+
+/** Read labels and visible text, never link destinations, HTML comments, images or code blocks. */
+function visibleText(node: VisibleNode): string {
+  if (['html', 'image', 'imageReference', 'code', 'definition'].includes(node.type)) return ''
+  if (node.type === 'link' && /^(?:tel|mailto):/i.test(node.url ?? '')) return ''
+  if (node.type === 'break') return ' '
+  return node.children ? node.children.map(visibleText).join(['list', 'listItem', 'writingDeskBlock'].includes(node.type) ? ' ' : '') : node.value ?? ''
 }
 
-/** Only prose and ordinary list items can supply context for a project without accepted atoms. */
+const withoutComments = (text: string) => stripWikilinks(text).replace(/<!--[\s\S]*?(?:-->|$)/g, '')
+const scrubProjectText = (text: string, scrub: (text: string) => string) =>
+  scrub(text).replace(TELEPHONE, '').replace(URL, '').replace(CONTACT_LINK, '').replace(/\s+/g, ' ').trim()
+
+/** Parse Markdown destinations instead of trying to balance their parentheses with a regular expression. */
+export function cleanProjectLine(text: string, scrub: (text: string) => string): string {
+  const visible = parseWritingDeskMarkdown(withoutComments(text)).map(visibleText).join(' ')
+  return scrubProjectText(plainLine(visible), scrub)
+}
+
+/** Only visible prose and ordinary (non-task) list items supply context without accepted atoms. */
 function cvContext(body: string, scrub: (text: string) => string): string {
   const clean = (text: string) => {
     const raw = text.trim()
     if (NOTE_INSTRUCTIONS.test(raw) || /^\[[^\]]+\]$/.test(raw)) return ''
-    const line = cleanProjectLine(raw, scrub)
+    const line = scrubProjectText(raw, scrub)
     return NOTE_INSTRUCTIONS.test(line) ? '' : line
   }
   let instructionDepth = 0
-  return parseWritingDeskMarkdown(body).flatMap((node) => {
-    const raw = body.slice(node.position?.start.offset, node.position?.end.offset)
+  return parseWritingDeskMarkdown(withoutComments(body)).flatMap((node) => {
     if (node.type === 'heading') {
       if (instructionDepth && node.depth > instructionDepth) return []
-      const heading = plainLine(raw)
+      const heading = visibleText(node)
       instructionDepth = NOTE_INSTRUCTIONS.test(heading) ? node.depth : 0
-      // Keep the heading for digestUnits' result prioritization, never for display.
       return instructionDepth ? [] : [`## ${heading}`]
     }
     if (instructionDepth) return []
-    if (node.type === 'paragraph') return raw.split(/\r?\n/).map(clean).filter(Boolean)
-    if (node.type === 'list') return node.children.flatMap((item) =>
-      item.children.flatMap((child) => child.type === 'paragraph'
-        ? body.slice(child.position?.start.offset, child.position?.end.offset).split(/\r?\n/).map(clean).filter(Boolean)
-        : []))
+    if (node.type === 'paragraph') return [clean(visibleText(node))].filter(Boolean)
+    if (node.type === 'list') return node.children.flatMap((item) => item.checked != null ? [] :
+      item.children.flatMap((child) => child.type === 'paragraph' ? [clean(visibleText(child))].filter(Boolean) : []))
     return []
   }).join('\n')
+}
+
+/** Do not repeat an already embedded structured result, but keep any separate free-text outcome. */
+export function projectAtomText(atom: ProjectAtom): string {
+  let impact = atom.impact
+  if (atom.resultText && atom.text.includes(atom.resultText) && impact?.includes(atom.resultText)) {
+    impact = impact.replace(atom.resultText, '').replace(/^[\s;—]+|[\s;—]+$/g, '') || null
+  }
+  if (impact === atom.text) impact = null
+  return atom.text ? atom.text + (impact ? ` (${impact})` : '') : impact ?? ''
+}
+
+export function substantiveProjectAtom(atom: ProjectAtom, name: string): boolean {
+  const rest = ` ${keyOf(projectAtomText(atom))} `.split(` ${keyOf(name)} `).join(' ').trim()
+  const words = rest.split(/\s+/).filter((word) => word !== 'i' && /\p{L}/u.test(word))
+  return words.length >= 2 && (rest.match(/\p{L}/gu)?.length ?? 0) >= 4
 }
 
 /**
@@ -254,12 +283,12 @@ export function projectEvidenceText(note: ProjectNote, vault: Vault, opts: { exc
   const atoms: ProjectAtom[] = []
   for (const l of note.links) {
     const a = l.type === 'has' ? vault.notes.get(l.id) : undefined
-    if (a?.type === 'evidence') atoms.push({ id: a.id, kind: a.props.kind, text: clean(a.props.description), impact: a.props.impact ? clean(a.props.impact) : null, highlighted: a.props.highlighted })
+    if (a?.type === 'evidence') atoms.push({ id: a.id, kind: a.props.kind, text: clean(a.props.description), impact: a.props.impact ? clean(a.props.impact) : null, highlighted: a.props.highlighted, ...(opts.forCvOutput ? { resultText: a.props.result ? clean(formatResult(a.props.result)) : null } : {}) })
   }
   atoms.sort((x, y) => figureRich(y) - figureRich(x))
   if (opts.forCvOutput) {
     // Accepted atoms are rendered directly, with no repeat of their source notes or legacy highlights.
-    if (atoms.length > 0) return { text: '', atoms, thin: false }
+    if (atoms.length > 0) return { text: '', atoms, thin: !atoms.some((a) => substantiveProjectAtom(a, clean(note.props.name))) }
     const name = clean(note.props.name)
     const parts = [note.props.description, notesOf(note), ...note.props.highlights]
     const context = parts.map((part) => cvContext(part, scrub)).filter(Boolean).join('\n\n## Context\n\n')

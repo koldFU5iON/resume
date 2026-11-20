@@ -35,7 +35,7 @@ import type { Strategy } from '../strategy'
 import { countOf } from '../text'
 import { evidenceFromVault, type EmployerEvidence } from './evidence'
 import { fallbackExperience, writeExperience } from './experience'
-import { ASSEMBLE_RESERVE_MS, MIN_CALL_MS, WAVE2_MIN_START_MS, WAVE2_RESERVE_MS } from './limits'
+import { ASSEMBLE_RESERVE_MS, INDEPENDENT_PROJECTS_MAX_CHARS, MIN_CALL_MS, WAVE2_MIN_START_MS, WAVE2_RESERVE_MS } from './limits'
 import { runPool } from './pool'
 import { experienceDigest, fallbackProfile, writeProfile } from './profile'
 import { statedYears } from './years'
@@ -168,20 +168,27 @@ export async function runWrite(
       })
     }
 
+    let projectChars = 0
     for (const project of evidence.independentProjects) {
       const rendered = renderIndependentProject(project)
+      if (projectChars + rendered.markdown.length > INDEPENDENT_PROJECTS_MAX_CHARS) {
+        notes.push(`Selected project "${project.name}" omitted because the independent Projects section reached its ${INDEPENDENT_PROJECTS_MAX_CHARS}-character output budget.`)
+        continue
+      }
       if (!rendered.markdown) {
+        notes.push(...rendered.notes)
         const label = project.name ? `Project "${project.name}"` : 'A selected independent project'
         notes.push(thinProjectNote(label))
         continue
       }
+      projectChars += rendered.markdown.length
       const id = `projects:${project.id}`
       const detail = rendered.bullets.length
         ? `${countOf(rendered.bullets.length, 'bullet')} from accepted project evidence.`
         : 'Context from your project description and notes. No accepted project bullets yet.'
       keep({
-        id, kind: 'projects', ...rendered,
-        log: logOf(id, `Project: ${project.name}`, { notes: [`Rendered by code. ${detail}`] }),
+        id, kind: 'projects', markdown: rendered.markdown, bullets: rendered.bullets, projectSource: rendered.projectSource,
+        log: logOf(id, `Project: ${project.name}`, { notes: [`Rendered by code. ${detail}`, ...rendered.notes] }),
       })
     }
 

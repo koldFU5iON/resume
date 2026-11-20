@@ -830,3 +830,34 @@ describe('runReview', () => {
     expect(sent).not.toMatch(/[\w.-]+@[\w.-]+\.\w+/)
   })
 })
+
+
+describe('independent project review regressions', () => {
+  it('refuses to move an independent outcome into an employer even when its description differs', () => {
+    const projects = independentProjectsFixture()
+    const ev = evidenceFromVault(projects.vault, projects.selection)
+    const claim = 'Eliminated manual reconciliation across regional offices'
+    ev.independentProjects[0].atoms[0].impact = claim
+    const doc = freshDoc()
+    const changed = applyEdits(doc, [edit(U, 'b2', 'replace', claim + '.')], actx({ evidence: ev }))
+    expect(changed.applied).toEqual([])
+    expect(changed.discarded[0].why).toContain('attributes independent project evidence to this employer')
+  })
+
+  it('looks up actual project evidence by source ID and cites duplicate evidence text only once', () => {
+    const { vault, selection } = independentProjectsFixture()
+    const ev = evidenceFromVault(vault, selection)
+    const p = ev.independentProjects[0]
+    const rendered = renderIndependentProject(p)
+    // The provenance's displayed text is deliberately different: it must never become its own evidence.
+    const display = { ...rendered, bullets: rendered.bullets.map((b, i) => i === 0 ? { ...b, text: 'DISPLAY ONLY CLAIM' } : b) }
+    const sections = [wsec(`projects:${p.id}`, 'projects', rendered.markdown, display)]
+    const cv = { ...assembled(), sections }
+    const { prompt, labels } = reviewPrompt(input({ assembled: cv, selection, evidence: ev }), reviewDoc(cv, selection, ev))
+    const label = labels.find(l => l.id === 'workshop-atom')!
+    expect(label.snippet).toContain(INDEPENDENT_RESULT)
+    expect(label.snippet).not.toContain('DISPLAY ONLY CLAIM')
+    expect(labels.some(l => l.id === 'workshop-duplicate')).toBe(false)
+    expect(prompt).toContain('DISPLAY ONLY CLAIM')
+  })
+})

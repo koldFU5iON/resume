@@ -3,6 +3,9 @@ import { renderToBuffer } from "@react-pdf/renderer"
 import { renderToStaticMarkup } from "react-dom/server"
 import { extractLinks, extractText, extractTextItems, getDocumentProxy } from "unpdf"
 import { INDEPENDENT_RESULT, independentProjectsFixture } from "@/modules/cv-generation/__fixtures__/independent-projects"
+import { assembleCv } from "@/modules/cv-generation/assemble"
+import { toProfileSnapshot } from "@/modules/profile/snapshot"
+import type { WrittenSection } from "@/modules/cv-generation/write/types"
 import { evidenceFromVault } from "@/modules/cv-generation/write/evidence"
 import { renderIndependentProject } from "@/modules/cv-generation/write/render"
 import { WritingDeskPDFDocument } from "./writing-desk-pdf-document"
@@ -49,8 +52,16 @@ async function render(markdown: string, documentType: WritingDeskDocumentType) {
 describe("WritingDeskPDFDocument", () => {
   it("renders the generated Projects headings, bullets and fallback context in PDF and editor preview", async () => {
     const { vault, selection } = independentProjectsFixture()
-    const projects = evidenceFromVault(vault, selection).independentProjects.map(renderIndependentProject).map(p => p.markdown).filter(Boolean)
-    const markdown = [CV_MARKDOWN, "## Earlier Experience\n\n- Other Co", "## Projects", ...projects, "## Skills\n\n- Delivery"].join("\n\n")
+    const log = { id: 'fixture', label: 'Fixture', status: 'ok' as const, model: null, durationMs: 0, tokens: { input: 0, output: 0 }, costUsd: null, retries: 0, retryReasons: [], notes: [] }
+    const projects: WrittenSection[] = evidenceFromVault(vault, selection).independentProjects.map(project => ({ id: `projects:${project.id}`, kind: 'projects', ...renderIndependentProject(project), log }))
+    const assembled = assembleCv({ name: 'Fixture', headline: null, employerOrder: ['acme'], checkNotes: [], snapshot: toProfileSnapshot(vault), sections: [
+      { id: 'skills', kind: 'skills', markdown: ':::skills\n- Delivery\n:::', log },
+      ...projects,
+      { id: 'earlier-experience', kind: 'earlier-experience', markdown: '- Other Co', log },
+      { id: 'acme', kind: 'experience', employerKey: 'acme', markdown: '### Acme\nProgram Manager · 2021 - Present\n\n:::compact-list\n- Led delivery programmes\n:::', log },
+    ] })
+    if (!assembled.ok) throw new Error(assembled.issues.join(', '))
+    const markdown = assembled.assembled.markdown
     const { pdf } = await render(markdown, "cv")
     const { text } = await extractText(pdf, { mergePages: true })
     const html = renderToStaticMarkup(<WritingDeskPreview markdown={markdown} documentType="cv" />)

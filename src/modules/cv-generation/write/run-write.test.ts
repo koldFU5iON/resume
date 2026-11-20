@@ -181,6 +181,24 @@ describe('independent Projects output', () => {
     expect(splitSections(markdown).map((s) => s.id)).toEqual(expect.arrayContaining(['projects', 'workshop-campaign-18', 'support-assistant']))
   })
 
+  it('bounds the whole independent section and logs selected entries that do not fit', async () => {
+    const { vault, selection } = independentProjectsFixture()
+    const base = vault.notes.get('assistant')!
+    if (base.type !== 'project') throw new Error('Expected project')
+    selection.projects = []
+    for (let i = 0; i < 15; i++) {
+      const id = `independent-${i}`
+      vault.notes.set(id, { ...base, id, props: { ...base.props, name: `Independent tooling ${i}` } })
+      selection.projects.push({ id, label: `Independent tooling ${i}`, reason: '' })
+    }
+    const result = await runWrite(vault, buildBriefFor(), selection, strategy, ctx())
+    const projects = result.sections.filter(s => s.kind === 'projects')
+    expect(projects.length).toBeGreaterThan(0)
+    expect(projects.length).toBeLessThan(15)
+    expect(projects.reduce((sum, p) => sum + p.markdown.length, 0)).toBeLessThanOrEqual(4500)
+    expect(result.notes.join(' ')).toContain('4500-character output budget')
+  })
+
   it('keeps the employment writer inputs and output identical when no independent project is selected', async () => {
     const { vault, selection } = independentProjectsFixture()
     const jobsOnly = writeVault()
