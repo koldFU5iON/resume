@@ -1,7 +1,7 @@
 /**
  * The evidence the Select stage may choose from, each item with the profile's
- * own database id so Select can only ever return real ids (anything else is
- * dropped in code, select.ts). Built from the profile vault
+ * own database id for enforcement. The Select prompt uses short handles.
+ * Built from the profile vault
  * (src/modules/profile-map), whose note ids are the row ids.
  *
  * Roles are grouped by employer (employers.ts): Select chooses employers and
@@ -225,17 +225,41 @@ export function labelIndex(cands: Candidates): Map<string, string> {
   return m
 }
 
-/** The candidate list as text for the Select prompt: every id in square brackets. */
-export function candidatesToPrompt(cands: Candidates): string {
+export const SELECTION_HANDLE_PREFIX = {
+  employers: 'EMP', activities: 'A', skills: 'S', tools: 'T', competencies: 'C',
+  certifications: 'CERT', education: 'EDU', projects: 'P',
+} as const
+export type SelectionSection = keyof typeof SELECTION_HANDLE_PREFIX
+
+/** One request's handles, in menu order. Keep namespaces separate even when candidate IDs coincide. */
+export function selectionHandles(cands: Candidates) {
+  const index = (section: SelectionSection, ids: readonly string[]) => {
+    const byId = new Map([...new Set(ids)].map((id, i) => [id, `${SELECTION_HANDLE_PREFIX[section]}${i + 1}`]))
+    return { byId, byHandle: new Map([...byId].map(([id, handle]) => [handle, id])) }
+  }
+  return {
+    employers: index('employers', cands.employers.map((e) => e.key)),
+    activities: index('activities', cands.employers.flatMap((e) => e.activities.map((a) => a.id))),
+    skills: index('skills', cands.skills.map((c) => c.id)),
+    tools: index('tools', cands.tools.map((c) => c.id)),
+    competencies: index('competencies', cands.competencies.map((c) => c.id)),
+    certifications: index('certifications', cands.certifications.map((c) => c.id)),
+    education: index('education', cands.education.map((c) => c.id)),
+    projects: index('projects', cands.projects.map((c) => c.id)),
+  }
+}
+
+/** The candidate list as text for the Select prompt: every handle in square brackets. */
+export function candidatesToPrompt(cands: Candidates, handles = selectionHandles(cands)): string {
   const lines: string[] = ['## Employers (most recent first)']
   for (const e of cands.employers) {
-    lines.push(`[${e.key}] ${e.company}: latest title ${e.latestTitle}${e.period ? ` (${e.period})` : ''}`)
+    lines.push(`[${handles.employers.byId.get(e.key)}] ${e.company}: latest title ${e.latestTitle}${e.period ? ` (${e.period})` : ''}`)
     if (e.progression) lines.push(`  ${e.progression}`)
     const roleTitle = new Map(e.roles.map((r) => [r.experienceId, r.title]))
     for (const a of e.activities) {
       const star = a.highlighted ? '⭐ ' : ''
       const asRole = e.roles.length > 1 ? `(as ${roleTitle.get(a.experienceId) ?? 'a role here'}) ` : ''
-      lines.push(`  - [${a.id}] ${asRole}${star}${a.kind}: ${a.text}${a.impact ? ` — ${a.impact}` : ''}${a.fromProject ? ` (from project ${a.fromProject.name})` : ''}`)
+      lines.push(`  - [${handles.activities.byId.get(a.id)}] ${asRole}${star}${a.kind}: ${a.text}${a.impact ? ` — ${a.impact}` : ''}${a.fromProject ? ` (from project ${a.fromProject.name})` : ''}`)
     }
   }
   const flat: Array<[FlatSection, string]> = [
@@ -245,7 +269,7 @@ export function candidatesToPrompt(cands: Candidates): string {
   for (const [key, title] of flat) {
     lines.push('', `## ${title}`)
     if (cands[key].length === 0) lines.push('(none)')
-    for (const i of cands[key]) lines.push(`[${i.id}] ${i.label}${i.detail ? ` (${i.detail})` : ''}${key !== 'certifications' && key !== 'education' && key !== 'projects' && !i.proven ? ' [claimed only]' : ''}`)
+    for (const i of cands[key]) lines.push(`[${handles[key].byId.get(i.id)}] ${i.label}${i.detail ? ` (${i.detail})` : ''}${key !== 'certifications' && key !== 'education' && key !== 'projects' && !i.proven ? ' [claimed only]' : ''}`)
   }
   return lines.join('\n')
 }

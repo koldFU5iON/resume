@@ -1,6 +1,6 @@
 /**
  * Stage 2, Select: one call, role 'fast'. The model picks EMPLOYERS (a
- * company's roles are one entry: employers.ts) and evidence by id, with a
+ * company's roles are one entry: employers.ts) and evidence by short handle, with a
  * reason and a 1-5 relevance score per employer; CODE then enforces every hard
  * cap (caps.ts): unknown ids are dropped, duplicates removed, each list
  * truncated in the model's rank order.
@@ -48,7 +48,7 @@ import {
   clampBudgetValue,
   type FlatSection,
 } from './caps'
-import { isApproachOnly, candidatesToPrompt, labelIndex, type Candidates, type CandidateActivity, type CandidateEmployer, type CandidateItem } from './candidates'
+import { isApproachOnly, candidatesToPrompt, labelIndex, selectionHandles, SELECTION_HANDLE_PREFIX, type SelectionSection, type Candidates, type CandidateActivity, type CandidateEmployer, type CandidateItem } from './candidates'
 import { relatedEmployerNotes } from './employers'
 import { matchedWords, matchesName, nameTokens, namedItems, type NamedItem } from './named-items'
 import { figuresIn } from './write/checks'
@@ -90,40 +90,44 @@ const relevance = z.number().optional()
   .transform((v) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(MAX_RELEVANCE, Math.max(MIN_RELEVANCE, Math.round(v))) : undefined))
 
 /**
- * What the model is ASKED to return: ids only (a plain string per pick), plus a
+ * What the model is ASKED to return: handles only (a plain string per pick), plus a
  * 1-5 `relevance` per employer and the `emphasise` claims. No reasons and no
  * list of left-out items: a reason per pick made the answer long enough to be
  * cut off (about 60 picks), and code derives the dropped list itself
  * (everything not picked, `not_selected`). This shape is the JSON Schema in the prompt.
  */
+const handle = (section: SelectionSection) => z.string().describe(`A ${SELECTION_HANDLE_PREFIX[section]} handle from this section of the candidate menu, without brackets`)
+
 const AskedSchema = z.object({
-  employers: z.array(z.object({ id: z.string(), relevance: z.number().min(MIN_RELEVANCE).max(MAX_RELEVANCE) }))
-    .describe(`Employers to show with bullets, best first, the current employer first; id is the employer id in square brackets; relevance an integer from ${MIN_RELEVANCE} (barely) to ${MAX_RELEVANCE} (central)`),
-  activities: z.array(z.string())
-    .describe(`Activity ids to keep, best first within each employer (up to ${CURRENT_LAYERED_BAND.max} for the current employer, ${PREVIOUS_BAND.max} for the previous one, ${OLDER_BAND.max} for older ones)`),
-  skills: z.array(z.string()),
-  tools: z.array(z.string()),
-  competencies: z.array(z.string()),
-  certifications: z.array(z.string()),
-  education: z.array(z.string()),
-  projects: z.array(z.string()),
+  employers: z.array(z.object({ id: handle('employers'), relevance: z.number().min(MIN_RELEVANCE).max(MAX_RELEVANCE) }))
+    .describe(`Employers to show with bullets, best first, the current employer first; id is the employer handle; relevance an integer from ${MIN_RELEVANCE} (barely) to ${MAX_RELEVANCE} (central)`),
+  activities: z.array(handle('activities'))
+    .describe(`Activity handles to keep, best first within each employer (up to ${CURRENT_LAYERED_BAND.max} for the current employer, ${PREVIOUS_BAND.max} for the previous one, ${OLDER_BAND.max} for older ones)`),
+  skills: z.array(handle('skills')),
+  tools: z.array(handle('tools')),
+  competencies: z.array(handle('competencies')),
+  certifications: z.array(handle('certifications')),
+  education: z.array(handle('education')),
+  projects: z.array(handle('projects')),
   emphasise: z.array(z.object({ item: z.string(), evidence: z.array(z.string()) }))
-    .describe('For each emphasise item (name copied exactly), the ids of the picked activities or projects that support it; an empty list when no candidate does'),
+    .describe('For each emphasise item (name copied exactly), the A or P handles of the picked activities or projects that support it; an empty list when no candidate does'),
 })
 
 /** A pick as a bare id (asked for) or an object with an optional short reason (older answers; still read). */
+// Invalid entries become empty references so resolution can count them and retain other picks.
+const invalidPick = { id: '', reason: '' }
 const pick = z.union([
   z.string().transform((id) => ({ id, reason: '' })),
   z.object({ id: z.string(), reason }),
-])
+]).catch(invalidPick)
 const list = () => z.array(pick).default([])
 
-/** Tolerant reader of the model's answer: the asked-for shape, or picks with reasons. Output is what `enforceSelection` takes. */
+/** Tolerant reader of the model's answer: the asked-for shape, or picks with reasons. The model’s references are resolved before enforcement. */
 export const SelectOutputSchema = z.object({
   employers: z.array(z.union([
     z.string().transform((id) => ({ id, relevance: undefined as number | undefined, reason: '' })),
     z.object({ id: z.string(), relevance, reason }),
-  ])).default([]),
+  ]).catch({ ...invalidPick, relevance: undefined })).default([]),
   activities: list(),
   skills: list(),
   tools: list(),
@@ -131,14 +135,73 @@ export const SelectOutputSchema = z.object({
   certifications: list(),
   education: list(),
   projects: list(),
-  emphasise: z.array(z.object({ item: z.string(), evidence: z.array(z.string()).default([]) })).default([]),
+  emphasise: z.array(z.object({
+    item: z.string(), evidence: z.array(z.string().catch('')).default([]).catch(['']),
+  }).catch({ item: '', evidence: [] })).default([]),
 })
 export type SelectOutput = z.infer<typeof SelectOutputSchema>
 
-export const OUTPUT_FORMAT = `Output: one JSON object in a \`\`\`json code block, nothing else. It must match this JSON Schema. Use only ids from the candidate list. Give ids only: no reasons, no text for items you leave out.
+export const OUTPUT_FORMAT = `Output: one JSON object in a \`\`\`json code block, nothing else. It must match this JSON Schema. Use only the handles shown in the candidate menu, in their matching sections. Omit reasons and left-out items.
 \`\`\`json
 ${JSON.stringify(z.toJSONSchema(AskedSchema))}
 \`\`\``
+
+/** Resolve only typed reference slots. Failed lookups never reach enforcement as raw IDs. */
+function resolveSelectionHandles(
+  answer: SelectOutput,
+  handles: ReturnType<typeof selectionHandles>,
+  emphasise: CvBrief['emphasise'],
+): { picks: SelectOutput; notes: string[] } {
+  const notes: string[] = []
+  const normalise = (ref: string) => {
+    const trimmed = ref.trim()
+    const token = trimmed.startsWith('[') && trimmed.endsWith(']') ? trimmed.slice(1, -1).trim() : trimmed
+    return /^[a-z]+[1-9][0-9]*$/i.test(token) ? token.toUpperCase() : ''
+  }
+  const rejected = (count: number, section: string) => {
+    if (count > 0) notes.push(`Rejected ${countOf(count, 'invalid selection reference')} in ${section}.`)
+  }
+  const resolve = <P extends { id: string }>(section: SelectionSection, picks: P[]): P[] => {
+    const translated = picks.flatMap((p) => {
+      const id = handles[section].byHandle.get(normalise(p.id))
+      return id === undefined ? [] : [{ ...p, id }]
+    })
+    rejected(picks.length - translated.length, section)
+    return translated
+  }
+  const activities = resolve('activities', answer.activities)
+  const projects = resolve('projects', answer.projects)
+  const supportByHandle = new Map([
+    ...activities.map((p) => [handles.activities.byId.get(p.id)!, p.id] as const),
+    ...projects.map((p) => [handles.projects.byId.get(p.id)!, p.id] as const),
+  ])
+  let invalidEvidence = 0
+  const claims = answer.emphasise.filter((e) => emphasise.some((item) => item.name === e.item)).map((e) => ({
+    item: e.item,
+    evidence: [...new Set(e.evidence.flatMap((ref) => {
+      const id = supportByHandle.get(normalise(ref))
+      if (id !== undefined) return [id]
+      invalidEvidence++
+      return []
+    }))],
+  }))
+  rejected(invalidEvidence, 'emphasise evidence (use picked activities or projects)')
+  if (claims.length < answer.emphasise.length) notes.push('Ignored emphasise claims whose item name did not exactly match the brief.')
+  return {
+    picks: {
+      employers: resolve('employers', answer.employers),
+      activities,
+      skills: resolve('skills', answer.skills),
+      tools: resolve('tools', answer.tools),
+      competencies: resolve('competencies', answer.competencies),
+      certifications: resolve('certifications', answer.certifications),
+      education: resolve('education', answer.education),
+      projects,
+      emphasise: claims,
+    },
+    notes,
+  }
+}
 
 /** Key words of the job's requirements (must-have and nice-to-have), lower-case, without filler. */
 export function requirementTerms(strategy: Pick<Strategy, 'mustHave' | 'niceToHave'>): string[] {
@@ -151,7 +214,7 @@ function inBlock(text: string): string {
 }
 
 /** The select prompt (everything but the instructions). Pure. */
-export function selectPrompt(brief: CvBrief, cands: Candidates, strategy?: Pick<Strategy, 'mustHave' | 'niceToHave'>): string {
+export function selectPrompt(brief: CvBrief, cands: Candidates, strategy?: Pick<Strategy, 'mustHave' | 'niceToHave'>, handles = selectionHandles(cands)): string {
   const l = (items: readonly string[]) => (items.length > 0 ? items.map((i) => `- ${inBlock(i)}`).join('\n') : '(none)')
   const b = brief.budgets
   const required = requiredEmployers(cands)
@@ -174,7 +237,7 @@ export function selectPrompt(brief: CvBrief, cands: Candidates, strategy?: Pick<
   }
   if (brief.emphasise.length > 0) {
     sections.push(
-      `# Emphasise\n\nThe brief asks the CV to give weight to these. For each one, pick at least one supporting activity (or project) where the candidates have one, and list the ids you picked for it under \`emphasise\`, with the item's NAME copied exactly (the short name before the colon). An item is matched to the profile by its name, so look for the name, not the framing sentence. An item with no supporting candidate gets an empty list: say so, do not stretch an unrelated item to fit.`,
+      `# Emphasise\n\nThe brief asks the CV to give weight to these. For each one, pick at least one supporting activity (or project) where the candidates have one, and list the activity (A) or project (P) handles you picked for it under \`emphasise\`, with the item's NAME copied exactly (the short name before the colon). An item is matched to the profile by its name, so look for the name, not the framing sentence. An item with no supporting candidate gets an empty list: say so, do not stretch an unrelated item to fit.`,
       brief.emphasise.map((e, i) => `${i + 1}. ${inBlock(e.name)}`).join('\n'),
     )
   }
@@ -183,11 +246,11 @@ export function selectPrompt(brief: CvBrief, cands: Candidates, strategy?: Pick<
     `# Bullets\n\nBullets are set by recency, in code, after you answer: the current or most recent employer shows ${CURRENT_BAND.min}-${CURRENT_BAND.max} (up to ${CURRENT_LAYERED_BAND.max} when the profile holds ${LAYERED_EMPLOYER_MIN_ROLES}+ roles there), the previous one ${PREVIOUS_BAND.min}-${PREVIOUS_BAND.max}, older ones ${OLDER_BAND.min}-${OLDER_BAND.max} (${OLD_BAND.min}-${OLD_BAND.max} when they ended over ten years ago), at most ${MAX_TOTAL_BULLETS} in all, and fewer when the employer has less evidence. Never pad: list only activities that state what was done AND a result, scope or figure; an activity that only says how work was run, with no figure or outcome, is picked only when the employer has nothing stronger (code leaves such items out above 3 bullets). Give every employer you pick a relevance score (${MAX_RELEVANCE} = central to the role, 3 = supports the story but not central, ${MIN_RELEVANCE} = barely relevant): a 4-5 earns one more bullet, a 1-2 one fewer, and it never reorders recency. For each employer list the activities best first, up to the most its band allows: the first ones are kept if the band gives the employer fewer.`,
   )
   if (required.length === 1) {
-    sections.push(`# Current employer\n\n[${required[0].key}] ${required[0].label}. It must be included in \`employers\` (list it first) and counts toward the employer budget.`)
+    sections.push(`# Current employer\n\n[${handles.employers.byId.get(required[0].key)}] ${required[0].label}. It must be included in \`employers\` (list it first) and counts toward the employer budget.`)
   } else if (required.length > 1) {
-    sections.push(`# Current employers\n\nThe candidate currently works at more than one employer:\n${required.map((e) => `- [${e.key}] ${e.label}`).join('\n')}\nAt least one of them must be included in \`employers\` (list it first); it counts toward the employer budget. Any others are only picked if they answer the brief.`)
+    sections.push(`# Current employers\n\nThe candidate currently works at more than one employer:\n${required.map((e) => `- [${handles.employers.byId.get(e.key)}] ${e.label}`).join('\n')}\nAt least one of them must be included in \`employers\` (list it first); it counts toward the employer budget. Any others are only picked if they answer the brief.`)
   }
-  sections.push('# Candidates', candidatesToPrompt(cands), 'Return your picks as one JSON object matching the schema, in a ```json code block.')
+  sections.push('# Candidates', candidatesToPrompt(cands, handles), 'Return your picks as one JSON object matching the schema, in a ```json code block.')
   return sections.join('\n\n')
 }
 
@@ -265,7 +328,7 @@ export function enforceSelection(
   const unknownIds: DroppedItem[] = []
 
   /** Valid, deduplicated picks in the model's order; unknown and repeated ids are recorded. */
-  function rank<P extends { id: string }>(section: string, picks: readonly P[], known: ReadonlySet<string>): P[] {
+  function rank<P extends { id: string }>(section: string, picks: readonly P[], known: ReadonlySet<string>, sectionLabels = labels): P[] {
     const seen = new Set<string>()
     const ranked: P[] = []
     for (const p of picks) {
@@ -275,7 +338,7 @@ export function enforceSelection(
         continue
       }
       if (seen.has(p.id)) {
-        unknownIds.push({ section, id: p.id, label: labels.get(p.id) ?? '', why: 'duplicate' })
+        unknownIds.push({ section, id: p.id, label: sectionLabels.get(p.id) ?? '', why: 'duplicate' })
         continue
       }
       seen.add(p.id)
@@ -308,7 +371,7 @@ export function enforceSelection(
     experienceOf.set(a.id, a.experienceId)
   }
   const actRanked = rank('activities', out.activities, new Set(parentOf.keys()))
-  const employerPicks = out.employers.map((p) => ({ ...p, id: keyOfId.get(p.id) ?? p.id }))
+  const employerPicks = out.employers.map((p) => ({ ...p, id: employerKeys.has(p.id) ? p.id : keyOfId.get(p.id) ?? p.id }))
   const pickedEmployers: Array<{ id: string; reason: string; relevance?: number }> = rank('employers', employerPicks, employerKeys)
   for (const a of actRanked) {
     const parent = parentOf.get(a.id)!
@@ -532,24 +595,21 @@ export function enforceSelection(
     }]
   })
 
-  // Flat sections: truncate in the model's rank order, then top a short list
-  // up to the section's FLOOR by rule (caps.ts): the Brief may raise a budget
-  // to its ceiling, never below the floor, and a model that picked fewer
-  // does not leave the section short while the profile has more.
+  // Flat sections use separate namespaces for candidates and drop reasons.
   const flat = {} as Record<FlatSection, SelectedItem[]>
-  const keptFlat = new Set<string>()
+  const flatDropped: DroppedItem[] = []
   for (const s of FLAT_SECTIONS) {
-    const known = new Set(cands[s].map((c) => c.id))
+    const sectionLabels = new Map(cands[s].map((c) => [c.id, c.label]))
+    const known = new Set(sectionLabels.keys())
     const limit = clampBudgetValue(s, brief.budgets[s])
     const expiredIds = s === 'certifications' ? new Set(cands.certifications.filter((c) => c.expired).map((c) => c.id)) : new Set<string>()
-    const picks = rank(s, s === 'projects' ? [...pinnedProjects.filter((p) => !out.projects.some((o) => o.id === p.id)), ...out.projects] : out[s], known)
+    const picks = rank(s, s === 'projects' ? [...pinnedProjects.filter((p) => !out.projects.some((o) => o.id === p.id)), ...out.projects] : out[s], known, sectionLabels)
     let live = picks.filter((p) => !expiredIds.has(p.id))
     if (s === 'certifications') {
       live = relevantShortCoursesOnly(live, cands.certifications, terms, notes)
       live = relevantInProgressOnly(live, cands.certifications, terms, notes, mode === 'model')
     }
-    for (const p of picks) if (expiredIds.has(p.id)) dropReason.set(p.id, 'not_selected')
-    if (live.length < picks.length) notes.push(`Left out ${countOf(picks.length - live.length, 'expired certification')} the model picked: ${picks.filter((p) => expiredIds.has(p.id)).map((p) => labels.get(p.id) ?? p.id).join(', ')}.`)
+    if (live.length < picks.length) notes.push(`Left out ${countOf(picks.length - live.length, 'expired certification')} the model picked: ${picks.filter((p) => expiredIds.has(p.id)).map((p) => sectionLabels.get(p.id) ?? p.id).join(', ')}.`)
     // Thin projects (a title only) write no bullet, so they never use a project slot: substantive ones fill the
     // cap first. Thin ones the brief leads with come first and ALL stay (each needs its thin-project concern);
     // other thin picks fill what is left of MAX_PROJECTS, so they never crowd out a named one.
@@ -563,9 +623,8 @@ export function enforceSelection(
     const thinNamed = thinAll.filter((p) => isLead(p.id))
     const thin = [...thinNamed, ...thinAll.filter((p) => !isLead(p.id)).slice(0, Math.max(0, MAX_PROJECTS - thinNamed.length))]
     let kept = [...solid.slice(0, limit), ...thin]
-    for (const p of solid.slice(limit)) dropReason.set(p.id, 'over_cap')
-    for (const p of thinAll) if (!thin.includes(p)) dropReason.set(p.id, 'over_cap')
-    if (solid.length > 0 && thin.length > 0 && solid.length + thin.length > limit) notes.push(`${thin.map((p) => labels.get(p.id) ?? p.id).join(', ')} ${thin.length === 1 ? 'has' : 'have'} only a title: kept for the coach note without using a project slot.`)
+    const capped = new Set([...solid.slice(limit), ...thinAll.filter((p) => !thin.includes(p))].map((p) => p.id))
+    if (solid.length > 0 && thin.length > 0 && solid.length + thin.length > limit) notes.push(`${thin.map((p) => sectionLabels.get(p.id) ?? p.id).join(', ')} ${thin.length === 1 ? 'has' : 'have'} only a title: kept for the coach note without using a project slot.`)
     // No padding: a section is never topped up to a count. Only a section that would be EMPTY gets one
     // relevant, evidence-backed item (education: any degree or diploma the profile has).
     if (kept.length === 0 && limit > 0) {
@@ -573,8 +632,11 @@ export function enforceSelection(
       kept = extra.map((c) => ({ id: c.id, reason: 'Chosen by rule: the section would be empty' }))
       if (extra.length > 0) notes.push(`The model picked no ${s}; kept ${extra.length} by rule (${s === 'education' ? 'the first entry' : 'relevant and evidence-backed'}).`)
     }
-    flat[s] = kept.map((p) => item(p.id, p.reason))
-    for (const k of kept) keptFlat.add(k.id)
+    flat[s] = kept.map((p) => ({ ...p, label: sectionLabels.get(p.id) ?? p.id }))
+    const keptIds = new Set(kept.map((p) => p.id))
+    for (const c of cands[s]) {
+      if (!keptIds.has(c.id)) flatDropped.push({ section: s, id: c.id, label: c.label, why: capped.has(c.id) ? 'over_cap' : 'not_selected' })
+    }
   }
 
   // Emphasise items that no kept activity or project supports. The model says
@@ -582,7 +644,7 @@ export function enforceSelection(
   // item counts as covered when a kept activity or project text matches its words.
   const keptText = [
     ...cands.employers.flatMap((e) => e.activities.filter((a) => keptActIds.has(a.id)).map((a) => `${a.text} ${a.impact ?? ''}`)),
-    ...cands.projects.filter((p) => keptFlat.has(p.id)).map((p) => `${p.label} ${p.detail ?? ''}`),
+    ...cands.projects.filter((p) => flat.projects.some((kept) => kept.id === p.id)).map((p) => `${p.label} ${p.detail ?? ''}`),
   ]
   const keptSupportIds = new Set([...keptActIds, ...flat.projects.map((p) => p.id)])
   const notCovered = (n: NamedItem) => {
@@ -618,14 +680,15 @@ export function enforceSelection(
       }
     }
   }
-  for (const s of FLAT_SECTIONS) for (const c of cands[s]) if (!keptFlat.has(c.id)) addDrop(s, c.id, dropReason.get(c.id) ?? 'not_selected')
+  all.push(...flatDropped)
   const cut = all.filter((d) => d.why !== 'not_selected')
   const left = all.filter((d) => d.why === 'not_selected')
   const dropped = [...cut, ...left].slice(0, MAX_RECORDED_DROPPED)
 
   if (unknown > 0) notes.push(`Dropped ${unknown === 1 ? '1 id that is' : `${unknown} ids that are`} not in the profile.`)
   // Picks cut by a limit: not employers the model never picked that fell past the header-only cap (those are counted in the gap note).
-  const overCap = [...dropReason].filter(([id, w]) => w === 'over_cap' && (!employerKeys.has(id) || pickOf.has(id))).length
+  const overCap = flatDropped.filter((d) => d.why === 'over_cap').length +
+    [...dropReason].filter(([id, w]) => w === 'over_cap' && (!employerKeys.has(id) || pickOf.has(id))).length
   if (overCap > 0) notes.push(`Cut ${countOf(overCap, 'pick')} over the limits.`)
 
   return {
@@ -916,11 +979,13 @@ export async function runSelect(
   let failure: string
   let retries = 0
   let retryReasons: string[] = []
+  let referenceNotes: string[] = []
   // What the model call used, kept even when the rules end up choosing (the usage rows are written after the call returns, so reading them back races).
   let used: CallUsage | undefined
   try {
     const instructions = await loadCVSelectPrompt(ctx.profileId)
-    const call = await completeValidated(ctx.profileId, selectPrompt(brief, g.candidates, g.strategy), SelectOutputSchema, {
+    const handles = selectionHandles(g.candidates)
+    const call = await completeValidated(ctx.profileId, selectPrompt(brief, g.candidates, g.strategy, handles), SelectOutputSchema, {
       role: 'fast',
       system: composeSystem(instructions, OUTPUT_FORMAT),
       maxOutputTokens: MAX_OUTPUT_TOKENS.select,
@@ -935,11 +1000,13 @@ export async function runSelect(
     retries = call.retries
     retryReasons = call.retryReasons ?? []
     used = call.usage
-    const enforced = enforceSelection(call.value, g.candidates, brief, 'model', { requirementTerms: requirementTerms(g.strategy) })
+    const resolved = resolveSelectionHandles(call.value, handles, brief.emphasise)
+    referenceNotes = resolved.notes
+    const enforced = enforceSelection(resolved.picks, g.candidates, brief, 'model', { requirementTerms: requirementTerms(g.strategy) })
     if (enforced.recognised > 0) {
-      return { selection: enforced.selection, model: call.model, retries, retryReasons, notes: enforced.notes, usage: call.usage }
+      return { selection: enforced.selection, model: call.model, retries, retryReasons, notes: [...referenceNotes, ...enforced.notes], usage: call.usage }
     }
-    failure = 'the answer named no item that is in the profile'
+    failure = 'the answer contained no valid candidate handles'
   } catch (err) {
     failure = err instanceof LLMError ? `the call failed (${err.kind})` : 'the call failed'
     if (!(err instanceof LLMError)) console.error('[cv-generation] select failed', { runId: ctx.runId, err })
@@ -950,7 +1017,7 @@ export async function runSelect(
     model: null,
     retries,
     retryReasons,
-    notes: [`Chose by rules instead: ${failure}.`, ...fb.notes],
+    notes: [`Chose by rules instead: ${failure}.`, ...referenceNotes, ...fb.notes],
     ...(used ? { usage: used } : {}),
   }
 }

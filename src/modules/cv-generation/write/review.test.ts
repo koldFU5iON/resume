@@ -861,3 +861,53 @@ describe('independent project review regressions', () => {
     expect(prompt).toContain('DISPLAY ONLY CLAIM')
   })
 })
+
+describe('Review keeps project-labelled activity claims with their cited projects', () => {
+  const clinic = { id: 'clinic', name: 'Harbour Clinic Intake 2025' }
+  const theatre = { id: 'theatre', name: 'Riverside Theatre Programme' }
+  const b1 = 'Cut triage from 8 days to 3 days in rural clinics (Harbour Clinic Intake 2025).'
+  const b2 = 'Revised referral forms for Harbour Clinic Intake.'
+  const b3 = 'Coordinated ticketing for Riverside Theatre Programme.'
+  const fixture = () => {
+    const ev = evidenceFromVault(vault, selection)
+    const employer = ev.employers.find((e) => e.employer.key === UNITY)!
+    for (const [i, project, text] of [
+      [0, clinic, 'Cut triage from 8 days to 3 days in rural clinics'],
+      [1, clinic, 'Revised referral forms'],
+      [2, theatre, 'Coordinated ticketing'],
+    ] as const) {
+      employer.activities[i] = { ...employer.activities[i], text, impact: null, fromProject: project }
+    }
+    const cv = assembled({ unity: [b1, b2, b3].map((text, i) => ({ text, id: employer.activities[i].id })) })
+    return { ev, cv, employer, doc: reviewDoc(cv, selection, ev) }
+  }
+
+  it('shows the recorded label alongside the complete scope and figures even when the project was never picked', () => {
+    const { ev, cv, employer, doc } = fixture()
+    expect(employer.projects).toEqual([])
+    const { labels } = reviewPrompt(input({ assembled: cv, evidence: ev }), doc)
+    expect(labels.find((l) => l.id === 'ua1')?.snippet).toContain('Recorded project “Harbour Clinic Intake 2025”: achievement: Cut triage from 8 days to 3 days in rural clinics')
+  })
+
+  it('discards detached or reattributed edits and accepts an edition-neutral edit with the original source', () => {
+    const { ev, cv, doc } = fixture()
+    const result = applyEdits(doc, [
+      edit(U, 'b1', 'replace', 'Cut triage from 8 days to 3 days in rural clinics.'),
+      edit(U, 'b2', 'replace', 'Revised referral forms for Harbour Clinic Intake at Riverside Theatre Programme.'),
+      edit(U, 'b3', 'remove'),
+      edit(U, 'b1', 'replace', 'Reduced triage from 8 days to 3 days in rural clinics for Harbour Clinic Intake.'),
+    ], actx({ evidence: ev }))
+    expect(result.discarded.map((d) => d.why)).toEqual([
+      expect.stringContaining('loses the recorded project'),
+      expect.stringContaining('without support from the cited evidence'),
+      expect.stringContaining('last bullet naming the recorded project'),
+    ])
+    expect(result.applied).toHaveLength(1)
+    const written = writeBack(cv, doc)
+    expect(written.sections.find((s) => s.id === U)?.bullets?.[0]).toMatchObject({
+      text: 'Reduced triage from 8 days to 3 days in rural clinics for Harbour Clinic Intake.',
+      sources: [{ id: 'ua1', kind: 'activity' }],
+      editedByReview: true,
+    })
+  })
+})
