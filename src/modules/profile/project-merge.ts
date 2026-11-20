@@ -4,8 +4,8 @@
 // from the UI; finding pairs never writes.
 
 import { prisma } from '@/lib/db'
-import { lockRow } from './activity-roles'
-import { belongsToProject } from './ownership'
+import { lockRow, withActivityOwnership } from './activity-roles'
+import { isEmployment } from './experience-type'
 import { normalizeName } from '@/modules/profile-map/format'
 
 /** Bodies match when their first this-many normalised characters do. */
@@ -20,7 +20,7 @@ export function projectBody(p: Pick<ProjectBody, 'description' | 'notes'>): stri
 
 const bodyKey = (p: ProjectBody) => normalizeName(projectBody(p))
 
-type Pairable = ProjectBody & { id: string; experienceId: string | null }
+type Pairable = ProjectBody & { id: string; experience: { type: string } }
 
 /**
  * Pairs each standalone project with at most one role project of the same
@@ -30,9 +30,9 @@ type Pairable = ProjectBody & { id: string; experienceId: string | null }
  * is used once. Input order breaks ties, so callers sort by creation time.
  */
 export function pairDuplicateProjects<T extends Pairable>(projects: T[]): { standalone: T; roleProject: T }[] {
-  const roleProjects = projects.filter((p) => p.experienceId)
+  const roleProjects = projects.filter((p) => isEmployment(p.experience))
   const candidates: { standalone: T; roleProject: T; score: number }[] = []
-  for (const standalone of projects.filter((p) => !p.experienceId)) {
+  for (const standalone of projects.filter((p) => !isEmployment(p.experience))) {
     const name = normalizeName(standalone.name)
     const body = bodyKey(standalone).slice(0, BODY_PREFIX_CHARS)
     for (const roleProject of roleProjects) {
@@ -76,8 +76,8 @@ export async function findDuplicateProjects(profileId: string): Promise<Duplicat
     where: { profileId },
     orderBy: { createdAt: 'asc' },
     select: {
-      id: true, name: true, description: true, notes: true, experienceId: true,
-      experience: { select: { role: true, company: true } },
+      id: true, name: true, description: true, notes: true,
+      experience: { select: { role: true, company: true, type: true } },
       _count: { select: { activities: true } },
     },
   })
@@ -88,7 +88,7 @@ export async function findDuplicateProjects(profileId: string): Promise<Duplicat
     standalone: summary(standalone),
     roleProject: {
       ...summary(roleProject),
-      role: roleProject.experience ? `${roleProject.experience.role} at ${roleProject.experience.company}` : '',
+      role: `${roleProject.experience.role} at ${roleProject.experience.company}`,
     },
     sameBody: bodyKey(standalone) === bodyKey(roleProject),
   }))
@@ -114,7 +114,7 @@ const isEmpty = (v: string | Date | null | undefined) => v == null || v === ''
  */
 export async function mergeProjects(profileId: string, { keepId, removeId, body }: MergeProjectsInput): Promise<void> {
   if (keepId === removeId) throw new Error('Choose two different projects')
-  await prisma.$transaction(async (tx) => {
+  await withActivityOwnership(profileId, async (tx) => {
     // Locked in a fixed order, so two merges of the same pair cannot deadlock.
     for (const id of [keepId, removeId].sort()) await lockRow(tx, 'Project', id, profileId)
     const projects = await tx.project.findMany({
@@ -125,13 +125,13 @@ export async function mergeProjects(profileId: string, { keepId, removeId, body 
     const remove = projects.find((p) => p.id === removeId)
     if (!keep || !remove) throw new Error('Project not found')
 
-    // An item is a duplicate only when the same role holds both: both read as their project's evidence, or both
-    // carry the same other role. Otherwise it is a different role's evidence and is moved, never merged away.
-    const holder = (a: { experienceId: string | null }, role: string | null) => (belongsToProject(a, role) ? 'project' : a.experienceId)
-    const existing = new Map(keep.activities.map((a) => [`${holder(a, keep.experienceId)}|${normalizeName(a.description)}`, a]))
+    const existing = new Map(keep.activities
+      .filter(a => a.experienceId === keep.experienceId)
+      .map(a => [normalizeName(a.description), a]))
     let nextOrder = keep.activities.reduce((max, a) => Math.max(max, a.order), -1) + 1
     for (const activity of remove.activities) {
-      const twin = existing.get(`${holder(activity, remove.experienceId)}|${normalizeName(activity.description)}`)
+      const projectOwned = activity.experienceId === remove.experienceId
+      const twin = projectOwned ? existing.get(normalizeName(activity.description)) : undefined
       if (twin) {
         // A result on the duplicate is not lost when the kept item has none.
         if (activity.result != null && twin.result == null) {
@@ -146,7 +146,7 @@ export async function mergeProjects(profileId: string, { keepId, removeId, body 
         }
         continue
       }
-      if (belongsToProject(activity, remove.experienceId)) {
+      if (projectOwned) {
         // The project's own evidence takes the kept project's role.
         await tx.roleActivity.update({ where: { id: activity.id }, data: { projectId: keepId, experienceId: keep.experienceId, order: nextOrder++ } })
       } else if (activity.experienceId === keep.experienceId) {

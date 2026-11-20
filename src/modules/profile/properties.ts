@@ -1,10 +1,10 @@
 // Saves for the Properties tab: a role's facts and a project's facts. Session-
 // free: every function takes the caller's profileId first. Input is validated
 // here, not trusted from the form, and a cleared field is written as null (a
-// role with no end date is a current role; a project with no role stands alone).
+// role with no end date is a current role; personal projects have an Independent projects role).
 
 import { prisma } from '@/lib/db'
-import { lockRow } from './activity-roles'
+import { activityFieldsFor, lockRow, withActivityOwnership } from './activity-roles'
 import { ExperiencePropertiesSchema, ProjectPropertiesSchema, type ExperienceProperties, type ProjectProperties } from './properties-schema'
 
 export type { ExperienceProperties, ProjectProperties }
@@ -18,23 +18,20 @@ export async function saveExperienceProperties(profileId: string, id: string, in
 
 /**
  * Saves a project's facts, including which role it is part of. Its evidence carries the project's role, so
- * moving the project between roles (or to none) moves that evidence with it. Evidence that carries a
+ * moving the project between roles (including Independent projects) moves that evidence with it. Evidence that carries a
  * different role (it is another role's own) is left alone. One transaction.
  */
 export async function saveProjectProperties(profileId: string, id: string, input: ProjectProperties): Promise<void> {
   const data = ProjectPropertiesSchema.parse(input)
-  await prisma.$transaction(async (tx) => {
+  await withActivityOwnership(profileId, async (tx) => {
     // Two moves of the same project must not interleave: the second reads the role the first left.
     await lockRow(tx, 'Project', id, profileId)
     const current = await tx.project.findFirst({ where: { id, profileId }, select: { experienceId: true } })
     if (!current) throw new Error('Project not found')
-    if (data.experienceId) {
-      const role = await tx.experience.findFirst({ where: { id: data.experienceId, profileId }, select: { id: true } })
-      if (!role) throw new Error('Experience not found')
-    }
-    await tx.project.update({ where: { id }, data })
-    if (current.experienceId !== data.experienceId) {
-      await tx.roleActivity.updateMany({ where: { projectId: id, experienceId: current.experienceId }, data: { experienceId: data.experienceId } })
+    const { experienceId } = await activityFieldsFor(tx, profileId, { experienceId: data.experienceId })
+    await tx.project.update({ where: { id }, data: { ...data, experienceId } })
+    if (current.experienceId !== experienceId) {
+      await tx.roleActivity.updateMany({ where: { projectId: id, experienceId: current.experienceId }, data: { experienceId } })
     }
   })
 }

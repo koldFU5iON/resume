@@ -10,22 +10,19 @@ import { NoteEditor } from './NoteEditor'
 import { NoteFrame } from './NoteFrame'
 import { DetailsTabs } from './DetailsTabs'
 import { ProjectProperties } from './ProjectProperties'
-import { EvidencePanel } from './EvidencePanel'
+import { EvidencePanel, type EvidenceRole } from './EvidencePanel'
 import { NoteLinksPanel } from './NoteLinksPanel'
 
 /**
- * A project as a note: its name as the title (with the role it belongs to,
- * if any), its Markdown note as the document, and Properties, Evidence and
+ * A project as a note: its name as the title (with the role it belongs to), its Markdown note as the document, and Properties, Evidence and
  * Links in the details region.
  */
-export function ProjectNote({ project, parent, siblings = [], roles, skills, links, pending }: {
+export function ProjectNote({ project, parent, roles, skills, links, pending }: {
   project: FullProfile['projects'][number]
   /** The role this project belongs to. */
   parent: { id: string; title: string } | null
-  /** The other projects of the same role: places this project's evidence can move to. */
-  siblings?: { id: string; name: string }[]
   /** Every role the project could be moved to. */
-  roles: { id: string; label: string }[]
+  roles: EvidenceRole[]
   skills: { id: string; name: string }[]
   links: NoteCapabilityLink[]
   pending: PendingSuggestion[]
@@ -54,7 +51,7 @@ export function ProjectNote({ project, parent, siblings = [], roles, skills, lin
               id: 'evidence',
               label: 'Evidence',
               count: String(activities.length),
-              panel: <EvidencePanel key={project.id} owner={{ projectId: project.id }} activities={activities} skills={skills} moveTargets={[...(parent ? [{ owner: { experienceId: parent.id }, label: `Role: ${parent.title}` }] : []), ...siblings.map(s => ({ owner: { projectId: s.id }, label: `Project: ${s.name}` }))]} />,
+              panel: <EvidencePanel key={project.id} owner={{ experienceId: project.experienceId, projectId: project.id }} activities={activities} skills={skills} roles={roles} />,
             },
             { id: 'links', label: 'Links', count: `${links.length} · ${pending.length}`, panel: <NoteLinksPanel capabilities={links} pending={pending} /> },
           ]}

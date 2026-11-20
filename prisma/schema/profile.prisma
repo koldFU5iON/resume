@@ -106,7 +106,7 @@ model Experience {
 
 model RoleActivity {
   id           String   @id @default(cuid())
-  experienceId String?
+  experienceId String
   projectId    String?
   kind         String // "responsibility" | "achievement"
   description  String
@@ -120,7 +120,7 @@ model RoleActivity {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  experience Experience?         @relation(fields: [experienceId], references: [id], onDelete: Cascade)
+  experience Experience          @relation(fields: [experienceId], references: [id], onDelete: Cascade)
   project    Project?            @relation(fields: [projectId], references: [id], onDelete: Cascade)
   skills     RoleActivitySkill[]
 
@@ -131,7 +131,7 @@ model RoleActivity {
 model Project {
   id           String    @id @default(cuid())
   profileId    String
-  experienceId String?
+  experienceId String
   name         String
   description  String
   notes        String    @default("")
@@ -148,7 +148,7 @@ model Project {
   updatedAt    DateTime  @updatedAt
 
   profile    Profile     @relation(fields: [profileId], references: [id], onDelete: Cascade)
-  experience Experience? @relation(fields: [experienceId], references: [id], onDelete: SetNull)
+  experience Experience  @relation(fields: [experienceId], references: [id], onDelete: NoAction)
   skills     ProjectSkill[]
   activities RoleActivity[]
 

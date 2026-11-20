@@ -35,6 +35,14 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
     const pending = allPending.filter(s => evidenceIds.has(s.evidenceId))
     const skills = profile.skills.map(s => ({ id: s.id, name: s.name }))
 
+    const roles = profile.experiences.map(e => ({
+      id: e.id,
+      label: experienceTitle(e),
+      independent: !isEmployment(e),
+      projects: profile.projects.filter(p => p.experienceId === e.id)
+        .map(p => ({ id: p.id, name: p.name, archived: p.status === 'archived' })),
+    }))
+
     if (note.kind === 'experience') {
       const experience = profile.experiences.find(e => e.id === note.id)!
       return (
@@ -42,11 +50,12 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
           <ProfileCoachContext
             profileSummary={profileSummary}
             activeExperienceId={experience.id}
-            activeExperienceName={`${experience.role} at ${experience.company}`}
+            activeExperienceName={experienceLabel(experience)}
           />
           <ExperienceNote
             experience={experience}
             skills={skills}
+            roles={roles}
             projects={profile.projects.filter(p => p.experienceId === experience.id)}
             links={links?.capabilities ?? []}
             pending={pending}
@@ -56,7 +65,7 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
     }
 
     const project = profile.projects.find(p => p.id === note.id)!
-    const role = note.experienceId ? profile.experiences.find(e => e.id === note.experienceId) : undefined
+    const role = profile.experiences.find(e => e.id === project.experienceId)
     return (
       <>
         <ProfileCoachContext
@@ -66,10 +75,9 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
         />
         <ProjectNote
           project={project}
-          // "Independent projects" is a home, not a note: no breadcrumb link to it.
+          // Only employment has a role breadcrumb.
           parent={role && isEmployment(role) ? { id: role.id, title: experienceTitle(role) } : null}
-          siblings={role ? profile.projects.filter(p => p.experienceId === role.id && p.id !== project.id && p.status !== 'archived').map(p => ({ id: p.id, name: p.name })) : []}
-          roles={profile.experiences.map(e => ({ id: e.id, label: experienceTitle(e) }))}
+          roles={roles}
           skills={skills}
           links={links?.capabilities ?? []}
           pending={pending}

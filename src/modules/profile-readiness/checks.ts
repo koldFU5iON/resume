@@ -9,6 +9,7 @@ import { projectEvidenceText } from '@/modules/cv-generation/project-evidence'
 import { isThinProject, THIN_PROJECT_MIN_CHARS } from '@/modules/cv-generation/write/limits'
 import { jobNotes, notesOf } from '@/modules/profile-map/build'
 import { formatMonth, normalizeName, oneLine } from '@/modules/profile-map/format'
+import { SMALL_WORDS, STOPWORDS } from '@/modules/profile/project-mention'
 import { formatResult, type Result } from '@/modules/profile/result'
 import type { EvidenceNote, ExperienceNote, Note, ProjectNote, Vault } from '@/modules/profile-map/types'
 import { capabilitiesHref, overviewHref, vaultNoteHref } from '@/modules/profile/note-index'
@@ -50,8 +51,6 @@ export const CONFLICT_SHARED_WORDS = 3
 export const CONFLICT_MAX_FINDINGS = 3
 /** Achievements with a figure in their text but no structured result are raised when there are at least this many. */
 export const FIGURE_IN_PROSE_MIN = 3
-/** At most this many "does this belong to a project?" questions are raised: they are guesses. */
-export const OUTCOME_PROJECT_MAX_FINDINGS = 3
 /** Claimed-only capabilities are raised when there are at least this many. */
 export const CLAIMED_ONLY_MIN = 3
 /** Evidence with no capability link is raised when at least this many items, and this share of all evidence. */
@@ -143,11 +142,6 @@ export function checkThinNarratives(vault: Vault, now: Date): Candidate[] {
       }))
 }
 
-const STOPWORDS = new Set(['with', 'that', 'this', 'from', 'have', 'been', 'were', 'into', 'over', 'about', 'across', 'which', 'while', 'their', 'than', 'then', 'them', 'they', 'also', 'more', 'each', 'when', 'after', 'before'])
-
-// ── Duplicate projects ─────────────────────────────────────────────────
-const SMALL_WORDS = new Set(['the', 'and', 'for', 'of', 'to', 'in', 'on', 'at', 'an'])
-/** Lowercase words without stopwords or one-letter tokens: the "content words" the similarity tests use. */
 const contentTokens = (s: string) => new Set(s.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 1 && !STOPWORDS.has(w) && !SMALL_WORDS.has(w)))
 const numberTokens = (s: string) => (s.match(/\d+/g) ?? []).sort().join(',')
 function jaccard(a: Set<string>, b: Set<string>): number {
@@ -449,39 +443,6 @@ export function checkConflictingFigures(vault: Vault): Candidate[] {
     }
   }
   return out.slice(0, CONFLICT_MAX_FINDINGS)
-}
-
-// ── Outcomes that name a project but sit under the role ────────────────
-/**
- * An achievement kept directly under a role whose text names one of the role's projects (every content word of the
- * project's name appears in it). The outcome probably came from that project, and moving it there lets the CV say
- * which campaign or event produced it. Phrased as a question: a short project name can match by chance.
- */
-/** Content words plus any digit, however short ("2" and "0" of "2.0"): names that differ by a number stay different. */
-const nameTokens = (s: string) => new Set(s.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w && (/\d/.test(w) || (w.length > 1 && !STOPWORDS.has(w) && !SMALL_WORDS.has(w)))))
-
-export function checkOutcomeProjects(vault: Vault): Candidate[] {
-  const out: Candidate[] = []
-  for (const exp of notesOf(vault, 'experience')) {
-    const projects = containedProjects(vault, exp).filter((p) => p.props.status !== 'archived')
-    if (projects.length === 0) continue
-    for (const e of evidenceOf(vault, exp)) {
-      if (e.props.kind !== 'achievement') continue
-      const words = nameTokens(evidenceText(e))
-      // The most specific project named: "Heroes 3.0" is not "Heroes 2.0" (digits count), and a longer name beats a shorter.
-      const project = projects
-        .map((p) => ({ p, name: nameTokens(p.props.name) }))
-        .filter(({ name }) => name.size > 0 && [...name].every((w) => words.has(w)))
-        .sort((a, b) => b.name.size - a.name.size)[0]?.p
-      if (!project) continue
-      out.push(about(e, {
-        kind: 'outcome_without_project', severity: 'consider', impact: 2, title: `Does this belong to ${project.props.name}?`,
-        message: `${quote(e.props.description)} sits under ${exp.props.role} at ${exp.props.company} and names ${quote(project.props.name, 50)}, one of that role's projects. Did it come from there?`,
-        suggestion: 'If so, use the Move button on the achievement so the CV can say which campaign or event produced the result.',
-      }))
-    }
-  }
-  return out.slice(0, OUTCOME_PROJECT_MAX_FINDINGS)
 }
 
 // ── Capabilities ───────────────────────────────────────────────────────

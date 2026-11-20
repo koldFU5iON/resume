@@ -18,14 +18,13 @@ import { useFieldSaver } from './use-field-saver'
 
 /**
  * A project's facts, saved as you leave each field. "Part of" moves it to
- * another role (or to none); its evidence belongs to the project, so it goes
- * along, and the note keeps its address.
+ * another role, including Independent projects. Its evidence moves with it.
  */
 export function ProjectProperties({ project, roles, afterDeleteHref }: {
   project: FullProfile['projects'][number]
   afterDeleteHref: string
   /** Every role the project could be part of. */
-  roles: { id: string; label: string }[]
+  roles: { id: string; label: string; independent: boolean }[]
 }) {
   const router = useRouter()
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -47,6 +46,8 @@ export function ProjectProperties({ project, roles, afterDeleteHref }: {
     },
   )
   const { values, set, commit, problems } = form
+  const independentHome = roles.find(role => role.id === project.experienceId && role.independent)
+  const selectedRole = values.experienceId || independentHome?.id || ''
   const text = (name: 'name' | 'url' | 'repoUrl') => ({
     id: `project-${name}`,
     value: (values[name] ?? '') as string,
@@ -78,10 +79,10 @@ export function ProjectProperties({ project, roles, afterDeleteHref }: {
           <select
             id="project-part-of"
             className={selectClass}
-            value={values.experienceId ?? ''}
-            onChange={e => { set('experienceId', e.target.value || null); commit() }}
+            value={selectedRole}
+            onChange={e => { set('experienceId', e.target.value); commit() }}
           >
-            <option value="">No role (a project of its own)</option>
+            {!roles.some(role => role.independent) && <option value="">Independent projects</option>}
             {roles.map(role => <option key={role.id} value={role.id}>{role.label}</option>)}
           </select>
         </PropertyRow>

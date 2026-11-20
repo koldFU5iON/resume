@@ -21,7 +21,7 @@ export async function ensureIndependentExperience(tx: Tx, profileId: string): Pr
   const existing = await tx.experience.findFirst({
     where: { profileId, type: INDEPENDENT_EXPERIENCE_TYPE },
     select: { id: true },
-    orderBy: { createdAt: 'asc' },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
   })
   if (existing) return existing.id
   const created = await tx.experience.create({
