@@ -13,7 +13,7 @@ export const noteHref = (id: string) => `${NOTE_BASE}/n/${id}`
 export const capabilitiesHref = () => `${NOTE_BASE}/records/capabilities`
 export const credentialsHref = () => `${NOTE_BASE}/records/credentials`
 
-type IndexExperience = { id: string; activities?: readonly unknown[]; type?: string | null; role: string; company: string; startDate: Date | string; endDate: Date | string | null }
+type IndexExperience = { id: string; summary?: string | null; activities?: readonly unknown[]; type?: string | null; role: string; company: string; startDate: Date | string; endDate: Date | string | null }
 type IndexProject = { id: string; name: string; experienceId: string | null }
 
 export type NoteIndex = {
@@ -30,7 +30,7 @@ export function buildNoteIndex(profile: { experiences: IndexExperience[]; projec
   const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name)
   const independent = profile.experiences.filter((e) => !isEmployment(e))
   const independentIds = new Set(independent.map((e) => e.id))
-  const independentEvidence = independent.filter(e => e.activities?.length).map(e => e.id)
+  const independentEvidence = independent.filter(e => e.activities?.length || e.summary?.trim()).map(e => e.id)
   const experiences = profile.experiences
     .filter((e) => isEmployment(e))
     .sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime())
@@ -57,7 +57,7 @@ export type NoteRef =
 /** What a note URL's id points at, or null when it isn't one of this profile's notes. */
 export function findNote(profile: { experiences: { id: string; type?: string | null; activities?: readonly unknown[] }[]; projects: { id: string; experienceId: string | null }[] }, id: string): NoteRef | null {
   if (id === OVERVIEW_ID) return { kind: 'overview' }
-  if (profile.experiences.some((e) => e.id === id && (isEmployment(e) || e.activities?.length))) return { kind: 'experience', id }
+  if (profile.experiences.some((e) => e.id === id)) return { kind: 'experience', id }
   const project = profile.projects.find((p) => p.id === id)
   return project ? { kind: 'project', id, experienceId: project.experienceId } : null
 }
