@@ -21,12 +21,19 @@ const supported = (excerpt: string, phrase: string) => {
 const quantities = (text: string) => text.match(/(?<![\p{L}\p{N}])(?:[$£€]\s*)?[+-]?\d+(?:[.,]\d+)*(?:\s*%|\s*[a-zA-Z]+)?/gu) ?? []
 const passage = (text: string) => text.toLowerCase().replace(/^\s*(?:[-*+] |\d+\. )/gm, '').replace(/[^\p{L}\p{N}\s]/gu, '').replace(/\s+/g, ' ').trim()
 
-/** Use complete source lines, not model-chosen quote boundaries or classification, as resolution identity. */
+/** Anchor resolution to the source sentence, independent of quote boundaries and classification. */
 export function extractionPassageKey(body: string, original: string): string {
   const at = body.indexOf(original.trim())
-  const start = at < 0 ? 0 : body.lastIndexOf('\n', at - 1) + 1
-  const end = at < 0 ? body.length : body.indexOf('\n', at)
-  return hashExtractionValue(passage(at < 0 ? original : body.slice(start, end < 0 ? body.length : end)))
+  if (at < 0) return hashExtractionValue(passage(original))
+  const lineStart = body.lastIndexOf('\n', at - 1) + 1
+  const lineEnd = body.indexOf('\n', at)
+  const line = body.slice(lineStart, lineEnd < 0 ? body.length : lineEnd)
+  const contentStart = line.match(/^\s*(?:[-*+] |\d+\. )/)?.[0].length ?? 0
+  const position = Math.max(contentStart, at - lineStart)
+  const boundaries = [...line.matchAll(/[.!?](?=\s|$)/g)].map((match) => match.index).filter((index) => index >= contentStart)
+  const start = (boundaries.findLast((index) => index < position) ?? (contentStart - 1)) + 1
+  const end = boundaries.find((index) => index >= position) ?? line.length
+  return hashExtractionValue(passage(line.slice(start, end)))
 }
 
 export function groundClaim(claim: Omit<ExtractedActivity, 'source'>, body: string, unparsed: string): ExtractedActivity | null {

@@ -3,7 +3,7 @@ import { completeStructured, getLLMConfigStatus } from '@/modules/llm/client'
 import { ExtractedSuggestionsSchema } from './extract-schema'
 import { findAchievementMatch } from './duplicate-detect'
 import { parseNotes } from './tag-parser'
-import { groundClaim, proposeDraft } from './extraction-proposals'
+import { extractionPassageKey, groundClaim, proposeDraft } from './extraction-proposals'
 import { mergeExtractionResult, extractionResultsConflict } from './extraction-result'
 import { addScope } from './extraction-draft'
 
@@ -153,6 +153,13 @@ describe('extraction review regressions', () => {
       .mockResolvedValueOnce({ object: { activities: [{ ...claim, kind: 'achievement', original: body.slice(0, -1), description: body, result: null }], skills: [] } } as never)
     const subject = { body, noun: 'role' as const, facts: '' }
     expect((await proposeDraft('p', subject, [], null)).items.map(i => i.key)).toEqual((await proposeDraft('p', subject, [], null)).items.map(i => i.key))
+  })
+
+  it('keeps distinct source sentences on one line separate while tolerating shorter quotes', () => {
+    const body = '1. I maintained the billing service. I built the deployment pipeline.'
+    expect(extractionPassageKey(body, 'I maintained the billing service.')).toBe(extractionPassageKey(body, 'maintained the billing service'))
+    expect(extractionPassageKey(body, 'I maintained the billing service.')).not.toBe(extractionPassageKey(body, 'I built the deployment pipeline.'))
+    expect(extractionPassageKey(body, body)).toBe(extractionPassageKey(body, 'I maintained the billing service.'))
   })
 
   it('keeps plain text entries under explicit headings without a model', async () => {
