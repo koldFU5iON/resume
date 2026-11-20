@@ -2,11 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/db', () => {
   const prisma: Record<string, unknown> = {
-    experience: { updateMany: vi.fn(), findFirst: vi.fn() },
+    experience: { updateMany: vi.fn(), findFirst: vi.fn(), create: vi.fn().mockResolvedValue({ id: 'ind-new' }) },
     project: { findFirst: vi.fn(), update: vi.fn() },
     roleActivity: { updateMany: vi.fn() },
   }
   prisma.$queryRaw = vi.fn()
+  prisma.$executeRaw = vi.fn()
   prisma.$transaction = vi.fn(async (fn: (tx: unknown) => unknown) => fn(prisma))
   return { prisma }
 })
@@ -49,14 +50,16 @@ describe('saveProjectProperties', () => {
     vi.mocked(prisma.project.findFirst).mockResolvedValue({ experienceId: null } as never)
   })
 
-  it('writes validated values, a project with no role stored as null, in one transaction', async () => {
+  it('resolves a cleared role to Independent projects, in one transaction', async () => {
+    vi.mocked(prisma.project.findFirst).mockResolvedValue({ experienceId: 'ind' } as never)
+    vi.mocked(prisma.experience.findFirst).mockResolvedValue({ id: 'ind' } as never)
     await saveProjectProperties('p1', 'pr1', { ...project, url: 'https://x.test', startDate: '2021-03-01' })
     expect(prisma.project.findFirst).toHaveBeenCalledWith({ where: { id: 'pr1', profileId: 'p1' }, select: { experienceId: true } })
     expect(prisma.project.update).toHaveBeenCalledWith({
       where: { id: 'pr1' },
-      data: { name: 'Launch', description: '', url: 'https://x.test', repoUrl: null, startDate: new Date('2021-03-01'), endDate: null, experienceId: null },
+      data: { name: 'Launch', description: '', url: 'https://x.test', repoUrl: null, startDate: new Date('2021-03-01'), endDate: null, experienceId: 'ind' },
     })
-    expect(prisma.experience.findFirst).not.toHaveBeenCalled()
+    expect(prisma.experience.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { profileId: 'p1', type: 'independent' } }))
     // The role did not change, so its evidence is left alone.
     expect(prisma.roleActivity.updateMany).not.toHaveBeenCalled()
   })
@@ -80,10 +83,18 @@ describe('saveProjectProperties', () => {
     expect(prisma.roleActivity.updateMany).toHaveBeenCalledWith({ where: { projectId: 'pr1', experienceId: 'e1' }, data: { experienceId: 'e2' } })
   })
 
-  it('moving a project to no role clears the role from the evidence that carried the old one', async () => {
+  it('moving a project to Independent projects preserves its evidence owner', async () => {
+    vi.mocked(prisma.experience.findFirst).mockResolvedValue({ id: 'ind' } as never)
     vi.mocked(prisma.project.findFirst).mockResolvedValue({ experienceId: 'e1' } as never)
     await saveProjectProperties('p1', 'pr1', project)
-    expect(prisma.roleActivity.updateMany).toHaveBeenCalledWith({ where: { projectId: 'pr1', experienceId: 'e1' }, data: { experienceId: null } })
+    expect(prisma.roleActivity.updateMany).toHaveBeenCalledWith({ where: { projectId: 'pr1', experienceId: 'e1' }, data: { experienceId: 'ind' } })
+  })
+
+  it('creates Independent projects when no home exists and never submits a null owner', async () => {
+    vi.mocked(prisma.experience.findFirst).mockResolvedValue(null)
+    await saveProjectProperties('p1', 'pr1', project)
+    expect(prisma.project.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ experienceId: 'ind-new' }) }))
+    expect(prisma.roleActivity.updateMany).toHaveBeenCalledWith({ where: { projectId: 'pr1', experienceId: null }, data: { experienceId: 'ind-new' } })
   })
 
   it('giving a role-less project a role gives that role to its evidence that has none', async () => {

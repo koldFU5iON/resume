@@ -151,14 +151,17 @@ async function main() {
     assert.equal(await prisma.experience.count({ where: { profileId, type: 'independent' } }), 0, 'a project moved away needs no independent home')
     await clean()
 
-    // Moving a project between roles, then to none.
+    // Moving a project between roles, then to Independent projects.
     w = await world()
     await saveProjectProperties(profileId, w.p1.id, props('P1', w.e2.id))
     assert.deepEqual(await row(w.both.id), { experienceId: w.e2.id, projectId: w.p1.id }, 'evidence that carried the old role follows')
     assert.deepEqual(await row(w.legacy.id), { experienceId: null, projectId: w.p1.id }, 'project-only evidence stays project-only')
     assert.deepEqual(await row(w.own.id), { experienceId: w.e1.id, projectId: null }, "the role's own evidence stays")
     await saveProjectProperties(profileId, w.p1.id, props('P1', null))
-    assert.deepEqual(await row(w.both.id), { experienceId: null, projectId: w.p1.id })
+    const personalHome = await prisma.experience.findFirstOrThrow({ where: { profileId, type: 'independent' } })
+    experiences.push(personalHome.id)
+    assert.deepEqual(await row(w.both.id), { experienceId: personalHome.id, projectId: w.p1.id })
+    assert.equal((await prisma.project.findUniqueOrThrow({ where: { id: w.p1.id } })).experienceId, personalHome.id)
     await clean()
 
     // Merging: same wording under different roles is never merged away; another role's evidence never ends up disagreeing.

@@ -1,10 +1,11 @@
 // Saves for the Properties tab: a role's facts and a project's facts. Session-
 // free: every function takes the caller's profileId first. Input is validated
 // here, not trusted from the form, and a cleared field is written as null (a
-// role with no end date is a current role; a project with no role stands alone).
+// role with no end date is current; a personal project lives under Independent projects).
 
 import { prisma } from '@/lib/db'
 import { lockRow } from './activity-roles'
+import { ensureIndependentExperience } from './independent-experience'
 import { ExperiencePropertiesSchema, ProjectPropertiesSchema, type ExperienceProperties, type ProjectProperties } from './properties-schema'
 
 export type { ExperienceProperties, ProjectProperties }
@@ -18,7 +19,7 @@ export async function saveExperienceProperties(profileId: string, id: string, in
 
 /**
  * Saves a project's facts, including which role it is part of. Its evidence carries the project's role, so
- * moving the project between roles (or to none) moves that evidence with it. Evidence that carries a
+ * moving the project between roles (including Independent projects) moves that evidence with it. Evidence that carries a
  * different role (it is another role's own) is left alone. One transaction.
  */
 export async function saveProjectProperties(profileId: string, id: string, input: ProjectProperties): Promise<void> {
@@ -32,9 +33,10 @@ export async function saveProjectProperties(profileId: string, id: string, input
       const role = await tx.experience.findFirst({ where: { id: data.experienceId, profileId }, select: { id: true } })
       if (!role) throw new Error('Experience not found')
     }
-    await tx.project.update({ where: { id }, data })
-    if (current.experienceId !== data.experienceId) {
-      await tx.roleActivity.updateMany({ where: { projectId: id, experienceId: current.experienceId }, data: { experienceId: data.experienceId } })
+    const experienceId = data.experienceId ?? await ensureIndependentExperience(tx, profileId)
+    await tx.project.update({ where: { id }, data: { ...data, experienceId } })
+    if (current.experienceId !== experienceId) {
+      await tx.roleActivity.updateMany({ where: { projectId: id, experienceId: current.experienceId }, data: { experienceId } })
     }
   })
 }
