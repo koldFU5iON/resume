@@ -13,7 +13,8 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { createActivity, deleteActivity, moveActivity, updateActivity, type ActivityOwner } from '@/modules/profile/actions'
-import type { ExtractionOwner } from '@/modules/profile/extract'
+import type { ExtractionOwner } from '@/modules/profile/extract-schema'
+import type { ExtractionReview } from '@/modules/profile/extraction-draft'
 import { mentionedProject } from '@/modules/profile/project-mention'
 import { noteHref } from '@/modules/profile/note-index'
 import { combineImpact, parseResult } from '@/modules/profile/result'
@@ -65,10 +66,10 @@ const KIND_LABEL: Record<string, string> = {
 const ROW_ACTIONS = 'flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100'
 
 /** Edits role-owned evidence, grouped by project on the role note and filtered on a project note. */
-export function EvidencePanel({ owner, activities, skills, fromProjects = [], roles }: {
+export function EvidencePanel({ owner, activities, extractionReview, fromProjects = [], roles }: {
   owner: ActivityOwner & { experienceId: string }
   activities: RoleActivity[]
-  skills: { id: string; name: string }[]
+  extractionReview: ExtractionReview | null
   fromProjects?: Group[]
   roles: EvidenceRole[]
 }) {
@@ -274,7 +275,7 @@ export function EvidencePanel({ owner, activities, skills, fromProjects = [], ro
         </Button>
       )}
 
-      <ExtractionPanel owner={extractionOwner} existingActivities={activities} existingSkills={skills} />
+      {extractionReview && <ExtractionPanel owner={extractionOwner} review={extractionReview} />}
 
       <AlertDialog open={moving !== null} onOpenChange={open => { if (!open) setMoving(null) }}>
         <AlertDialogContent>

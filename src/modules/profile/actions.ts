@@ -5,14 +5,13 @@ import { requireProfile } from '@/lib/session'
 import { revalidatePath } from 'next/cache'
 import * as z from 'zod'
 import { Prisma } from '@prisma/client'
-import { activityFieldsFor, deleteExperienceRow, deleteProjectRow, experienceDeleteImpact, nextActivityOrder, projectActivityLabel, withActivityOwnership, type ActivityOwner } from './activity-roles'
-import type { ExtractionOwner } from './extract'
+import { activityFieldsFor, deleteExperienceRow, deleteProjectRow, experienceDeleteImpact, nextActivityOrder, withActivityOwnership, type ActivityOwner } from './activity-roles'
 import { activityOwnedBy } from './ownership'
 import { saveExperienceProperties, saveProjectProperties, type ExperienceProperties, type ProjectProperties } from './properties'
 import { readNote, saveExperienceNote, saveProjectNote, type NoteSaveResult } from './note-revision'
 import { mergeProjects } from './project-merge'
 import type { ResultInput } from './result'
-import { ActivityInputSchema, ACTIVITY_KINDS, DEFAULT_SKILL_CATEGORY, MAX_SUMMARY_LENGTH, SkillInputSchema, normalizeSkillLevel } from './schema'
+import { ActivityInputSchema, MAX_SUMMARY_LENGTH, SkillInputSchema } from './schema'
 
 export type ContactField = 'name' | 'email' | 'phone' | 'location' | 'website' | 'linkedIn' | 'github' | 'headline'
 
@@ -168,79 +167,6 @@ export async function updateExperienceNotes(id: string, summary: string, expecte
     revalidatePath('/dashboard/profile', 'layout')
   }
   return result
-}
-
-// ── Accept suggestions (bulk transactional) ───────────────────────────────────
-
-type AcceptedActivity = {
-  kind: string
-  description: string
-  impact: string | null
-  replaceId?: string // if set, update existing row instead of creating
-}
-
-type AcceptedSkill = {
-  name: string
-  category: string | null
-  level: string | null
-  replaceId?: string // if set, update existing row instead of creating
-}
-
-export type AcceptSuggestionsPayload = ExtractionOwner & {
-  activities: AcceptedActivity[]
-  skills: AcceptedSkill[]
-}
-
-export async function acceptSuggestions(payload: AcceptSuggestionsPayload) {
-  const { profile } = await requireProfile()
-
-  if (payload.activities.some((a) => !(ACTIVITY_KINDS as readonly string[]).includes(a.kind))) {
-    throw new Error('Invalid activity kind')
-  }
-
-  await withActivityOwnership(profile.id, async (tx) => {
-    let fields
-    if ('projectId' in payload) {
-      const project = await projectActivityLabel(tx, profile.id, payload.projectId)
-      fields = { experienceId: project.experienceId, projectId: project.id }
-    } else {
-      if (typeof payload.experienceId !== 'string') throw new Error('Experience not found')
-      fields = await activityFieldsFor(tx, profile.id, { experienceId: payload.experienceId })
-    }
-    let order = await nextActivityOrder(tx, fields)
-    for (const a of payload.activities) {
-      const data = { kind: a.kind, description: a.description, impact: a.impact ?? undefined }
-      if (a.replaceId) {
-        await tx.roleActivity.update({ where: { id: a.replaceId, ...fields }, data })
-      } else {
-        await tx.roleActivity.create({ data: { ...data, ...fields, tags: '[]', order: order++ } })
-      }
-    }
-    for (const s of payload.skills) {
-      if (s.replaceId) {
-        await tx.skill.update({
-          where: { id: s.replaceId, profileId: profile.id },
-          data: {
-            name: s.name,
-            ...(s.category ? { category: s.category } : {}),
-            ...(s.level ? { level: normalizeSkillLevel(s.level) } : {}),
-          },
-        })
-      } else {
-        await tx.skill.create({
-          data: {
-            profileId: profile.id,
-            name: s.name,
-            category: s.category ?? DEFAULT_SKILL_CATEGORY,
-            level: normalizeSkillLevel(s.level),
-            tags: '[]',
-          },
-        })
-      }
-    }
-  })
-
-  revalidatePath('/dashboard/profile', 'layout')
 }
 
 // ── Skills ────────────────────────────────────────────────────────────────────

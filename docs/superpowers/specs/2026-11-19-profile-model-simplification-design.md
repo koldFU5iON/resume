@@ -1,6 +1,6 @@
 # Simplifying the profile model: roles own achievements, projects are labels
 
-**Date:** 2026-11-19 · **Status:** Implemented through step 3e on the feature branch. The saved extraction draft and CV Projects output are pending. Generator tuning is paused.
+**Date:** 2026-11-19 · **Status:** Implemented through PR 4 on the feature branch. CV Projects output is pending. Generator tuning is paused.
 **Builds on:** `2026-11-11-profile-map-design.md` (the vault), issue #440 and its PRs #442–#444, `docs/cv-generation.md` §20–21.
 **Constraint kept:** the CV generator stays general and is never tuned to one person's data. Profile data is never changed without the owner seeing it first.
 
@@ -158,7 +158,7 @@ The question of a vector store came up. Position:
 **Principle (decision O4): capture stays as easy as writing.** The owner writes freely in the role's note, Obsidian style. A clean-and-extract layer turns that into structured achievements, shown as a **draft** the owner can change before it counts as profile data.
 
 1. **Write.** Free text in the role's note. Nothing is required.
-2. **Extract and clean.** Today's extraction (`src/modules/profile/extract.ts`: local tag parser, then an LLM for untagged prose, suggestions held in memory, per-item accept, replace or skip, duplicate hints) is the starting point. It needs to change in these ways:
+2. **Extract and clean.** PR 4 extends the local tag parser and optional LLM pass into a saved review flow. See the [extraction contract](../../profile-extraction.md).
    - Output achievements by default. Duty-like lines go to scope, not to a peer type. The prompt's "when ambiguous, prefer responsibility" is reversed.
    - Propose, per achievement: a cleaned stand-alone first-person claim, a structured result (measure, value, baseline, period) where the text states one, and a project label from the role's projects, or a new project name. Never invent a figure.
    - Check against **all** of the role's achievements, including project-labelled ones, so re-extracting does not duplicate (closes the #443 gap).
@@ -176,8 +176,8 @@ The role note groups labelled evidence by project. The project note shows the ev
 | 1 | (built: `npm run profile:backfill-report -- --profile <id\|email>`, read-only; migration adds only `Experience.type`) Add a **dry-run backfill report** (projects with no role, activities with only a project, responsibilities to fold into Overview). No constraint tightened yet. | Approves the report |
 | 2 | **Overview fold only**: guarded apply script (`npm run profile:backfill-apply`: dry run prints a fingerprint, `--apply --confirm <fingerprint>` writes it in one transaction), near-duplicate responsibilities left out of the fold. Changes only `Experience.summary`; no activity row is touched. | Approves the fingerprint, then runs it |
 | 3 | **Role-owns switch** (built through 3e, §13). Includes the achievement form, role grouping, project-filtered view, Move, and the inline project suggestion that replaces the readiness finding. | Decisions recorded in §12 |
-| 4 | **Clean-and-extract draft layer** (§9): extraction proposes cleaned achievements with result and project, a saved draft with edit, accept and skip, de-duplication against all the role's achievements | None (extraction prompts are profile capture, not generator prompts) |
-| 5 | Render independent work in a CV Projects section. | Pending |
+| 4 | **Clean-and-extract draft layer** (implemented) (§9): extraction proposes cleaned achievements with result and project, a saved draft with edit, accept and skip, de-duplication against all the role's achievements | None (extraction prompts are profile capture, not generator prompts) |
+| 5 | Render independent work in a CV Projects section. Generator tuning stays paused. | Pending |
 | 6 | Generator: Select shortlist with handles; project name rule | **Lifts the generator pause** |
 | 7 | Optional embeddings spike | Decides after PR 6 |
 
@@ -226,4 +226,4 @@ Built on the feature branch. One migration performs the backfill, sets both role
 
 The role note groups evidence by project and the project note filters that evidence by label. Add, Edit and Move use a role and an optional same-role project label. Independent projects is available on demand, and its unlabelled evidence can be opened from the Independent projects section. The achievement form suggests a label when the wording names a project in the selected role.
 
-The migration was validated first on an isolated production snapshot and then against synthetic legacy rows. The saved draft, extraction changes, CV Projects rendering and generator tuning remain in later phases.
+The migration was validated first on an isolated production snapshot and then against synthetic legacy rows. PR 4 adds saved extraction drafts. CV Projects rendering and generator tuning remain in later phases.

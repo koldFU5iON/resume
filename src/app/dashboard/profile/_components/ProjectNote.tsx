@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import type { FullProfile } from '@/app/types/profile'
+import type { ExtractionReview } from '@/modules/profile/extraction-draft'
 import type { PendingSuggestion } from '@/modules/profile-map/link-store'
 import type { NoteCapabilityLink } from '@/modules/profile-map/note-links'
 import { getNoteLiveState, updateProjectNotes } from '@/modules/profile/actions'
@@ -17,13 +18,13 @@ import { NoteLinksPanel } from './NoteLinksPanel'
  * A project as a note: its name as the title (with the role it belongs to), its Markdown note as the document, and Properties, Evidence and
  * Links in the details region.
  */
-export function ProjectNote({ project, parent, roles, skills, links, pending }: {
+export function ProjectNote({ project, parent, roles, extractionReview, links, pending }: {
   project: FullProfile['projects'][number]
   /** The role this project belongs to. */
   parent: { id: string; title: string } | null
   /** Every role the project could be moved to. */
   roles: EvidenceRole[]
-  skills: { id: string; name: string }[]
+  extractionReview: ExtractionReview | null
   links: NoteCapabilityLink[]
   pending: PendingSuggestion[]
 }) {
@@ -51,7 +52,7 @@ export function ProjectNote({ project, parent, roles, skills, links, pending }: 
               id: 'evidence',
               label: 'Evidence',
               count: String(activities.length),
-              panel: <EvidencePanel key={project.id} owner={{ experienceId: project.experienceId, projectId: project.id }} activities={activities} skills={skills} roles={roles} />,
+              panel: <EvidencePanel key={project.id} owner={{ experienceId: project.experienceId, projectId: project.id }} activities={activities} extractionReview={extractionReview} roles={roles} />,
             },
             { id: 'links', label: 'Links', count: `${links.length} · ${pending.length}`, panel: <NoteLinksPanel capabilities={links} pending={pending} /> },
           ]}

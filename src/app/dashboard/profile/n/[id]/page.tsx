@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation'
 import { experienceLabel, experienceTitle, isEmployment } from '@/modules/profile/experience-type'
 import Link from 'next/link'
 import { getFullProfile } from '@/modules/profile/queries'
+import { loadExtractionReview } from '@/modules/profile/extraction-draft'
 import { getLLMConfigStatus } from '@/modules/llm/client'
 import { requireProfile } from '@/lib/session'
 import { buildProfileSummary } from '@/lib/profile-summary'
@@ -29,11 +30,13 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
   const profileSummary = buildProfileSummary(profile)
 
   if (note.kind === 'experience' || note.kind === 'project') {
-    const [vault, allPending] = await Promise.all([loadVault(session.id), listPendingSuggestions(session.id)])
+    const owner = note.kind === 'experience' ? { experienceId: note.id } : { projectId: note.id }
+    const [vault, allPending, extractionReview] = await Promise.all([
+      loadVault(session.id), listPendingSuggestions(session.id), loadExtractionReview(session.id, owner),
+    ])
     const links = noteCapabilityLinks(vault, note.id)
     const evidenceIds = new Set(links?.evidenceIds ?? [])
     const pending = allPending.filter(s => evidenceIds.has(s.evidenceId))
-    const skills = profile.skills.map(s => ({ id: s.id, name: s.name }))
 
     const roles = profile.experiences.map(e => ({
       id: e.id,
@@ -54,7 +57,7 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
           />
           <ExperienceNote
             experience={experience}
-            skills={skills}
+            extractionReview={extractionReview}
             roles={roles}
             projects={profile.projects.filter(p => p.experienceId === experience.id)}
             links={links?.capabilities ?? []}
@@ -78,7 +81,7 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
           // Only employment has a role breadcrumb.
           parent={role && isEmployment(role) ? { id: role.id, title: experienceTitle(role) } : null}
           roles={roles}
-          skills={skills}
+          extractionReview={extractionReview}
           links={links?.capabilities ?? []}
           pending={pending}
         />

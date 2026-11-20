@@ -1,60 +1,83 @@
 import * as z from 'zod'
+import { ResultInputSchema } from './result'
 
-// Lives here (not next to extractFromNotes) because action files use 'use server',
-// which forbids non-async exports — schemas have to be reachable from a plain module.
-//
-// Shared by both the local tag parser and the LLM extraction step. The `source`
-// tag on each item lets the UI render a small attribution badge ("parser" vs "llm")
-// so the user can tell at a glance which suggestions came from their tagged
-// markdown vs the model's read of unstructured prose.
-
-const SourceSchema = z.enum(['parser', 'llm'])
-  .describe('Where this suggestion came from. "parser" = a recognized H2 heading bucketed it deterministically. "llm" = extracted from prose that sat under no recognized heading.')
-
-const ActivityKindSchema = z.enum(['responsibility', 'achievement'])
-  .describe('"responsibility" = an ongoing duty or scope of work. "achievement" = a specific outcome or measurable result. When ambiguous, prefer responsibility.')
-
-const SkillLevelSchema = z.enum(['Beginner', 'Intermediate', 'Advanced', 'Expert'])
-  .describe('Self-assessed proficiency. Leave null when the source material gives no clear signal.')
-
-// Constraints are intentionally loose. min/max bounds reject the whole response
-// when the model trims or pads slightly, and the cost of a retry is real money.
-// The UI is happy with empty arrays; the user just sees a "no suggestions" state.
-
-export const ExtractedActivitySchema = z.object({
-  kind: ActivityKindSchema,
-  description: z.string().min(1)
-    .describe('A single bullet describing the activity. Should stand alone — no leading conjunctions or pronouns referring to other bullets.'),
-  impact: z.string().nullable()
-    .describe('Optional measurable outcome or numeric result. Null when the source did not specify one — do not fabricate.'),
-  source: SourceSchema,
+const suggestionSource = z.enum(['parser', 'llm'])
+const resultFields = z.object({
+  measure: z.string(),
+  value: z.string(),
+  baseline: z.string().nullable(),
+  period: z.string().nullable(),
 })
 
-export const ExtractedSkillSchema = z.object({
-  name: z.string().min(1)
-    .describe('The technology, tool, methodology, or domain. Examples: "Kubernetes", "Postgres", "Distributed systems".'),
-  category: z.string().nullable()
-    .describe('A grouping label for the UI. Examples: "Backend", "DevOps", "Leadership". Null when uncertain — the user assigns one at review time.'),
-  level: SkillLevelSchema.nullable(),
-  source: SourceSchema,
+const proposedClaim = z.object({
+  kind: z.enum(['achievement', 'scope']).describe('Default to achievement. Use scope for an ongoing duty.'),
+  description: z.string().trim().min(1).describe('A standalone first-person claim faithful to the note.'),
+  original: z.string().min(1).describe('An exact contiguous excerpt from the notes supporting the entire claim.'),
+  impact: z.string().nullable().describe('A source-stated outcome, if any.'),
+  result: resultFields.nullable().describe('Use verbatim phrases for the measure, value and any stated baseline or period. Null if unclear.'),
+  projectName: z.string().nullable().describe('A known role project name, or a new project name explicitly stated in the excerpt.'),
+})
+
+const proposedSkill = z.object({
+  name: z.string().trim().min(1).max(120),
+  category: z.string().trim().max(80).nullable(),
+  level: z.enum(['Beginner', 'Intermediate', 'Advanced', 'Expert']).nullable(),
 })
 
 export const ExtractedSuggestionsSchema = z.object({
-  overview: z.string().nullable()
-    .describe('Free prose under the `## Overview` tag. Context only — not a saveable entity. Null when no overview was provided.'),
-  activities: z.array(ExtractedActivitySchema),
-  skills: z.array(ExtractedSkillSchema),
+  activities: z.array(proposedClaim),
+  skills: z.array(proposedSkill.extend({ original: proposedClaim.shape.original })),
 })
 
-export type ExtractedActivity = z.infer<typeof ExtractedActivitySchema>
-export type ExtractedSkill = z.infer<typeof ExtractedSkillSchema>
-export type ExtractedSuggestions = z.infer<typeof ExtractedSuggestionsSchema>
-export type SuggestionSource = z.infer<typeof SourceSchema>
+export type ExtractedActivity = z.infer<typeof proposedClaim> & { source: z.infer<typeof suggestionSource> }
+export type ExtractedSkill = z.infer<typeof proposedSkill> & { source: z.infer<typeof suggestionSource>; original: string }
 
-// Empty payload used when extract runs on empty notes or when neither tier
-// produces anything. Saves callers from null-checking the shape itself.
-export const emptyExtractedSuggestions: ExtractedSuggestions = {
-  overview: null,
-  activities: [],
-  skills: [],
-}
+const id = z.string().min(1).max(128)
+export const ExtractionOwnerSchema = z.union([
+  z.strictObject({ experienceId: id }),
+  z.strictObject({ projectId: id }),
+])
+export type ExtractionOwner = z.infer<typeof ExtractionOwnerSchema>
+
+const projectChoice = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('existing'), id }),
+  z.object({ kind: z.literal('new'), name: z.string().trim().min(1).max(160) }),
+]).nullable()
+
+const achievementFields = z.object({
+  kind: z.literal('achievement'),
+  description: proposedClaim.shape.description,
+  impact: z.string().trim().nullable(),
+  result: ResultInputSchema.nullable(),
+  project: projectChoice,
+  projectEdited: z.boolean(),
+})
+const scopeFields = z.object({ kind: z.literal('scope'), description: proposedClaim.shape.description })
+const skillFields = proposedSkill.extend({ kind: z.literal('skill') })
+
+export const DraftEditSchema = z.discriminatedUnion('kind', [achievementFields, scopeFields, skillFields])
+export type DraftEdit = z.output<typeof DraftEditSchema>
+
+const itemMetadata = { id, key: z.string(), original: z.string().min(1), source: suggestionSource }
+const DraftItemSchema = z.discriminatedUnion('kind', [
+  achievementFields.extend(itemMetadata), scopeFields.extend(itemMetadata), skillFields.extend(itemMetadata),
+])
+export type DraftItem = z.output<typeof DraftItemSchema>
+
+export const DraftContentSchema = z.object({
+  items: z.array(DraftItemSchema),
+  resolved: z.array(z.string()),
+  notice: z.string().nullable(),
+})
+
+export const DraftStampSchema = z.object({
+  sourceVersion: z.string().length(64),
+  version: z.number().int().nonnegative(),
+})
+export const DraftChangeSchema = DraftStampSchema.extend({
+  itemId: id,
+  decision: z.enum(['save', 'accept', 'replace', 'skip']),
+  edit: DraftEditSchema.optional(),
+  target: z.object({ id, version: z.string() }).optional(),
+}).refine((input) => input.decision !== 'replace' || input.target, 'Choose a match to replace.')
+export type DraftChange = z.input<typeof DraftChangeSchema>

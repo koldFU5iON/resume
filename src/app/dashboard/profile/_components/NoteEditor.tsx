@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useEffectEvent, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { toast } from 'sonner'
@@ -42,6 +42,12 @@ export function NoteEditor({
   const save = useDocumentSave({ recoveryKey, initialContent, initialRevision, save: onSave, loadLive, noun: 'note' })
   const { content } = save
   const [mode, setMode] = useState<'markdown' | 'preview'>('markdown')
+  const syncSavedNote = useEffectEvent((version: { content: string; revision: number }) => {
+    if (version.revision > save.revision) void save.applyExternalVersion(version, 'elsewhere')
+  })
+  useEffect(() => {
+    syncSavedNote({ content: initialContent, revision: initialRevision })
+  }, [initialContent, initialRevision])
 
   async function copyText(value: string, label: string) {
     try {
