@@ -1,5 +1,6 @@
-// Folds each role's responsibilities into its Overview text, for one profile. WRITES to the database.
-// It changes only Experience.summary; no activity row is touched or deleted, and no wording changes.
+// Applies the profile model backfill for one profile. WRITES to the database. Gives each project-only activity
+// its project's role (the project stays as its label) and folds responsibilities into Overview notes.
+// Nothing is deleted and no wording changes.
 // Read the dry-run report first (npm run profile:backfill-report).
 //
 //   npm run profile:backfill-apply -- --profile <profileId|email> [--allow-remote]               dry run: prints the plan and a fingerprint
@@ -39,7 +40,7 @@ async function main() {
   const { Pool } = await import('pg')
   const prisma = new PrismaClient({ adapter: new PrismaPg(new Pool({ connectionString: process.env.DATABASE_URL })) })
   const { planBackfill, formatReport } = await import('../src/modules/profile/model-backfill')
-  const { applyFold, foldFingerprint, summarisePlan } = await import('../src/modules/profile/model-backfill-apply')
+  const { applyPlan, blockers, planFingerprint, summarisePlan } = await import('../src/modules/profile/model-backfill-apply')
 
   try {
     const who = values.profile!
@@ -71,10 +72,11 @@ async function main() {
     const report = planBackfill(input)
     console.log(formatReport(report))
     console.log('')
+    const blocked = blockers(report)
+    if (blocked) fail(blocked)
     const plan = summarisePlan(report)
-    const fingerprint = foldFingerprint(report, input)
-    console.log(`This run would fold ${plan.responsibilitiesFolded} responsibilities into ${plan.notesFolded} notes. Fingerprint: ${fingerprint}`)
-    console.log('(Section 2 is not applied by this script: giving project-only activities a role is a later step.)')
+    const fingerprint = planFingerprint(report, input)
+    console.log(`This run would give ${plan.activitiesAssigned} activities their project's role and fold ${plan.responsibilitiesFolded} responsibilities into ${plan.notesFolded} notes. Fingerprint: ${fingerprint}`)
     if (!values.apply) {
       console.log(`DRY RUN: nothing changed. To apply: --apply --confirm ${fingerprint}`)
       return
@@ -84,9 +86,9 @@ async function main() {
     // The plan is rebuilt inside the transaction from the rows as they are then, and must match what was confirmed.
     const result = await prisma.$transaction(async (tx) => {
       const fresh = await load(tx)
-      return applyFold(tx, profileId, fresh, planBackfill(fresh), values.confirm!)
+      return applyPlan(tx, profileId, fresh, planBackfill(fresh), values.confirm!)
     }, { timeout: 60_000 })
-    console.log(`APPLIED: folded ${result.responsibilitiesFolded} responsibilities into ${result.notesFolded} notes.`)
+    console.log(`APPLIED: gave ${result.activitiesAssigned} activities their project's role and folded ${result.responsibilitiesFolded} responsibilities into ${result.notesFolded} notes.`)
   } finally {
     await prisma.$disconnect()
   }

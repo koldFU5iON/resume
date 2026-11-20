@@ -7,6 +7,8 @@
 // result; the constraints and the Overview fold are applied in a later PR,
 // only after the owner has read this report.
 
+import { isProjectEvidence } from './ownership'
+
 export type BackfillExperience = { id: string; company: string; role: string; type: string; summary: string; revision: number }
 export type BackfillProject = { id: string; name: string; experienceId: string | null; notes: string; revision: number }
 export type BackfillActivity = {
@@ -204,6 +206,7 @@ function planNoteFold(
 export function planBackfill(input: BackfillInput): BackfillReport {
   const experienceById = new Map(input.experiences.map((e) => [e.id, e]))
   const projectById = new Map(input.projects.map((p) => [p.id, p]))
+  const projectRoles = new Map(input.projects.map((p) => [p.id, p.experienceId] as const))
   const roleOf = (id: string): Role | null => {
     const e = experienceById.get(id)
     return e ? { experienceId: e.id, company: e.company, role: e.role } : null
@@ -219,7 +222,7 @@ export function planBackfill(input: BackfillInput): BackfillReport {
   const activitiesToAssign: BackfillReport['activitiesToAssign'] = []
   const activitiesUnresolved: BackfillReport['activitiesUnresolved'] = []
   const activitiesMismatched: BackfillReport['activitiesMismatched'] = []
-  // The role each activity will end up with (for matching achievements), and the activities that have a role of their own.
+  // The role each activity will end up with (for matching achievements), and the activities the role holds directly (not through a project).
   const effectiveRole = new Map<string, string>()
   const ownRole = new Map<string, string>()
 
@@ -228,7 +231,8 @@ export function planBackfill(input: BackfillInput): BackfillReport {
     const owner = a.experienceId && experienceById.has(a.experienceId) ? a.experienceId : null
     if (owner) {
       effectiveRole.set(a.id, owner)
-      ownRole.set(a.id, owner)
+      // A responsibility labelled with a project (consistent role) is the project's, as before it was assigned a role.
+      if (!isProjectEvidence(a, projectRoles)) ownRole.set(a.id, owner)
       if (project?.experienceId && project.experienceId !== owner && experienceById.has(project.experienceId)) {
         activitiesMismatched.push({
           id: a.id, description: a.description, experienceId: owner,

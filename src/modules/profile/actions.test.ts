@@ -80,7 +80,7 @@ describe('acceptSuggestions', () => {
 
     vi.mocked(prisma.experience.findFirst).mockResolvedValue({ id: 'e1' } as never)
     await acceptSuggestions({ experienceId: 'e1', activities: [{ kind: 'achievement', description: 'x', impact: null, replaceId: 'a9' }], skills: [] })
-    expect(prisma.roleActivity.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'a9', experienceId: 'e1' } }))
+    expect(prisma.roleActivity.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'a9', experienceId: 'e1', projectId: null } }))
   })
 })
 
@@ -229,7 +229,7 @@ describe('acceptSuggestions into a project', () => {
     vi.mocked(prisma.experience.findFirst).mockResolvedValue({ id: 'e1' } as never)
     vi.mocked(prisma.roleActivity.findFirst).mockResolvedValue(null)
     await acceptSuggestions({ experienceId: 'e1', activities: [{ ...accepted, replaceId: 'a1' }, accepted], skills: [] })
-    expect(prisma.roleActivity.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'a1', experienceId: 'e1' } }))
+    expect(prisma.roleActivity.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'a1', experienceId: 'e1', projectId: null } }))
     expect(vi.mocked(prisma.roleActivity.create).mock.calls[0][0].data).toMatchObject({ experienceId: 'e1', projectId: null, order: 0 })
   })
 })

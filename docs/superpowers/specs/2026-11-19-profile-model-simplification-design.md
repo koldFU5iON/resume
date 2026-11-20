@@ -214,7 +214,7 @@ Tests first for each; today's behaviour is kept while a project can still have n
 - Assignment guard: the apply step filters on `projectId` as well as "no role yet", so a concurrent move cannot assign a stale role.
 
 ### 3c. Assign the roles (data)
-Needs the 3b constraint change (otherwise the database refuses a row with both). Extend the guarded apply script (dry run, fingerprint, `--apply --confirm`, one transaction) to give project-only activities their project's role. Your report lists the 19. Verification: candidates and vault built from production before and after must be identical (3a's golden check, read-only); readiness findings must not change.
+Needs the 3b constraint change (otherwise the database refuses a row with both). Built: the guarded apply script (`npm run profile:backfill-apply`) now gives each project-only activity its project's role (guarded on: still no role, same project, project still has that role; refuses while anything needs the owner's decision) as well as folding notes, under one fingerprint. A responsibility with both a role and its project's role still folds into the *project's* note, so assigning changes nothing about where it folds. Extend the guarded apply script (dry run, fingerprint, `--apply --confirm`, one transaction) to give project-only activities their project's role. Your report lists the 19. Verification: candidates and vault built from production before and after must be identical (3a's golden check, read-only); readiness findings must not change.
 
 ### 3d. The independent experience
 - `Experience.type = 'independent'`, created on demand, named by the owner (placeholder "Independent projects"), timeless.
