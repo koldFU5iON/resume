@@ -133,7 +133,7 @@ describe('enforceSelection', () => {
     })
 
     it('does not run the rules fallback when the model only picked activities', async () => {
-      call.mockResolvedValue({ value: { ...empty, activities: acts(cands, 'co-0', 3) }, model: 'm', retries: 0, usage: NO_USAGE })
+      call.mockResolvedValue({ value: { ...empty, activities: pick('A1', 'A2', 'A3') }, model: 'm', retries: 0, usage: NO_USAGE })
       const r = await runSelect(gathered(), buildBriefFor(), { profileId: 'p1', jobApplicationId: 'j', runId: 'r', deadline: Date.now() + 60_000 })
       expect(r.selection.mode).toBe('model')
     })
@@ -181,8 +181,8 @@ describe('enforceSelection', () => {
       it('tells the model that at least one current employer must be included', () => {
         const text = selectPrompt(buildBriefFor(), twoCurrent())
         expect(text).toContain('# Current employers')
-        expect(text).toContain('- [co-0] Role 0 — Co 0')
-        expect(text).toContain('- [co-2] Role 2 — Co 2')
+        expect(text).toContain('- [EMP1] Role 0 — Co 0')
+        expect(text).toContain('- [EMP3] Role 2 — Co 2')
         expect(text).toContain('At least one of them must be included')
       })
 
@@ -496,7 +496,7 @@ describe('SelectOutputSchema', () => {
       { id: 'a', relevance: 4.6 }, { id: 'b', relevance: 9 }, { id: 'c', relevance: 0 }, { id: 'd' },
     ] })
     expect(parsed.employers.map((e) => e.relevance)).toEqual([5, 5, 1, undefined])
-    expect(SelectOutputSchema.safeParse({ employers: [{ id: 'a', relevance: 'high' }] }).success).toBe(false)
+    expect(SelectOutputSchema.parse({ employers: [{ id: 'a', relevance: 'high' }] }).employers).toEqual([{ id: '', reason: '', relevance: undefined }])
   })
 })
 
@@ -607,22 +607,22 @@ describe('runSelect', () => {
   beforeEach(() => vi.clearAllMocks())
 
   it('samples at temperature 0 (the named constant) so two runs of one job pick alike', async () => {
-    call.mockResolvedValue({ value: { ...empty, employers: epick(['co-0', 4]), skills: pick('s0') }, model: 'm-fast', retries: 0, usage: NO_USAGE })
+    call.mockResolvedValue({ value: { ...empty, employers: epick(['EMP1', 4]), skills: pick('S1') }, model: 'm-fast', retries: 0, usage: NO_USAGE })
     await runSelect(g, buildBriefFor(), ctx)
     expect(TEMPERATURE.select).toBe(0)
     expect(call).toHaveBeenCalledWith('p1', expect.any(String), SelectOutputSchema, expect.objectContaining({ temperature: 0 }))
   })
 
   it('carries the reasons of a retry through to the stage result', async () => {
-    call.mockResolvedValue({ value: { ...empty, employers: epick(['co-0', 4]) }, model: 'm', retries: 1, usage: NO_USAGE, retryReasons: ['the answer was cut off'] })
+    call.mockResolvedValue({ value: { ...empty, employers: epick(['EMP1', 4]) }, model: 'm', retries: 1, usage: NO_USAGE, retryReasons: ['the answer was cut off'] })
     const r = await runSelect(g, buildBriefFor(), ctx)
     expect(r).toMatchObject({ retries: 1, retryReasons: ['the answer was cut off'] })
   })
 
   it('calls the fast role with the select tag and the run attribution', async () => {
-    call.mockResolvedValue({ value: { ...empty, employers: epick(['co-0', 4]), skills: pick('s0') }, model: 'm-fast', retries: 0, usage: NO_USAGE })
+    call.mockResolvedValue({ value: { ...empty, employers: epick(['EMP1', 4]), skills: pick('S1') }, model: 'm-fast', retries: 0, usage: NO_USAGE })
     const r = await runSelect(g, buildBriefFor(), ctx)
-    expect(call).toHaveBeenCalledWith('p1', expect.stringContaining('[co-0]'), SelectOutputSchema, expect.objectContaining({
+    expect(call).toHaveBeenCalledWith('p1', expect.stringContaining('[EMP1]'), SelectOutputSchema, expect.objectContaining({
       role: 'fast', feature: 'cv-gen-select', attribution: { jobApplicationId: 'job-1', runId: 'run-1' },
     }))
     expect(r).toMatchObject({ model: 'm-fast', retries: 0 })
@@ -631,7 +631,7 @@ describe('runSelect', () => {
   })
 
   it('adds the desk document to the select call’s attribution when it is known', async () => {
-    call.mockResolvedValue({ value: { ...empty, employers: epick(['co-0', 4]), skills: pick('s0') }, model: 'm-fast', retries: 0, usage: NO_USAGE })
+    call.mockResolvedValue({ value: { ...empty, employers: epick(['EMP1', 4]), skills: pick('S1') }, model: 'm-fast', retries: 0, usage: NO_USAGE })
     await runSelect(g, buildBriefFor(), { ...ctx, writingDeskDocumentId: 'doc-1' })
     expect(call).toHaveBeenCalledWith('p1', expect.anything(), SelectOutputSchema, expect.objectContaining({
       attribution: { jobApplicationId: 'job-1', runId: 'run-1', writingDeskDocumentId: 'doc-1' },
@@ -666,7 +666,7 @@ describe('runSelect', () => {
     const r = await runSelect(g, buildBriefFor(), ctx)
     expect(r.selection.mode).toBe('fallback')
     expect(r.retries).toBe(1)
-    expect(r.notes[0]).toContain('no item that is in the profile')
+    expect(r.notes[0]).toContain('no valid candidate handles')
   })
 
   it('does not fail on an unexpected error either', async () => {
@@ -741,7 +741,7 @@ describe('selectPrompt', () => {
   it('names the current employer and says it counts toward the employer budget', () => {
     const text = selectPrompt(buildBriefFor(), bigCandidates(3, 2))
     expect(text).toContain('# Current employer')
-    expect(text).toContain('[co-0] Role 0 — Co 0')
+    expect(text).toContain('[EMP1] Role 0 — Co 0')
     expect(text).toContain('counts toward the employer budget')
     expect(text).toContain('Employers with bullets 4')
   })
@@ -767,19 +767,19 @@ describe('selectPrompt', () => {
     const c = realistic()
     c.employers[0].progression = 'Three roles at Unity (2019–present): Program Manager → Technical Program Manager → Snr. Program Manager'
     const text = selectPrompt(buildBriefFor(), c)
-    expect(text).toContain('[co-0] Unity: latest title Snr. Program Manager')
+    expect(text).toContain('[EMP1] Unity: latest title Snr. Program Manager')
     expect(text).toContain('Three roles at Unity (2019–present)')
-    expect(text).toContain('[u-a0] (as Program Manager)')
-    expect(text).toContain('[u-a1] (as Technical Program Manager)')
+    expect(text).toContain('[A1] (as Program Manager)')
+    expect(text).toContain('[A2] (as Technical Program Manager)')
     // A single-role employer has no "as" tag.
-    expect(text).toContain('[e2a0] achievement')
+    expect(text).toContain('[A39] achievement')
   })
 
-  it('carries the brief, the budgets and every candidate id', () => {
+  it('carries the brief, the budgets and candidate handles', () => {
     const text = selectPrompt(buildBriefFor(), bigCandidates(2, 2))
     expect(text).toContain('Can they ship a platform migration?')
     expect(text).toContain('skills 12')
-    expect(text).toContain('[e1a1]')
+    expect(text).toContain('[A4]')
   })
 })
 
@@ -1199,7 +1199,7 @@ describe('certification order and top-up', () => {
   it('shows the issue year to the model', () => {
     const c = bigCandidates(2, 2)
     c.certifications = [cert('c1', 'PMP', { detail: 'PMI, 2018', issued: '2018-05-01' })]
-    expect(candidatesToPrompt(c)).toContain('[c1] PMP (PMI, 2018)')
+    expect(candidatesToPrompt(c)).toContain('[CERT1] PMP (PMI, 2018)')
   })
 })
 

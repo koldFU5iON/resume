@@ -44,11 +44,11 @@ import {
   claimedHits, credentialProblems, distinctiveTokens, distinctNotableFigures, figuresIn, introducedNames, normalised, projectReflected, repeatedFigures, selfDescriptions,
   unsupportedFigures, unsupportedProperNouns, unsupportedQualitative, wordCount,
 } from './checks'
-import { activityPromptText, evidenceTexts, figureIgnoredNames, summaryEvidenceTexts, projectPromptText, type EmployerEvidence, type Evidence } from './evidence'
+import { activityPromptText, employerProjectNames, evidenceTexts, figureIgnoredNames, summaryEvidenceTexts, projectPromptText, type EmployerEvidence, type Evidence } from './evidence'
 import { negationDrift, scopeDrift } from './fidelity'
 import { BULLET_MAX_WORDS, PROFILE_MAX_FIGURES, PROFILE_MAX_WORDS, SUMMARY_MAX_WORDS } from './limits'
 import { plainLine, plainProblems, plainReasons } from './plain'
-import { snippetOf } from './provenance'
+import { evidenceRefs, namesProject, snippetOf } from './provenance'
 import { briefText, data, requirementsBlock, requirementText } from './prompt'
 
 // ── The reviewable document ────────────────────────────────────────────────
@@ -149,7 +149,7 @@ export type ReviewLabel = { label: string; id: string; kind: BulletSource['kind'
 function sourceText(evidence: Pick<Evidence, 'employers'> & Partial<Pick<Evidence, 'independentProjects'>>, id: string): string | null {
   for (const e of evidence.employers) {
     const a = e.activities.find((x) => x.id === id)
-    if (a) return activityPromptText(a)
+    if (a) return `${a.fromProject ? `Recorded project “${a.fromProject.name}”: ` : ''}${activityPromptText(a)}`
     const p = e.projects.find((x) => x.id === id)
     if (p) return `${p.name}: ${projectPromptText(p)}`
   }
@@ -246,7 +246,7 @@ export function reviewPrompt(input: ReviewPromptInput, doc: ReviewDoc): { prompt
       : []),
     '# Emphasise items no evidence covers',
     data('uncovered', list(input.selection.uncovered)),
-    '# The CV\n\nSection ids, bullet ids (b1, b2...) and, under each bullet, the evidence it was written from (S1, S2...).',
+    '# The CV\n\nSection ids, bullet ids (b1, b2...) and, under each bullet, the evidence it was written from (S1, S2...). When editing a bullet, keep the recorded project name wherever it identifies the work. Keep each claim with its cited project.',
     data('cv', cv.join('\n\n')),
     `Return the edits (at most ${REVIEW_LIMITS.maxEdits}) and the concerns (at most ${REVIEW_LIMITS.maxConcerns}) as one JSON object matching the schema, in a \`\`\`json code block. Empty lists are fine.`,
   ].join('\n\n')
@@ -299,7 +299,7 @@ export function recheckText(
   const max = kind === 'bullet' ? BULLET_MAX_WORDS : kind === 'summary' ? SUMMARY_MAX_WORDS : PROFILE_MAX_WORDS
   if (wordCount(text) > max) return { why: `the new text is ${wordCount(text)} words; the limit is ${max}` }
 
-  const names = [...figureIgnoredNames(ctx.evidence), ...(emp ? emp.projects.map((p) => p.name) : [])]
+  const names = [...figureIgnoredNames(ctx.evidence), ...(emp ? employerProjectNames(emp) : [])]
   const years = kind === 'profile' && typeof ctx.yearsOfExperience === 'number' && ctx.yearsOfExperience > 0 ? ctx.yearsOfExperience : null
   if (kind === 'profile') {
     // The one years phrase is code-supplied: exactly that phrase is allowed, any other number of years is not.
@@ -401,20 +401,16 @@ export function entryRuleProblem(
     const reflected = (e: { summary: string; bullets: readonly string[] }) => projectReflected(all(e), p) || (distinctiveTokens(p.name).length > 0 && distinctiveTokens(p.name).every((t) => normalised(all(e)).includes(t)))
     if (reflected(before) && !reflected(after)) return `it leaves the selected project "${p.name}" out of the entry`
   }
+  const activityProjects = new Set(emp.activities.flatMap((a) => a.fromProject ? [a.fromProject.name] : []))
+  for (const name of activityProjects) {
+    if (before.bullets.some((b) => namesProject(b, name)) && !after.bullets.some((b) => namesProject(b, name))) {
+      return `it removes the last bullet naming the recorded project “${name}”`
+    }
+  }
   return null
 }
 
 export type ApplyResult = { applied: AppliedEdit[]; discarded: DiscardedEdit[] }
-
-/** The full text of the evidence a bullet cited, by source id. */
-function citedTexts(emp: EmployerEvidence, sources: readonly BulletSource[]): string[] {
-  return sources.flatMap((s) => {
-    const a = emp.activities.find((x) => x.id === s.id)
-    if (a) return [[a.text, a.impact ?? ''].filter(Boolean).join('\n')]
-    const p = emp.projects.find((x) => x.id === s.id)
-    return p ? [`${p.name}\n${p.text}`] : []
-  })
-}
 
 /** Applies the model's edits to `doc` (mutated) one by one, after re-checking each. Pure given its inputs. */
 export function applyEdits(doc: ReviewDoc, edits: ReviewOutput['edits'], ctx: ApplyContext): ApplyResult {
@@ -459,17 +455,27 @@ export function applyEdits(doc: ReviewDoc, edits: ReviewOutput['edits'], ctx: Ap
         bullet.removed = true
         continue
       }
+      const cited = evidenceRefs(emp).filter((ref) => bullet.sources.some((s) => s.id === ref.id && s.kind === ref.kind))
       const ok = recheckText('bullet', proposed, ctx, {
-        emp, current: ex.current, others: [ex.summary, ...without].filter(Boolean), old: bullet.text, cited: citedTexts(emp, bullet.sources),
+        emp, current: ex.current, others: [ex.summary, ...without].filter(Boolean), old: bullet.text, cited: cited.map((s) => s.text),
       })
       if ('why' in ok) { discard(ok.why); continue }
       if (ok.text === bullet.text) { discard('the new text is the same as the old'); continue }
+      const citedNames = [...new Set(cited.flatMap((s) => s.project ? [s.project.name] : []))]
+      const lost = cited.find((s) => s.kind === 'activity' && s.project &&
+        namesProject(bullet.text, s.project.name) && !namesProject(ok.text, s.project.name))
+      if (lost?.project) { discard(`the rewording loses the recorded project “${lost.project.name}” from this bullet`); continue }
+      const borrowed = employerProjectNames(emp).find((name) =>
+        !citedNames.includes(name) && !namesProject(bullet.text, name) && namesProject(ok.text, name) &&
+        !cited.some((s) => namesProject(s.text, name)),
+      )
+      if (borrowed) { discard(`the rewording adds the project “${borrowed}” without support from the cited evidence`); continue }
       const after = active().map((b) => (b === bullet ? ok.text : b.text))
       const rule = entryRuleProblem(emp, ctx, { summary: ex.summary, bullets: activeTexts() }, { summary: ex.summary, bullets: after })
       if (rule) { discard(rule); continue }
       // Provenance: the text is no longer the writer's. Keep the sources while the new text still states the figures the old
       // text took from them (or neither states any); otherwise clear them. Either way it is marked as edited by review.
-      const names = [...figureIgnoredNames(ctx.evidence), ...emp.projects.map((p) => p.name)]
+      const names = [...figureIgnoredNames(ctx.evidence), ...employerProjectNames(emp)]
       const oldFigures = figuresIn(bullet.text, { names }).map((f) => f.key)
       const newFigures = figuresIn(ok.text, { names }).map((f) => f.key)
       const keep = oldFigures.length === 0 || newFigures.some((k) => oldFigures.includes(k))

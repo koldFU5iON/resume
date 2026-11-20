@@ -108,8 +108,12 @@ export function figureIgnoredNames(e: Pick<Evidence, 'skills' | 'tools' | 'compe
   return [
     ...[...e.skills, ...e.tools, ...e.competencies, ...e.certifications].map((c) => c.name),
     ...(e.profileCompanies ?? []),
-    ...(e.employers ?? []).flatMap((emp) => emp.projects.map((p) => p.name)),
+    ...(e.employers ?? []).flatMap(employerProjectNames),
   ]
+}
+
+export function employerProjectNames(e: Pick<EmployerEvidence, 'activities' | 'projects'>): string[] {
+  return [...new Set([...e.projects.map((p) => p.name), ...e.activities.flatMap((a) => a.fromProject ? [a.fromProject.name] : [])])]
 }
 
 /** The text a SUMMARY's figures may also be checked against: the same as for bullets, plus the (capped) role overview the writer was shown. Never used for a bullet. */
@@ -117,9 +121,14 @@ export function summaryEvidenceTexts(e: EmployerEvidence): string[] {
   return e.overview?.trim() ? [...evidenceTexts(e), e.overview] : evidenceTexts(e)
 }
 
-/** The text a writer's figures and names may be checked against: the activities' text and impact. */
+/** Source facts for a project-labelled activity include its recorded name. */
+export function activityEvidenceText(a: CandidateActivity): string {
+  return [a.fromProject?.name, a.text, a.impact].filter(Boolean).join('\n')
+}
+
+/** The text a writer's figures and names may be checked against. */
 export function evidenceTexts(e: EmployerEvidence): string[] {
-  return [...e.activities.flatMap((a) => [a.text, a.impact ?? '']), ...e.projects.map((p) => `${p.name}\n${p.text}`)]
+  return [...e.activities.flatMap((a) => [a.text, a.impact ?? '', ...(a.fromProject ? [a.fromProject.name] : [])]), ...e.projects.map((p) => `${p.name}\n${p.text}`)]
 }
 
 const dayMs = (d: Date) => d.getTime()
@@ -266,9 +275,8 @@ export function evidenceFromVault(vault: Vault, selection: CvSelection, now: Dat
 }
 
 /**
- * The text of one activity exactly as the experience writer is shown it
- * (without its E-label); project-evidence.ts. The Review stage uses the same
- * function, so the reviewer judges a bullet against what the writer could see.
+ * The activity text and impact shown to the experience writer and Review.
+ * Recorded project labels accompany it as separate context.
  */
 export { activityPromptText }
 

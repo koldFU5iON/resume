@@ -8,7 +8,7 @@ import { loadCVBriefPrompt, loadCVSelectPrompt } from '@/modules/llm/prompt-cont
 import { buildBriefFor } from './__fixtures__/gathered'
 import { writeSelection, writeVault } from './__fixtures__/write'
 import { computeReuseKey, findReusableSelection, readReuseMeta, reuseDate, reuseKeyOf, reuseNote } from './reuse'
-import { REUSABLE_FAILURE_KINDS, SELECTION_PIPELINE_VERSION, SELECTION_REUSE_WINDOW_DAYS, SELECTION_REUSE_WINDOW_MS } from './schema'
+import { REUSABLE_FAILURE_KINDS, SELECTION_PIPELINE_VERSION, SELECTION_REUSE_WINDOW_DAYS, SELECTION_REUSE_WINDOW_MS, parseSelection } from './schema'
 
 const db = vi.mocked(prisma, { deep: true })
 const mockBriefPrompt = vi.mocked(loadCVBriefPrompt)
@@ -113,10 +113,14 @@ describe('findReusableSelection', () => {
       expect(reuseKeyOf({ ...base, briefPrompt: 'S', selectPrompt: 'B' })).not.toBe(k) // not just the concatenation
     })
 
-    it('an older stored selection is not reused: the pipeline version was bumped when the floors and the named-item brief shape arrived', () => {
-      expect(SELECTION_PIPELINE_VERSION).toBeGreaterThanOrEqual(2)
-      const base = { inputsHash: HASH, briefPrompt: 'B', selectPrompt: 'S' }
-      expect(reuseKeyOf({ ...base, version: 1 })).not.toBe(reuseKeyOf({ ...base, version: SELECTION_PIPELINE_VERSION }))
+    it('still reads the real IDs on version 7 runs but cannot reuse that key', async () => {
+      const base = { inputsHash: HASH, briefPrompt: 'BRIEF PROMPT', selectPrompt: 'SELECT PROMPT' }
+      const oldKey = reuseKeyOf({ ...base, version: 7 })
+      const currentKey = await computeReuseKey('p1', HASH)
+      expect(currentKey).not.toBe(oldKey)
+      expect(parseSelection(JSON.parse(JSON.stringify(selection)))?.skills.map((s) => s.id)).toEqual(selection.skills.map((s) => s.id))
+      db.cvGeneration.findFirst.mockResolvedValue(row({ log: { entries: [], reuseKey: oldKey } }) as never)
+      expect(await findReusableSelection('p1', 'job-1', { ...keys, reuseKey: currentKey }, NOW)).toBeNull()
     })
 
     it('computeReuseKey uses the current version and the EFFECTIVE prompts of this profile (an override included)', async () => {

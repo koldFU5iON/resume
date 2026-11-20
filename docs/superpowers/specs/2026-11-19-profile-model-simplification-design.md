@@ -1,6 +1,6 @@
 # Simplifying the profile model: roles own achievements, projects are labels
 
-**Date:** 2026-11-19 · **Status:** Implemented through PR 5 on the feature branch. Selection and prompt tuning remain paused.
+**Date:** 2026-11-19 · **Status:** PR 5 merged. The owner approved short Select references and recorded project naming for PR 6, implemented on the PR 6 branch. Broader generator tuning still needs approval.
 **Builds on:** `2026-11-11-profile-map-design.md` (the vault), issue #440 and its PRs #442–#444, `docs/cv-generation.md` §20–21.
 **Constraint kept:** the CV generator stays general and is never tuned to one person's data. Profile data is never changed without the owner seeing it first.
 
@@ -129,10 +129,10 @@ This is an emergency schema relaxation, not an automatic down migration. It does
 - An achievement is shown once. A matching project label groups it under that project in the vault. The recorded role determines ownership.
 - Gists keep merging `result` into impact once (`combineImpact`). No change.
 
-**CV generator** (changes are for the generator phase, gated on the owner lifting the pause)
+**CV generator (PR 6)**
 
-- Select receives a shortlist of achievements with **short handles** (`E1…En`) plus each one's role and project, and returns handles. Code maps handles back to ids and drops anything unknown. This is a response to the invalid-id failures in §2; it needs a logged run first to confirm the cause.
-- When several chosen achievements share a project, the writer gets the project name once as shared context and is told to name it in each bullet that otherwise reads as detached. This is a general rule, not a one-person tune.
+- Select receives the existing candidate menu with short, section-specific handles, including the current employer and supporting activity/project references. Code validates each reference and restores IDs before the existing selection rules. Version 8 invalidates earlier reuse keys. Those stored selections still read with their original IDs.
+- Chosen achievements that share a project carry its saved label into the writer and Review even without a separate project pick. A bullet names its project where attribution would otherwise be unclear. Code can add a missing name when all citations agree and the name fits with the existing claim. Mixed or uncertain attribution is logged. Review keeps supported names with the claims they identify.
 
 **Readiness** (`src/modules/profile-readiness`)
 
@@ -177,13 +177,13 @@ The role note groups labelled evidence by project. The project note shows the ev
 | 2 | **Overview fold only**: guarded apply script (`npm run profile:backfill-apply`: dry run prints a fingerprint, `--apply --confirm <fingerprint>` writes it in one transaction), near-duplicate responsibilities left out of the fold. Changes only `Experience.summary`; no activity row is touched. | Approves the fingerprint, then runs it |
 | 3 | **Role-owns switch** (built through 3e, §13). Includes the achievement form, role grouping, project-filtered view, Move, and the inline project suggestion that replaces the readiness finding. | Decisions recorded in §12 |
 | 4 | **Clean-and-extract draft layer** (implemented) (§9): extraction proposes cleaned achievements with result and project, a saved draft with edit, accept and skip, de-duplication against all the role's achievements | None (extraction prompts are profile capture, not generator prompts) |
-| 5 | Render selected independent projects after Experience. | Implemented on the feature branch |
-| 6 | Select shortlist with handles and project naming rule. | Pending owner approval to lift the generator pause |
+| 5 | Render selected independent projects after Experience. | Merged in #458 |
+| 6 | Section-specific Select handles and a shared rule for recorded project names. | Owner approved these two changes. Implemented on the PR 6 branch. |
 | 7 | Optional embeddings spike | Decides after PR 6 |
 
 The role-aware readers and writers shipped before the constraints. They account for project archiving, evidence ordering and the existing generator project-evidence cap.
 
-Items 4, 5, 6 and 8 of #440 (inline date checks, `Project.product`, results section in the template, certification status) are not blocked by this and are mostly absorbed or made unnecessary: `Project.product` is not needed if the project label and an owner's wording are enough.
+Items 4, 5, 6 and 8 of #440 (inline date checks, `Project.product`, results section in the template, certification status) are outside PR 6 and retain their own status. This PR uses the existing project label and evidence text.
 
 ## 11. Risks
 
@@ -232,4 +232,4 @@ The migration was validated first on an isolated production snapshot and then ag
 
 An existing Select pick whose project belongs to an independent experience renders under Projects, after Professional Experience and Earlier Experience. The generator uses the saved project name and accepted bullets with their results. Projects without accepted atoms can use a bounded digest of saved context. Review can cite the sources and flag concerns. The section is read-only during Review and editable in the writing desk.
 
-Independent achievements without a project label remain outside the Select menu. PR 5 reuses stored selections and leaves selection and prompt tuning paused for PR 6.
+Independent achievements without a project label remain outside the Select menu. PR 6 keeps the independent Projects rendering and Review rules from PR 5.

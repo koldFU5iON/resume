@@ -94,9 +94,9 @@ describe('buildCandidates: employers', () => {
   it('shows the employer, progression and each activity’s role in the prompt, and one entry per employer in the outline', () => {
     const c = sprawling()
     const text = candidatesToPrompt(c)
-    expect(text).toContain('[unity] Unity: latest title Snr. Program Manager (Jan 2019 – present)')
+    expect(text).toContain('[EMP1] Unity: latest title Snr. Program Manager (Jan 2019 – present)')
     expect(text).toContain('Three roles at Unity (2019–present)')
-    expect(text).toContain('[u2-a0] (as Technical Program Manager)')
+    expect(text).toContain('[A2] (as Technical Program Manager)')
     expect(text).not.toContain('[u1]') // no per-role ids for the model to pick
     const out = profileOutline(null, c)
     expect(out.match(/^- /gm)?.filter(() => true)).toHaveLength(2)
@@ -113,9 +113,9 @@ describe('buildCandidates: employers', () => {
 describe('prompt text', () => {
   const c = buildCandidates(vault)
 
-  it('lists every id in square brackets for the Select prompt', () => {
+  it('lists section handles in square brackets for the Select prompt', () => {
     const text = candidatesToPrompt(c)
-    for (const id of ['fictional-freight', 'a1', 'a2', 's1', 't2', 'c1', 'ce1', 'ed1', 'pr1']) expect(text).toContain(`[${id}]`)
+    for (const id of ['EMP1', 'A1', 'A2', 'S1', 'T1', 'C1', 'CERT1', 'EDU1', 'P1']) expect(text).toContain(`[${id}]`)
   })
 
   it('outlines roles and names but not each activity', () => {

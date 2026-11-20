@@ -15,6 +15,7 @@ import { analyseExperience as analyse, experiencePrompt, fallbackExperience, isG
 import { requirementText } from './prompt'
 import type { WriteContext } from './types'
 import { leads } from '../__fixtures__/candidates'
+import { atomRow } from '../__fixtures__/projects'
 
 const mockJSON = vi.mocked(completeJSON)
 
@@ -1101,5 +1102,118 @@ describe('polish 2: overview as summary evidence, project slots', () => {
       const own = { summary: 'Ran release and planning.', bullets: [...good.bullets, { text: 'Presented the Annual Conference Keynote to global audiences.', sources: ['P1'] }] }
       expect((analyseExperience(own, pctx, emp).why ?? []).join(' ')).not.toMatch(/unrelated/)
     })
+  })
+})
+
+describe('recorded project context on experience bullets', () => {
+  const intake = 'Harbour Clinic Intake 2025'
+  const launch = 'Star Orchard Launch'
+  const workshops = 'Neighbourhood Arts Programme'
+  const triage = 'Cut referral triage from 8 days to 3 days across rural clinics'
+  const scheduling = 'Coordinated appointment scheduling across community practices'
+  const schedulingImpact = '980 appointments booked'
+  const campaign = 'Led press briefings that reached 2.4M players in the first week'
+  const standalone = 'Coordinated workshops across partner libraries, reaching 630 learners during the pilot period'
+  const pv = writeVault([
+    projectRow('clinic-intake', intake, 'Coordinated referral and appointment logistics across the rural clinic network.', {
+      experienceId: 'e-u2',
+      activities: [atomRow('triage-atom', triage), atomRow('scheduling-atom', scheduling, schedulingImpact)],
+    }),
+    projectRow('star-orchard', launch, 'Press communications for an independently developed title.', {
+      experienceId: 'e-u2', activities: [atomRow('press-atom', campaign)],
+    }),
+    projectRow('arts-programme', workshops, standalone, { experienceId: 'e-u2' }),
+  ])
+  const getEvidence = (selectStandalone = false) => {
+    const sel = writeSelection(pv, {
+      activities: ['triage-atom', 'scheduling-atom', 'press-atom'].map((id) => ({ id, reason: '' })),
+      projects: selectStandalone ? [{ id: 'arts-programme', reason: '' }] : [],
+    })
+    const ev = evidenceFromVault(pv, sel)
+    return { ev, emp: ev.employers.find((e) => e.employer.key === UNITY)! }
+  }
+  const label = (emp: EmployerEvidence, id: string) => `E${emp.activities.findIndex((a) => a.id === id) + 1}`
+  const from = (emp: EmployerEvidence, text: string, ...ids: string[]) => ({ text, sources: ids.map((id) => label(emp, id)) })
+
+  it('supplies a shared name even without the project pick and adds only missing context, keeping all claims and source IDs', async () => {
+    const { ev, emp } = getEvidence()
+    expect(emp.projects).toEqual([])
+    expect(emp.activities.map((a) => a.id)).toEqual(['triage-atom', 'scheduling-atom', 'press-atom'])
+    const c = ctx({ evidence: ev })
+    const prompt = experiencePrompt(c, emp)
+    expect(prompt).toContain(`E1, E2: ${intake}`)
+    expect(prompt).toContain(`E3: ${launch}`)
+    expect(prompt.match(new RegExp(intake, 'g'))).toHaveLength(1)
+    expect(prompt).not.toContain('clinic-intake')
+    const alreadyNamed = 'Coordinated scheduling for Harbour Clinic Intake and booked 980 appointments across community practices.'
+    const { s, result } = run([{ summary: '', bullets: [
+      from(emp, triage + '.', 'triage-atom'),
+      from(emp, alreadyNamed, 'scheduling-atom'),
+      from(emp, campaign + '.', 'press-atom'),
+    ] }], emp, c)
+    const r = await result
+    expect(s.calls).toHaveLength(1)
+    expect(r.bullets).toEqual([`${triage} (${intake}).`, alreadyNamed, `${campaign} (${launch}).`])
+    expect(r.provenance.map((b) => b.sources.map((p) => p.id))).toEqual([['triage-atom'], ['scheduling-atom'], ['press-atom']])
+    expect(r.provenance[1].sources[0].snippet).toContain(intake)
+    expect(r.checks).toEqual([])
+  })
+
+  it('can add missing context to a standalone selected project without spending a naming retry', async () => {
+    const { ev, emp } = getEvidence(true)
+    const c = ctx({ evidence: ev })
+    expect(experiencePrompt(c, emp)).toContain(`[P1] project "${workshops}": ${standalone}`)
+    const { s, result } = run([{ summary: '', bullets: [
+      from(emp, triage, 'triage-atom'),
+      from(emp, scheduling, 'scheduling-atom'),
+      from(emp, campaign, 'press-atom'),
+      { text: standalone, sources: ['P1'] },
+    ] }], emp, c)
+    const r = await result
+    expect(s.calls).toHaveLength(1)
+    expect(r.bullets).toHaveLength(4)
+    expect(r.bullets[3]).toBe(`${standalone} (${workshops})`)
+    expect(r.provenance[3].sources[0]).toMatchObject({ kind: 'project', id: 'arts-programme' })
+  })
+
+  it('preserves wording and IDs for mixed or partially unknown sources and for claims that leave no room for a name', async () => {
+    const { ev, emp } = getEvidence()
+    const long = 'Cut referral triage from 8 days to 3 days across rural clinics by coordinating the review process with referring practices and intake teams during rollout'
+    const mixed = 'Led press briefings and coordinated appointment scheduling.'
+    const unknown = 'Coordinated appointment scheduling across community practices.'
+    const c = ctx({ evidence: ev })
+    const { s, result } = run([{ summary: '', bullets: [
+      from(emp, long, 'triage-atom'),
+      from(emp, mixed, 'scheduling-atom', 'press-atom'),
+      { text: unknown, sources: [label(emp, 'scheduling-atom'), 'E99'] },
+    ] }], emp, c)
+    const r = await result
+    expect(s.calls).toHaveLength(1)
+    expect(r.bullets).toEqual([long, mixed, unknown])
+    expect(r.provenance.map((b) => b.sources.map((p) => p.id))).toEqual([['triage-atom'], ['scheduling-atom', 'press-atom'], ['scheduling-atom']])
+    expect(r.notes.filter((n) => n.includes('mixed or unknown sources'))).toHaveLength(2)
+    expect(r.notes).toContainEqual(expect.stringContaining('Could not add the recorded project name “Harbour Clinic Intake 2025”'))
+  })
+
+  it('does not attach a second project to wording that conflicts with the citation', async () => {
+    const { ev, emp } = getEvidence()
+    const wrong = `Cut triage from 8 days to 3 days across rural clinics for ${launch}.`
+    const { s, result } = run([{ summary: '', bullets: [
+      from(emp, wrong, 'triage-atom'),
+      from(emp, scheduling, 'scheduling-atom'),
+      from(emp, campaign, 'press-atom'),
+    ] }], emp, ctx({ evidence: ev }))
+    const r = await result
+    expect(s.calls).toHaveLength(1)
+    expect(r.bullets[0]).toBe(wrong)
+    expect(r.notes).toContain(`Project attribution needs a look: the bullet names “${launch}” but cites “${intake}”.`)
+  })
+
+  it('renders a no-model employer fallback from its own text, impact and project labels', () => {
+    const { emp } = getEvidence(true)
+    const r = fallbackExperience(emp)
+    expect(r.bullets).toEqual([`${triage} (${intake})`, `${scheduling} — ${schedulingImpact} (${intake})`, `${campaign} (${launch})`])
+    expect(r.provenance.map((b) => b.sources.map((p) => p.id))).toEqual([['triage-atom'], ['scheduling-atom'], ['press-atom']])
+    expect(r.notes).toContainEqual(expect.stringContaining(`Project "${workshops}" is not on the CV`))
   })
 })

@@ -11,8 +11,9 @@
  */
 
 import type { BulletProvenance, BulletSource } from '../schema'
-import { figuresIn } from './checks'
-import type { EmployerEvidence } from './evidence'
+import { distinctiveTokens, figuresIn, normalised, phraseIndex, projectNameKey } from './checks'
+import { activityEvidenceText, type EmployerEvidence } from './evidence'
+import { isThin } from './thin'
 import { plainLine } from './plain'
 
 /** Longest snippet stored per source. */
@@ -26,6 +27,7 @@ export type EvidenceRef = {
   /** The text the writer saw (activity text and impact; project name and text): what a figure is checked against. */
   text: string
   snippet: string
+  project?: { id: string; name: string }
 }
 
 const EMAIL = /[^\s@<>()]+@[^\s@<>()]+\.[^\s@<>()]+/g
@@ -44,7 +46,8 @@ export function evidenceRefs(emp: Pick<EmployerEvidence, 'activities' | 'project
       label: `E${i + 1}`,
       id: a.id,
       kind: 'activity',
-      text: [a.text, a.impact ?? ''].filter(Boolean).join('\n'),
+      text: activityEvidenceText(a),
+      ...(a.fromProject ? { project: a.fromProject } : {}),
       snippet: snippetOf(a.fromProject ? `${a.fromProject.name}: ${a.text}` : a.text),
     })),
     ...emp.projects.map((p, i): EvidenceRef => ({
@@ -52,9 +55,16 @@ export function evidenceRefs(emp: Pick<EmployerEvidence, 'activities' | 'project
       id: p.id,
       kind: 'project',
       text: `${p.name}\n${p.text}`,
+      ...(!isThin(p) ? { project: { id: p.id, name: p.name } } : {}),
       snippet: snippetOf(`${p.name}: ${p.text}`),
     })),
   ]
+}
+
+/** Recognise the saved name or its edition-neutral form when that form identifies a project. */
+export function namesProject(text: string, name: string): boolean {
+  return phraseIndex(text, normalised(name).join(' ')) >= 0 ||
+    (distinctiveTokens(name).length > 0 && phraseIndex(text, projectNameKey(name)) >= 0)
 }
 
 /** "E3", "[e3]", " P1 " → "E3" / "P1"; anything else null. */
