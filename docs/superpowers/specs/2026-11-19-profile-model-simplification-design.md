@@ -103,7 +103,24 @@ One migration per phase, each created with `npm run db:migrate -- --name <name>`
 - No new scope column (decision O1).
 - `kind` stays as is.
 
-**Rollback.** Step 3e preserves the backfilled owners. Any rollback to writers that can submit null owners needs a compatible schema first.
+**Deployment order.** Merge and deploy [the compatibility writer (#455)](https://github.com/koldFU5iON/resume/pull/455) first. It turns the old Properties “No role” selection into Independent projects and works with both schemas. Only after that deployment is serving should step 3e be merged: the build applies migrations before the new app is ready, so the serving app must already avoid null owners. Keep the 3e PR in draft until the prerequisite is deployed.
+
+**Rollback.** Prefer rolling the app back to the compatibility deployment (#455); it works with the tightened schema and preserves all backfilled owners. A rollback to earlier null-writing code must relax the schema first. On a disposable local database, the compatibility Properties writer passed after applying 3e. The following relaxation preserved all assigned owners, and the original nullable writes then passed:
+
+```sql
+BEGIN;
+ALTER TABLE "RoleActivity" ALTER COLUMN "experienceId" DROP NOT NULL;
+ALTER TABLE "RoleActivity" ADD CONSTRAINT "RoleActivity_at_least_one_owner_check"
+  CHECK ("experienceId" IS NOT NULL OR "projectId" IS NOT NULL);
+ALTER TABLE "Project" DROP CONSTRAINT "Project_experienceId_fkey";
+ALTER TABLE "Project" ALTER COLUMN "experienceId" DROP NOT NULL;
+ALTER TABLE "Project" ADD CONSTRAINT "Project_experienceId_fkey"
+  FOREIGN KEY ("experienceId") REFERENCES "Experience"("id")
+  ON DELETE SET NULL ON UPDATE CASCADE;
+COMMIT;
+```
+
+This is an emergency schema relaxation, not an automatic down migration. It does not clear owners or remove the 3e migration history entry. Re-tightening after such a rollback requires a new reviewed migration that backfills any new null owners. Do not mark the old migration rolled back or simply redeploy expecting its SQL to run again.
 
 ## 7. How the pieces read the model
 
