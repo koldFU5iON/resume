@@ -20,7 +20,8 @@ export async function fetchJobList(companySlug: string): Promise<JobListing[]> {
       externalId: String(job.id ?? ''),
       title: String(job.name ?? ''),
       location: location as string | null,
-      url: typeof job.ref === 'string' ? job.ref : null,
+      // `ref` is the API URL (JSON), not a page anyone can apply on.
+      url: job.id ? `https://jobs.smartrecruiters.com/${companySlug}/${String(job.id)}` : null,
       postedAt: parsed && !isNaN(parsed.getTime()) ? parsed : null,
     }
   })

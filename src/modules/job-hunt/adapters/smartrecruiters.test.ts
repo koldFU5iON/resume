@@ -18,7 +18,7 @@ describe('fetchJobList (SmartRecruiters)', () => {
             name: 'Senior Software Engineer',
             releasedDate: '2026-01-15T10:00:00.000Z',
             location: { city: 'Amsterdam', country: 'NL', remote: false },
-            ref: 'https://jobs.smartrecruiters.com/Canva/senior-software-engineer-abc123',
+            ref: 'https://api.smartrecruiters.com/v1/companies/Canva/postings/abc123',
           },
         ],
       }),
@@ -31,7 +31,7 @@ describe('fetchJobList (SmartRecruiters)', () => {
       externalId: 'abc123',
       title: 'Senior Software Engineer',
       location: 'Amsterdam, NL',
-      url: 'https://jobs.smartrecruiters.com/Canva/senior-software-engineer-abc123',
+      url: 'https://jobs.smartrecruiters.com/Canva/abc123',
     })
     expect(listings[0].postedAt).toBeInstanceOf(Date)
   })
