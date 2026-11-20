@@ -8,7 +8,7 @@
  * Nothing the model says is trusted:
  * - it may only target an experience bullet, an experience summary or the
  *   profile paragraph; every other section (header, titles, companies, dates,
- *   certifications, education, languages, the {{contact}} placeholder and the
+ *   projects, certifications, education, languages, the {{contact}} placeholder and the
  *   skills, tools and competencies lists) is rendered by code and read-only;
  * - CODE applies an edit only after re-running the writers' own checks on the
  *   new text (plain text and first person, figures verbatim against the
@@ -36,6 +36,7 @@ import {
   type AppliedEdit, type BulletProvenance, type BulletSource, type ConcernRecord, type CvAssembled, type CvBrief, type CvReview, type CvSelection,
   type DiscardedEdit, type ReviewOutput,
 } from '../schema'
+import { nearDuplicate } from '../project-evidence'
 import type { Strategy } from '../strategy'
 import { isThin } from './thin'
 import { leadWithProjects, leadWithStanding, playDownBullets, shortened, wrongTenseLines } from './bullets'
@@ -164,11 +165,11 @@ const CONTEXT_KINDS = new Set(['competencies', 'tools', 'skills'])
 /** The user message of a review call and the labels it uses. Pure; carries no name, no contact detail and no whole profile. */
 export function reviewPrompt(input: ReviewPromptInput, doc: ReviewDoc): { prompt: string; labels: ReviewLabel[] } {
   const labels = new Map<string, ReviewLabel>()
-  const labelFor = (src: BulletSource): ReviewLabel => {
+  const labelFor = (src: BulletSource, renderedText?: string): ReviewLabel => {
     const key = `${src.kind}:${src.id}`
     let l = labels.get(key)
     if (!l) {
-      const full = sourceText(input.evidence, src.id) ?? src.snippet
+      const full = renderedText ?? sourceText(input.evidence, src.id) ?? src.snippet
       l = { label: `S${labels.size + 1}`, id: src.id, kind: src.kind, snippet: full }
       labels.set(key, l)
     }
@@ -183,7 +184,7 @@ export function reviewPrompt(input: ReviewPromptInput, doc: ReviewDoc): { prompt
       lines.push(`summary: ${ex.summary || '(none)'}`)
       for (const b of ex.bullets) {
         lines.push(`${b.id}: ${b.text}`)
-        const refs = b.sources.map(labelFor)
+        const refs = b.sources.map((src) => labelFor(src))
         if (refs.length === 0) lines.push('  evidence: (none cited)')
         for (const r of refs) lines.push(`  ${r.label} (${r.kind}): ${r.snippet}`)
       }
@@ -202,6 +203,18 @@ export function reviewPrompt(input: ReviewPromptInput, doc: ReviewDoc): { prompt
       cv.push(lines.join('\n'))
     } else if (s.kind === 'profile' && doc.profile) {
       cv.push(`## profile\n${doc.profile.paragraph || '(none)'}`)
+    } else if (s.kind === 'projects' && s.projectSource) {
+      const entry = s.markdown.split('\n').filter((l) => !/^(?:## |:::|- )/.test(l)).join('\n').trim()
+      const project = labelFor(s.projectSource, entry.replace(/^### /, ''))
+      const lines = [`## ${s.id} [read-only]`, `${project.label} (${project.kind}): ${project.snippet}`]
+      for (const [i, b] of (s.bullets ?? []).entries()) {
+        lines.push(`b${i + 1}: ${b.text}`)
+        for (const src of b.sources) {
+          const ref = labelFor(src, b.text)
+          lines.push(`  ${ref.label} (${ref.kind}): ${ref.snippet}`)
+        }
+      }
+      cv.push(lines.join('\n'))
     } else if (CONTEXT_KINDS.has(s.kind)) {
       cv.push(`## ${s.id} [read-only]\n${s.markdown.split('\n').filter((l) => /^\s*-\s/.test(l)).map((l) => l.replace(/^\s*-\s+/, '')).join('; ')}`)
     }
@@ -288,6 +301,19 @@ export function recheckText(
   const figureTexts = kind === 'summary' && emp ? summaryEvidenceTexts(emp) : texts
   const unsupported = unsupportedFigures(text, years === null ? figureTexts : [...figureTexts, `${years} years of experience`], names)
   if (unsupported.length > 0) return { why: `figures not in the employer's evidence: ${unsupported.join(', ')}` }
+  if (emp) {
+    const projectClaims = ctx.evidence.independentProjects.flatMap((p) =>
+      p.atoms.length ? p.atoms.map((a) => a.text) : p.thin ? [] : p.text.split(' — '))
+    const includesClaim = (haystack: string, claim: string) =>
+      ` ${normalised(haystack).join(' ')} `.includes(` ${normalised(claim).join(' ')} `)
+    if (projectClaims.some((rawClaim) => {
+      const claim = rawClaim.replace(/^I\s+/i, '')
+      return wordCount(claim) >= 4 && (includesClaim(text, claim) || nearDuplicate(text, claim)) &&
+        ![scope.old, ...figureTexts].some((own) => includesClaim(own, claim) || nearDuplicate(own, claim))
+    })) {
+      return { why: 'attributes independent project evidence to this employer' }
+    }
+  }
   const notes: string[] = []
   // A bullet states what ITS evidence states: a figure only in the employer's other evidence is rejected.
   // A summary (or profile) may use any selected evidence of the employer, including activities no bullet cites.
@@ -460,7 +486,7 @@ export function applyEdits(doc: ReviewDoc, edits: ReviewOutput['edits'], ctx: Ap
       continue
     }
 
-    discard(CODE_RENDERED.has(sectionId) || sectionId === 'profile'
+    discard(CODE_RENDERED.has(sectionId) || sectionId === 'profile' || sectionId.startsWith('projects:')
       ? 'that section is rendered by code from your profile and is read-only'
       : `there is no editable section "${sectionId}"`)
   }

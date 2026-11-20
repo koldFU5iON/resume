@@ -223,9 +223,15 @@ Policy: **soft** means one retry with the specific problems listed, then accept 
 
 **Alias and proper-noun gaps** are listed under Known limits.
 
+**Independent Projects output (profile model PR 5).** At Write, each selected, available project whose current experience has type `independent` can render in its own entry. The saved project name becomes the subheading. Code uses the accepted, project-labelled atoms for compact bullets with their merged impact, including the structured result. Exact duplicate bullets share their source IDs. When there are zero atoms, `projectEvidenceText` can supply a prose fallback from the saved description, notes digest and legacy highlights, up to 2,000 characters. The fallback extracts prose and list item text and omits instruction headings, template cues, quotes, code and directives. Output strips wikilinks, link destinations, explicit URLs, emails and the owner's saved contact values. Thin or unavailable picks produce a Write log note. The vault reads accepted activity rows and excludes saved extraction drafts.
+
+Assemble adds one Projects heading after Professional Experience and Earlier Experience, before Tools, and omits it when no project entry renders. Independent entries use no role or project dates and contribute no employment tenure. They use the writing desk's existing Markdown headings, paragraphs and compact lists for validation, editing, preview and PDF. The shared master/default structure guide and MCP writing contract keep their existing shape.
+
 ---
 
 ## 8. Provenance and the Copy log format
+
+Each independent project has a code-rendered Write row and an assembled entry with kind `projects` and id `projects:<projectId>`. The optional `projectSource` field records the source ID and snippet for the heading and fallback context. Accepted bullets use the existing `bullets[]` provenance and log display. Older assembled runs remain readable.
 
 **Provenance** (`write/provenance.ts`, `write/experience.ts`): each evidence item in an experience prompt carries a short label (`E1`..., `P1`... for projects; never real ids). The writer returns each bullet as `{ text, sources: ['E1'] }`; code resolves labels (case and brackets tolerated, unknown labels dropped and counted) to real ids. Stored on `assembled.sections[].bullets[]` as `{ text, sources: [{ id, kind: 'activity' | 'project', snippet }], editedByReview? }` in display order, after the hard cap. `snippet` is at most 140 characters, plain, one line, scrubbed of anything that looks like an email or URL. The numbers check does not use a bullet's own sources as authority (the whole employer evidence is), so a mis-cited label is not retried for a figure that is in the evidence. **Mixed-source flag** (`mixedSourceNote`): a bullet whose figures come from two or more different cited items gets an informational note on the section row ("Bullet combines figures from 2 activities: A / B"); merging items that state the same result with the same figures is fine.
 
@@ -236,6 +242,8 @@ Policy: **soft** means one retry with the specific problems listed, then accept 
 ## 9. Review
 
 `write/review.ts`, prompt `src/lib/prompts/cv-gen-review.md`, `REVIEW_LIMITS` (`schema.ts`). ONE call (`completeValidated`, role `analysis`, 3,000 output tokens, retry 6,000, 60 s). Skippable per run (`review: false`).
+
+Independent Projects entries are read-only context in the same Review call, with project and activity source labels for coverage and concerns. Employer edits still use employer evidence for figure and name checks, and code rejects transfers of recognizable independent claims the employer evidence cannot support. The Review instructions and response schema keep their existing shape.
 
 **Input** (lean: no header, no name, no contact detail, no whole profile): the user's writing rules and the review prompt as the system message; as the user message the Brief (hidden question, positioning, tone, emphasise, play down, lead with), the job's requirement terms, the profile's claimed names (`maxClaimedNames` 40), in-progress credentials, Select's uncovered emphasise items, and the CV: each experience entry with its section id (`experience:<key>`), role line, current/finished flag, summary, each bullet with an id (`b1`...) and the evidence it was written from as labelled snippets (`S1`...). Evidence text is built by `activityPromptText` / `projectPromptText` (`write/evidence.ts`), the same text the writer saw (activities whole, projects at most 2,000 characters), so a figure the writer rightly took cannot look unsupported. Only cited items are sent, once each. Certifications, education, languages, Earlier Experience, competencies, skills and tools are read-only context or not sent.
 
@@ -472,6 +480,8 @@ There is deliberately no spell-check and no date-format check.
 **State (2026-11-19).** The pipeline is complete and merged: Gather, Brief, Select, Write, Assemble, Review, Land, the run log, the readiness check and the project-evidence retrieval (sections 2 to 20). Tuning is **paused**, not abandoned. After ten PRs of calibration against one real job (a Senior Product Marketing Manager role at an open-source company, one owner's profile), each fix was moving the problem rather than removing it. The working conclusion: the generator is on the right track, and what stops the CV being nearly ready is the **shape of the profile data**.
 
 **Last measured run (2026-11-19, after the project-evidence change, `SELECTION_PIPELINE_VERSION` 7).** About $0.63, 11 calls, 2 minutes 31 seconds, one retry. Brief $0.07, Select under $0.01, Write $0.37, Review $0.18. Target remains about $0.45 to $0.55.
+
+**Profile model PR 5** adds only the Projects output path. Select still offers named independent projects at the existing project budget. Independent achievements without a project label remain outside the menu. Stored selections remain reusable under version 7. PR 6, the shortlist handles and project naming rule, awaits the owner's decision to resume generator tuning.
 
 **What worked.** The figures in a project's notes and achievements (reach, click-through, turnaround, first-day views) now reach the CV as bullets; before the change they were never read. No figure retries came from the overview or duplicates; the years opener, header, Earlier Experience, certifications and education were right; Review's concerns were real data questions.
 

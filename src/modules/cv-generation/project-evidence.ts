@@ -19,7 +19,9 @@
 import { makeContactScrubber } from '@/modules/profile-map/pii'
 import { stripWikilinks } from '@/modules/profile-map/links'
 import type { ProjectNote, Vault } from '@/modules/profile-map/types'
+import { parseWritingDeskMarkdown } from '@/modules/writing-desk/markdown'
 import { PROJECT_EVIDENCE_MAX_CHARS, isThinProject } from './write/limits'
+import { plainLine } from './write/plain'
 
 export const RESULT_WORDING = /\b(?:reduced|increased|grew|fell|cut|saved|delivered|generated|launched|achieved|won|drove|scaled|doubled|tripled|halved|improved|boosted|accelerated|exceeded|surpassed|secured|earned|raised|expanded|eliminated|enabled|unlocked|resulting|resulted|led to|from\s+\S+\s+to)\b/i
 
@@ -201,21 +203,69 @@ export type ProjectEvidenceText = {
 
 const oneLine = (t: string) => t.replace(/\s*\n+\s*/g, SEP).replace(/\s+/g, ' ').trim()
 
+const NOTE_INSTRUCTIONS = /^(?:\[!|\{\{|:::|(?:tbd|to[ -]?do|instructions?|templates?|placeholders?|drafts?|reminders?|next steps|open questions|notes? to self|contact|e-?mail|phone)\b|(?:add|insert|describe|explain|summarize|summarise|write|replace|list|include|fill in|remember to)\b)/i
+const URL = /\b(?:[a-z][a-z\d+.-]*:\/\/|mailto:|tel:|www\.)[^\s<>]+/gi
+
+/** Strip link destinations and private URLs as well as the standard contact fields. */
+export function cleanProjectLine(text: string, scrub: (text: string) => string): string {
+  const raw = stripWikilinks(text).replace(/<!--[\s\S]*?(?:-->|$)/g, '')
+  return scrub(plainLine(scrub(raw))).replace(URL, '').replace(/\s+/g, ' ').trim()
+}
+
+/** Only prose and ordinary list items can supply context for a project without accepted atoms. */
+function cvContext(body: string, scrub: (text: string) => string): string {
+  const clean = (text: string) => {
+    const raw = text.trim()
+    if (NOTE_INSTRUCTIONS.test(raw) || /^\[[^\]]+\]$/.test(raw)) return ''
+    const line = cleanProjectLine(raw, scrub)
+    return NOTE_INSTRUCTIONS.test(line) ? '' : line
+  }
+  let instructionDepth = 0
+  return parseWritingDeskMarkdown(body).flatMap((node) => {
+    const raw = body.slice(node.position?.start.offset, node.position?.end.offset)
+    if (node.type === 'heading') {
+      if (instructionDepth && node.depth > instructionDepth) return []
+      const heading = plainLine(raw)
+      instructionDepth = NOTE_INSTRUCTIONS.test(heading) ? node.depth : 0
+      // Keep the heading for digestUnits' result prioritization, never for display.
+      return instructionDepth ? [] : [`## ${heading}`]
+    }
+    if (instructionDepth) return []
+    if (node.type === 'paragraph') return raw.split(/\r?\n/).map(clean).filter(Boolean)
+    if (node.type === 'list') return node.children.flatMap((item) =>
+      item.children.flatMap((child) => child.type === 'paragraph'
+        ? body.slice(child.position?.start.offset, child.position?.end.offset).split(/\r?\n/).map(clean).filter(Boolean)
+        : []))
+    return []
+  }).join('\n')
+}
+
 /**
  * The evidence text of one project note: description + digest of the notes + its own atoms rendered like
  * activityPromptText. The description gets whatever the digest and atoms leave (up to the cap); only when the total
  * would exceed it is the description digested (its first sentences, then its figure sentences). `excludeAtomIds` are
  * atoms that are bullets of their own (the writer must not repeat them): left out of `text`, still counted for `thin`.
  */
-export function projectEvidenceText(note: ProjectNote, vault: Vault, opts: { excludeAtomIds?: ReadonlySet<string> } = {}): ProjectEvidenceText {
+export function projectEvidenceText(note: ProjectNote, vault: Vault, opts: { excludeAtomIds?: ReadonlySet<string>; forCvOutput?: boolean } = {}): ProjectEvidenceText {
   const scrub = makeContactScrubber(vault.identity.props.contact)
-  const clean = (t: string) => scrub(stripWikilinks(String(t))).trim()
+  const clean = opts.forCvOutput
+    ? (t: string) => cleanProjectLine(t, scrub)
+    : (t: string) => scrub(stripWikilinks(String(t))).trim()
   const atoms: ProjectAtom[] = []
   for (const l of note.links) {
     const a = l.type === 'has' ? vault.notes.get(l.id) : undefined
     if (a?.type === 'evidence') atoms.push({ id: a.id, kind: a.props.kind, text: clean(a.props.description), impact: a.props.impact ? clean(a.props.impact) : null, highlighted: a.props.highlighted })
   }
   atoms.sort((x, y) => figureRich(y) - figureRich(x))
+  if (opts.forCvOutput) {
+    // Accepted atoms are rendered directly, with no repeat of their source notes or legacy highlights.
+    if (atoms.length > 0) return { text: '', atoms, thin: false }
+    const name = clean(note.props.name)
+    const parts = [note.props.description, notesOf(note), ...note.props.highlights]
+    const context = parts.map((part) => cvContext(part, scrub)).filter(Boolean).join('\n\n## Context\n\n')
+    const text = digestUnits(context, { sep: SEP.length }).filter((line) => keyOf(line) !== keyOf(name)).join(SEP)
+    return { text, atoms, thin: isThinProject({ name, text }) }
+  }
   // Legacy highlights only stand in when there are no atoms (profile/project-highlights.ts).
   const legacy = atoms.length === 0 ? note.props.highlights.map(clean).filter(Boolean) : []
   const atomLines = [...atoms.map(activityPromptText), ...legacy]

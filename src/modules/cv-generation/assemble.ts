@@ -1,8 +1,8 @@
 /**
  * Stage 4, Assemble. No model. Puts the written and code-rendered sections in
  * the order of the DEFAULT CV structure (buildStructureGuide(null): never the
- * master CV, decision 1) plus Earlier Experience right after Professional
- * Experience (cvStructure; the shared default stays as the writing contract
+ * master CV, decision 1) plus Earlier Experience and Projects right after
+ * Professional Experience (cvStructure; the shared default stays as the writing contract
  * external agents read), adds the header block with the candidate's name, the
  * headline and the literal `{{contact}}` placeholder (never contact details:
  * the app fills it in when the owner accepts a draft), then validates the
@@ -53,12 +53,12 @@ export function renderHeader(name: string, headline: string | null, facts: strin
 /** The section key and heading of the Earlier Experience list (employers shown without bullets). */
 export const EARLIER_EXPERIENCE = { key: 'earlier-experience', heading: 'Earlier Experience' } as const
 
-/** The default CV structure with Earlier Experience right after Professional Experience. */
+/** The generated CV's structure with Earlier Experience and Projects after Professional Experience. */
 export function cvStructure(): StructureGuide {
   const base = buildStructureGuide(null)
   const at = base.sections.findIndex((s) => s.key === 'experience')
   const sections = [...base.sections]
-  sections.splice(at < 0 ? sections.length : at + 1, 0, { ...EARLIER_EXPERIENCE })
+  sections.splice(at < 0 ? sections.length : at + 1, 0, { ...EARLIER_EXPERIENCE }, { key: 'projects', heading: 'Projects' })
   return { ...base, sections }
 }
 
@@ -69,6 +69,7 @@ export function assembleCv(input: AssembleInput): AssembleResult {
   const strip = (s: WrittenSection, markdown: string): AssembledSection => ({
     id: s.id, kind: s.kind, ...(s.employerKey ? { employerKey: s.employerKey } : {}), markdown,
     ...(s.bullets && s.bullets.length > 0 ? { bullets: s.bullets } : {}),
+    ...(s.projectSource ? { projectSource: s.projectSource } : {}),
     ...(s.model ? { model: s.model } : {}), ...(s.tokens && (s.tokens.input > 0 || s.tokens.output > 0) ? { tokens: s.tokens } : {}),
   })
 
@@ -81,6 +82,11 @@ export function assembleCv(input: AssembleInput): AssembleResult {
       const order = new Map(input.employerOrder.map((k, i) => [k, i]))
       const entries = byKind('experience').sort((a, b) => (order.get(a.employerKey ?? '') ?? 1e9) - (order.get(b.employerKey ?? '') ?? 1e9))
       entries.forEach((s, i) => pieces.push(strip(s, i === 0 ? `## ${heading}\n\n${s.markdown}` : s.markdown)))
+      continue
+    }
+    if (key === 'projects') {
+      byKind(key).filter((s) => s.markdown.trim()).forEach((s, i) =>
+        pieces.push(strip(s, i === 0 ? `## ${heading}\n\n${s.markdown}` : s.markdown)))
       continue
     }
     for (const s of byKind(key)) if (s.markdown.trim()) pieces.push(strip(s, `## ${heading}\n\n${s.markdown}`))

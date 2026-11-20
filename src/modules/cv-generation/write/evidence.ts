@@ -15,12 +15,12 @@ import type { Vault } from '@/modules/profile-map/types'
 import { makeContactScrubber } from '@/modules/profile-map/pii'
 import { stripWikilinks } from '@/modules/profile-map/links'
 import { buildCandidates, type CandidateActivity } from '../candidates'
-import { activityPromptText, projectEvidenceText } from '../project-evidence'
+import { activityPromptText, cleanProjectLine, projectEvidenceText, type ProjectAtom } from '../project-evidence'
 import type { CvSelection, SelectedEmployer } from '../schema'
 import { capOverview, capProjectText } from './limits'
 import { certificationStatus, educationStatus, isClaimedCapability } from './status'
 
-/** A selected project, routed to the employer it belongs to as extra evidence for that employer's writer. */
+/** A selected project routed to the employer it belongs to. */
 export type ProjectEvidence = {
   id: string
   name: string
@@ -28,6 +28,11 @@ export type ProjectEvidence = {
   text: string
   /** Only a title to write from (project-evidence.ts); undefined = decide from `text`. */
   thin?: boolean
+}
+
+export type IndependentProjectEvidence = Pick<ProjectEvidence, 'id' | 'name' | 'text'> & {
+  thin: boolean
+  atoms: ProjectAtom[]
 }
 
 export type EmployerEvidence = {
@@ -73,6 +78,7 @@ export type EducationEvidence = {
 
 export type Evidence = {
   employers: EmployerEvidence[]
+  independentProjects: IndependentProjectEvidence[]
   skills: CapabilityEvidence[]
   tools: CapabilityEvidence[]
   competencies: CapabilityEvidence[]
@@ -174,13 +180,23 @@ export function evidenceFromVault(vault: Vault, selection: CvSelection, now: Dat
     return { employer, activities, projects: [], missing, overview: capOverview(rawOverview) }
   })
 
-  // Selected projects ride along with the employer they belong to. None is dropped silently: an unroutable one is reported.
+  const independentProjects: IndependentProjectEvidence[] = []
   const unroutedProjects: Evidence['unroutedProjects'] = []
   const unresolved: Evidence['unresolved'] = []
   const projectNotes: string[] = []
-  for (const { id } of selection.projects) {
+  for (const id of new Set(selection.projects.map((p) => p.id))) {
     const n = vault.notes.get(id)
     if (n?.type !== 'project') { unresolved.push({ section: 'projects', id }); continue }
+    if (n.props.status === 'archived') {
+      projectNotes.push('A selected project was archived, so it is not on the CV.')
+      continue
+    }
+    const role = n.props.experienceId ? vault.notes.get(n.props.experienceId) : undefined
+    if (role?.type === 'experience' && role.props.experienceType === 'independent') {
+      const name = cleanProjectLine(n.props.name, scrub)
+      independentProjects.push({ id, name, ...projectEvidenceText(n, vault, { forCvOutput: true }) })
+      continue
+    }
     const routed = routeProject(employers, n.props)
     const label = n.props.name
     if (!('index' in routed)) { unroutedProjects.push({ name: label, why: routed.why }); continue }
@@ -227,6 +243,7 @@ export function evidenceFromVault(vault: Vault, selection: CvSelection, now: Dat
   const experiences = jobNotes(vault)
   return {
     employers,
+    independentProjects,
     skills: caps(selection.skills, 'skills'),
     tools: caps(selection.tools, 'tools'),
     competencies: caps(selection.competencies, 'competencies'),

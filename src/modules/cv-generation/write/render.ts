@@ -6,10 +6,12 @@
  * Pure: no DB, no network, no model.
  */
 
+import { evidenceLine } from '@/modules/profile/project-highlights'
 import { employerPeriod, stintYears } from '../employers'
-import type { SelectedEmployer } from '../schema'
-import type { CertificationEvidence, EducationEvidence } from './evidence'
+import type { BulletProvenance, BulletSource, SelectedEmployer } from '../schema'
+import type { CertificationEvidence, EducationEvidence, IndependentProjectEvidence } from './evidence'
 import { plainLine } from './plain'
+import { snippetOf } from './provenance'
 import { ALREADY_MARKED, certificationStatus, educationStatus } from './status'
 
 const oneLine = (s: string) => s.replace(/\s+/g, ' ').trim()
@@ -47,6 +49,32 @@ export function renderEmployerEntry(e: SelectedEmployer, summary: string, bullet
     '',
     `:::compact-list\n${bullets.map(plainLine).filter(Boolean).map((b) => `- ${b}`).join('\n')}\n:::`,
   ].join('\n')
+}
+
+/** Render accepted evidence verbatim, or bounded project context when there are no atoms. */
+export function renderIndependentProject(project: IndependentProjectEvidence): {
+  markdown: string
+  bullets: BulletProvenance[]
+  projectSource: BulletSource
+} {
+  const bullets = new Map<string, BulletProvenance>()
+  for (const a of project.atoms) {
+    const impact = a.impact === a.text ? null : a.impact
+    const text = a.text ? evidenceLine({ description: a.text, impact }) : impact ?? ''
+    if (!/[\p{L}\p{N}]/u.test(text)) continue
+    const source: BulletSource = { id: a.id, kind: 'activity', snippet: snippetOf(text) }
+    const existing = bullets.get(text)
+    if (!existing) bullets.set(text, { text, sources: [source] })
+    else if (!existing.sources.some((s) => s.id === source.id)) existing.sources.push(source)
+  }
+  const context = project.atoms.length === 0 && !project.thin ? project.text : ''
+  const list = [...bullets.values()]
+  const body = list.length ? [':::compact-list', ...list.map((b) => `- ${b.text}`), ':::'].join('\n') : context
+  return {
+    markdown: project.name && body ? `### ${project.name}\n\n${body}` : '',
+    bullets: list,
+    projectSource: { id: project.id, kind: 'project', snippet: snippetOf([project.name, context].filter(Boolean).join(' — ')) },
+  }
 }
 
 // ── Skills and tools ────────────────────────────────────────────────────────

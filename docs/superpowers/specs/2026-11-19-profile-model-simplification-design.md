@@ -1,6 +1,6 @@
 # Simplifying the profile model: roles own achievements, projects are labels
 
-**Date:** 2026-11-19 · **Status:** Implemented through PR 4 on the feature branch. CV Projects output is pending. Generator tuning is paused.
+**Date:** 2026-11-19 · **Status:** Implemented through PR 5 on the feature branch. Selection and prompt tuning remain paused.
 **Builds on:** `2026-11-11-profile-map-design.md` (the vault), issue #440 and its PRs #442–#444, `docs/cv-generation.md` §20–21.
 **Constraint kept:** the CV generator stays general and is never tuned to one person's data. Profile data is never changed without the owner seeing it first.
 
@@ -177,8 +177,8 @@ The role note groups labelled evidence by project. The project note shows the ev
 | 2 | **Overview fold only**: guarded apply script (`npm run profile:backfill-apply`: dry run prints a fingerprint, `--apply --confirm <fingerprint>` writes it in one transaction), near-duplicate responsibilities left out of the fold. Changes only `Experience.summary`; no activity row is touched. | Approves the fingerprint, then runs it |
 | 3 | **Role-owns switch** (built through 3e, §13). Includes the achievement form, role grouping, project-filtered view, Move, and the inline project suggestion that replaces the readiness finding. | Decisions recorded in §12 |
 | 4 | **Clean-and-extract draft layer** (implemented) (§9): extraction proposes cleaned achievements with result and project, a saved draft with edit, accept and skip, de-duplication against all the role's achievements | None (extraction prompts are profile capture, not generator prompts) |
-| 5 | Render independent work in a CV Projects section. Generator tuning stays paused. | Pending |
-| 6 | Generator: Select shortlist with handles; project name rule | **Lifts the generator pause** |
+| 5 | Render selected independent projects after Experience. | Implemented on the feature branch |
+| 6 | Select shortlist with handles and project naming rule. | Pending owner approval to lift the generator pause |
 | 7 | Optional embeddings spike | Decides after PR 6 |
 
 The role-aware readers and writers shipped before the constraints. They account for project archiving, evidence ordering and the existing generator project-evidence cap.
@@ -226,4 +226,10 @@ Built on the feature branch. One migration performs the backfill, sets both role
 
 The role note groups evidence by project and the project note filters that evidence by label. Add, Edit and Move use a role and an optional same-role project label. Independent projects is available on demand, and its unlabelled evidence can be opened from the Independent projects section. The achievement form suggests a label when the wording names a project in the selected role.
 
-The migration was validated first on an isolated production snapshot and then against synthetic legacy rows. PR 4 adds saved extraction drafts. CV Projects rendering and generator tuning remain in later phases.
+The migration was validated first on an isolated production snapshot and then against synthetic legacy rows. PR 4 adds saved extraction drafts.
+
+## 14. PR 5 CV output
+
+An existing Select pick whose project belongs to an independent experience renders under Projects, after Professional Experience and Earlier Experience. The generator uses the saved project name and accepted bullets with their results. Projects without accepted atoms can use a bounded digest of saved context. Review can cite the sources and flag concerns. The section is read-only during Review and editable in the writing desk.
+
+Independent achievements without a project label remain outside the Select menu. PR 5 reuses stored selections and leaves selection and prompt tuning paused for PR 6.

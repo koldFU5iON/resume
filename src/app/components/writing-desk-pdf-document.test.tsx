@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest"
 import { renderToBuffer } from "@react-pdf/renderer"
+import { renderToStaticMarkup } from "react-dom/server"
 import { extractLinks, extractText, extractTextItems, getDocumentProxy } from "unpdf"
+import { INDEPENDENT_RESULT, independentProjectsFixture } from "@/modules/cv-generation/__fixtures__/independent-projects"
+import { evidenceFromVault } from "@/modules/cv-generation/write/evidence"
+import { renderIndependentProject } from "@/modules/cv-generation/write/render"
 import { WritingDeskPDFDocument } from "./writing-desk-pdf-document"
+import { WritingDeskPreview } from "./writing-desk-preview"
 import type { WritingDeskDocumentType } from "@/modules/writing-desk/schema"
 
 const CV_MARKDOWN = [
@@ -42,6 +47,30 @@ async function render(markdown: string, documentType: WritingDeskDocumentType) {
 }
 
 describe("WritingDeskPDFDocument", () => {
+  it("renders the generated Projects headings, bullets and fallback context in PDF and editor preview", async () => {
+    const { vault, selection } = independentProjectsFixture()
+    const projects = evidenceFromVault(vault, selection).independentProjects.map(renderIndependentProject).map(p => p.markdown).filter(Boolean)
+    const markdown = [CV_MARKDOWN, "## Earlier Experience\n\n- Other Co", "## Projects", ...projects, "## Skills\n\n- Delivery"].join("\n\n")
+    const { pdf } = await render(markdown, "cv")
+    const { text } = await extractText(pdf, { mergePages: true })
+    const html = renderToStaticMarkup(<WritingDeskPreview markdown={markdown} documentType="cv" />)
+
+    const headings = ["Earlier Experience", "Projects", "Workshop Campaign 18", "Support Assistant", "Skills"]
+    let prior = -1
+    for (const heading of headings) {
+      const index = text.toUpperCase().indexOf(heading.toUpperCase())
+      expect(index).toBeGreaterThan(prior)
+      prior = index
+    }
+    expect(text).toContain(INDEPENDENT_RESULT)
+    expect(text).toContain("Handled ~1,400 requests")
+    expect(html).toContain("<h2>Projects</h2>")
+    expect(html).toContain("<h3>Workshop Campaign 18</h3>")
+    expect(html).toContain("<li>I built billing exports")
+    expect(html).toContain("Handled ~1,400 requests")
+    expect(html).not.toMatch(/@example|preview\.example|Pending extraction/)
+  })
+
   it("renders the CV profile as extractable single-column text", async () => {
     const { pdf } = await render(CV_MARKDOWN, "cv")
     const { text, totalPages } = await extractText(pdf, { mergePages: true })

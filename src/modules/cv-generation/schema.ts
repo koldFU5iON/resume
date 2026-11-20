@@ -609,7 +609,7 @@ export function parseSelection(value: unknown): CvSelection | null {
 
 /** The kinds of section the writers and code produce. */
 export const ASSEMBLED_SECTION_KINDS = [
-  'header', 'profile', 'competencies', 'experience', 'tools', 'skills', 'certification', 'education', 'languages',
+  'header', 'profile', 'competencies', 'experience', 'projects', 'tools', 'skills', 'certification', 'education', 'languages',
 ] as const
 export type AssembledSectionKind = typeof ASSEMBLED_SECTION_KINDS[number]
 
@@ -634,15 +634,16 @@ export type BulletProvenance = z.infer<typeof BulletProvenanceSchema>
 /**
  * One section of the assembled CV. `model` is the model that wrote it (absent
  * when code rendered it); `tokens` its total tokens. An experience section is
- * one employer (`employerKey`). `bullets` (Phase 3d) is the provenance of an
- * employer entry's bullets, in display order; absent on runs stored before it
- * and on every other section, and a malformed entry inside it is dropped.
+ * one employer (`employerKey`). An independent Projects entry has its own
+ * heading/context source (`projectSource`). `bullets` carries the provenance
+ * of either kind of entry in display order; absent on runs stored before it.
  */
 export const AssembledSectionSchema = z.object({
   id: z.string(),
   kind: z.string(),
   employerKey: z.string().optional(),
   markdown: z.string(),
+  projectSource: BulletSourceSchema.optional().catch(undefined),
   model: z.string().optional(),
   tokens: z.object({ input: z.number().nonnegative().default(0), output: z.number().nonnegative().default(0) }).optional(),
   bullets: z.array(z.unknown()).optional().transform((items) =>

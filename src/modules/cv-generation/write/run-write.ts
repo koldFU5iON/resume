@@ -41,8 +41,9 @@ import { experienceDigest, fallbackProfile, writeProfile } from './profile'
 import { statedYears } from './years'
 import { jobNotes, notesOf } from '@/modules/profile-map/build'
 import { requirementText } from './prompt'
-import { renderCertifications, renderEarlierExperience, renderEducation, renderLanguages } from './render'
+import { renderCertifications, renderEarlierExperience, renderEducation, renderIndependentProject, renderLanguages } from './render'
 import { writeSkills } from './skills'
+import { thinProjectNote } from './thin'
 import { CHECK_KIND_RANK, type CheckNote, type WriteContext, type WrittenSection } from './types'
 
 export type WriteResult = {
@@ -164,6 +165,23 @@ export async function runWrite(
       keep({
         id: 'earlier-experience', kind: 'earlier-experience', markdown: earlierMarkdown,
         log: logOf('earlier-experience', 'Earlier experience', { notes: [`${countOf(earlier.length, 'employer')} listed without bullets, one line each, newest first: rendered by code from your profile, no model call.`, ...earlierNotes] }),
+      })
+    }
+
+    for (const project of evidence.independentProjects) {
+      const rendered = renderIndependentProject(project)
+      if (!rendered.markdown) {
+        const label = project.name ? `Project "${project.name}"` : 'A selected independent project'
+        notes.push(thinProjectNote(label))
+        continue
+      }
+      const id = `projects:${project.id}`
+      const detail = rendered.bullets.length
+        ? `${countOf(rendered.bullets.length, 'bullet')} from accepted project evidence.`
+        : 'Context from your project description and notes. No accepted project bullets yet.'
+      keep({
+        id, kind: 'projects', ...rendered,
+        log: logOf(id, `Project: ${project.name}`, { notes: [`Rendered by code. ${detail}`] }),
       })
     }
 

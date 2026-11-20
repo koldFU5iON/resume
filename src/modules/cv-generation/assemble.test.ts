@@ -73,8 +73,10 @@ describe('assembleCv', () => {
   })
 
   it('the shared default structure (the contract external writers read) is untouched', () => {
-    expect(DEFAULT_CV_STRUCTURE.map((s) => s.key)).not.toContain('earlier-experience')
-    expect(cvStructure().sections.map((s) => s.key)).toEqual(['header', 'profile', 'competencies', 'experience', 'earlier-experience', 'tools', 'skills', 'certification', 'education', 'languages'])
+    const defaults = DEFAULT_CV_STRUCTURE.map((s) => s.key)
+    expect(defaults).not.toContain('earlier-experience')
+    expect(defaults).not.toContain('projects')
+    expect(cvStructure().sections.map((s) => s.key)).toEqual(['header', 'profile', 'competencies', 'experience', 'earlier-experience', 'projects', 'tools', 'skills', 'certification', 'education', 'languages'])
   })
 
   it('writes the header with the name, the headline and the literal {{contact}} placeholder, never contact details', () => {
