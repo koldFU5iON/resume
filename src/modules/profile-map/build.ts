@@ -3,7 +3,7 @@
 // that presents them as linked notes.
 
 import { parseJsonField } from '@/lib/utils'
-import { asExperienceType } from '@/modules/profile/experience-type'
+import { asExperienceType, experienceLabel } from '@/modules/profile/experience-type'
 import { projectEvidenceOf, roleOwnEvidence } from '@/modules/profile/ownership'
 import { evidenceLine, projectHighlights } from '@/modules/profile/project-highlights'
 import { combineImpact, parseResult } from '@/modules/profile/result'
@@ -224,10 +224,10 @@ export function buildVault(row: VaultSource): Vault {
     const note: ExperienceNote = {
       id: e.id,
       type: 'experience',
-      title: `${e.role} — ${e.company}`,
+      title: e.type === 'independent' ? e.role : `${e.role} — ${e.company}`,
       gist: [
-        `${e.role} at ${e.company}`,
-        span,
+        experienceLabel(e),
+        e.type === 'independent' ? null : span,
         evidenceGist,
       ].filter(Boolean).join(' · '),
       props: {

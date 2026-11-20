@@ -217,7 +217,7 @@ export async function scanCompany(watchId: string): Promise<ScanResult> {
       select: { onboardingContext: true },
     }),
     prisma.experience.findMany({
-      where: { profileId: profile.id },
+      where: { profileId: profile.id, NOT: { type: 'independent' } },
       select: { role: true },
     }),
     prisma.skill.findMany({

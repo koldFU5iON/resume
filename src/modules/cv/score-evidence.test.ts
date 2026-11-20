@@ -334,3 +334,15 @@ describe('applyRoleBudgets: the independent experience', () => {
     expect(independent.activities).toHaveLength(3)
   })
 })
+
+describe('scoreEvidence: the independent experience', () => {
+  it('is labelled by name only in the scoring prompt, not "at <company>"', async () => {
+    const base = MOCK_SNAPSHOT.experiences[0]
+    mockCompleteStructured.mockResolvedValue({ object: { scores: [] } } as never)
+    const snapshot = { ...MOCK_SNAPSHOT, experiences: [{ ...base, type: 'independent' as const, role: 'Independent projects', company: 'Independent projects' }] }
+    await scoreEvidence(PROFILE_ID, snapshot, { mustHave: [], niceToHave: [], risks: [] } as never).catch(() => undefined)
+    const prompt = String(mockCompleteStructured.mock.calls.at(-1)?.[1] ?? '')
+    expect(prompt).toContain('[Role 0] Independent projects')
+    expect(prompt).not.toContain('Independent projects at')
+  })
+})

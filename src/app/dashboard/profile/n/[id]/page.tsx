@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation'
+import { experienceTitle } from '@/modules/profile/experience-type'
 import Link from 'next/link'
 import { getFullProfile } from '@/modules/profile/queries'
 import { getLLMConfigStatus } from '@/modules/llm/client'
@@ -65,9 +66,9 @@ export default async function NotePage({ params }: { params: Promise<{ id: strin
         />
         <ProjectNote
           project={project}
-          parent={role ? { id: role.id, title: `${role.role}, ${role.company}` } : null}
+          parent={role ? { id: role.id, title: experienceTitle(role) } : null}
           siblings={role ? profile.projects.filter(p => p.experienceId === role.id && p.id !== project.id && p.status !== 'archived').map(p => ({ id: p.id, name: p.name })) : []}
-          roles={profile.experiences.map(e => ({ id: e.id, label: `${e.role}, ${e.company}` }))}
+          roles={profile.experiences.map(e => ({ id: e.id, label: experienceTitle(e) }))}
           skills={skills}
           links={links?.capabilities ?? []}
           pending={pending}

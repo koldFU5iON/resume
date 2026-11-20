@@ -184,28 +184,33 @@ export function serializeProfileForLLM(snapshot: ProfileSnapshot, opts: { pii?: 
   if (snapshot.location) lines.push(`\n**Location:** ${snapshot.location}`)
   if (snapshot.summary?.trim()) lines.push(`\n## Summary\n\n${scrub(snapshot.summary.trim())}`)
 
-  // Experience
-  if (snapshot.experiences.length > 0) {
-    lines.push('\n## Experience\n')
-    for (const exp of snapshot.experiences) {
-      if (exp.type === 'independent') {
-        lines.push(`### ${exp.role}`)
-      } else {
-        const dates = `${formatMonth(exp.startDate)} – ${exp.endDate ? formatMonth(exp.endDate) : 'present'}`
-        const place = [exp.location, exp.remote ? 'Remote' : null].filter(Boolean).join(' · ')
-        lines.push(`### ${exp.role} — ${exp.company}`)
-        lines.push(`*${dates}${place ? ` · ${place}` : ''}*`)
-      }
-      if (exp.summary) lines.push(`\n${scrub(exp.summary)}`)
-      if (exp.activities.length > 0) {
-        for (const act of exp.activities) {
-          const star = act.highlighted ? '⭐ ' : ''
-          const impact = act.impact ? ` — *${act.impact}*` : ''
-          lines.push(`- ${star}**${act.kind}:** ${scrub(act.description)}${impact}`)
-        }
-      }
-      lines.push('')
+  // Experience: jobs only. The independent experience follows as its own section, never as a job.
+  const writeExperience = (exp: ProfileSnapshot['experiences'][number], independent: boolean) => {
+    if (independent) {
+      lines.push(`### ${exp.role}`)
+    } else {
+      const dates = `${formatMonth(exp.startDate)} – ${exp.endDate ? formatMonth(exp.endDate) : 'present'}`
+      const place = [exp.location, exp.remote ? 'Remote' : null].filter(Boolean).join(' · ')
+      lines.push(`### ${exp.role} — ${exp.company}`)
+      lines.push(`*${dates}${place ? ` · ${place}` : ''}*`)
     }
+    if (exp.summary) lines.push(`\n${scrub(exp.summary)}`)
+    for (const act of exp.activities) {
+      const star = act.highlighted ? '⭐ ' : ''
+      const impact = act.impact ? ` — *${act.impact}*` : ''
+      lines.push(`- ${star}**${act.kind}:** ${scrub(act.description)}${impact}`)
+    }
+    lines.push('')
+  }
+  const jobs = snapshot.experiences.filter((e) => e.type !== 'independent')
+  const independent = snapshot.experiences.filter((e) => e.type === 'independent')
+  if (jobs.length > 0) {
+    lines.push('\n## Experience\n')
+    for (const exp of jobs) writeExperience(exp, false)
+  }
+  if (independent.length > 0) {
+    lines.push('\n## Independent projects (personal work, not employment)\n')
+    for (const exp of independent) writeExperience(exp, true)
   }
 
   // Skills — grouped by category for readability

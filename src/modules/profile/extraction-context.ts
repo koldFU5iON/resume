@@ -1,3 +1,4 @@
+import { experienceLabel, isEmployment } from '@/modules/profile/experience-type'
 // What an extraction is told about the note it reads: the text, and the
 // framing the model gets. Pure, so the wording is tested. Lives apart from
 // extract.ts because that file is 'use server' and may only export async
@@ -16,18 +17,18 @@ export type ExtractionSubject = {
 
 const month = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
 
-export function roleSubject(role: { role: string; company: string; summary: string | null; startDate: Date; endDate: Date | null }): ExtractionSubject {
+export function roleSubject(role: { type?: string | null; role: string; company: string; summary: string | null; startDate: Date; endDate: Date | null }): ExtractionSubject {
   const end = role.endDate ? month(role.endDate) : 'Present'
   return {
     body: role.summary ?? '',
     noun: 'role',
-    facts: `**${role.role}** at ${role.company} (${month(role.startDate)} → ${end})`,
+    facts: isEmployment(role) ? `**${role.role}** at ${role.company} (${month(role.startDate)} → ${end})` : `**${role.role}** (personal projects, not a job)`,
   }
 }
 
 /** A project's description and notes read as one text, the way the profile vault does. */
-export function projectSubject(project: { name: string; description: string; notes: string; role?: { role: string; company: string } | null }): ExtractionSubject {
-  const partOf = project.role ? ` (part of ${project.role.role} at ${project.role.company})` : ''
+export function projectSubject(project: { name: string; description: string; notes: string; role?: { type?: string | null; role: string; company: string } | null }): ExtractionSubject {
+  const partOf = project.role ? ` (part of ${experienceLabel(project.role)})` : ''
   return {
     body: projectBody(project),
     noun: 'project',

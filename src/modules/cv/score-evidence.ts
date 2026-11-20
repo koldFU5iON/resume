@@ -1,4 +1,5 @@
 import * as z from 'zod'
+import { experienceLabel } from '@/modules/profile/experience-type'
 import { completeStructured, type LlmAttribution } from '@/modules/llm/client'
 import { loadEvidenceScoringPrompt, composeSystem } from '@/modules/llm/prompt-context'
 import type { ProfileSnapshot } from '@/modules/profile/snapshot'
@@ -46,7 +47,7 @@ export async function scoreEvidence(
 ): Promise<ProfileSnapshot> {
   const activitiesText = snapshot.experiences
     .map((exp, ei) => {
-      const header = `[Role ${ei}] ${exp.role} at ${exp.company}`
+      const header = `[Role ${ei}] ${experienceLabel(exp)}`
       const rows = exp.activities.map(
         (act, ai) =>
           `[${ei}.${ai}] ${act.kind}: ${act.description}${act.impact ? ' — ' + act.impact : ''}`,

@@ -39,7 +39,7 @@ import { ASSEMBLE_RESERVE_MS, MIN_CALL_MS, WAVE2_MIN_START_MS, WAVE2_RESERVE_MS 
 import { runPool } from './pool'
 import { experienceDigest, fallbackProfile, writeProfile } from './profile'
 import { statedYears } from './years'
-import { notesOf } from '@/modules/profile-map/build'
+import { jobNotes, notesOf } from '@/modules/profile-map/build'
 import { requirementText } from './prompt'
 import { renderCertifications, renderEarlierExperience, renderEducation, renderLanguages } from './render'
 import { writeSkills } from './skills'
@@ -112,7 +112,7 @@ export async function runWrite(
     evidence,
     requirementText: requirementText(strategy),
     // From the earliest role start across ALL employers, Earlier Experience ones included.
-    yearsOfExperience: statedYears(notesOf(vault, 'experience').map((e) => e.props.startDate), new Date()),
+    yearsOfExperience: statedYears(jobNotes(vault).map((e) => e.props.startDate), new Date()),
   }
   // Wave 1 stops early enough to leave wave 2 its time (but never gets less than half of what there is).
   const w1: WriteContext = { ...w, deadline: Math.max(writeDeadline - WAVE2_RESERVE_MS, startedAt + (writeDeadline - startedAt) / 2) }

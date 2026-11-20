@@ -1,3 +1,4 @@
+import { experienceTitle, isEmployment } from '@/modules/profile/experience-type'
 // The profile as a list of notes, and the URL each one lives at. Pure: built
 // from the profile already loaded, so nothing here touches the database and
 // ownership is inherent (a profile only lists its own rows).
@@ -12,7 +13,7 @@ export const noteHref = (id: string) => `${NOTE_BASE}/n/${id}`
 export const capabilitiesHref = () => `${NOTE_BASE}/records/capabilities`
 export const credentialsHref = () => `${NOTE_BASE}/records/credentials`
 
-type IndexExperience = { id: string; role: string; company: string; startDate: Date | string; endDate: Date | string | null }
+type IndexExperience = { id: string; type?: string | null; role: string; company: string; startDate: Date | string; endDate: Date | string | null }
 type IndexProject = { id: string; name: string; experienceId: string | null }
 
 export type NoteIndex = {
@@ -27,13 +28,14 @@ const year = (d: Date | string) => new Date(d).getFullYear()
 export function buildNoteIndex(profile: { experiences: IndexExperience[]; projects: IndexProject[] }): NoteIndex {
   const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name)
   const experiences = [...profile.experiences]
-    .sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime())
+    // Jobs newest first; the independent experience (no dates) goes last.
+    .sort((a, b) => Number(!isEmployment(a)) - Number(!isEmployment(b)) || new Date(b.startDate).getTime() - new Date(a.startDate).getTime())
     .map((e) => ({
       id: e.id,
-      title: `${e.role}, ${e.company}`,
+      title: experienceTitle(e),
       role: e.role,
       company: e.company,
-      period: `${year(e.startDate)}–${e.endDate ? year(e.endDate) : 'now'}`,
+      period: isEmployment(e) ? `${year(e.startDate)}–${e.endDate ? year(e.endDate) : 'now'}` : '',
       projects: profile.projects.filter((p) => p.experienceId === e.id).map((p) => ({ id: p.id, name: p.name })),
     }))
   const projects = profile.projects.filter((p) => !p.experienceId).map((p) => ({ id: p.id, name: p.name })).sort(byName)

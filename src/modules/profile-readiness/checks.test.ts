@@ -417,3 +417,10 @@ describe('the independent experience is never read as a job', () => {
     expect(kinds(checkExperienceDates(withIndependent(), NOW))).toEqual([])
   })
 })
+
+describe('the independent experience: thin narratives', () => {
+  it('is never flagged as a thin role (it is a heading, not a narrative)', () => {
+    const v = vaultOf({ experiences: [independentRole('ind', [])] })
+    expect(checkThinNarratives(v, NOW).map((f) => f.noteId)).not.toContain('ind')
+  })
+})

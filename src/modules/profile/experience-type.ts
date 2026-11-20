@@ -12,3 +12,11 @@ export const asExperienceType = (value: string | null | undefined): ExperienceTy
 
 /** True when the experience is a real job: use this before any date, tenure, gap or employer logic. */
 export const isEmployment = (e: { type?: string | null }): boolean => asExperienceType(e.type) === 'employment'
+
+type Labelled = { role: string; company: string; type?: string | null }
+
+/** "Role at Company" for a job; just the name for the independent experience ("Independent projects"). */
+export const experienceLabel = (e: Labelled): string => (isEmployment(e) ? `${e.role} at ${e.company}` : e.role)
+
+/** "Role, Company" for lists and pickers; just the name for the independent experience. */
+export const experienceTitle = (e: Labelled): string => (isEmployment(e) ? `${e.role}, ${e.company}` : e.role)
