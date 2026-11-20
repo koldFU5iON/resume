@@ -1,11 +1,3 @@
-// The writes that keep an activity's role and project consistent (design doc §13, step 3b).
-// Session-free: every function takes the caller's profileId first.
-//
-// The model: a role owns an activity, a project may label it. An activity that names a project carries
-// that project's role (or none, while the project has none). Every write below keeps that true, so no
-// activity is left with a role that disagrees with its project's role, and no delete takes evidence the
-// owner chose to keep. Readers (src/modules/profile/ownership.ts) already cope with both shapes.
-
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
 import { INDEPENDENT_EXPERIENCE_TYPE } from './experience-type'
@@ -23,40 +15,48 @@ export async function lockRow(tx: RawTx, table: 'Experience' | 'Project', id: st
   await tx.$queryRaw(Prisma.sql`SELECT "id" FROM ${Prisma.raw(`"${table}"`)} WHERE "id" = ${id} AND "profileId" = ${profileId} FOR UPDATE`)
 }
 
-/** Where an activity goes: a role, or a project (which also gives it the project's role). */
-export type ActivityOwner = { experienceId: string } | { projectId: string }
+/** A null role selection creates or reuses Independent projects on demand. */
+export type ActivityOwner = { experienceId: string | null; projectId?: string | null }
+type ActivityFields = { experienceId: string; projectId: string | null }
+type ActivityTx = Pick<Prisma.TransactionClient, '$executeRaw' | 'experience' | 'project' | 'roleActivity'>
 
-/** The row fields that set an owner, checked against the profile. */
-export type ActivityFields = { experienceId: string | null; projectId: string | null }
+/** Serialize ownership changes so a project or its role cannot move between validation and write. */
+export async function withActivityOwnership<T>(profileId: string, write: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`profile-ownership:${profileId}`}))`
+    return write(tx)
+  })
+}
 
-/** The slot after the owner's last evidence, so new items land at the end instead of tying at 0. */
-export async function nextActivityOrder(owner: ActivityOwner): Promise<number> {
-  // A role's own list is the activities it holds directly; those labelled with a project are ordered within the project.
-  const where = 'projectId' in owner ? { projectId: owner.projectId } : { experienceId: owner.experienceId, projectId: null }
-  const last = await prisma.roleActivity.findFirst({ where, orderBy: { order: 'desc' }, select: { order: true } })
+export async function nextActivityOrder(tx: ActivityTx, fields: ActivityFields): Promise<number> {
+  const last = await tx.roleActivity.findFirst({ where: fields, orderBy: { order: 'desc' }, select: { order: true } })
   return (last?.order ?? -1) + 1
 }
 
-/**
- * The fields the profile's own owner sets. A project gives its role too (null for a project with none);
- * a role gives no project. Throws when the role or project is not the profile's.
- */
-export async function activityFieldsFor(profileId: string, owner: ActivityOwner): Promise<ActivityFields> {
-  // A missing id must not match "any row of the profile" (Prisma ignores an undefined filter).
-  const id = 'projectId' in owner ? owner.projectId : owner.experienceId
-  if (typeof id !== 'string' || !id) throw new Error('projectId' in owner ? 'Project not found' : 'Experience not found')
-  if ('projectId' in owner) {
-    const project = await prisma.project.findFirst({ where: { id: owner.projectId, profileId }, select: { id: true, experienceId: true } })
-    if (!project) throw new Error('Project not found')
-    return { experienceId: project.experienceId, projectId: project.id }
-  }
-  const experience = await prisma.experience.findFirst({ where: { id: owner.experienceId, profileId }, select: { id: true } })
-  if (!experience) throw new Error('Experience not found')
-  return { experienceId: experience.id, projectId: null }
+/** Resolve a project note's current role inside the ownership transaction. */
+export async function projectActivityLabel(tx: ActivityTx, profileId: string, projectId: string) {
+  if (typeof projectId !== 'string' || !projectId) throw new Error('Project not found')
+  const project = await tx.project.findFirst({ where: { id: projectId, profileId, experience: { profileId } }, select: { id: true, experienceId: true, status: true } })
+  if (!project) throw new Error('Project not found')
+  return project
 }
 
-/** The owner a set of fields names, for ordering. */
-export const ownerOf = (f: ActivityFields): ActivityOwner => (f.projectId ? { projectId: f.projectId } : { experienceId: f.experienceId! })
+export async function activityFieldsFor(tx: ActivityTx, profileId: string, owner: ActivityOwner, allowArchived = false): Promise<ActivityFields> {
+  const { projectId = null } = owner
+  if (owner.experienceId === null && projectId === null) {
+    return { experienceId: await ensureIndependentExperience(tx, profileId), projectId: null }
+  }
+  const { experienceId } = owner
+  if (typeof experienceId !== 'string' || !experienceId) throw new Error('Experience not found')
+  const experience = await tx.experience.findFirst({ where: { id: experienceId, profileId }, select: { id: true } })
+  if (!experience) throw new Error('Experience not found')
+  if (projectId !== null) {
+    const project = await projectActivityLabel(tx, profileId, projectId)
+    if (project.experienceId !== experienceId) throw new Error('That project belongs to another role')
+    if (!allowArchived && project.status === 'archived') throw new Error('That project is archived')
+  }
+  return { experienceId, projectId }
+}
 
 /**
  * What deleting a role takes with it, counted from the rows. `evidence` goes either way; `projectEvidence` is
@@ -70,11 +70,11 @@ export async function experienceDeleteImpact(profileId: string, id: string) {
         experienceId: id,
         experience: { profileId },
         // Carries the role and is not held by one of the role's own projects (those are kept when the projects are).
-        OR: [{ projectId: null }, { project: { is: { experienceId: null } } }, { project: { is: { experienceId: { not: id } } } }],
+        OR: [{ projectId: null }, { project: { is: { experienceId: { not: id } } } }],
       },
     }),
     prisma.project.count({ where: { experienceId: id, profileId } }),
-    prisma.roleActivity.count({ where: { project: { experienceId: id, profileId }, OR: [{ experienceId: null }, { experienceId: id }] } }),
+    prisma.roleActivity.count({ where: { project: { experienceId: id, profileId }, experienceId: id } }),
   ])
   return { evidence, projects, projectEvidence }
 }
@@ -92,7 +92,7 @@ export async function deleteExperienceRow(profileId: string, id: string, project
   if (projects === 'keep' && experience.type === INDEPENDENT_EXPERIENCE_TYPE) {
     throw new Error('Independent projects is where kept projects live: delete its projects too, or move them to a role first.')
   }
-  await prisma.$transaction(async (tx) => {
+  await withActivityOwnership(profileId, async (tx) => {
     await lockRow(tx, 'Experience', id, profileId)
     if (projects === 'keep') {
       // Lock projects before touching their evidence: a concurrent Properties move must finish first.
@@ -103,9 +103,9 @@ export async function deleteExperienceRow(profileId: string, id: string, project
       const projectIds = locked.map((p) => p.id)
       if (projectIds.length > 0) {
         const home = await ensureIndependentExperience(tx, profileId)
-        // Move the projects' own evidence (including legacy project-only rows); other roles' evidence stays.
+        // Move the projects' own evidence (only evidence that carries this role); other roles' evidence stays.
         await tx.roleActivity.updateMany({
-          where: { projectId: { in: projectIds }, OR: [{ experienceId: id }, { experienceId: null }] },
+          where: { projectId: { in: projectIds }, experienceId: id },
           data: { experienceId: home },
         })
         await tx.project.updateMany({ where: { id: { in: projectIds }, profileId }, data: { experienceId: home } })
@@ -114,7 +114,7 @@ export async function deleteExperienceRow(profileId: string, id: string, project
       // The projects are going: another role's evidence under them must not go with them. It keeps its role and
       // loses only the label. (When the projects are kept it keeps the label too; readers trust its own role.)
       await tx.roleActivity.updateMany({
-        where: { project: { experienceId: id, profileId }, AND: [{ experienceId: { not: null } }, { experienceId: { not: id } }] },
+        where: { project: { experienceId: id, profileId }, experienceId: { not: id } },
         data: { projectId: null },
       })
       await tx.project.deleteMany({ where: { experienceId: id, profileId } })
@@ -128,12 +128,12 @@ export async function deleteExperienceRow(profileId: string, id: string, project
  * from the project's) is not the project's: it keeps its role and loses only the label.
  */
 export async function deleteProjectRow(profileId: string, id: string): Promise<void> {
-  const project = await prisma.project.findFirst({ where: { id, profileId }, select: { id: true, experienceId: true } })
-  if (!project) return
-  await prisma.$transaction(async (tx) => {
+  await withActivityOwnership(profileId, async (tx) => {
     await lockRow(tx, 'Project', id, profileId)
+    const project = await tx.project.findFirst({ where: { id, profileId }, select: { experienceId: true } })
+    if (!project) return
     await tx.roleActivity.updateMany({
-      where: { projectId: id, AND: [{ experienceId: { not: null } }, ...(project.experienceId ? [{ experienceId: { not: project.experienceId } }] : [])] },
+      where: { projectId: id, experienceId: { not: project.experienceId } },
       data: { projectId: null },
     })
     await tx.project.deleteMany({ where: { id, profileId } })

@@ -7,6 +7,7 @@ vi.mock('@/lib/db', () => {
     roleActivitySkill: { findMany: vi.fn(), createMany: vi.fn() },
     projectSkill: { findMany: vi.fn(), createMany: vi.fn() },
     $queryRaw: vi.fn(),
+    $executeRaw: vi.fn(),
     $transaction: vi.fn(),
   }
   prisma.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => fn(prisma))
@@ -17,7 +18,7 @@ import { prisma } from '@/lib/db'
 import { findDuplicateProjects, mergeProjects, pairDuplicateProjects, projectBody } from './project-merge'
 
 const proj = (id: string, name: string, experienceId: string | null, description = '', notes = '') =>
-  ({ id, name, experienceId, description, notes })
+  ({ id, name, experienceId: experienceId ?? 'ind', description, notes, experience: { type: experienceId ? 'employment' : 'independent' } })
 
 beforeEach(() => vi.clearAllMocks())
 
@@ -70,8 +71,8 @@ describe('projectBody', () => {
 describe('findDuplicateProjects', () => {
   it('scopes the read to the profile and reports evidence counts and body equality', async () => {
     vi.mocked(prisma.project.findMany).mockResolvedValue([
-      { ...proj('r1', 'Train', 'e1', 'Same text'), experience: { role: 'PM', company: 'Acme' }, _count: { activities: 3 } },
-      { ...proj('s1', 'Train', null, 'same  text'), experience: null, _count: { activities: 2 } },
+      { ...proj('r1', 'Train', 'e1', 'Same text'), experience: { type: 'employment', role: 'PM', company: 'Acme' }, _count: { activities: 3 } },
+      { ...proj('s1', 'Train', null, 'same  text'), experience: { type: 'independent' }, _count: { activities: 2 } },
     ] as never)
     const [pair] = await findDuplicateProjects('p1')
     expect(prisma.project.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { profileId: 'p1' } }))
@@ -84,10 +85,10 @@ describe('findDuplicateProjects', () => {
 })
 
 describe('mergeProjects', () => {
-  const ev = (id: string, description: string, order: number) => ({ id, description, order })
+  const ev = (id: string, description: string, order: number) => ({ id, description, order, experienceId: 'e1' })
   const rows = (keep: object, remove: object) => vi.mocked(prisma.project.findMany).mockResolvedValue([
-    { id: 'keep', description: 'K desc', notes: 'K notes', startDate: null, endDate: null, url: null, repoUrl: null, activities: [], ...keep },
-    { id: 'gone', description: 'R desc', notes: 'R notes', startDate: null, endDate: null, url: null, repoUrl: null, activities: [], ...remove },
+    { id: 'keep', experienceId: 'e1', description: 'K desc', notes: 'K notes', startDate: null, endDate: null, url: null, repoUrl: null, activities: [], ...keep },
+    { id: 'gone', experienceId: 'e1', description: 'R desc', notes: 'R notes', startDate: null, endDate: null, url: null, repoUrl: null, activities: [], ...remove },
   ] as never)
 
   it('refuses a project outside the profile or the same project twice, and writes nothing', async () => {
@@ -103,8 +104,8 @@ describe('mergeProjects', () => {
     rows({ activities: [ev('k1', 'Kept item', 4)] }, { activities: [ev('g1', 'Moved A', 0), ev('g2', 'Moved B', 1)] })
     vi.mocked(prisma.projectSkill.findMany).mockResolvedValue([])
     await mergeProjects('p1', { keepId: 'keep', removeId: 'gone', body: 'keep' })
-    expect(prisma.roleActivity.update).toHaveBeenCalledWith({ where: { id: 'g1' }, data: { projectId: 'keep', order: 5 } })
-    expect(prisma.roleActivity.update).toHaveBeenCalledWith({ where: { id: 'g2' }, data: { projectId: 'keep', order: 6 } })
+    expect(prisma.roleActivity.update).toHaveBeenCalledWith({ where: { id: 'g1' }, data: { projectId: 'keep', experienceId: 'e1', order: 5 } })
+    expect(prisma.roleActivity.update).toHaveBeenCalledWith({ where: { id: 'g2' }, data: { projectId: 'keep', experienceId: 'e1', order: 6 } })
     expect(prisma.project.delete).toHaveBeenCalledWith({ where: { id: 'gone' } })
   })
 
@@ -114,7 +115,6 @@ describe('mergeProjects', () => {
       { experienceId: 'e2', activities: [
         { ...ev('g1', 'Carried e2', 0), experienceId: 'e2' },
         { ...ev('g2', 'Another role\'s', 1), experienceId: 'e9' },
-        { ...ev('g3', 'No role', 2), experienceId: null },
         { ...ev('g4', 'Role of the kept project', 3), experienceId: 'e1' },
       ] },
     )
@@ -124,10 +124,8 @@ describe('mergeProjects', () => {
     expect(prisma.roleActivity.update).toHaveBeenCalledWith({ where: { id: 'g1' }, data: { projectId: 'keep', experienceId: 'e1', order: 0 } })
     // Another role's own evidence, whose role is not the kept project's: it loses the label, keeps its role.
     expect(prisma.roleActivity.update).toHaveBeenCalledWith({ where: { id: 'g2' }, data: { projectId: null } })
-    // No role of its own: project-only evidence, takes the kept project's role.
-    expect(prisma.roleActivity.update).toHaveBeenCalledWith({ where: { id: 'g3' }, data: { projectId: 'keep', experienceId: 'e1', order: 1 } })
     // Another role's evidence whose role happens to be the kept project's: the label is consistent there.
-    expect(prisma.roleActivity.update).toHaveBeenCalledWith({ where: { id: 'g4' }, data: { projectId: 'keep', order: 2 } })
+    expect(prisma.roleActivity.update).toHaveBeenCalledWith({ where: { id: 'g4' }, data: { projectId: 'keep', order: 1 } })
   })
 
   it('an item with the same wording under a different role is not a duplicate and is never merged away', async () => {
@@ -144,6 +142,16 @@ describe('mergeProjects', () => {
     expect(prisma.roleActivity.update).not.toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'g2' } }))
   })
 
+  it('detaches another role’s evidence even when the kept project has the same text under that role', async () => {
+    rows(
+      { experienceId: 'e1', activities: [{ ...ev('k1', 'Shipped it', 0), experienceId: 'e9' }] },
+      { experienceId: 'e2', activities: [{ ...ev('g1', 'Shipped it', 0), experienceId: 'e9' }] },
+    )
+    vi.mocked(prisma.projectSkill.findMany).mockResolvedValue([])
+    await mergeProjects('p1', { keepId: 'keep', removeId: 'gone', body: 'keep' })
+    expect(prisma.roleActivity.update).toHaveBeenCalledWith({ where: { id: 'g1' }, data: { projectId: null } })
+  })
+
   it('locks both projects, in a fixed order, before reading them', async () => {
     rows({ activities: [] }, { activities: [] })
     vi.mocked(prisma.projectSkill.findMany).mockResolvedValue([])
@@ -152,11 +160,11 @@ describe('mergeProjects', () => {
     expect(vi.mocked(prisma.$queryRaw).mock.invocationCallOrder[1]).toBeLessThan(vi.mocked(prisma.project.findMany).mock.invocationCallOrder[0])
   })
 
-  it('merging into a project with no role clears the role of evidence that carried the removed project\'s role', async () => {
-    rows({ experienceId: null, activities: [] }, { experienceId: 'e2', activities: [{ ...ev('g1', 'Carried e2', 0), experienceId: 'e2' }] })
+  it('merging into Independent projects moves the removed project\'s evidence there', async () => {
+    rows({ experienceId: 'ind', activities: [] }, { experienceId: 'e2', activities: [{ ...ev('g1', 'Carried e2', 0), experienceId: 'e2' }] })
     vi.mocked(prisma.projectSkill.findMany).mockResolvedValue([])
     await mergeProjects('p1', { keepId: 'keep', removeId: 'gone', body: 'keep' })
-    expect(prisma.roleActivity.update).toHaveBeenCalledWith({ where: { id: 'g1' }, data: { projectId: 'keep', experienceId: null, order: 0 } })
+    expect(prisma.roleActivity.update).toHaveBeenCalledWith({ where: { id: 'g1' }, data: { projectId: 'keep', experienceId: 'ind', order: 0 } })
   })
 
   it('does not move evidence the kept project already has, but keeps its confirmed links', async () => {
@@ -165,7 +173,7 @@ describe('mergeProjects', () => {
     vi.mocked(prisma.projectSkill.findMany).mockResolvedValue([])
     await mergeProjects('p1', { keepId: 'keep', removeId: 'gone', body: 'keep' })
     expect(prisma.roleActivity.update).toHaveBeenCalledTimes(1)
-    expect(prisma.roleActivity.update).toHaveBeenCalledWith({ where: { id: 'g2' }, data: { projectId: 'keep', order: 1 } })
+    expect(prisma.roleActivity.update).toHaveBeenCalledWith({ where: { id: 'g2' }, data: { projectId: 'keep', experienceId: 'e1', order: 1 } })
     expect(prisma.roleActivitySkill.createMany).toHaveBeenCalledWith({
       data: [{ roleActivityId: 'k1', skillId: 's1', status: 'confirmed', source: 'manual', reason: null }],
       skipDuplicates: true,

@@ -38,9 +38,9 @@ describe('findNote', () => {
     expect(findNote(profile, 'p2')).toEqual({ kind: 'project', id: 'p2', experienceId: null })
   })
 
-  it('does not resolve the independent experience as a role editor, but still resolves its projects', () => {
+  it('keeps an existing independent note addressable alongside its projects', () => {
     const independent = { ...profile, experiences: [...profile.experiences, { ...profile.experiences[0], id: 'ind', type: 'independent' }], projects: [{ id: 'personal', name: 'Personal', experienceId: 'ind' }] }
-    expect(findNote(independent, 'ind')).toBeNull()
+    expect(findNote(independent, 'ind')).toEqual({ kind: 'experience', id: 'ind' })
     expect(findNote(independent, 'personal')).toEqual({ kind: 'project', id: 'personal', experienceId: 'ind' })
   })
 
@@ -78,5 +78,32 @@ describe('buildNoteIndex: the independent experience', () => {
     })
     expect(index.experiences.map((e) => e.id)).toEqual(['new', 'old'])
     expect(index.projects.map((p) => p.name)).toEqual(['Alpha', 'Beta', 'Zeta'])
+  })
+  it('links independent evidence with no project from the independent section', () => {
+    const independent = {
+      ...profile,
+      experiences: [...profile.experiences, { ...profile.experiences[0], id: 'ind', type: 'independent', activities: [{}] }],
+    }
+    const index = buildNoteIndex(independent)
+    expect(index.independentEvidence).toEqual(['ind'])
+    expect(index.experiences.map(e => e.id)).not.toContain('ind')
+    expect(findNote(independent, 'ind')).toEqual({ kind: 'experience', id: 'ind' })
+  })
+
+})
+
+describe('independent note after labelling its last direct achievement', () => {
+  it('retains its address and navigation entry when saved prose remains', () => {
+    const note = { ...profile.experiences[0], id: 'ind', type: 'independent', summary: 'Personal work and learning', activities: [{}] }
+    const before = { ...profile, experiences: [note] }
+    const after = { ...before, experiences: [{ ...note, activities: [] }], projects: [{ id: 'personal', name: 'Personal', experienceId: 'ind' }] }
+    expect(buildNoteIndex(before).independentEvidence).toEqual(['ind'])
+    expect(buildNoteIndex(after).independentEvidence).toEqual(['ind'])
+    expect(findNote(after, 'ind')).toEqual({ kind: 'experience', id: 'ind' })
+  })
+  it('keeps an empty independent note addressable without adding an empty navigation entry', () => {
+    const empty = { ...profile, experiences: [{ ...profile.experiences[0], id: 'ind', type: 'independent', summary: '  ', activities: [] }] }
+    expect(buildNoteIndex(empty).independentEvidence).toEqual([])
+    expect(findNote(empty, 'ind')).toEqual({ kind: 'experience', id: 'ind' })
   })
 })

@@ -34,4 +34,14 @@ export const VAULT_INCLUDE = {
   settings: { select: { searchProfile: true, updatedAt: true } },
 } satisfies Prisma.ProfileInclude
 
-export type VaultSource = Prisma.ProfileGetPayload<{ include: typeof VAULT_INCLUDE }>
+type LoadedProfile = Prisma.ProfileGetPayload<{ include: typeof VAULT_INCLUDE }>
+type LegacyActivity = Omit<LoadedProfile['experiences'][number]['activities'][number], 'experienceId'> & { experienceId: string | null }
+
+// Historical snapshots and reader fixtures can still have project-only evidence and standalone projects.
+export type VaultSource = Omit<LoadedProfile, 'experiences' | 'projects'> & {
+  experiences: (Omit<LoadedProfile['experiences'][number], 'activities'> & { activities: LegacyActivity[] })[]
+  projects: (Omit<LoadedProfile['projects'][number], 'activities' | 'experienceId'> & {
+    activities: LegacyActivity[]
+    experienceId: string | null
+  })[]
+}

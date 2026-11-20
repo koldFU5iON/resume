@@ -1,11 +1,10 @@
 // Saves for the Properties tab: a role's facts and a project's facts. Session-
 // free: every function takes the caller's profileId first. Input is validated
 // here, not trusted from the form, and a cleared field is written as null (a
-// role with no end date is current; a personal project lives under Independent projects).
+// role with no end date is a current role; personal projects have an Independent projects role).
 
 import { prisma } from '@/lib/db'
-import { lockRow } from './activity-roles'
-import { ensureIndependentExperience } from './independent-experience'
+import { activityFieldsFor, lockRow, withActivityOwnership } from './activity-roles'
 import { ExperiencePropertiesSchema, ProjectPropertiesSchema, type ExperienceProperties, type ProjectProperties } from './properties-schema'
 
 export type { ExperienceProperties, ProjectProperties }
@@ -24,16 +23,12 @@ export async function saveExperienceProperties(profileId: string, id: string, in
  */
 export async function saveProjectProperties(profileId: string, id: string, input: ProjectProperties): Promise<void> {
   const data = ProjectPropertiesSchema.parse(input)
-  await prisma.$transaction(async (tx) => {
+  await withActivityOwnership(profileId, async (tx) => {
     // Two moves of the same project must not interleave: the second reads the role the first left.
     await lockRow(tx, 'Project', id, profileId)
     const current = await tx.project.findFirst({ where: { id, profileId }, select: { experienceId: true } })
     if (!current) throw new Error('Project not found')
-    if (data.experienceId) {
-      const role = await tx.experience.findFirst({ where: { id: data.experienceId, profileId }, select: { id: true } })
-      if (!role) throw new Error('Experience not found')
-    }
-    const experienceId = data.experienceId ?? await ensureIndependentExperience(tx, profileId)
+    const { experienceId } = await activityFieldsFor(tx, profileId, { experienceId: data.experienceId })
     await tx.project.update({ where: { id }, data: { ...data, experienceId } })
     if (current.experienceId !== experienceId) {
       await tx.roleActivity.updateMany({ where: { projectId: id, experienceId: current.experienceId }, data: { experienceId } })

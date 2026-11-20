@@ -38,7 +38,7 @@ describe('confirmLinks / rejectLinks', () => {
       { evidenceId: 'a1', capabilityId: 'someone-elses' },
     ])
     expect(count).toBe(1)
-    expect(prisma.roleActivity.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ OR: [{ experience: { profileId: 'p1' } }, { project: { profileId: 'p1' } }] }) }))
+    expect(prisma.roleActivity.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ experience: { profileId: 'p1' } }) }))
     expect(prisma.roleActivitySkill.upsert).toHaveBeenCalledTimes(1)
     expect(prisma.roleActivitySkill.upsert).toHaveBeenCalledWith({
       where: { roleActivityId_skillId: { roleActivityId: 'a1', skillId: 's1' } },
@@ -54,9 +54,9 @@ describe('confirmLinks / rejectLinks', () => {
   })
 })
 
-describe('project-owned evidence', () => {
+describe('project-labelled evidence', () => {
   it('accepts project evidence of the profile and refuses a foreign project evidence id', async () => {
-    // The ownership query returns only rows owned through a role or project of p1.
+    // The ownership query returns only rows owned through a role of p1.
     owns(['proj-evidence'], ['s1'])
     const count = await confirmLinks('p1', [
       { evidenceId: 'proj-evidence', capabilityId: 's1' },
@@ -64,23 +64,23 @@ describe('project-owned evidence', () => {
     ])
     expect(count).toBe(1)
     expect(prisma.roleActivity.findMany).toHaveBeenCalledWith({
-      where: { id: { in: ['proj-evidence', 'foreign-project-evidence'] }, OR: [{ experience: { profileId: 'p1' } }, { project: { profileId: 'p1' } }] },
+      where: { id: { in: ['proj-evidence', 'foreign-project-evidence'] }, experience: { profileId: 'p1' } },
       select: { id: true },
     })
     expect(prisma.roleActivitySkill.upsert).toHaveBeenCalledTimes(1)
   })
 
-  it('scopes pending suggestions to the profile through either owner and labels project evidence', async () => {
+  it('scopes pending suggestions to the profile through the role and labels project evidence', async () => {
     vi.mocked(prisma.roleActivitySkill.findMany).mockResolvedValue([
-      { roleActivityId: 'a1', skillId: 's1', reason: null, skill: { name: 'Agile' }, roleActivity: { description: 'Led B', experience: { role: 'PM', company: 'Acme' }, project: null } },
-      { roleActivityId: 'a2', skillId: 's1', reason: 'r', skill: { name: 'Agile' }, roleActivity: { description: 'Shipped A', experience: null, project: { name: 'Train', experience: { role: 'PM', company: 'Acme' } } } },
-      { roleActivityId: 'a3', skillId: 's1', reason: null, skill: { name: 'Agile' }, roleActivity: { description: 'Solo', experience: null, project: { name: 'Side', experience: null } } },
+      { roleActivityId: 'a1', skillId: 's1', reason: null, skill: { name: 'Agile' }, roleActivity: { description: 'Led B', experience: { id: 'e1', type: 'employment', role: 'PM', company: 'Acme' }, project: null } },
+      { roleActivityId: 'a2', skillId: 's1', reason: 'r', skill: { name: 'Agile' }, roleActivity: { description: 'Shipped A', experience: { id: 'e1', type: 'employment', role: 'PM', company: 'Acme' }, project: { name: 'Train', experienceId: 'e1' } } },
+      { roleActivityId: 'a3', skillId: 's1', reason: null, skill: { name: 'Agile' }, roleActivity: { description: 'Solo', experience: { id: 'ind', type: 'independent', role: 'Independent projects', company: 'Independent projects' }, project: { name: 'Side', experienceId: 'ind' } } },
     ] as never)
     const rows = await listPendingSuggestions('p1')
     expect(prisma.roleActivitySkill.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ roleActivity: { OR: [{ experience: { profileId: 'p1' } }, { project: { profileId: 'p1' } }] } }),
+      where: expect.objectContaining({ roleActivity: { experience: { profileId: 'p1' } } }),
     }))
-    expect(rows.map((r) => r.role)).toEqual(['PM at Acme', 'Train — PM at Acme', 'Side'])
+    expect(rows.map((r) => r.role)).toEqual(['PM at Acme', 'Train — PM at Acme', 'Side — Independent projects'])
   })
 })
 
