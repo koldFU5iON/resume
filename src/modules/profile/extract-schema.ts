@@ -76,8 +76,8 @@ export const DraftStampSchema = z.object({
 })
 export const DraftChangeSchema = DraftStampSchema.extend({
   itemId: id,
-  decision: z.enum(['save', 'accept', 'replace', 'skip']),
+  decision: z.enum(['save', 'accept', 'add-distinct', 'replace', 'skip']),
   edit: DraftEditSchema.optional(),
-  target: z.object({ id, version: z.string() }).optional(),
+  target: z.object({ id, version: z.string(), resultChoice: z.enum(['existing', 'suggestion']).optional() }).optional(),
 }).refine((input) => input.decision !== 'replace' || input.target, 'Choose a match to replace.')
 export type DraftChange = z.input<typeof DraftChangeSchema>

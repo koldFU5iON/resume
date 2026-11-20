@@ -3,7 +3,7 @@ export function normalize(text: string) {
 }
 
 // Ignore a leading first-person subject so older verb-led evidence still matches.
-function normalizeClaim(text: string) {
+export function normalizeClaim(text: string) {
   return text.toLowerCase().replace(/^\s*i\s+/, '').replace(/[^\p{L}\p{N}\s]/gu, '').replace(/\s+/g, ' ').trim()
 }
 

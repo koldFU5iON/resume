@@ -20,7 +20,7 @@ export function cleanClaim(raw: string): string {
 }
 
 /** Recognize only explicit measurements. The rest stays in the verbatim impact. */
-function localResult(description: string, impact: string | null) {
+export function localResult(description: string, impact: string | null) {
   const comparisonVerb = /^(?:I )?(?:reduced|cut|increased|raised|lowered|improved)\s+/i
   const labelled = impact?.match(/^([^:\n]+):\s*(.+?)\s*(?:\(from ([^)]+)\))?(?:,\s+(.+))?$/i)
   const comparison = impact ?? (comparisonVerb.test(description) ? description : null)
@@ -79,7 +79,7 @@ export function parseNotes(markdown: string) {
 
     const scope = heading === 'scope' || heading === 'responsibilities' || duty.test(text)
     const cleaned = cleanClaim(text)
-    if (!cleaned || (!bullet && cleaned === text && !/^(?:I\b|My\b)/i.test(text))) continue
+    if (!cleaned || (!heading && !bullet && cleaned === text && !/^(?:I\b|My\b)/i.test(text))) continue
     const description = /^(?:I\b|My\b)/i.test(cleaned) ? cleaned : `I worked on ${cleaned}`
     const claim: ExtractedActivity = {
       source: 'parser', kind: scope ? 'scope' : 'achievement', description,

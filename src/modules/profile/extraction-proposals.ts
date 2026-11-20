@@ -4,7 +4,8 @@ import { ExtractedSuggestionsSchema, type DraftItem, type ExtractedActivity, typ
 import { EXTRACTION_SYSTEM, extractionPrompt, type ExtractionSubject } from './extraction-context'
 import { mentionedProject } from './project-mention'
 import { parseResult } from './result'
-import { parseNotes } from './tag-parser'
+import { cleanClaim, localResult, parseNotes } from './tag-parser'
+import { mergeExtractionResult } from './extraction-result'
 
 type Project = { id: string; name: string }
 export const hashExtractionValue = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
@@ -17,16 +18,32 @@ const supported = (excerpt: string, phrase: string) => {
   return new RegExp(`(?<![\\p{L}\\p{N}])${query.replace(/[.*+?^$${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}])`, 'u').test(text)
 }
 
+const quantities = (text: string) => text.match(/(?<![\p{L}\p{N}])(?:[$£€]\s*)?[+-]?\d+(?:[.,]\d+)*(?:\s*%|\s*[a-zA-Z]+)?/gu) ?? []
+const passage = (text: string) => text.toLowerCase().replace(/^\s*(?:[-*+] |\d+\. )/gm, '').replace(/[^\p{L}\p{N}\s]/gu, '').replace(/\s+/g, ' ').trim()
+
+/** Use complete source lines, not model-chosen quote boundaries or classification, as resolution identity. */
+export function extractionPassageKey(body: string, original: string): string {
+  const at = body.indexOf(original.trim())
+  const start = at < 0 ? 0 : body.lastIndexOf('\n', at - 1) + 1
+  const end = at < 0 ? body.length : body.indexOf('\n', at)
+  return hashExtractionValue(passage(at < 0 ? original : body.slice(start, end < 0 ? body.length : end)))
+}
+
 export function groundClaim(claim: Omit<ExtractedActivity, 'source'>, body: string, unparsed: string): ExtractedActivity | null {
   const excerpt = claim.original.trim()
   if (!excerpt || !unparsed.includes(excerpt) || !body.includes(excerpt) || !/^(?:I\b|My\b)/i.test(claim.description)) return null
   const numbers = new Set(digits(excerpt))
-  if (digits(claim.description).some((number) => !numbers.has(number))) return null
-  const impact = claim.impact && digits(claim.impact).every((number) => numbers.has(number)) ? claim.impact : null
+  const explicit = localResult(cleanClaim(excerpt.replace(/^[-*+]\s+/, '')), null) ?? localResult('', excerpt)
+  const faithful = (text: string) => digits(text).every((number) => numbers.has(number)) &&
+    quantities(text).every((quantity) => supported(excerpt, quantity)) &&
+    (!explicit?.baseline || [...text.matchAll(/\b(from|to)\s+((?:[$£€]\s*)?[+-]?\d+(?:[.,]\d+)*(?:\s*%|\s*[a-zA-Z]+)?)/gi)]
+      .every((match) => supported(match[1].toLowerCase() === 'from' ? explicit.baseline! : explicit.value, match[2])))
+  if (!faithful(claim.description)) return null
+  const impact = claim.impact && faithful(claim.impact) ? claim.impact : null
   const result = parseResult(claim.result)
   const groundedResult = result && digits(result.value).length && Object.values(result).every(
     (part) => part === null || supported(excerpt, part) && digits(part).every((number) => numbers.has(number)),
-  ) ? result : null
+  ) && (!explicit?.baseline || supported(explicit.value, result.value) && (!result.baseline || supported(explicit.baseline, result.baseline))) ? result : null
   return { ...claim, original: excerpt, impact, result: groundedResult, source: 'llm' }
 }
 
@@ -48,8 +65,18 @@ export async function proposeDraft(profileId: string, subject: ExtractionSubject
         })
         const grounded = object.activities.map((claim) => groundClaim(claim, subject.body, parsed.unparsed))
           .filter((claim) => claim !== null)
-        const fallback = parsed.fallback.filter((claim) => !grounded.some((item) => item.original.includes(claim.original.replace(/^[-*+]\s+/, ''))))
-        activities = [...grounded, ...fallback]
+        const used = new Set<ExtractedActivity>()
+        const enriched = grounded.map((item) => {
+          const matches = parsed.fallback.filter((claim) => extractionPassageKey(subject.body, item.original) === extractionPassageKey(subject.body, claim.original))
+          if (matches.length !== 1) return item
+          const local = matches[0]
+          used.add(local)
+          const start = Math.min(subject.body.indexOf(item.original), subject.body.indexOf(local.original))
+          const end = Math.max(subject.body.indexOf(item.original) + item.original.length, subject.body.indexOf(local.original) + local.original.length)
+          return { ...item, original: subject.body.slice(start, end), kind: local.result ? 'achievement' as const : item.kind,
+            result: mergeExtractionResult(local.result, item.result), impact: item.impact ?? local.impact }
+        })
+        activities = [...enriched, ...parsed.fallback.filter((claim) => !used.has(claim))]
         skills = object.skills.map((skill) => ({ ...skill, original: skill.original.trim(), source: 'llm' as const }))
           .filter((skill) => skill.original && parsed.unparsed.includes(skill.original) && subject.body.includes(skill.original))
       } else {
@@ -64,7 +91,7 @@ export async function proposeDraft(profileId: string, subject: ExtractionSubject
   const items: DraftItem[] = []
   const seen = new Set<string>()
   function remember(kind: DraftItem['kind'], original: string) {
-    const key = hashExtractionValue([kind, original.replace(/^\s*(?:[-*+] |\d+\. )/, '').trim().replace(/\s+/g, ' ').toLowerCase()])
+    const key = kind === 'skill' ? hashExtractionValue(['skill', passage(original)]) : extractionPassageKey(subject.body, original)
     if (seen.has(key)) return
     seen.add(key)
     return { key, id: randomUUID() }

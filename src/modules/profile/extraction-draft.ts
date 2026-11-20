@@ -1,13 +1,15 @@
 import type { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
 import { activityFieldsFor, lockRow, nextActivityOrder, withActivityOwnership } from './activity-roles'
-import { findAchievementMatch, findSkillMatch } from './duplicate-detect'
+import { findAchievementMatch, findSkillMatch, normalizeClaim } from './duplicate-detect'
 import { DraftChangeSchema, DraftContentSchema, DraftStampSchema, ExtractionOwnerSchema, type DraftItem, type ExtractionOwner } from './extract-schema'
 import { ACTIVITY_ORDER } from './activity-order'
 import { noNotesMessage, projectSubject, roleSubject } from './extraction-context'
 import { hashExtractionValue, proposeDraft } from './extraction-proposals'
 import { DEFAULT_SKILL_CATEGORY, normalizeSkillLevel } from './schema'
 import { cleanClaim } from './tag-parser'
+import { parseResult } from './result'
+import { extractionResultsConflict, mergeExtractionResult } from './extraction-result'
 
 export class ExtractionDraftError extends Error {}
 
@@ -69,7 +71,7 @@ async function readAchievements(db: Tx, profileId: string, experienceId: string)
   return db.roleActivity.findMany({
     where: { experienceId, experience: { profileId }, kind: 'achievement' },
     select: {
-      id: true, description: true, projectId: true, updatedAt: true,
+      id: true, description: true, impact: true, result: true, projectId: true, updatedAt: true,
       project: { select: { name: true, status: true, experienceId: true, profileId: true } },
     },
     orderBy: [...ACTIVITY_ORDER, { id: 'asc' }],
@@ -86,7 +88,13 @@ async function readSkills(db: Tx, profileId: string) {
 
 function achievementMatch(item: Extract<DraftItem, { kind: 'achievement' }>, achievements: Awaited<ReturnType<typeof readAchievements>>) {
   const original = cleanClaim(item.original?.split('\n', 1)[0].replace(/^\s*(?:[-*+] |\d+\. )/, '') ?? '')
-  return findAchievementMatch(item.description, achievements) ?? (original ? findAchievementMatch(original, achievements) : undefined)
+  return achievements.find((row) => [item.description, original].some((text) => normalizeClaim(text) === normalizeClaim(row.description)))
+    ?? findAchievementMatch(item.description, achievements) ?? (original ? findAchievementMatch(original, achievements) : undefined)
+}
+
+function exactAchievementMatch(item: Extract<DraftItem, { kind: 'achievement' }>, match: { description: string }) {
+  const original = cleanClaim(item.original.split('\n', 1)[0].replace(/^\s*(?:[-*+] |\d+\. )/, ''))
+  return [item.description, original].some((text) => normalizeClaim(text) === normalizeClaim(match.description))
 }
 
 function replaceable(match: Awaited<ReturnType<typeof readAchievements>>[number], source: Source, profileId: string) {
@@ -115,12 +123,14 @@ export async function loadExtractionReview(profileId: string, owner: ExtractionO
         return { item, match: match ? {
           id: match.id, text: match.description, version: match.updatedAt.toISOString(),
           project: match.project?.profileId === profileId ? match.project.name : null,
-          replaceable: replaceable(match, source, profileId),
+          replaceable: replaceable(match, source, profileId), exact: exactAchievementMatch(item, match),
+          impact: match.impact, result: parseResult(match.result),
+          resultConflict: extractionResultsConflict(parseResult(match.result), item.result),
         } : null }
       }
       const match = item.kind === 'skill' ? findSkillMatch(item.name, skills) : undefined
       return { item, match: match ? {
-        id: match.id, text: match.name, version: match.updatedAt.toISOString(), project: null, replaceable: match.kind === 'skill',
+        id: match.id, text: match.name, version: match.updatedAt.toISOString(), project: null, replaceable: match.kind === 'skill', exact: true, impact: null, result: null, resultConflict: false,
       } : null }
     }),
   }
@@ -184,12 +194,18 @@ export function addScope(note: string, description: string) {
   return `${before}${gap}${bullet}${newline}${next < note.length ? newline : ''}${note.slice(next)}`
 }
 
-async function acceptAchievement(tx: Tx, profileId: string, source: Source, item: Extract<DraftItem, { kind: 'achievement' }>, target?: { id: string; version: string }) {
-  const match = achievementMatch(item, await readAchievements(tx, profileId, source.experienceId))
+async function acceptAchievement(tx: Tx, profileId: string, source: Source, item: Extract<DraftItem, { kind: 'achievement' }>, target?: { id: string; version: string; resultChoice?: 'existing' | 'suggestion' }, distinct = false) {
+  const found = achievementMatch(item, await readAchievements(tx, profileId, source.experienceId))
+  if (found && !target && (!distinct || exactAchievementMatch(item, found))) throw new ExtractionDraftError('Similar evidence already exists in this role. Reload the draft to review the match.')
+  const match = target ? found : undefined
   if (target && (!match || match.id !== target.id || match.updatedAt.toISOString() !== target.version || !replaceable(match, source, profileId))) {
     throw new ExtractionDraftError('This match can no longer be replaced. Reload the draft to see current evidence.')
   }
-  if (match && !target) throw new ExtractionDraftError('Similar evidence already exists in this role. Reload the draft to review the match.')
+  const existingResult = match ? parseResult(match.result) : null
+  if (match && extractionResultsConflict(existingResult, item.result) && !target?.resultChoice) {
+    throw new ExtractionDraftError('Choose which result to keep when replacing this evidence.')
+  }
+  const result = target?.resultChoice === 'existing' ? existingResult : mergeExtractionResult(existingResult, item.result)
   let projectId = item.project?.kind === 'existing' ? item.project.id : null
   if (match && !item.projectEdited) {
     projectId = match.projectId
@@ -209,7 +225,7 @@ async function acceptAchievement(tx: Tx, profileId: string, source: Source, item
   const data = {
     description: item.description,
     ...(item.impact?.trim() ? { impact: item.impact } : {}),
-    ...(item.result ? { result: item.result } : {}),
+    ...(item.result && target?.resultChoice !== 'existing' && result ? { result } : {}),
   }
   if (match) {
     await tx.roleActivity.update({
@@ -239,11 +255,12 @@ export async function changeExtractionDraft(profileId: string, input: Extraction
     // Keep provenance and identity server-owned. Only the item’s editable fields can change.
     const item = { ...saved, ...edit } as DraftItem
     let sourceVersion = draft.sourceVersion
-    if (decision === 'replace' || decision === 'accept') {
+    if (decision === 'replace' || decision === 'accept' || decision === 'add-distinct') {
       const replacement = decision === 'replace' ? target : undefined
       if (item.kind === 'achievement') {
-        await acceptAchievement(tx, profileId, source, item, replacement)
+        await acceptAchievement(tx, profileId, source, item, replacement, decision === 'add-distinct')
       } else if (item.kind === 'skill') {
+        if (decision === 'add-distinct') throw new ExtractionDraftError('Only distinct achievements can be added alongside a match.')
         const match = findSkillMatch(item.name, await readSkills(tx, profileId))
         if (replacement && (!match || match.kind !== 'skill' || match.id !== replacement.id || match.updatedAt.toISOString() !== replacement.version)) {
           throw new ExtractionDraftError('This skill match changed. Reload the draft to continue.')
@@ -259,7 +276,7 @@ export async function changeExtractionDraft(profileId: string, input: Extraction
           await tx.skill.create({ data: { profileId, name: item.name, category: item.category || DEFAULT_SKILL_CATEGORY, level: normalizeSkillLevel(item.level) } })
         }
       } else {
-        if (replacement) throw new ExtractionDraftError('Scope can only be added or skipped.')
+        if (replacement || decision === 'add-distinct') throw new ExtractionDraftError('Scope can only be added or skipped.')
         const note = addScope(source.note, item.description)
         if (note !== source.note) {
           const revision = { increment: 1 }

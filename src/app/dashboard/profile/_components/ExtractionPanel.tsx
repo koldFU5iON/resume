@@ -238,13 +238,29 @@ export function ExtractionPanel({ owner, review }: { owner: ExtractionOwner; rev
                     {match.replaceable ? 'Similar profile evidence' : 'Match unavailable for replacement'}{match.project ? ` · ${match.project}` : ''} — {match.text}
                     {match.replaceable && item.kind === 'achievement' && !item.projectEdited && ' Replacement keeps the existing project label.'}
                   </p>}
+                  {match && item.kind === 'achievement' && combineImpact(match.impact, match.result) && (
+                    <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">Existing result: {combineImpact(match.impact, match.result)}</p>
+                  )}
+                  {match?.resultConflict && <p className="text-xs text-muted-foreground">The results differ. Choose which result to keep when replacing.</p>}
                   <div className="flex flex-wrap gap-2">
                     {!match && <Button size="sm" className={actionSize} disabled={disabled || review.stale || review.archived}
                       onClick={() => decide(item, 'accept', item.kind === 'scope' ? 'Scope added to the note.' : 'Suggestion accepted.')}>
                       {item.kind === 'scope' ? 'Add to Overview' : 'Accept'}
                     </Button>}
-                    {match?.replaceable && <Button size="sm" variant="outline" className={actionSize} disabled={disabled || review.stale || review.archived}
+                    {item.kind === 'achievement' && match && !match.exact && <Button size="sm" variant="outline" className={actionSize} disabled={disabled || review.stale || review.archived}
+                      onClick={() => decide(item, 'add-distinct', 'Distinct achievement added.')}>Add as distinct achievement</Button>}
+                    {match?.replaceable && !match.resultConflict && <Button size="sm" variant="outline" className={actionSize} disabled={disabled || review.stale || review.archived}
                       onClick={() => decide(item, 'replace', 'Existing evidence updated.', { id: match.id, version: match.version })}>Replace match</Button>}
+                    {match?.replaceable && match.resultConflict && <>
+                      <Button size="sm" variant="outline" className={actionSize} disabled={disabled || review.stale || review.archived}
+                        onClick={() => decide(item, 'replace', 'Existing evidence updated.', { id: match.id, version: match.version, resultChoice: 'existing' })}>
+                        Replace · keep existing result
+                      </Button>
+                      <Button size="sm" variant="outline" className={actionSize} disabled={disabled || review.stale || review.archived}
+                        onClick={() => decide(item, 'replace', 'Existing evidence updated.', { id: match.id, version: match.version, resultChoice: 'suggestion' })}>
+                        Replace · use suggested result
+                      </Button>
+                    </>}
                     <Button size="sm" variant="outline" className={actionSize} disabled={disabled}
                       onClick={() => setEditing({ id: item.id, stamp })}>Edit</Button>
                     <Button size="sm" variant="ghost" className={actionSize} disabled={disabled}

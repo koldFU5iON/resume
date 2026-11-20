@@ -4,6 +4,7 @@ import { ExtractedSuggestionsSchema } from './extract-schema'
 import { findAchievementMatch } from './duplicate-detect'
 import { parseNotes } from './tag-parser'
 import { groundClaim, proposeDraft } from './extraction-proposals'
+import { mergeExtractionResult, extractionResultsConflict } from './extraction-result'
 import { addScope } from './extraction-draft'
 
 vi.mock('@/modules/llm/client', () => ({ completeStructured: vi.fn(), getLLMConfigStatus: vi.fn() }))
@@ -83,7 +84,7 @@ describe('clean and extract', () => {
       ],
     } } as never)
     expect((await proposeDraft('p', { body, noun: 'role', facts: '' }, [], null)).items).toMatchObject([
-      { kind: 'achievement', original, project: { kind: 'new', name: 'Harbor' }, source: 'llm' },
+      { kind: 'achievement', original: `- ${original}`, project: { kind: 'new', name: 'Harbor' }, source: 'llm' },
       { kind: 'skill', name: 'SQL', original: 'My teammates also used SQL.' },
     ])
   })
@@ -100,5 +101,68 @@ describe('clean and extract', () => {
     expect(updated).toBe('## Overview\r\nExisting scope\r\n\r\n- I manage staffing.\r\n\r\n## Achievements\r\n- Old text  ')
     expect(addScope(updated, 'I manage staffing.')).toBe(updated)
     expect(addScope('Original note  ', 'I manage staffing.')).toBe('Original note  \n\n## Overview\n\n- I manage staffing.\n')
+  })
+})
+
+
+describe('extraction review regressions', () => {
+  it('keeps omitted result details and identifies conflicting results', () => {
+    const existing = claim.result
+    expect(mergeExtractionResult(existing, { ...existing, baseline: null, period: null })).toEqual(existing)
+    expect(extractionResultsConflict(existing, { ...existing, baseline: null, period: null })).toBe(false)
+    expect(extractionResultsConflict(existing, { ...existing, value: '2 hours' })).toBe(true)
+    expect(extractionResultsConflict(existing, { ...existing, period: 'Q4 2025' })).toBe(true)
+  })
+
+  it('rejects invented units and reversed comparisons in claims, outcomes and structured results', () => {
+    const original = 'I cut latency from 10 seconds to 2 seconds.'
+    const grounded = { ...claim, original, description: 'I cut latency to 2 seconds.', result: { measure: 'latency', value: '2 seconds', baseline: '10 seconds', period: null } }
+    expect(groundClaim(grounded, original, original)?.result).toEqual(grounded.result)
+    expect(groundClaim({ ...grounded, description: 'I cut latency to 2 milliseconds.' }, original, original)).toBeNull()
+    expect(groundClaim({ ...grounded, description: 'I cut latency from 2 seconds to 10 seconds.' }, original, original)).toBeNull()
+    expect(groundClaim({ ...grounded, impact: 'Latency is now 2 milliseconds.' }, original, original)?.impact).toBeNull()
+    expect(groundClaim({ ...grounded, impact: 'Latency went from 2 seconds to 10 seconds.' }, original, original)?.impact).toBeNull()
+    expect(groundClaim({ ...grounded, result: { ...grounded.result, value: '10 seconds', baseline: '2 seconds' } }, original, original)?.result).toBeNull()
+    const prose = 'The latency went from 10 seconds to 2 seconds.'
+    expect(groundClaim({ ...grounded, original: prose, result: { ...grounded.result, value: '10 seconds', baseline: '2 seconds' } }, prose, prose)?.result).toBeNull()
+  })
+
+  it.each([null, { measure: 'latency', value: '2 milliseconds', baseline: null, period: null }])('retains the local result when the model returns %j', async (result) => {
+    const original = 'Cut latency from 10 seconds to 2 seconds in Q3 2025.'
+    vi.mocked(getLLMConfigStatus).mockResolvedValue({ configured: true } as never)
+    vi.mocked(completeStructured).mockResolvedValue({ object: { activities: [{ ...claim, original, description: 'I cut latency.', result }], skills: [] } } as never)
+    const proposed = await proposeDraft('p', { body: `- ${original}`, noun: 'role', facts: '' }, [], null)
+    expect(proposed.items).toHaveLength(1)
+    expect(proposed.items[0]).toMatchObject({ result: { measure: 'latency', value: '2 seconds', baseline: '10 seconds', period: 'Q3 2025' } })
+  })
+
+  it('retains local measurements when the model quotes only the start of the same source line', async () => {
+    const original = 'Cut latency from 10 seconds to 2 seconds in Q3 2025.'
+    vi.mocked(getLLMConfigStatus).mockResolvedValue({ configured: true } as never)
+    vi.mocked(completeStructured).mockResolvedValue({ object: { activities: [{ ...claim, original: 'Cut latency', description: 'I cut latency.', result: null }], skills: [] } } as never)
+    const proposed = await proposeDraft('p', { body: `- ${original}`, noun: 'role', facts: '' }, [], null)
+    expect(proposed.items).toHaveLength(1)
+    expect(proposed.items[0]).toMatchObject({ original: `- ${original}`, result: { measure: 'latency', value: '2 seconds', baseline: '10 seconds', period: 'Q3 2025' } })
+  })
+
+  it('uses a stable source passage across classification and quote-boundary changes', async () => {
+    const body = 'I maintained the billing service.'
+    vi.mocked(getLLMConfigStatus).mockResolvedValue({ configured: true } as never)
+    vi.mocked(completeStructured)
+      .mockResolvedValueOnce({ object: { activities: [{ ...claim, kind: 'scope', original: body, description: body, result: null }], skills: [] } } as never)
+      .mockResolvedValueOnce({ object: { activities: [{ ...claim, kind: 'achievement', original: body.slice(0, -1), description: body, result: null }], skills: [] } } as never)
+    const subject = { body, noun: 'role' as const, facts: '' }
+    expect((await proposeDraft('p', subject, [], null)).items.map(i => i.key)).toEqual((await proposeDraft('p', subject, [], null)).items.map(i => i.key))
+  })
+
+  it('keeps plain text entries under explicit headings without a model', async () => {
+    const body = '## Responsibilities\nWeekly incident triage\n## Scope\nRegional planning\n## Achievements\nBilling rollout'
+    const proposed = await proposeDraft('p', { body, noun: 'role', facts: '' }, [], null)
+    expect(proposed.items).toMatchObject([
+      { kind: 'scope', original: 'Weekly incident triage' },
+      { kind: 'scope', original: 'Regional planning' },
+      { kind: 'achievement', original: 'Billing rollout' },
+    ])
+    expect(getLLMConfigStatus).not.toHaveBeenCalled()
   })
 })

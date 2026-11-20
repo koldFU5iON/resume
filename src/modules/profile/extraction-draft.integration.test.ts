@@ -146,8 +146,80 @@ describe.skipIf(!enabled)('saved extraction drafts in Postgres', () => {
       description: 'I built the launch dashboard for operators', projectId: label.id, impact: 'Legacy outcome', result,
       highlighted: true, order: 9, tags: '["fixture"]', skills: [{ skillId: skill.id, source: 'manual', status: 'confirmed' }],
     })
+    expect(kept.result).toEqual(result)
     expect(await prisma.roleActivity.findUniqueOrThrow({ where: { id: foreignRole.id } })).toEqual(foreignRole)
     expect((await review(owner)).items).toEqual([])
+  })
+
+  it('preserves omitted baseline and period on replacement and requires a choice for conflicting results', async () => {
+    const row = await role('## Achievements\n- Cut turnaround time')
+    const owner = { experienceId: row.id }
+    const existing = await activity(row.id, 'Cut turnaround time')
+    const originalResult = { measure: 'turnaround time', value: '1 hour', baseline: '3 weeks', period: 'Q3 2025' }
+    await prisma.roleActivity.update({ where: { id: existing.id }, data: { result: originalResult } })
+    let draft = await regenerate(owner)
+    const item = draft.items[0].item
+    if (item.kind !== 'achievement') throw new Error('Expected achievement')
+    expect(draft.items[0].match).toMatchObject({ result: originalResult })
+    await decide(owner, draft, 0, 'replace', { target: draft.items[0].match!, edit: { ...item, result: { ...originalResult, baseline: null, period: null } } })
+    expect((await prisma.roleActivity.findUniqueOrThrow({ where: { id: existing.id } })).result).toEqual(originalResult)
+
+    // A new source passage proposes a different measurement for the same accepted achievement.
+    const current = await prisma.experience.findUniqueOrThrow({ where: { id: row.id } })
+    await saveExperienceNote(profileId, row.id, '## Achievements\n- Cut turnaround time for exports', current.revision)
+    draft = await regenerate(owner)
+    const next = draft.items[0].item
+    if (next.kind !== 'achievement') throw new Error('Expected achievement')
+    const proposed = { ...originalResult, value: '2 hours', baseline: null, period: null }
+    await decide(owner, draft, 0, 'save', { edit: { ...next, result: proposed } })
+    draft = await review(owner)
+    expect(draft.items[0].match).toMatchObject({ result: originalResult, resultConflict: true })
+    const target = draft.items[0].match!
+    await expect(decide(owner, draft, 0, 'replace', { target })).rejects.toThrow(/choose which result/i)
+    await decide(owner, draft, 0, 'replace', { target: { ...target, resultChoice: 'existing' } })
+    expect((await prisma.roleActivity.findUniqueOrThrow({ where: { id: existing.id } })).result).toEqual(originalResult)
+
+    const latest = await prisma.experience.findUniqueOrThrow({ where: { id: row.id } })
+    await saveExperienceNote(profileId, row.id, '## Achievements\n- Cut turnaround time for new exports', latest.revision)
+    draft = await regenerate(owner)
+    const last = draft.items[0].item
+    if (last.kind !== 'achievement') throw new Error('Expected achievement')
+    await decide(owner, draft, 0, 'save', { edit: { ...last, result: proposed } })
+    draft = await review(owner)
+    await decide(owner, draft, 0, 'replace', { target: { ...draft.items[0].match!, resultChoice: 'suggestion' } })
+    expect((await prisma.roleActivity.findUniqueOrThrow({ where: { id: existing.id } })).result).toEqual(proposed)
+  })
+
+  it('allows explicitly distinct fuzzy matches but never an exact duplicate or repeated submission', async () => {
+    const row = await role('## Achievements\n- Built billing exports for Asia\n- Built billing exports for Europe')
+    const owner = { experienceId: row.id }
+    await activity(row.id, 'I built billing exports for Europe')
+    const draft = await regenerate(owner)
+    expect(draft.items[0].match).toMatchObject({ exact: false })
+    expect(draft.items[1].match).toMatchObject({ exact: true })
+    await expect(decide(owner, draft, 0, 'accept')).rejects.toThrow(/similar evidence/i)
+    await expect(decide(owner, draft, 1, 'add-distinct')).rejects.toThrow(/similar evidence/i)
+    await decide(owner, draft, 0, 'add-distinct')
+    expect(await prisma.roleActivity.count({ where: owner })).toBe(2)
+    await expect(decide(owner, draft, 0, 'add-distinct')).rejects.toThrow(/draft changed/)
+    const accepted = await prisma.roleActivity.findMany({ where: owner })
+    expect(accepted.map(a => a.description).sort()).toEqual(['I built billing exports for Asia', 'I built billing exports for Europe'])
+  })
+
+  it('keeps skipped source passages resolved when the model changes kind and quote punctuation', async () => {
+    const body = 'I maintained the billing service.'
+    const row = await role(body)
+    const owner = { experienceId: row.id }
+    vi.mocked(getLLMConfigStatus).mockResolvedValue({ configured: true } as never)
+    const suggestion = { original: body, description: body, kind: 'scope', result: null, impact: null, projectName: null }
+    vi.mocked(completeStructured)
+      .mockResolvedValueOnce({ object: { activities: [suggestion], skills: [] } } as never)
+      .mockResolvedValueOnce({ object: { activities: [{ ...suggestion, original: body.slice(0, -1), kind: 'achievement' }], skills: [] } } as never)
+    const draft = await regenerate(owner)
+    expect(draft.items).toHaveLength(1)
+    await decide(owner, draft, 0, 'skip')
+    expect((await regenerate(owner)).items).toEqual([])
+    expect(await prisma.roleActivity.count({ where: owner })).toBe(0)
   })
 
   it('rejects foreign and archived project labels and replacement targets, leaving the draft and rows intact', async () => {
@@ -278,6 +350,6 @@ describe.skipIf(!enabled)('saved extraction drafts in Postgres', () => {
     expect(await faster.outcome).toBeUndefined()
     slower.finish()
     expect(await slower.outcome).toMatchObject({ message: expect.stringMatching(/draft changed/i) })
-    expect((await review(owner)).items.map(({ item }) => item)).toMatchObject([{ description: 'I grew the team' }])
+    expect((await review(owner)).items.map(({ item }) => item)).toMatchObject([{ description: 'I grew the team' }, { description: 'I worked on New line' }])
   })
 })
