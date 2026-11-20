@@ -38,6 +38,12 @@ describe('findNote', () => {
     expect(findNote(profile, 'p2')).toEqual({ kind: 'project', id: 'p2', experienceId: null })
   })
 
+  it('does not resolve the independent experience as a role editor, but still resolves its projects', () => {
+    const independent = { ...profile, experiences: [...profile.experiences, { ...profile.experiences[0], id: 'ind', type: 'independent' }], projects: [{ id: 'personal', name: 'Personal', experienceId: 'ind' }] }
+    expect(findNote(independent, 'ind')).toBeNull()
+    expect(findNote(independent, 'personal')).toEqual({ kind: 'project', id: 'personal', experienceId: 'ind' })
+  })
+
   it('is null for an id that is not this profile\'s', () => {
     expect(findNote(profile, 'someone-elses')).toBeNull()
   })
@@ -65,12 +71,12 @@ describe('where a vault note or gap area lands', () => {
 })
 
 describe('buildNoteIndex: the independent experience', () => {
-  it('goes last, with its name only and no period, whatever its sentinel date', () => {
+  it('is not an experience note: its projects are listed with the personal projects, by name', () => {
     const index = buildNoteIndex({
-      ...profile,
-      experiences: [{ id: 'ind', type: 'independent', role: 'Independent projects', company: 'Independent projects', startDate: new Date('2030-01-01'), endDate: null }, ...profile.experiences],
+      experiences: [{ id: 'ind', type: 'independent', role: 'Independent projects', company: 'Independent projects', startDate: new Date('1970-01-01'), endDate: null }, ...profile.experiences],
+      projects: [...profile.projects, { id: 'p4', name: 'Beta', experienceId: 'ind' }],
     })
-    expect(index.experiences.map((e) => e.id)).toEqual(['new', 'old', 'ind'])
-    expect(index.experiences[2]).toMatchObject({ title: 'Independent projects', period: '' })
+    expect(index.experiences.map((e) => e.id)).toEqual(['new', 'old'])
+    expect(index.projects.map((p) => p.name)).toEqual(['Alpha', 'Beta', 'Zeta'])
   })
 })

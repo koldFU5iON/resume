@@ -6,6 +6,7 @@ import { revalidatePath } from 'next/cache'
 import * as z from 'zod'
 import { Prisma } from '@prisma/client'
 import { activityFieldsFor, deleteExperienceRow, deleteProjectRow, experienceDeleteImpact, nextActivityOrder, ownerOf, type ActivityOwner } from './activity-roles'
+import { ensureIndependentExperience } from './independent-experience'
 import { activityOwnedBy } from './ownership'
 import { saveExperienceProperties, saveProjectProperties, type ExperienceProperties, type ProjectProperties } from './properties'
 import { readNote, saveExperienceNote, saveProjectNote, type NoteSaveResult } from './note-revision'
@@ -396,13 +397,16 @@ export async function createProject(data: ProjectData) {
     if (!experience) throw new Error('Experience not found')
   }
 
-  const project = await prisma.project.create({
-    data: {
-      ...rest,
-      experienceId,
-      profileId: profile.id,
-    },
-  })
+  // A project with no role is a personal project: it lives under "Independent projects" (created on first use).
+  const project = await prisma.$transaction(async (tx) =>
+    tx.project.create({
+      data: {
+        ...rest,
+        experienceId: experienceId ?? (await ensureIndependentExperience(tx, profile.id)),
+        profileId: profile.id,
+      },
+    }),
+  )
   revalidatePath('/dashboard/profile', 'layout')
   return project
 }
