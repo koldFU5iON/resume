@@ -25,7 +25,7 @@
 import * as z from 'zod'
 import { composeSystem, loadCVSelectPrompt } from '@/modules/llm/prompt-context'
 import { LLMError } from '@/modules/llm/errors'
-import { attributionOf, completeValidated, type CallUsage } from './call'
+import { attributionOf, completeValidated, usageOfError, type CallUsage } from './call'
 import {
   EMPTY_SECTION_MINIMUM,
   FLAT_SECTIONS,
@@ -122,8 +122,13 @@ const pick = z.union([
 ]).catch(invalidPick)
 const list = () => z.array(pick).default([])
 
-/** Tolerant reader of the model's answer: the asked-for shape, or picks with reasons. The model’s references are resolved before enforcement. */
-export const SelectOutputSchema = z.object({
+const selectionSections = Object.keys(SELECTION_HANDLE_PREFIX) as SelectionSection[]
+
+/** Tolerate omitted sections and picks with reasons, but never default an unrelated object into a valid answer. */
+export const SelectOutputSchema = z.object({}).loose().refine(
+  (value) => selectionSections.some((section) => Object.hasOwn(value, section)),
+  { path: ['employers'], message: 'Put selection section arrays at the root of the response' },
+).pipe(z.object({
   employers: z.array(z.union([
     z.string().transform((id) => ({ id, relevance: undefined as number | undefined, reason: '' })),
     z.object({ id: z.string(), relevance, reason }),
@@ -138,7 +143,7 @@ export const SelectOutputSchema = z.object({
   emphasise: z.array(z.object({
     item: z.string(), evidence: z.array(z.string().catch('')).default([]).catch(['']),
   }).catch({ item: '', evidence: [] })).default([]),
-})
+}))
 export type SelectOutput = z.infer<typeof SelectOutputSchema>
 
 export const OUTPUT_FORMAT = `Output: one JSON object in a \`\`\`json code block, nothing else. It must match this JSON Schema. Use only the handles shown in the candidate menu, in their matching sections. Omit reasons and left-out items.
@@ -966,7 +971,7 @@ export type SelectResult = {
   /** Why the model call was retried (short phrases); empty with no retry. */
   retryReasons?: string[]
   notes: string[]
-  /** Tokens and cost of the model calls, from the call results (kept when the rules chose after an answer that named nothing real); absent when the call itself failed. */
+  /** Tokens and cost of the model calls, from the call results (kept when the rules chose after an answer that named nothing real); absent when no completed call reported usage. */
   usage?: CallUsage
 }
 
@@ -1006,8 +1011,18 @@ export async function runSelect(
     if (enforced.recognised > 0) {
       return { selection: enforced.selection, model: call.model, retries, retryReasons, notes: [...referenceNotes, ...enforced.notes], usage: call.usage }
     }
-    failure = 'the answer contained no valid candidate handles'
+    failure = selectionSections.some((section) => call.value[section].length > 0)
+      ? 'the answer contained no valid candidate handles'
+      : 'the answer returned empty lists for every selection section'
   } catch (err) {
+    const failedUsage = usageOfError(err)
+    if (failedUsage.calls > 0) {
+      used = failedUsage
+    }
+    if (err && typeof err === 'object') {
+      if ('retries' in err && typeof err.retries === 'number') retries = err.retries
+      if ('retryReasons' in err && Array.isArray(err.retryReasons) && err.retryReasons.every((r) => typeof r === 'string')) retryReasons = err.retryReasons
+    }
     failure = err instanceof LLMError ? `the call failed (${err.kind})` : 'the call failed'
     if (!(err instanceof LLMError)) console.error('[cv-generation] select failed', { runId: ctx.runId, err })
   }

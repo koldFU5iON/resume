@@ -149,7 +149,15 @@ export async function completeValidated<T>(
   let reason = ''
   let retryWhy = ''
   let usage = NO_USAGE
+  let retries = 0
+  const failed = (err: unknown) => {
+    if (err && typeof err === 'object') Object.assign(err, {
+      retries, retryReasons: retries > 0 ? [shortReason(retryWhy)] : [],
+    })
+    return withUsage(err, usage)
+  }
   for (let attempt = 0; attempt < 2; attempt++) {
+    retries = attempt
     const maxOutputTokens = attempt === 0 ? opts.maxOutputTokens : opts.retryMaxOutputTokens
     let result: Awaited<ReturnType<typeof completeJSON<T>>>
     try {
@@ -161,7 +169,7 @@ export async function completeValidated<T>(
         minRetryMs: Number.POSITIVE_INFINITY,
       })
     } catch (err) {
-      throw withUsage(err, usage)
+      throw failed(err)
     }
     usage = addUsage(usage, usageOf(result))
     if (result.extracted.ok) return { value: result.extracted.value, model: result.model, retries: attempt, usage, retryReasons: attempt > 0 ? [shortReason(retryWhy)] : [] }
@@ -174,12 +182,12 @@ export async function completeValidated<T>(
       finishReason: result.finishReason,
     })
     if (opts.deadline - Date.now() < MIN_RETRY_MS) break
-    if (attempt === 0 && result.finishReason === 'length' && opts.retryMaxOutputTokens <= (maxOutputTokens ?? 0)) throw withUsage(new CutOffError(label, maxOutputTokens ?? 0), usage)
+    if (attempt === 0 && result.finishReason === 'length' && opts.retryMaxOutputTokens <= (maxOutputTokens ?? 0)) throw failed(new CutOffError(label, maxOutputTokens ?? 0))
     note = result.finishReason === 'length'
       ? `\n\n== NOTE ==\nYour previous answer was cut off before the JSON object was complete. Return the COMPLETE JSON object this time, in one \`\`\`json code block, with nothing truncated. Keep every text field short.`
       : `\n\n== NOTE ==\nYour previous answer was rejected: ${reason}. Return the complete JSON object again, in one \`\`\`json code block, matching the schema exactly.`
   }
-  throw withUsage(new LLMError(`The ${label} did not match the expected shape (${reason}).`, 'invalid_output'), usage)
+  throw failed(new LLMError(`The ${label} did not match the expected shape (${reason}).`, 'invalid_output'))
 }
 
 /**

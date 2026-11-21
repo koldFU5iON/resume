@@ -6,6 +6,7 @@ vi.mock('@/modules/llm/prompt-context', () => ({
   loadCVSelectPrompt: vi.fn(async () => 'SELECT INSTRUCTIONS'),
 }))
 
+import { LLMError } from '@/modules/llm/errors'
 import { completeJSON } from '@/modules/llm/complete-json'
 import { extractJSON } from '@/modules/llm/extract-json'
 import { bigCandidates } from './__fixtures__/candidates'
@@ -13,7 +14,7 @@ import { buildBriefFor, gathered } from './__fixtures__/gathered'
 import { scripted } from './__fixtures__/write'
 import { selectionHandles } from './candidates'
 import { parseSelection } from './schema'
-import { runSelect } from './select'
+import { runSelect, SelectOutputSchema } from './select'
 
 const mockJSON = vi.mocked(completeJSON)
 const context = () => ({ profileId: 'profile', jobApplicationId: 'job', runId: 'run', deadline: Date.now() + 60_000 })
@@ -125,6 +126,55 @@ describe('Select short handles through the model boundary', () => {
     expect(result).toMatchObject({ model: null, retries: 0, usage: { calls: 1 }, selection: { mode: 'fallback', skills: [] } })
     expect(result.notes).toContain('Rejected 2 invalid selection references in skills.')
     expect(result.notes[0]).toContain('no valid candidate handles')
+  })
+
+  it.each([
+    { selection: { employers: ['EMP1'], skills: ['S1'] } },
+    { type: 'object', properties: { employers: { type: 'array' } } },
+    { explanation: 'No relevant evidence' },
+    {},
+  ])('rejects an unrelated root and recovers on the existing schema retry: %j', async (bad) => {
+    expect(SelectOutputSchema.safeParse(bad).success).toBe(false)
+    const llm = answer([bad, { employers: ['EMP1'], skills: ['S1', 'S2'], tools: ['T1', 'T2'] }])
+    const result = await runSelect(gathered(), brief, context())
+    expect(llm.calls).toHaveLength(2)
+    expect(llm.calls[1].prompt).toContain('these fields were missing or the wrong type: employers')
+    expect(result).toMatchObject({ retries: 1, selection: { mode: 'model' }, usage: { calls: 2 } })
+    expect(result.selection.skills.map((s) => s.id)).toEqual(['s0', 's1'])
+    expect(result.selection.tools.map((s) => s.id)).toEqual(['t0', 't1'])
+  })
+
+  it('retains partial answers and metadata but reports an explicitly empty selection separately', async () => {
+    expect(SelectOutputSchema.safeParse({ skills: ['S1'], explanation: 'Relevant' }).success).toBe(true)
+    const llm = answer([{ employers: [], skills: [] }])
+    const result = await runSelect(gathered(), brief, context())
+    expect(llm.calls).toHaveLength(1)
+    expect(result.selection.mode).toBe('fallback')
+    expect(result.notes[0]).toContain('empty lists for every selection section')
+  })
+
+  it('retains paid usage and retry count when both response shapes are rejected', async () => {
+    const llm = answer([{ selection: { employers: ['EMP1'] } }, { type: 'object', properties: {} }])
+    const result = await runSelect(gathered(), brief, context())
+    expect(llm.calls).toHaveLength(2)
+    expect(result).toMatchObject({ model: null, retries: 1, selection: { mode: 'fallback' }, usage: { calls: 2 } })
+    expect(result.notes[0]).toContain('invalid_output')
+  })
+
+  it('records an attempted retry even if the provider throws before returning usage', async () => {
+    const llm = answer([{ selection: { employers: ['EMP1'] } }])
+    mockJSON.mockImplementationOnce(llm.impl as never).mockRejectedValueOnce(new LLMError('timed out', 'timeout'))
+    const result = await runSelect(gathered(), brief, context())
+    expect(mockJSON).toHaveBeenCalledTimes(2)
+    expect(result).toMatchObject({ model: null, retries: 1, selection: { mode: 'fallback' }, usage: { calls: 1 } })
+    expect(result.retryReasons).toEqual([expect.stringContaining('fields were missing or the wrong type: employers')])
+  })
+
+  it('records zero retries when the schema fails with too little time left', async () => {
+    const llm = answer([{ selection: { employers: ['EMP1'] } }])
+    const result = await runSelect(gathered(), brief, { ...context(), deadline: Date.now() + 1_000 })
+    expect(llm.calls).toHaveLength(1)
+    expect(result).toMatchObject({ retries: 0, retryReasons: [], selection: { mode: 'fallback' }, usage: { calls: 1 } })
   })
 
   it('uses the existing schema retry on a bad JSON shape and falls back if it remains unreadable', async () => {
