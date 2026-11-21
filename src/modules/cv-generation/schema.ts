@@ -177,7 +177,7 @@ export const SELECTION_REUSE_WINDOW_MS = SELECTION_REUSE_WINDOW_DAYS * 24 * 60 *
  * writers): a stored selection from before the change must not be reused. A prompt
  * edit by the user needs no bump: the effective prompt texts are hashed too.
  */
-export const SELECTION_PIPELINE_VERSION = 8
+export const SELECTION_PIPELINE_VERSION = 9
 
 /** A failed run whose Brief and Select were paid for may still donate them: only these failures happened AFTER Select (at Land), so the stored pair is whole. */
 export const REUSABLE_FAILURE_KINDS = ['draft_exists', 'document_limit'] as const

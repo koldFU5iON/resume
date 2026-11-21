@@ -113,9 +113,9 @@ describe('findReusableSelection', () => {
       expect(reuseKeyOf({ ...base, briefPrompt: 'S', selectPrompt: 'B' })).not.toBe(k) // not just the concatenation
     })
 
-    it('still reads the real IDs on version 7 runs but cannot reuse that key', async () => {
+    it.each([7, 8])('still reads the real IDs on version %i runs but cannot reuse that key', async (version) => {
       const base = { inputsHash: HASH, briefPrompt: 'BRIEF PROMPT', selectPrompt: 'SELECT PROMPT' }
-      const oldKey = reuseKeyOf({ ...base, version: 7 })
+      const oldKey = reuseKeyOf({ ...base, version })
       const currentKey = await computeReuseKey('p1', HASH)
       expect(currentKey).not.toBe(oldKey)
       expect(parseSelection(JSON.parse(JSON.stringify(selection)))?.skills.map((s) => s.id)).toEqual(selection.skills.map((s) => s.id))
