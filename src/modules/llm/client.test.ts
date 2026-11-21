@@ -92,6 +92,13 @@ describe('LLM client logging', () => {
     mockLogCreate.mockResolvedValue({} as never)
   })
 
+  it('forwards a zero retry limit and deadline for bounded extraction requests', async () => {
+    await completeStructured('profile-1', 'notes', z.object({ name: z.string() }), {
+      feature: 'profile-extract', maxRetries: 0, timeoutMs: 120_000,
+    })
+    expect(mockGenerateText).toHaveBeenCalledWith(expect.objectContaining({ maxRetries: 0, abortSignal: expect.any(AbortSignal) }))
+  })
+
   it('calls llmUsageLog.create after a successful complete()', async () => {
     await complete('profile-1', 'hello', { feature: 'test' })
     await vi.waitFor(() => expect(mockLogCreate).toHaveBeenCalled())

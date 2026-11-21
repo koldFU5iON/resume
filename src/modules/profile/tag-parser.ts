@@ -8,6 +8,15 @@ const headings = ['overview', 'responsibilities', 'scope', 'achievements', 'skil
 
 const duty = /^(?:(?:I (?:am|was) )?responsible for|(?:my )?duties (?:include|included)|(?:I )?(?:oversee|maintain|manage|support)\b)/i
 const action = /^(?:built|cut|grew|led|ran|made|wrote|won|set|drove|took|brought|met|hit|kept|oversaw|[a-z]+ed)\b/i
+const completedClause = (text: string) => text.split(/(?:[,;]\s*(?:so\s+)?|\band\s+|\bto\s+|\bby\s+)/i).slice(1)
+  .map((part) => part.replace(/^(?:I|We)\s+/i, '').trim())
+  .some((part) => action.test(part) && !/^(?:needed|wanted|planned|hoped|expected|asked|used)\b/i.test(part))
+export function unresolvedIntent(text: string) {
+  return /^(?:(?:I|We)\s+)?(?:(?:needed|need|wanted|want|planned|plan|hoped|hope|had)\s+to|(?:was|were|am|are)\s+(?:asked|expected)\s+to)\b/i.test(text) && !completedClause(text)
+}
+export function toolUsage(text: string) {
+  return /^(?:(?:I|We)\s+)?(?:use[ds]?|work(?:ed)? with)\b/i.test(text) && !completedClause(text)
+}
 const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1)
 
 export function cleanClaim(raw: string): string {
@@ -70,6 +79,7 @@ export function parseNotes(markdown: string) {
     const bullet = line.match(BULLET_RE)?.[1].trim()
     const text = bullet ?? line.trim()
     if (!text || impact || heading === 'overview') continue
+    if (unresolvedIntent(text)) continue
     if (heading === 'skills') {
       const name = text.slice(0, 120)
       if (name) skills.push({ name, category: null, level: null, source: 'parser', original: line.trim() })
@@ -77,7 +87,7 @@ export function parseNotes(markdown: string) {
     }
     if (!heading && !/^(I|We)\s/i.test(text) && !(bullet && (action.test(text) || duty.test(text)))) continue
 
-    const scope = heading === 'scope' || heading === 'responsibilities' || duty.test(text)
+    const scope = heading === 'scope' || heading === 'responsibilities' || duty.test(text) || toolUsage(text)
     const cleaned = cleanClaim(text)
     if (!cleaned || (!heading && !bullet && cleaned === text && !/^(?:I\b|My\b)/i.test(text))) continue
     const description = /^(?:I\b|My\b)/i.test(cleaned) ? cleaned : `I worked on ${cleaned}`

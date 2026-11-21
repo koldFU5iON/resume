@@ -116,6 +116,11 @@ export async function loadExtractionReview(profileId: string, owner: ExtractionO
     stale: Boolean(source.draft && source.draft.sourceVersion !== source.sourceVersion),
     archived: source.archived,
     notice: content.notice,
+    evidence: achievements.map((match) => ({
+      id: match.id, text: match.description, version: match.updatedAt.toISOString(),
+      project: match.project?.profileId === profileId ? match.project.name : null,
+      replaceable: replaceable(match, source, profileId), impact: match.impact, result: parseResult(match.result),
+    })),
     projects: projects.filter((project) => project.status !== 'archived').map(({ id, name }) => ({ id, name })),
     items: content.items.map((item) => {
       if (item.kind === 'achievement') {
@@ -155,12 +160,13 @@ export async function regenerateExtractionDraft(profileId: string, input: Extrac
   const projects = (await readProjects(prisma, profileId, source.experienceId)).filter((project) => project.status !== 'archived')
   const proposed = await proposeDraft(profileId, source.subject, projects, source.projectId)
   if (proposed.failed && current.items.length) {
-    throw new ExtractionDraftError('The model could not read the prose. Your saved suggestions are still available.')
+    throw new ExtractionDraftError(`${proposed.notice} Your saved suggestions are still available.`)
   }
   const resolved = new Set(current.resolved)
   const currentIds = new Map(current.items.map((item) => [item.key, item.id]))
   const items = proposed.items.filter((item) => !resolved.has(item.key))
     .map((item) => ({ ...item, id: currentIds.get(item.key) ?? item.id }))
+  if (proposed.failed && !items.length) throw new ExtractionDraftError(`${proposed.notice} No new suggestions are available to review.`)
   if (!items.length && current.items.length) throw new ExtractionDraftError('No new suggestions were found. Your saved draft is still available.')
 
   await withActivityOwnership(profileId, async (tx) => {
@@ -195,11 +201,15 @@ export function addScope(note: string, description: string) {
 }
 
 async function acceptAchievement(tx: Tx, profileId: string, source: Source, item: Extract<DraftItem, { kind: 'achievement' }>, target?: { id: string; version: string; resultChoice?: 'existing' | 'suggestion' }, distinct = false) {
-  const found = achievementMatch(item, await readAchievements(tx, profileId, source.experienceId))
+  const achievements = await readAchievements(tx, profileId, source.experienceId)
+  const found = achievementMatch(item, achievements)
   if (found && !target && (!distinct || exactAchievementMatch(item, found))) throw new ExtractionDraftError('Similar evidence already exists in this role. Reload the draft to review the match.')
-  const match = target ? found : undefined
+  const match = target ? achievements.find((row) => row.id === target.id) : undefined
   if (target && (!match || match.id !== target.id || match.updatedAt.toISOString() !== target.version || !replaceable(match, source, profileId))) {
     throw new ExtractionDraftError('This match can no longer be replaced. Reload the draft to see current evidence.')
+  }
+  if (target && achievements.some((row) => row.id !== target.id && exactAchievementMatch(item, row))) {
+    throw new ExtractionDraftError('Exact evidence already exists in this role. Reload the draft to review it.')
   }
   const existingResult = match ? parseResult(match.result) : null
   if (match && extractionResultsConflict(existingResult, item.result) && !target?.resultChoice) {

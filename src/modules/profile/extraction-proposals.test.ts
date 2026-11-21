@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { LLMError } from '@/modules/llm/errors'
 import { completeStructured, getLLMConfigStatus } from '@/modules/llm/client'
 import { ExtractedSuggestionsSchema } from './extract-schema'
 import { findAchievementMatch } from './duplicate-detect'
@@ -219,4 +220,62 @@ describe('conservative metrics and distinct source blocks', () => {
     const result = await proposeDraft('p', { body: '## Skills\nC++\nC#\nC++', noun: 'role', facts: '' }, [], null)
     expect(result.items).toMatchObject([{ kind: 'skill', name: 'C++' }, { kind: 'skill', name: 'C#' }])
   })
+})
+
+describe('bounded extraction reliability', () => {
+  it('supports verb-led prose with a bounded, redacted single model call', async () => {
+    const body = 'Built regional launch tooling across Italy. Coordinated legal approval against fixed public deadlines.'
+    expect(parseNotes(body).fallback).toHaveLength(0)
+    vi.mocked(getLLMConfigStatus).mockResolvedValue({ configured: true } as never)
+    vi.mocked(completeStructured).mockResolvedValue({ object: { activities: [{ ...claim, original: body, description: 'I built regional launch tooling and coordinated legal approval.', result: null }], skills: [] } } as never)
+    const proposed = await proposeDraft('p', { body, noun: 'role', facts: '' }, [], null)
+    expect(proposed.items).toMatchObject([{ original: body, kind: 'achievement' }])
+    expect(completeStructured).toHaveBeenCalledTimes(1)
+    expect(completeStructured).toHaveBeenCalledWith('p', expect.any(String), ExtractedSuggestionsSchema, expect.objectContaining({ maxOutputTokens: 8000, redactInvalidOutput: true, maxRetries: 0, timeoutMs: 120_000 }))
+    expect(ExtractedSuggestionsSchema.safeParse({ activities: Array(13).fill(claim), skills: [] }).success).toBe(false)
+    expect(ExtractedSuggestionsSchema.safeParse({ activities: [{ ...claim, original: 'x'.repeat(601) }], skills: [] }).success).toBe(false)
+  })
+
+  it('reports incomplete output with no local recovery and does not retry', async () => {
+    vi.mocked(getLLMConfigStatus).mockResolvedValue({ configured: true } as never)
+    vi.mocked(completeStructured).mockRejectedValue(new LLMError('invalid', 'invalid_output', { finishReason: 'length' }))
+    const proposed = await proposeDraft('p', { body: 'Built regional tooling across Italy.', noun: 'role', facts: '' }, [], null)
+    expect(proposed).toMatchObject({ items: [], failed: true })
+    expect(proposed.notice).toMatch(/incomplete or invalid/)
+    expect(proposed.notice).toMatch(/No suggestions were recovered locally/)
+    expect(completeStructured).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not silently promote needs and tool lists to achievements', async () => {
+    const body = 'I needed to send personalised emails.\nI used SQL and Python.\nI used SQL to cut latency from 10 seconds to 2 seconds.'
+    const proposed = await proposeDraft('p', { body, noun: 'role', facts: '' }, [], null)
+    expect(proposed.items).toMatchObject([{ kind: 'scope' }, { kind: 'achievement' }])
+    const need = 'I needed to send personalised emails.'
+    expect(groundClaim({ ...claim, original: need, description: 'I sent personalised emails.', result: null }, need, need)).toBeNull()
+    expect(groundClaim({ ...claim, original: 'send personalised emails', description: 'I sent personalised emails.', result: null }, need, need)).toBeNull()
+    const mixed = 'I needed to send personalised emails, so I built a queue.'
+    expect(groundClaim({ ...claim, original: 'send personalised emails', description: 'I sent personalised emails.', result: null }, mixed, mixed)).toBeNull()
+    const bullets = await proposeDraft('p', { body: '## Achievements\n- Needed to send emails and needed to build dashboards.\n- Used SQL and Python.\n- I needed to reduce delays, so I built a queue.\n- I used SQL and cut latency in half.', noun: 'role', facts: '' }, [], null)
+    expect(bullets.items).toMatchObject([{ kind: 'scope' }, { kind: 'achievement' }, { kind: 'achievement' }])
+    const tools = 'I used SQL and Python.'
+    expect(groundClaim({ ...claim, original: tools, description: tools, result: null }, tools, tools)?.kind).toBe('scope')
+  })
+
+  it('shows a coverage notice when the bounded response is full', async () => {
+    const sentences = Array.from({ length: 12 }, (_, i) => `Built service ${String.fromCharCode(65 + i)}.`)
+    vi.mocked(getLLMConfigStatus).mockResolvedValue({ configured: true } as never)
+    vi.mocked(completeStructured).mockResolvedValue({ object: { activities: sentences.map(original => ({ ...claim, original, description: `I ${original.toLowerCase()}`, result: null })), skills: [] } } as never)
+    const proposed = await proposeDraft('p', { body: sentences.join(' '), noun: 'role', facts: '' }, [], null)
+    expect(proposed.items).toHaveLength(12)
+    expect(proposed.notice).toMatch(/More material may remain/)
+  })
+})
+
+it('returns a meaningful timeout notice while retaining local recovery', async () => {
+  vi.mocked(getLLMConfigStatus).mockResolvedValue({ configured: true } as never)
+  vi.mocked(completeStructured).mockRejectedValue(new LLMError('timeout', 'timeout'))
+  const proposed = await proposeDraft('p', { body: 'General prose.\n## Achievements\n- Built exports', noun: 'role', facts: '' }, [], null)
+  expect(proposed.failed).toBe(true)
+  expect(proposed.notice).toMatch(/timed out/)
+  expect(proposed.items).toHaveLength(1)
 })

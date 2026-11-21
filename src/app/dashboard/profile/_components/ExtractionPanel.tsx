@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { extractFromNotes, reviewExtractionItem } from '@/modules/profile/extract'
 import type { ExtractionReview } from '@/modules/profile/extraction-draft'
 import type { DraftChange, DraftItem, ExtractionOwner } from '@/modules/profile/extract-schema'
+import { extractionResultsConflict } from '@/modules/profile/extraction-result'
 import { formatResult } from '@/modules/profile/result'
 import { selectClass } from './PropertyFields'
 
@@ -129,6 +130,7 @@ export function ExtractionPanel({ owner, review }: { owner: ExtractionOwner; rev
   const busy = useRef(false)
   const [pending, startTransition] = useTransition()
   const [editing, setEditing] = useState<{ id: string; stamp: Stamp } | null>(null)
+  const [selectedEvidence, setSelectedEvidence] = useState<Record<string, string>>({})
   const [confirm, setConfirm] = useState<Stamp | null>(null)
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null)
   const stamp = { version: review.version, sourceVersion: review.sourceVersion }
@@ -197,7 +199,13 @@ export function ExtractionPanel({ owner, review }: { owner: ExtractionOwner; rev
       )}
       {review.version > 0 && review.items.length === 0 && <p className="text-sm text-muted-foreground">No pending suggestions.</p>}
       <ul className="divide-y">
-        {review.items.map(({ item, match }) => {
+        {review.items.map(({ item, match: automaticMatch }) => {
+          const selectionKey = `${stamp.sourceVersion}:${stamp.version}:${item.id}`
+          const selected = review.evidence.find((row) => row.id === selectedEvidence[selectionKey])
+          const match = item.kind === 'achievement' && selected ? {
+            ...selected, exact: automaticMatch?.id === selected.id && automaticMatch.exact,
+            resultConflict: extractionResultsConflict(selected.result, item.result),
+          } : automaticMatch
           const activeEdit = activeEditing?.id === item.id ? activeEditing : null
           const canSave = !activeEdit || (activeEdit.stamp.version === stamp.version && activeEdit.stamp.sourceVersion === stamp.sourceVersion)
           const project = item.kind === 'achievement' ? item.project : null
@@ -234,8 +242,20 @@ export function ExtractionPanel({ owner, review }: { owner: ExtractionOwner; rev
                 </>
               ) : (
                 <>
+                  {item.kind === 'achievement' && review.evidence.length > 0 && !automaticMatch?.exact && (
+                    <div className="space-y-1">
+                      <Label htmlFor={`compare-${item.id}`}>Compare with existing evidence in this role</Label>
+                      <p className="text-xs text-muted-foreground">Wording matches can miss rewrites. Check existing work before adding; choose a claim to review a replacement.</p>
+                      <select id={`compare-${item.id}`} className={selectClass} disabled={disabled || review.stale || review.archived}
+                        value={selected?.id ?? automaticMatch?.id ?? ''}
+                        onChange={(event) => setSelectedEvidence({ ...selectedEvidence, [selectionKey]: event.target.value })}>
+                        <option value="">{automaticMatch ? 'Suggested match' : 'Choose existing evidence…'}</option>
+                        {review.evidence.map((row) => <option key={row.id} value={row.id}>{row.project ? `${row.project} · ` : ''}{row.text}{row.replaceable ? '' : ' (unavailable for replacement)'}</option>)}
+                      </select>
+                    </div>
+                  )}
                   {match && <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
-                    {match.replaceable ? 'Similar profile evidence' : 'Match unavailable for replacement'}{match.project ? ` · ${match.project}` : ''} — {match.text}
+                    {match.replaceable ? (match.exact ? 'Exact profile evidence' : 'Existing evidence to compare') : 'Match unavailable for replacement'}{match.project ? ` · ${match.project}` : ''} — {match.text}
                     {match.replaceable && item.kind === 'achievement' && !item.projectEdited && ' Replacement keeps the existing project label.'}
                   </p>}
                   {match && item.kind === 'achievement' && match.result && (
