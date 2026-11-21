@@ -493,7 +493,7 @@ describe('applyEdits: the writers\' lead-with and project rules still hold after
   })
 
   it('keeps a rewrite that names the project by its distinctive words early in the bullet (no full name)', () => {
-    const r = applyEdits(pdoc(), [edit(U, 'b1', 'replace', 'Led the Enemies launch timing decision for the new title.')], pctx(lead))
+    const r = applyEdits(pdoc(), [edit(U, 'b1', 'replace', 'Led the Enemies Demo launch timing decision for the new title.')], pctx(lead))
     expect(r.discarded).toEqual([])
     expect(r.applied).toHaveLength(1)
   })

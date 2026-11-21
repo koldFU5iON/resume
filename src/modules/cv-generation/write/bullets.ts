@@ -15,9 +15,10 @@
  */
 
 import type { BriefItem, CvBrief } from '../schema'
-import { contentStems, distinctiveTokens, figuresIn, normalised, phraseIndex, projectNameKey } from './checks'
+import { contentStems, figuresIn, normalised, phraseIndex, projectNameKey } from './checks'
 import type { EmployerEvidence } from './evidence'
 import { isThinProject } from './limits'
+import { projectMention } from './project-names'
 
 /** A bullet beyond the allocation that each substantive (not thin) selected project is allowed to need: it gets one of its own. */
 export const PROJECT_EXTRA_BULLETS = 1
@@ -33,11 +34,11 @@ export type LeadWithProject = { name: string; key: string; line: string }
 
 /**
  * The selected projects of an employer that the Brief names in `leadWith`
- * (matched by project name, years and versions ignored), each with the first
+ * (matched by the same names that count in bullets), each with the first
  * lead-with line that names it. In the order of `projects`.
  */
-export function leadWithProjects(projects: readonly ProjectRef[], leadWith: readonly BriefItem[]): LeadWithProject[] {
-  return matchLeads(projects, leadWith, false)
+export function leadWithProjects(projects: readonly ProjectRef[], leadWith: readonly BriefItem[], peers = projects.map((p) => p.name)): LeadWithProject[] {
+  return matchLeads(projects, leadWith, false, peers)
 }
 
 /**
@@ -46,16 +47,16 @@ export function leadWithProjects(projects: readonly ProjectRef[], leadWith: read
  * framing line, so they get no own bullet and no check asks for one.
  */
 export function thinLeadWithProjects(projects: readonly ProjectRef[], leadWith: readonly BriefItem[]): LeadWithProject[] {
-  return matchLeads(projects, leadWith, true)
+  return matchLeads(projects, leadWith, true, projects.map((p) => p.name))
 }
 
-function matchLeads(projects: readonly ProjectRef[], leadWith: readonly BriefItem[], thin: boolean): LeadWithProject[] {
+function matchLeads(projects: readonly ProjectRef[], leadWith: readonly BriefItem[], thin: boolean, peers: readonly string[]): LeadWithProject[] {
   const out: LeadWithProject[] = []
   for (const p of projects) {
     if (thinOf(p) !== thin) continue
     const key = projectNameKey(p.name)
     if (!key) continue
-    const lead = leadWith.find((l) => phraseIndex(l.framing, key) >= 0 || phraseIndex(l.name, key) >= 0)
+    const lead = leadWith.find((l) => projectMention(l.framing, p.name, peers) >= 0 || projectMention(l.name, p.name, peers) >= 0)
     if (lead) out.push({ name: p.name, key, line: lead.framing })
   }
   return out
@@ -89,25 +90,15 @@ export function bulletAllowance(emp: Pick<EmployerEvidence, 'activities' | 'proj
  * Best effort on the project's name: a bullet that describes it without
  * naming it counts as `missing`.
  */
-export function leadWithStanding(bullets: readonly string[], project: Pick<LeadWithProject, 'key'> & { name?: string }): 'own' | 'trailing' | 'missing' {
-  const tokens = project.name ? distinctiveTokens(project.name) : []
+export function leadWithStanding(bullets: readonly string[], project: Pick<LeadWithProject, 'key'> & { name?: string }, peers: readonly string[] = []): 'own' | 'trailing' | 'missing' {
   let named = false
   for (const b of bullets) {
-    const words = normalised(b)
-    const half = Math.floor(words.length / 2)
-    const at = phraseIndex(b, project.key)
-    // A rewording may drop the generic words of the name ("Customer Portal Redesign" -> "the portal redesign demo").
-    const tokenAt = tokens.length > 0 && tokens.every((t) => words.includes(t)) ? Math.max(...tokens.map((t) => words.indexOf(t))) : -1
-    if (at < 0 && tokenAt < 0) continue
+    const at = projectMention(b, project.name ?? project.key, peers)
+    if (at < 0) continue
     named = true
-    if ((at >= 0 && at * 2 < words.length) || (tokenAt >= 0 && tokenAt <= half)) return 'own'
+    if (at * 2 < normalised(b).length) return 'own'
   }
   return named ? 'trailing' : 'missing'
-}
-
-/** Whether a bullet is the own bullet of one of the lead-with projects. */
-export function isOwnBulletOf(bullet: string, leads: readonly Pick<LeadWithProject, 'key'>[]): boolean {
-  return leads.some((l) => leadWithStanding([bullet], l) === 'own')
 }
 
 // ── Trimming to the allowance ───────────────────────────────────────────────
@@ -139,12 +130,13 @@ export function trimBullets(
   brief: Pick<CvBrief, 'leadWith' | 'emphasise'>,
   projects: readonly ProjectRef[],
   allowance: number,
+  peers = projects.map((p) => p.name),
 ): { bullets: string[]; trimmed: string[] } {
   if (bullets.length <= allowance) return { bullets: [...bullets], trimmed: [] }
   const items = briefItemTexts(brief)
   const keys = projects.map((p) => projectNameKey(p.name)).filter(Boolean)
   const leads = substantiveProjects(projects).flatMap((p) => { const key = projectNameKey(p.name); return key ? [{ key, name: p.name }] : [] })
-  const tier = (b: string) => (isOwnBulletOf(b, leads) ? 0 : items.some((it) => reflectsItem(b, it, keys)) ? 1 : 2)
+  const tier = (b: string) => (leads.some((l) => leadWithStanding([b], l, peers) === 'own') ? 0 : items.some((it) => reflectsItem(b, it, keys)) ? 1 : 2)
   const ranked = bullets.map((b, i) => ({ i, tier: tier(b) })).sort((x, y) => x.tier - y.tier || x.i - y.i)
   const keep = new Set(ranked.slice(0, Math.max(0, allowance)).map((r) => r.i))
   return { bullets: bullets.filter((_, i) => keep.has(i)), trimmed: bullets.filter((_, i) => !keep.has(i)) }

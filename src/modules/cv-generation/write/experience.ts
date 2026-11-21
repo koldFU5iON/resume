@@ -27,12 +27,14 @@ import { attributionOf, completeChecked, softIssueNotes, type CheckResult } from
 import { CV_GENERATION_FEATURES, TEMPERATURE, TIME_BUDGET_MS, type BulletProvenance } from '../schema'
 import { bulletAllowance, leadWithProjects, leadWithStanding, dedupeSummary, playDownBullets, shortened, trimBullets, wrongTenseLines } from './bullets'
 import { BULLET_MAX_WORDS, SUMMARY_MAX_WORDS, experienceTokenCaps } from './limits'
-import { claimedHits, contentStems, credentialProblems, introducedNames, normalised, projectReflected, repeatedFigures, unsupportedFigures, wordCount } from './checks'
-import { activityPromptText, employerProjectNames, evidenceTexts, figureIgnoredNames, summaryEvidenceTexts, projectPromptText, type EmployerEvidence } from './evidence'
+import { claimedHits, contentStems, credentialProblems, introducedNames, normalised, repeatedFigures, unsupportedFigures, wordCount } from './checks'
+import { activityPromptText, employerProjectNames, employerProjectPeers, evidenceTexts, figureIgnoredNames, summaryEvidenceTexts, projectPromptText, type EmployerEvidence } from './evidence'
 import { plainFeedback, plainLine, plainReasons, shortenToWords } from './plain'
 import { isThin, thinProjectNote } from './thin'
-import { evidenceRefs, mixedSourceNote, namesProject, resolveSources, toProvenance, type EvidenceRef } from './provenance'
+import { evidenceRefs, mixedSourceNote, resolveSources, toProvenance, type EvidenceRef } from './provenance'
+import { conflictingProjectEdition, namesProject, projectDisplayName, projectFigureNames, selectedProjectReflected } from './project-names'
 import { briefText, data, requirementsBlock } from './prompt'
+import { dedupeClaims, possibleRepeat } from './repetition'
 import { renderEmployerEntry } from './render'
 import type { CheckNote, WriteContext, WriterOutcome } from './types'
 
@@ -63,13 +65,13 @@ ${JSON.stringify(z.toJSONSchema(ExperienceOutputSchema, { io: 'input' }))}
 /** The user message of an experience call. Pure; carries no name, employer, title or contact detail. */
 export function experiencePrompt(ctx: Pick<WriteContext, 'brief' | 'strategy'>, emp: EmployerEvidence): string {
   const max = bulletAllowance(emp)
-  const leads = new Map(leadWithProjects(emp.projects, ctx.brief.leadWith).map((l) => [l.name, l]))
+  const leads = new Map(leadWithProjects(emp.projects, ctx.brief.leadWith, employerProjectPeers(emp)).map((l) => [l.name, l]))
   // Short stable labels (E1.., P1..), never the real ids: the writer cites them per bullet and code maps them back (provenance.ts).
   const items = emp.activities.map((a, i) => `[E${i + 1}] ${activityPromptText(a)}${a.highlighted ? ' (the candidate highlighted this)' : ''}`)
   const projectLabels = new Map<string, { name: string; labels: string[] }>()
   for (const ref of evidenceRefs(emp)) {
     if (ref.kind !== 'activity' || !ref.project) continue
-    const group = projectLabels.get(ref.project.id) ?? { name: ref.project.name, labels: [] }
+    const group = projectLabels.get(ref.project.id) ?? { name: projectDisplayName(ref.project.name), labels: [] }
     group.labels.push(ref.label)
     projectLabels.set(ref.project.id, group)
   }
@@ -78,9 +80,9 @@ export function experiencePrompt(ctx: Pick<WriteContext, 'brief' | 'strategy'>, 
     ? 'The summary line and ongoing responsibilities may be in the present tense (the candidate works here now), but every completed achievement and every measured result is in the PAST tense ("Drove 14,000+ voters", never "Drives 14,000+ voters").'
     : 'Past tense throughout (the candidate has left).'
   const projectLine = (p: EmployerEvidence['projects'][number], i: number) => {
-    if (isThin(p)) return `[P${i + 1}] project "${p.name}": NO EVIDENCE. The profile gives only the title, no description. Do not write a bullet about it, do not say what it achieved, and do not describe it from the brief. Name it only inside a bullet that an evidence item above already states.`
+    if (isThin(p)) return `[P${i + 1}] project "${projectDisplayName(p.name)}": NO EVIDENCE. The profile gives only the title, no description. Do not write a bullet about it, do not say what it achieved, and do not describe it from the brief. Name it only inside a bullet that an evidence item above already states.`
     const lead = leads.get(p.name)
-    return `[P${i + 1}] project "${p.name}": ${projectPromptText(p)}${lead ? `\n  LEAD WITH: the brief names this project and frames it as "${lead.line}". Give it an own bullet, framed that way, that starts with the project.` : ''}`
+    return `[P${i + 1}] project "${projectDisplayName(p.name)}": ${projectPromptText(p)}${lead ? `\n  LEAD WITH: the brief names this project and frames it as "${lead.line}". Give it an own bullet, framed that way, that starts with the project.` : ''}`
   }
   const extra = max - emp.activities.length
   const ownBullets = `${extra} own bullet${extra === 1 ? '' : 's'} for the project${extra === 1 ? '' : 's'}`
@@ -103,7 +105,7 @@ export function experiencePrompt(ctx: Pick<WriteContext, 'brief' | 'strategy'>, 
           data('projects', emp.projects.map((p, i) => projectLine(p, i)).join('\n')),
         ]
       : []),
-    `# Limits\n\n- Summary: one sentence, at most ${SUMMARY_MAX_WORDS} words, stating CONCRETE scope facts from the role overview (what the employer is, team, region or portfolio size, remit). Never filler such as \"role covering how launches reached their audiences\". When the overview carries no concrete scope fact, return an EMPTY summary (\"\"). It is scope and context only, never drawn from the activities listed above (every listed activity is for a bullet; two may share a bullet only when they describe the same achievement, and then the bullet cites both).\n- Bullets: at most ${max}${extra > 0 ? ` (the ${emp.activities.length} evidence item${emp.activities.length === 1 ? '' : 's'} plus ${ownBullets})` : ''}, each at most ${BULLET_MAX_WORDS} words, outcome and business impact first. Merge items only when they state the same measured result with the same figures; related items with different figures or mechanisms stay separate bullets.\n- Sources: every bullet is an object {"text", "sources"}; "sources" lists the labels ([E1], [P1]...) of the evidence item(s) it comes from, at least one. A figure comes only from the item that states it.\n- Never repeat a figure within this entry: each number appears once, in the one place it fits best.\n- Play down: ${ctx.brief.playDown.length > 0 ? 'the "Play down" items in the brief may appear at most as a clause inside another bullet, never as a bullet of their own.' : 'nothing to play down.'}\n- Project context: name the recorded project or campaign within a bullet when the work would otherwise read as detached or ambiguous. Use the saved name, naturally in the sentence. Keep distinct projects in separate bullets and keep figures and scope with the source that states them. Do not invent a product, programme or campaign name.\n- Role verbs: when the evidence is a project or a project-labelled activity, the candidate's ROLE verbs come from the evidence (\"led communications\", \"planned\", \"ran\"). Never promote the candidate to the product's creator or launcher (\"launched the demo\", \"built the game\") unless the evidence says they did.\n- Voice: no pronouns ("I", "my", "we"); an implied subject. Tense: ${tense}\n- Plain text only: no Markdown, links, HTML or ":::". Code builds the list from your strings.\n- Numbers exactly as in the evidence, whether you write them as digits or words; no title, company or date that the evidence does not contain.`,
+    `# Limits\n\n- Summary: one sentence, at most ${SUMMARY_MAX_WORDS} words, stating CONCRETE scope facts from the role overview (what the employer is, team, region or portfolio size, remit). Never filler such as \"role covering how launches reached their audiences\". When the overview carries no concrete scope fact, return an EMPTY summary (\"\"). It is scope and context only, never drawn from the activities listed above (every listed activity is for a bullet; two may share a bullet only when they describe the same achievement, and then the bullet cites both).\n- Bullets: at most ${max}${extra > 0 ? ` (the ${emp.activities.length} evidence item${emp.activities.length === 1 ? '' : 's'} plus ${ownBullets})` : ''}, each at most ${BULLET_MAX_WORDS} words, outcome and business impact first. Merge items only when they state the same claim, including its figures when measured; related items with different figures or mechanisms stay separate bullets.\n- Sources: every bullet is an object {"text", "sources"}; "sources" lists the labels ([E1], [P1]...) of the evidence item(s) it comes from, at least one. A figure comes only from the item that states it.\n- Never repeat a figure within this entry for the same outcome. Keep both figures if they measure distinct results.\n- Use the evidence labels to check for repeated claims across bullets, including when a project description restates an activity. Use one bullet for the same result or responsibility, citing all supporting labels. Shared project names, labels or figures alone do not identify a repeated claim. Keep different outcomes, metrics, periods, scope, responsibility, mechanisms and negations intact.\n- Play down: ${ctx.brief.playDown.length > 0 ? 'the "Play down" items in the brief may appear at most as a clause inside another bullet, never as a bullet of their own.' : 'nothing to play down.'}\n- Project context: name the recorded project or campaign within a bullet when the work would otherwise read as detached or ambiguous. Use the saved name naturally in the sentence, without list numbering. Shorten it only if the name still clearly identifies the same project and edition. Keep distinct projects in separate bullets and keep figures and scope with the source that states them. Do not invent a product, programme or campaign name.\n- Role verbs: when the evidence is a project or a project-labelled activity, the candidate's ROLE verbs come from the evidence (\"led communications\", \"planned\", \"ran\"). Never promote the candidate to the product's creator or launcher (\"launched the demo\", \"built the game\") unless the evidence says they did.\n- Voice: no pronouns ("I", "my", "we"); an implied subject. Tense: ${tense}\n- Plain text only: no Markdown, links, HTML or ":::". Code builds the list from your strings.\n- Numbers exactly as in the evidence, whether you write them as digits or words; no title, company or date that the evidence does not contain.`,
     'Return the summary and the bullets (each with its source labels) as one JSON object matching the schema, in a ```json code block.',
   ].join('\n\n')
 }
@@ -168,6 +170,7 @@ export function analyseExperience(out: ExperienceOutput, ctx: Pick<WriteContext,
   const evidenceText = texts.join('\n')
   const max = bulletAllowance(emp)
 
+  const distinctClaims = dedupeClaims(bullets.map((text, i) => ({ text, sources: bulletSources[i], unknown: resolved[i].unknown })))
   // Not plain (or first person): retried once with feedback like any soft problem; the kept text is cleaned either way.
   // Verbatim names from the candidate's own text ("My Talking Tom launch") are not first person.
   const ownText = [evidenceText, ...ctx.evidence.profileCompanies, ...ctx.evidence.profileTitles].join('\n')
@@ -180,11 +183,11 @@ export function analyseExperience(out: ExperienceOutput, ctx: Pick<WriteContext,
   // An empty summary is allowed: the overview may carry no concrete scope fact, and then the entry has no summary line.
   // Over the word cap is NOT a retry reason (a retry doubles the call's cost): writeExperience shortens it in code.
   if (bullets.length === 0) problem('there are no bullets; write one per evidence item you use', 'no bullets')
-  if (bullets.length > max) problem(`there are ${bullets.length} bullets; at most ${max} are allowed (merge items that state the same outcome; each project with text keeps its own bullet)`, `${bullets.length} bullets, limit ${max}`)
+  if (distinctClaims.length > max) problem(`there are ${distinctClaims.length} bullets; at most ${max} are allowed (merge items that state the same outcome; each project with text keeps its own bullet)`, `${distinctClaims.length} bullets, limit ${max}`)
 
   // Selected activities no bullet cites, while the entry has fewer bullets than allowed: usually one the writer spent on the summary. Merged ones are cited elsewhere, so they never count.
   const uncited = uncitedActivities(emp, bulletSources)
-  if (uncited.length > 0 && bullets.length > 0 && bullets.length < max) {
+  if (uncited.length > 0 && distinctClaims.length > 0 && distinctClaims.length < max) {
     problem(`these selected activities have no bullet and are not cited by any: ${uncited.map((u) => `${u.label} "${shortened(u.text, 80)}"`).join('; ')}. The summary is scope and context only, never drawn from the activities; write a bullet for each (merge two only when they describe the same achievement, citing both labels), up to the limit of ${max}`, `${uncited.length === 1 ? 'activity' : 'activities'} ${uncited.map((u) => u.label).join(', ')} without a bullet`)
   }
 
@@ -193,14 +196,15 @@ export function analyseExperience(out: ExperienceOutput, ctx: Pick<WriteContext,
   if (unsourced.length > 0) problem(`${unsourced.length === 1 ? `bullet ${unsourced[0]} cites` : `bullets ${unsourced.join(', ')} cite`} no evidence item that exists: cite the evidence item(s) this bullet comes from, by their labels (${refs.map((r) => r.label).join(', ') || 'none'}), in "sources"`, `no source for bullet ${unsourced.join(', ')}`)
 
   const all = [summary, ...bullets].join('\n')
-  const names = [...figureIgnoredNames(ctx.evidence), ...employerProjectNames(emp)]
+  const projectNames = employerProjectPeers(emp)
+  const names = [...figureIgnoredNames(ctx.evidence), ...employerProjectNames(emp).flatMap(projectFigureNames)]
   // The role overview (what the writer was shown, capped) backs a SUMMARY's figures only, never a bullet's.
   const unsupported = [...new Set([...unsupportedFigures(summary, summaryEvidenceTexts(emp), names), ...unsupportedFigures(bullets.join('\n'), texts, names)])]
   if (unsupported.length > 0) problem(`these figures are not in the evidence (digits or words), so remove them or use the evidence's exact figures: ${unsupported.join(', ')}`, `figure ${unsupported.join(', ')} not in evidence`)
 
   // One figure, one place: a figure that two bullets (or the summary and a bullet) both state is a repeat.
-  const repeated = repeatedFigures([summary, ...bullets], names)
-  if (repeated.length > 0) problem(`these figures appear more than once in this entry; state each figure once, in the single bullet where it fits best, and merge bullets that state the same outcome: ${repeated.join(', ')}`, `duplicate figure ${repeated.join(', ')}`)
+  const repeated = repeatedFigures([summary, ...distinctClaims.map((b) => b.text)], names)
+  if (repeated.length > 0) problem(`these figures appear more than once in this entry; merge bullets only if they state the same outcome, keeping all supporting labels. If the figures measure distinct results, keep both: ${repeated.join(', ')}`, `duplicate figure ${repeated.join(', ')}`)
 
   const claimed = claimedHits(all, ctx.evidence.claimedNames, { evidenceText, requirementText: ctx.requirementText })
   const unrequested = claimed.filter((c) => !c.requested).map((c) => c.name)
@@ -214,8 +218,8 @@ export function analyseExperience(out: ExperienceOutput, ctx: Pick<WriteContext,
   for (const c of creds) problem(c.problem, `credential ${c.name}`)
 
   // Selected projects are evidence too: each must be reflected (its name, or one of its figures, in the text).
-  const projectsMissed = emp.projects.filter((p) => !isThin(p) && !projectReflected(all, p)).map((p) => p.name)
-  const leads = leadWithProjects(emp.projects, ctx.brief.leadWith)
+  const projectsMissed = emp.projects.filter((p) => !isThin(p) && !selectedProjectReflected([summary, ...bullets], p, projectNames)).map((p) => p.name)
+  const leads = leadWithProjects(emp.projects, ctx.brief.leadWith, projectNames)
   const leadNames = new Set(leads.map((l) => l.name))
   const otherMissed = projectsMissed.filter((n) => !leadNames.has(n))
   if (otherMissed.length > 0) problem(`these selected projects are not reflected: ${otherMissed.map((n) => `"${n}"`).join(', ')}; give each its own bullet, naming it, using only the project text (do not merge it into a bullet about another activity)`, `project ${otherMissed.join(', ')} not reflected`)
@@ -233,7 +237,7 @@ export function analyseExperience(out: ExperienceOutput, ctx: Pick<WriteContext,
   // A lead-with project needs an own bullet that is about it, framed as the Brief frames it: not a trailing clause of another bullet.
   const leadWithNotOwn: string[] = []
   for (const l of leads) {
-    const standing = leadWithStanding(bullets, l)
+    const standing = leadWithStanding(bullets, l, projectNames)
     if (standing === 'own') continue
     leadWithNotOwn.push(l.name)
     problem(`the lead-with project "${l.name}" needs an own bullet that starts with it and is framed as the brief frames it ("${l.line}"); ${standing === 'trailing' ? 'it only appears as a trailing clause or shares a bullet with other topics' : 'no bullet names it'}`, `project ${l.name} needs its own bullet`)
@@ -269,11 +273,15 @@ function withProjectContext(text: string, sources: readonly EvidenceRef[], proje
     notes.push(`Project attribution needs a look: the bullet cites mixed or unknown sources. “${shortened(text)}”.`)
     return text
   }
-  const name = plainLine(project.name)
-  if (!name || namesProject(text, name)) return text
-  const other = projectNames.find((n) => n !== project.name && namesProject(text, n))
+  const name = plainLine(projectDisplayName(project.name))
+  if (!name || namesProject(text, project.name, projectNames)) return text
+  const other = projectNames.find((n) => n !== project.name && namesProject(text, n, projectNames))
   if (other) {
     notes.push(`Project attribution needs a look: the bullet names “${other}” but cites “${project.name}”.`)
+    return text
+  }
+  if (conflictingProjectEdition(text, project.name, projectNames)) {
+    notes.push(`Project attribution needs a look: the bullet names a different edition of “${name}”.`)
     return text
   }
   const end = text.match(/[.!?]$/)?.[0] ?? ''
@@ -293,7 +301,7 @@ export function fallbackExperience(emp: EmployerEvidence): { summary: string; bu
   // Each bullet IS one activity's text, so its source is exact.
   const refs = evidenceRefs(emp)
   const notes: string[] = []
-  const projectNames = employerProjectNames(emp)
+  const projectNames = employerProjectPeers(emp)
   const pairs = emp.activities.flatMap((a, i) => {
     const text = plainLine(a.text)
     if (!text) return []
@@ -302,15 +310,16 @@ export function fallbackExperience(emp: EmployerEvidence): { summary: string; bu
     const full = impact && !text.includes(impact) ? `${text} — ${impact}` : text
     const scoped = wordCount(full) <= BULLET_MAX_WORDS ? full : text
     if (scoped !== full) notes.push(`The recorded impact did not fit the fallback bullet for “${a.fromProject?.name}”: “${shortened(impact)}”.`)
-    return [{ ref, text: withProjectContext(scoped, [ref], projectNames, notes) }]
+    return [{ sources: [ref], text: withProjectContext(scoped, [ref], projectNames, notes) }]
   })
-  const bullets = pairs.map((b) => b.text)
+  const unique = dedupeClaims(pairs, notes)
+  const bullets = unique.map((b) => b.text)
   for (const p of emp.projects) {
-    notes.push(bullets.some((b) => namesProject(b, p.name))
+    notes.push(bullets.some((b) => namesProject(b, p.name, projectNames))
       ? `Project "${p.name}" is named in an activity bullet; the separate project context was left out of the fallback.`
       : `Project "${p.name}" is not on the CV: this entry was made without a model call, from your activity text only.`)
   }
-  return { summary: '', bullets, provenance: pairs.map((b) => toProvenance(b.text, [b.ref])), markdown: renderEmployerEntry(emp.employer, '', bullets), notes }
+  return { summary: '', bullets, provenance: unique.map((b) => toProvenance(b.text, b.sources)), markdown: renderEmployerEntry(emp.employer, '', bullets), notes }
 }
 
 /** Writes one employer's entry. Throws LLMError (invalid_output, timeout, ...). */
@@ -364,35 +373,40 @@ export async function writeExperience(ctx: WriteContext, emp: EmployerEvidence, 
   for (const p of emp.projects.filter(isThin)) notes.push(thinProjectNote(p.name))
   const checks: CheckNote[] = []
   const who = emp.employer.company
-  // The allowance is a hard cap: whatever the last answer held, trim to it (lead-with project and brief-matching bullets first, then the writer's order).
-  const trimmed = trimBullets(a.bullets, ctx.brief, emp.projects, allowance)
+  const projectNames = employerProjectPeers(emp)
+  const figureNames = [...figureIgnoredNames(ctx.evidence), ...employerProjectNames(emp).flatMap(projectFigureNames)]
+  const named = a.bullets.map((b, i) => ({
+    text: withProjectContext(b, a.bulletSources[i], projectNames, notes, a.unknownPerBullet[bulletIdx[i]]),
+    sources: a.bulletSources[i],
+    beforeShortening: b !== analysed.bullets[bulletIdx[i]] ? analysed.bullets[bulletIdx[i]] : undefined,
+    unknown: a.unknownPerBullet[bulletIdx[i]],
+  }))
+  const unique = dedupeClaims(named, notes)
+  // The cap comes after exact duplicates so they cannot use a slot that another outcome needs.
+  const trimmed = trimBullets(unique.map((b) => b.text), ctx.brief, emp.projects, allowance, projectNames)
   let bullets = trimmed.bullets
-  // trimBullets keeps the writer's order, so the kept texts line up with their sources.
-  const projectNames = employerProjectNames(emp)
-  const figureNames = [...figureIgnoredNames(ctx.evidence), ...projectNames]
-  let provenance: BulletProvenance[] = []
-  {
-    let k = 0
-    a.bullets.forEach((b, i) => {
-      if (k < bullets.length && bullets[k] === b) {
-        const text = withProjectContext(b, a.bulletSources[i], projectNames, notes, a.unknownPerBullet[bulletIdx[i]])
-        provenance.push(toProvenance(text, a.bulletSources[i]))
-        const mixed = mixedSourceNote(text, a.bulletSources[i], figureNames)
-        if (mixed) notes.push(mixed)
-        k++
-      }
-    })
-  }
+  let k = 0
+  const kept = unique.filter((b) => {
+    if (bullets[k] !== b.text) return false
+    k++
+    return true
+  })
+  let provenance = kept.map((b) => toProvenance(b.text, b.sources))
+  kept.forEach((b, i) => {
+    const mixed = mixedSourceNote(b.text, b.sources, figureNames)
+    if (mixed) notes.push(mixed)
+    for (const prev of kept.slice(0, i)) {
+      if (possibleRepeat(prev, b)) notes.push(`Bullets with overlapping cited evidence may repeat a claim: “${shortened(prev.text)}” / “${shortened(b.text)}”. Both kept.`)
+    }
+  })
   const left = bullets.length < allowance ? uncitedActivities(emp, provenance.map((p) => p.sources)) : []
   if (left.length > 0) notes.push(`${left.length === 1 ? '1 selected activity was' : `${left.length} selected activities were`} left without a bullet (${bullets.length} of ${allowance} allowed): ${left.map((u) => `${u.label} “${shortened(u.text, 70)}”`).join('; ')}.`)
   for (const t of trimmed.trimmed) notes.push(`Cut a bullet over this employer's limit of ${allowance}: “${shortened(t)}”.`)
-  // A bullet that carried a selected project may be the one that was cut: say so, so the project is never lost silently.
   for (const p of emp.projects) {
-    if (trimmed.trimmed.length > 0 && projectReflected([a.summary, ...a.bullets].join('\n'), p) && !projectReflected([a.summary, ...bullets].join('\n'), p)) {
+    if (trimmed.trimmed.length > 0 && selectedProjectReflected([a.summary, ...unique.map((b) => b.text)], p, projectNames) && !selectedProjectReflected([a.summary, ...bullets], p, projectNames)) {
       notes.push(`Selected project "${p.name}" is no longer on the CV: the bullet that carried it was cut over this employer's limit.`)
     }
   }
-  bullets = provenance.map((p) => p.text)
   if (bullets.length === 0) {
     const fb = fallbackExperience(emp)
     bullets = fb.bullets

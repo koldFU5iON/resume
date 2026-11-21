@@ -71,10 +71,10 @@ describe('the writer prompts, after the review fixes', () => {
   })
 
   describe('phase 3b rules', () => {
-    it('the experience prompt: merge same-outcome items, each figure once, projects, voice and tense', () => {
+    it('the experience prompt: merge same-outcome items, keep distinct claims, projects, voice and tense', () => {
       const t = read('cv-gen-write-experience')
       expect(t).toContain('Merge items only when they state the same measured result with the same figures')
-      expect(t).toContain('Each figure once')
+      expect(t).toContain('One bullet per claim within an employer')
       expect(t).toMatch(/Projects:.*extra evidence/)
       expect(t).toMatch(/never "I", "my", "me" or "we"/)
       expect(t).toMatch(/implied subject/)

@@ -436,7 +436,7 @@ describe('Phase 3b: repetition, voice, projects, retry reasons', () => {
     const prompt = (emp: EmployerEvidence) => experiencePrompt({ brief: buildBriefFor(), strategy }, emp)
     it('asks for merged outcomes, one place per figure, no pronouns, and the present tense for a current employer', () => {
       const p = prompt(unity)
-      expect(p).toMatch(/Merge items only when they state the same measured result with the same figures/)
+      expect(p).toMatch(/Merge items only when they state the same claim, including its figures when measured/)
       expect(p).toMatch(/Never repeat a figure within this entry/)
       expect(p).toMatch(/no pronouns \("I", "my", "we"\)/)
       expect(p).toMatch(/summary line and ongoing responsibilities may be in the present tense/)
@@ -860,7 +860,7 @@ describe('Phase 3d: per-bullet provenance', () => {
     expect(p).toContain('[E3] achievement: Shipped 12 titles on schedule')
     expect(p).not.toMatch(/\[ua\d\]/)
     expect(p).toMatch(/"sources" lists the labels \(\[E1\], \[P1\]\.\.\.\)/)
-    expect(p).toMatch(/Merge items only when they state the same measured result with the same figures/)
+    expect(p).toMatch(/Merge items only when they state the same claim, including its figures when measured/)
     expect(EXPERIENCE_OUTPUT_FORMAT_FOR_TEST).toContain('"sources"')
   })
 

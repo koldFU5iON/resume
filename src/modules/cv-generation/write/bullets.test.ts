@@ -55,7 +55,7 @@ describe('leadWithStanding', () => {
   })
   it('own: the distinctive words (not the full name) are enough when named in the first half', () => {
     const l = { key: 'enemies demo campaign', name: 'Enemies Demo Campaign' }
-    expect(leadWithStanding(['Led a zero-budget global campaign for the Enemies digital human tech demo: 7x previous demo performance, 237+ media outlets, 500K+ YouTube views in 24 hours.'], l)).toBe('own')
+    expect(leadWithStanding(['Led a zero-budget global campaign for the Enemies Demo for digital human tech: 7x previous demo performance, 237+ media outlets, 500K+ YouTube views in 24 hours.'], l)).toBe('own')
     expect(leadWithStanding(['Led a zero-budget global demo campaign: 7x previous demo performance, 237+ media outlets, 500K+ YouTube views.'], l)).toBe('missing')
   })
   it('trailing: the project is only a clause at the end of another bullet', () => {
