@@ -11,7 +11,7 @@
  */
 
 import type { BulletProvenance, BulletSource } from '../schema'
-import { distinctiveTokens, figuresIn, normalised, phraseIndex, projectNameKey } from './checks'
+import { figuresIn } from './checks'
 import { activityEvidenceText, type EmployerEvidence } from './evidence'
 import { isThin } from './thin'
 import { plainLine } from './plain'
@@ -59,12 +59,6 @@ export function evidenceRefs(emp: Pick<EmployerEvidence, 'activities' | 'project
       snippet: snippetOf(`${p.name}: ${p.text}`),
     })),
   ]
-}
-
-/** Recognise the saved name or its edition-neutral form when that form identifies a project. */
-export function namesProject(text: string, name: string): boolean {
-  return phraseIndex(text, normalised(name).join(' ')) >= 0 ||
-    (distinctiveTokens(name).length > 0 && phraseIndex(text, projectNameKey(name)) >= 0)
 }
 
 /** "E3", "[e3]", " P1 " → "E3" / "P1"; anything else null. */

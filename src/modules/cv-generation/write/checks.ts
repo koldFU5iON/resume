@@ -223,24 +223,12 @@ export function phraseIndex(text: string, phrase: string): number {
 
 const isYear = (f: Figure) => YEAR_WORD.test(f.raw.replace(/^[£$€]/, '').trim())
 
-/**
- * Whether `output` (an employer's summary and bullets) reflects a selected
- * project. Covered when EITHER the project's normalised name (projectNameKey)
- * appears in it, OR one of the project's own figures appears in it (compared
- * by value, as the numbers check does; a year is not a figure here). Words the
- * name shares with ordinary activity text, or generic words, prove nothing, so
- * "Launched marketing campaign across social channels" does not cover a project
- * called "Customer Portal Redesign", while a bullet naming "Annual Summit" covers
- * "Annual Summit 2025" even though an activity says the same words.
- * Best effort: a paraphrase with no figure is a false negative, which costs
- * one retry and a log note, never a failed run.
- */
-export function projectReflected(output: string, project: { name: string; text?: string }): boolean {
-  const key = projectNameKey(project.name)
-  if (key && phraseIndex(output, key) >= 0) return true
-  if (!project.text) return false
-  const mine = new Set(figuresIn(project.text, { names: [project.name] }).filter((f) => !isYear(f)).map((f) => f.key))
-  return mine.size > 0 && figuresIn(output, { names: [project.name] }).some((f) => !isYear(f) && mine.has(f.key))
+/** Whether a line states a figure from the project's own evidence (a bare year never counts). */
+export function projectFiguresReflected(lines: readonly string[], text: string | undefined, names: readonly string[]): boolean {
+  if (!text) return false
+  const options = { names }
+  const mine = new Set(figuresIn(text, options).filter((f) => !isYear(f)).map((f) => f.key))
+  return mine.size > 0 && lines.some((line) => figuresIn(line, options).some((f) => !isYear(f) && mine.has(f.key)))
 }
 
 // ── Competency labels ───────────────────────────────────────────────────────

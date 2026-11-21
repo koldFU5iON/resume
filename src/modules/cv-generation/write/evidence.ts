@@ -41,6 +41,8 @@ export type EmployerEvidence = {
   activities: CandidateActivity[]
   /** Selected projects that belong to this employer (extra evidence: a bullet of their own or merged into one). Empty for a header-only employer. */
   projects: ProjectEvidence[]
+  /** Names only, for distinguishing similar projects even when a sibling was not selected. */
+  peerProjectNames?: string[]
   /** Selected activities no longer in the profile (or no longer under this employer). */
   missing: number
   /** The roles' own overview text (their notes' body), contact-scrubbed, oldest role first, repeats removed and capped (OVERVIEW_MAX_CHARS); '' when the profile has none. What the summary may be drawn from, and valid evidence for the summary's figures (never a bullet's). */
@@ -121,6 +123,10 @@ export function summaryEvidenceTexts(e: EmployerEvidence): string[] {
   return e.overview?.trim() ? [...evidenceTexts(e), e.overview] : evidenceTexts(e)
 }
 
+export function employerProjectPeers(e: EmployerEvidence): string[] {
+  return [...new Set([...employerProjectNames(e), ...(e.peerProjectNames ?? [])])]
+}
+
 /** Source facts for a project-labelled activity include its recorded name. */
 export function activityEvidenceText(a: CandidateActivity): string {
   return [a.fromProject?.name, a.text, a.impact].filter(Boolean).join('\n')
@@ -188,6 +194,14 @@ export function evidenceFromVault(vault: Vault, selection: CvSelection, now: Dat
     const rawOverview = [...employer.roles].reverse().map((r) => vault.notes.get(r.experienceId)).flatMap((n) => (n?.type === 'experience' && n.body ? [clean(n.body)] : [])).filter(Boolean).join('\n')
     return { employer, activities, projects: [], missing, overview: capOverview(rawOverview) }
   })
+
+  for (const n of vault.notes.values()) {
+    if (n.type !== 'project' || n.props.status === 'archived') continue
+    const role = n.props.experienceId ? vault.notes.get(n.props.experienceId) : undefined
+    if (role?.type === 'experience' && role.props.experienceType === 'independent') continue
+    const routed = routeProject(employers, n.props)
+    if ('index' in routed) (employers[routed.index].peerProjectNames ??= []).push(n.props.name)
+  }
 
   const independentProjects: IndependentProjectEvidence[] = []
   const unroutedProjects: Evidence['unroutedProjects'] = []

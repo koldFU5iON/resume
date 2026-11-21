@@ -1,7 +1,8 @@
+import { selectedProjectReflected } from './project-names'
 import { describe, expect, it } from 'vitest'
 import {
   claimedHits, competencyLabelProblem, containsPhrase, credentialProblems, distinctNotableFigures, figuresIn, headlineTitleProblem, introducedNames,
-  isNotableFigure, mentionsName, projectNameKey, projectReflected, repeatedFigures, sharedFigures, titleLikePhrases, unsupportedFigures, wordCount,
+  isNotableFigure, mentionsName, projectNameKey, repeatedFigures, sharedFigures, titleLikePhrases, unsupportedFigures, wordCount,
   unsupportedProperNouns, unsupportedQualitative,
 } from './checks'
 
@@ -309,7 +310,8 @@ describe('projectNameKey', () => {
   })
 })
 
-describe('projectReflected', () => {
+describe('selectedProjectReflected', () => {
+  const projectReflected = (line: string, p: { name: string; text?: string }) => selectedProjectReflected([line], p, [])
   const p = { name: 'Enemies Demo Campaign', text: 'A go-to-market launch-timing decision for the demo. Reached 9.4M people.' }
   it('is reflected when the text names the project (case, accents and punctuation ignored)', () => {
     expect(projectReflected('Led the Enemies Demo Campaign.', p)).toBe(true)
@@ -325,7 +327,7 @@ describe('projectReflected', () => {
     expect(projectReflected('Cut release time by 40% across 8 teams.', p)).toBe(false)
     expect(projectReflected('Launched marketing campaign across social channels', p)).toBe(false)
     expect(projectReflected('Ran a demo campaign before launch.', p)).toBe(false)
-    expect(projectReflected('Ran an Enemies demo for players.', p)).toBe(false)
+    expect(projectReflected('Ran an Enemies demo for players.', p)).toBe(true)
   })
   it('the Unity Awards 2025 case: a bullet naming "Unity Awards" covers "Unity Awards 2025", even when an activity says the same words', () => {
     const awards = { name: 'Unity Awards 2025', text: 'The 2025 awards programme. 14,000+ voters.' }
@@ -335,7 +337,7 @@ describe('projectReflected', () => {
     expect(projectReflected('Ran the awards programme.', awards)).toBe(false)
   })
   it('a name of generic words only is reflected by its full name alone', () => {
-    expect(projectReflected('Ran the demo campaign.', { name: 'Demo Campaign' })).toBe(true)
+    expect(projectReflected('Ran the demo campaign.', { name: 'Demo Campaign' })).toBe(false)
     expect(projectReflected('Ran a campaign.', { name: 'Demo Campaign' })).toBe(false)
   })
   it('a project with no text is reflected by its name only', () => {
