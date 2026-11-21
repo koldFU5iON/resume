@@ -13,7 +13,8 @@ const trailingDescriptor = /\s+(?:(?:(?:press|launch) )?(?:event|campaign)|progr
 
 function shortenedTitle(name: string): string | undefined {
   const short = name.replace(trailingDescriptor, '')
-  if (short !== name && distinctiveTokens(short).filter((w) => /\p{L}/u.test(w)).length >= 2) return short
+  const identifyingWords = distinctiveTokens(short).filter((w) => /\p{L}/u.test(w))
+  if (short !== name && (identifyingWords.length >= 2 || (editionSuffix.test(short) && identifyingWords.length > 0))) return short
 }
 
 /** Ignore numeric title parts only inside a recognized name or alias. */
@@ -51,7 +52,7 @@ function aliases(name: string): Alias[] {
   if (shortTitle) out.push({ words: normalised(shortTitle), full: false, spelling: shortTitle })
   // Keep qualifiers such as Phase 2 intact. Only omit generic name words.
   const baseWords = normalised(base)
-  if (!baseWords.some((w) => /\d/.test(w)) && !base.split(/[^\p{L}\p{N}]+/u).some((w) => romanEdition.test(w))) {
+  if (!baseWords.some((w) => /\d/.test(w)) && !editionSuffix.test(base.replace(trailingDescriptor, ''))) {
     const short = distinctiveTokens(base)
     if (short.length >= 2) out.push({ words: short, full: false })
     // For a name with only one distinctive word, retain a second word of the saved name.
@@ -96,6 +97,14 @@ function rawProjectMentions(text: string, name: string, peers: readonly string[]
       const last = surface[end - 1]
       const gap = last && surface[end] ? text.slice(last.index + last[0].length, surface[end].index) : ''
       if (dotted && dottedPart(text.slice(surface[i]?.index, last.index + last[0].length)) !== dotted) return false
+      if (!full) {
+        const span = text.slice(surface[i].index, last.index + last[0].length)
+        // Short aliases cannot cross clauses or absorb a measurement as a title number.
+        if (/[:;!?\n]|\.\s/.test(span) && !/[:;!?\n]|\.\s/.test(spelling ?? '')) return false
+        const tail = text.slice(last.index + last[0].length)
+        if (/^\d+$/.test(part.at(-1) ?? '') && (measurementUnit.test(next) || /^\s*%/.test(tail))) return false
+        if (trailingDescriptor.test(display.replace(trailingAcronym, '')) && /^\s+(?:(?:(?:press|launch)\s+)?(?:event|campaign|programme|program|project|initiative|demo)\b|launch(?=\s*(?:[.,;:!?)]|$)))/i.test(tail)) return false
+      }
       const isEdition = (n: number) => {
         // A quantity after a title is not a new edition: 'Canal Survey 2 km upstream'.
         if (/^\d+$/.test(words[n] ?? '') && (measurementUnit.test(words[n + 1] ?? '') || /^\s*%/.test(text.slice((surface[n]?.index ?? 0) + (surface[n]?.[0].length ?? 0))))) return false

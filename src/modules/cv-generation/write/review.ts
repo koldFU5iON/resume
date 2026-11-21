@@ -42,10 +42,10 @@ import { isThin } from './thin'
 import { leadWithProjects, leadWithStanding, playDownBullets, shortened, wrongTenseLines } from './bullets'
 import {
   claimedHits, credentialProblems, distinctNotableFigures, figuresIn, introducedNames, normalised, repeatedFigures, selfDescriptions,
-  supportedFigures, unsupportedFigures, unsupportedProperNouns, unsupportedQualitative, wordCount,
+  unsupportedFigures, unsupportedProperNouns, unsupportedQualitative, wordCount,
 } from './checks'
 import { activityPromptText, employerProjectFigureNames, employerProjectPeers, evidenceTexts, figureIgnoredNames, summaryEvidenceTexts, projectPromptText, type EmployerEvidence, type Evidence } from './evidence'
-import { negationDrift, negationsIn, scopeDrift } from './fidelity'
+import { negationDrift, scopeDrift } from './fidelity'
 import { BULLET_MAX_WORDS, PROFILE_MAX_FIGURES, PROFILE_MAX_WORDS, SUMMARY_MAX_WORDS } from './limits'
 import { plainLine, plainProblems, plainReasons } from './plain'
 import { evidenceRefs, snippetOf } from './provenance'
@@ -306,10 +306,8 @@ export function recheckText(
   if (plain.length > 0) return { why: `the new text is not plain text (${plainReasons(raw, ownText, voice).join(', ')})` }
   const text = plainLine(raw)
   if (!text) return { why: 'the new text is empty' }
-  const oldWords = wordCount(scope.old)
   const newWords = wordCount(text)
-  const longBullet = kind === 'bullet' && oldWords > BULLET_MAX_WORDS
-  const max = kind === 'bullet' ? Math.max(BULLET_MAX_WORDS, oldWords) : kind === 'summary' ? SUMMARY_MAX_WORDS : PROFILE_MAX_WORDS
+  const max = kind === 'bullet' ? BULLET_MAX_WORDS : kind === 'summary' ? SUMMARY_MAX_WORDS : PROFILE_MAX_WORDS
   if (newWords > max) return { why: `the new text is ${newWords} words; the limit is ${max}` }
 
   const names = [...(emp ? employerProjectFigureNames(emp) : []), ...figureIgnoredNames(ctx.evidence)]
@@ -345,13 +343,6 @@ export function recheckText(
   // Meaning must not drift: no negation the evidence lacks, no superlative that loses its scope qualifier.
   if (kind === 'bullet') {
     const source = scope.cited.length > 0 ? scope.cited : texts
-    if (longBullet) {
-      const supported = supportedFigures(source, names)
-      const replacement = supportedFigures([text], names)
-      const lost = figuresIn(scope.old, { names }).find((f) => supported.has(f.key) && !replacement.has(f.key))
-      if (lost) return { why: `drops the supported figure “${lost.raw}” from the original bullet` }
-      if (negationsIn(source.join('\n')).length > 0 && negationDrift(scope.old, text).length > 0) return { why: 'drops a negation from the original bullet' }
-    }
     const neg = negationDrift(text, source.join('\n'))
     if (neg.length > 0) return { why: `adds ${neg.map((n) => `"${n}"`).join(', ')}, which the evidence does not say (a rewording must not change the meaning)` }
     const drift = scopeDrift(text, source)[0]

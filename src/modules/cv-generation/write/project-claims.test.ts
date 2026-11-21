@@ -10,7 +10,8 @@ import { scripted } from '../__fixtures__/write'
 import { SelectedEmployerSchema, type CvAssembled } from '../schema'
 import type { Evidence, EmployerEvidence } from './evidence'
 import { experiencePrompt, fallbackExperience, writeExperience, type ExperienceOutput } from './experience'
-import { conflictingProjectEdition, namesProject, projectDisplayName, selectedProjectReflected } from './project-names'
+import { conflictingProjectEdition, namesProject, projectDisplayName, projectFigureNames, selectedProjectReflected } from './project-names'
+import { unsupportedFigures } from './checks'
 import { evidenceRefs, toProvenance } from './provenance'
 import { renderEmployerEntry } from './render'
 import { applyEdits, reviewDoc, reviewPrompt, type ApplyContext } from './review'
@@ -198,21 +199,21 @@ describe('over-target employer claims', () => {
     expect(fallback.notes).toContainEqual(expect.stringContaining('over the 25-word target'))
   })
 
-  it('allows a non-expanding Review edit while protecting supported figures and negation', () => {
+  it('retains the original when a Review replacement exceeds the strict word limit', () => {
     const emp = { ...intake, activities: [activity('quantified', long)] }
     const { replace } = review(emp, [{ text: long, source: 'E1' }])
-    expect(replace('b1', `Carefully ${long}`).discarded[0]?.why).toContain('the limit is')
-    expect(replace('b1', survey).discarded[0]?.why).toContain('drops the supported figure')
-    expect(replace('b1', long.replace('without changing the inspection protocol', 'using a new inspection protocol')).discarded[0]?.why).toContain('drops a negation')
-    expect(replace('b1', long.replace('Reworked', 'Revised')).applied).toHaveLength(1)
+    expect(replace('b1', long.replace('Reworked', 'Revised')).discarded[0]?.why).toContain('the limit is 25')
+    const invented = withoutImpact.replace(qualitative, 'securing a promotion for the supervisor during the winter season.')
+    expect(replace('b1', invented).discarded[0]?.why).toContain('the limit is 25')
   })
 
-  it('allows Review to correct unsupported figures and negations in an over-target bullet', () => {
-    const supported = long.replace('without changing the inspection protocol', 'under the updated inspection protocol')
-    const emp = { ...intake, activities: [activity('quantified', supported)] }
-    const { replace } = review(emp, [{ text: long.replace('9 days', '99 days'), source: 'E1' }])
-    expect(replace('b1', supported).applied).toHaveLength(1)
+  it('allows a concise correction despite an unrelated negation in the source', () => {
+    const source = 'Ran the winter survey without contractors. Trained the field crew on the new sampling equipment.'
+    const emp = { ...intake, activities: [activity('survey', source)] }
+    const { replace } = review(emp, [{ text: `${survey}, training no field crew on the new sampling equipment during the winter season.`, source: 'E1' }])
+    expect(replace('b1', 'Trained the field crew on the new sampling equipment.').applied).toHaveLength(1)
   })
+
 })
 
 describe('repeated claims within one employer', () => {
@@ -334,5 +335,28 @@ describe('reviewed naming and repetition regressions', () => {
     const { remove, doc } = review(emp, [{ text, source: 'E1' }, { text, source: 'E2' }])
     expect(remove('b2').discarded[0]?.why).toContain('distinct evidence')
     expect(doc.experience.get(sectionId)?.bullets.every((b) => !b.removed)).toBe(true)
+  })
+})
+
+
+describe('short project alias boundaries', () => {
+  it('does not hide quantities or cross clauses when the saved title contains a number', () => {
+    const name = 'Aurora Atlas 17 Press Event'
+    for (const text of ['Raised participation in Aurora Atlas: 17%.', 'Raised participation in Aurora Atlas 17 percent.']) {
+      expect(namesProject(text, name, [])).toBe(false)
+      expect(unsupportedFigures(text, [name], projectFigureNames(name, []))).not.toEqual([])
+    }
+    expect(namesProject('Delivered Aurora Atlas 17.', name, [])).toBe(true)
+  })
+
+  it('keeps acronyms with a medial Roman letter and requires actual edition qualifiers', () => {
+    expect(namesProject('Coordinated VCOP with schools.', 'Vitamin C Outreach Programme (VCOP)', [])).toBe(true)
+    expect(namesProject('Delivered Moonwave v2.', 'Moonwave v2 Press Event', [])).toBe(true)
+    expect(namesProject('Delivered Aurora Atlas II.', 'Aurora Atlas III Press Event', [])).toBe(false)
+  })
+
+  it('does not turn an explicitly different project descriptor into the saved project', () => {
+    expect(namesProject('Managed Aurora Atlas 17 Campaign.', 'Aurora Atlas 17 Press Event', [])).toBe(false)
+    expect(namesProject('Managed Aurora Atlas Campaign.', 'Aurora Atlas Press Event', [])).toBe(false)
   })
 })
