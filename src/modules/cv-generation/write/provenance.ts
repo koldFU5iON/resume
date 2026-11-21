@@ -11,7 +11,7 @@
  */
 
 import type { BulletProvenance, BulletSource } from '../schema'
-import { figuresIn } from './checks'
+import { figuresIn, type FigureName } from './checks'
 import { activityEvidenceText, type EmployerEvidence } from './evidence'
 import { isThin } from './thin'
 import { plainLine } from './plain'
@@ -95,7 +95,7 @@ export const toProvenance = (text: string, sources: readonly EvidenceRef[]): Bul
  * both) is allowed and never flagged. Informational: no retry, and it is never
  * a "worth a quick check" note.
  */
-export function mixedSourceNote(bullet: string, sources: readonly EvidenceRef[], names: readonly string[] = []): string | null {
+export function mixedSourceNote(bullet: string, sources: readonly EvidenceRef[], names: readonly FigureName[] = []): string | null {
   if (sources.length < 2) return null
   const wanted = new Set(figuresIn(bullet, { names }).map((f) => f.key))
   if (wanted.size === 0) return null

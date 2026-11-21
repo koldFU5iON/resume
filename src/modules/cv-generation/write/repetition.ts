@@ -5,7 +5,7 @@ import { shortened } from './bullets'
 // Keep internal punctuation, word order, case, units and qualifiers: a similar claim is not proof of a repeat.
 export const claimText = (text: string): string => text.trim().replace(/\s+/g, ' ').replace(/(?<=[\p{L}\p{N}%)])\.$/u, '')
 
-type CitedBullet = { text: string; sources: readonly EvidenceRef[]; unknown?: number; beforeShortening?: string }
+type CitedBullet = { text: string; sources: readonly EvidenceRef[]; unknown?: number }
 
 function projectIds(sources: readonly EvidenceRef[]): string[] {
   return [...new Set(sources.flatMap((s) => s.project ? [s.project.id] : []))].sort()
@@ -28,7 +28,6 @@ function evidenceClaim(ref: EvidenceRef): string {
 export function sameCitedClaim(a: CitedBullet, b: CitedBullet): boolean {
   return !a.unknown && !b.unknown && a.sources.length > 0 && b.sources.length > 0 &&
     claimText(a.text) === claimText(b.text) &&
-    claimText(a.beforeShortening ?? a.text) === claimText(b.beforeShortening ?? b.text) &&
     a.sources.some((s) => b.sources.some((t) => (s.id === t.id && s.kind === t.kind) ||
       (evidenceClaim(s).length > 0 && evidenceClaim(s) === evidenceClaim(t)))) &&
     JSON.stringify(projectIds(a.sources)) === JSON.stringify(projectIds(b.sources))

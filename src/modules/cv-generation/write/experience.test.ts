@@ -111,22 +111,22 @@ describe('writeExperience', () => {
     expect(r.checkNotes).toEqual([expect.stringMatching(/Unity: "45%" could not be matched to the profile text/)])
   })
 
-  describe('word caps are trimmed in code, never retried (a retry doubles the call cost)', () => {
+  describe('length targets do not trigger a retry', () => {
     const clause = 'Cut platform release time by 40% across 8 teams, saving 2 weeks per release'
     const tail = Array.from({ length: 22 }, (_, i) => `extra${i}`).join(' ')
     const long = { summary: good.summary, bullets: [`${clause}, ${tail}.`, good.bullets[1]] }
 
-    it('an over-long bullet is shortened at a clause boundary, with ONE call and a log note', async () => {
+    it('a bullet with a removable-looking clause is kept in full with one call', async () => {
       const { s, result } = run([long])
       const r = await result
       expect(s.calls).toHaveLength(1)
       expect(r.retries).toBe(0)
-      expect(r.bullets[0]).toBe(`${clause}.`)
-      expect(r.notes.join(' ')).toMatch(/Shortened bullet 1 from \d+ to 14 words at a clause boundary \(limit 25\); no retry was made/)
-      expect(r.provenance[0].text).toBe(`${clause}.`)
+      expect(r.bullets[0]).toBe(long.bullets[0])
+      expect(r.notes.join(' ')).toMatch(/Bullet 1 is \d+ words, over the 25-word target. Kept the full text/)
+      expect(r.provenance[0].text).toBe(long.bullets[0])
     })
 
-    it('an over-long summary is shortened the same way', async () => {
+    it('an over-long summary is still shortened at a clause boundary', async () => {
       const head = 'Ran release and planning for the platform org across every studio and region, from roadmap through launch, for the whole portfolio'
       const { s, result } = run([{ summary: `${head}, ${tail}.`, bullets: good.bullets }])
       const r = await result
@@ -141,7 +141,7 @@ describe('writeExperience', () => {
       const r = await result
       expect(s.calls).toHaveLength(1)
       expect(r.bullets[0].split(' ')).toHaveLength(30)
-      expect(r.notes.join(' ')).toMatch(/Bullet 1 is 30 words, over the limit of 25; kept as written because shortening it would cut its meaning \(no retry was made\)/)
+      expect(r.notes.join(' ')).toMatch(/Bullet 1 is 30 words, over the 25-word target. Kept the full text/)
     })
 
     it('the correctness checks still retry (a figure not in the evidence) even when a bullet is also over-long', async () => {
@@ -349,7 +349,7 @@ describe('experiencePrompt (what the model sees)', () => {
   it('carries the brief, the full evidence text and impact, and the limits, with no block syntax', () => {
     expect(prompt).toContain('The problem the role is hired to solve')
     expect(prompt).toContain('[E1] achievement: Cut platform release time by 40% across 8 teams — impact: saved 2 weeks per release')
-    expect(prompt).toMatch(/at most 3, each at most 25 words/)
+    expect(prompt).toMatch(/at most 3, aim for at most 25 words each/)
     expect(prompt).not.toContain(':::compact-list') // code builds every block
     expect(prompt).toMatch(/Plain text only/)
     expect(prompt).toContain('Delivery at scale')

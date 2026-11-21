@@ -10,7 +10,8 @@ import { scripted } from '../__fixtures__/write'
 import { SelectedEmployerSchema, type CvAssembled } from '../schema'
 import type { Evidence, EmployerEvidence } from './evidence'
 import { experiencePrompt, fallbackExperience, writeExperience, type ExperienceOutput } from './experience'
-import { conflictingProjectEdition, namesProject, projectDisplayName } from './project-names'
+import { conflictingProjectEdition, namesProject, projectDisplayName, projectFigureNames, selectedProjectReflected } from './project-names'
+import { unsupportedFigures } from './checks'
 import { evidenceRefs, toProvenance } from './provenance'
 import { renderEmployerEntry } from './render'
 import { applyEdits, reviewDoc, reviewPrompt, type ApplyContext } from './review'
@@ -105,6 +106,40 @@ describe('experience project names', () => {
     expect(namesProject('Worked on Fen Water Survey 2025.', later, [project.name])).toBe(false)
   })
 
+  it('omits a trailing descriptor while preserving names with a version, year, or phase', () => {
+    const saved = 'Aurora Atlas v2.1 Press Event'
+    const mention = (name: string) => `Coordinated the launch for ${name} at the museum.`
+    expect(namesProject(mention('Aurora Atlas v2.1'), saved, ['Aurora Atlas v2.2 Press Event'])).toBe(true)
+    expect(namesProject(mention('Aurora Atlas v2.1'), saved, ['Aurora Atlas v2.1 Campaign'])).toBe(false)
+    expect(namesProject(mention(saved), saved, ['Aurora Atlas v2.1 Campaign'])).toBe(true)
+    for (const different of ['Aurora Atlas', 'Aurora Atlas v2.2', 'Aurora Atlas v2.1.3', 'Aurora Atlas v2 1', 'Atlas Aurora v2.1', `${saved} Phase 3`]) {
+      expect(namesProject(mention(different), saved, [])).toBe(false)
+    }
+    expect(conflictingProjectEdition(mention('Aurora Atlas v2.2'), saved, [])).toBe(true)
+    for (const title of ['Aurora Atlas II', 'Aurora Atlas 2025', 'Aurora 17 Atlas', 'Aurora Atlas Phase 2']) {
+      expect(namesProject(mention(title), `${title} Press Event`, [])).toBe(true)
+      expect(namesProject(mention('Aurora Atlas'), `${title} Press Event`, [])).toBe(false)
+    }
+  })
+
+  it('shares numeric short names in Write, Review and figure checks without appending a second name', async () => {
+    const exhibition = { id: 'exhibition', name: 'Auróra 17 Atlas v2.1 Press Event' }
+    const alias = 'Coordinated the museum launch for Aurora-17 Atlas v2.1.'
+    const original = `Coordinated the museum launch for ${exhibition.name}.`
+    const emp = { ...intake, activities: [activity('launch', original, { fromProject: exhibition })] }
+    const { result, script } = write(emp, [{ text: alias, sources: ['E1'] }])
+    const written = await result
+    expect(written.bullets).toEqual([alias])
+    expect(written.checkNotes).toEqual([])
+    expect(script.calls).toHaveLength(1)
+    const { replace } = review(emp, [{ text: original, source: 'E1' }])
+    expect(replace('b1', alias).applied).toHaveLength(1)
+    expect(replace('b1', alias.replace(/\.$/, ' across 17 galleries.')).discarded[0]?.why).toContain('figures not in the employer')
+    const sibling = { ...emp, peerProjectNames: ['Aurora 17 Atlas v2.1 Campaign'] }
+    expect(review(sibling, [{ text: original, source: 'E1' }]).replace('b1', alias).discarded).toHaveLength(1)
+    expect(selectedProjectReflected(['Surveyed 17 galleries.'], { ...exhibition, text: alias }, [])).toBe(false)
+  })
+
   it('uses the same cleaned name and alias in the writer, fallback and Review', async () => {
     const alias = 'Surveyed tidal channels for Fen Water Survey in the reserve.'
     const provided = [{ text: alias, sources: ['E1'] }, { text: ongoing, sources: ['E2'] }]
@@ -136,6 +171,49 @@ describe('experience project names', () => {
     ])
     expect((await result).bullets[0]).toContain('(Fen Water Survey 2025 (FWS))')
   })
+})
+
+describe('over-target employer claims', () => {
+  const survey = 'Reworked the sampling plan with regional conservation teams across the reserve and trained the field crew on the updated equipment'
+  const result = 'cutting review time from 9 days to 4 days in winter without changing the inspection protocol.'
+  const qualitative = 'which kept the wetland open during winter migration without relocating the conservation volunteers.'
+  const long = `${survey}, ${result}`
+  const withoutImpact = `${survey}, ${qualitative}`
+
+  it('preserves measured and qualitative results after a clause boundary with no extra call', async () => {
+    const emp = { ...intake, activities: [activity('quantified', long), activity('qualitative', withoutImpact)] }
+    const { result, script } = write(emp, [{ text: long, sources: ['E1'] }, { text: withoutImpact, sources: ['E2'] }])
+    const written = await result
+    expect(written.bullets).toEqual([long, withoutImpact])
+    expect(written.provenance.map((b) => b.sources[0].id)).toEqual(['quantified', 'qualitative'])
+    expect(written.notes.filter((n) => n.includes('over the 25-word target'))).toHaveLength(2)
+    expect(script.calls).toHaveLength(1)
+  })
+
+  it('keeps the saved impact when the full model-free bullet exceeds the target', () => {
+    const body = `For Fen Water Survey 2025, ${survey.charAt(0).toLowerCase()}${survey.slice(1)}`
+    const emp = { ...intake, activities: [{ ...activity('fieldwork', body, { fromProject: project }), impact: result }] }
+    const fallback = fallbackExperience(emp)
+    expect(fallback.bullets).toEqual([`${body} — ${result}`])
+    expect(fallback.provenance[0].sources.map((s) => s.id)).toEqual(['fieldwork'])
+    expect(fallback.notes).toContainEqual(expect.stringContaining('over the 25-word target'))
+  })
+
+  it('retains the original when a Review replacement exceeds the strict word limit', () => {
+    const emp = { ...intake, activities: [activity('quantified', long)] }
+    const { replace } = review(emp, [{ text: long, source: 'E1' }])
+    expect(replace('b1', long.replace('Reworked', 'Revised')).discarded[0]?.why).toContain('the limit is 25')
+    const invented = withoutImpact.replace(qualitative, 'securing a promotion for the supervisor during the winter season.')
+    expect(replace('b1', invented).discarded[0]?.why).toContain('the limit is 25')
+  })
+
+  it('allows a concise correction despite an unrelated negation in the source', () => {
+    const source = 'Ran the winter survey without contractors. Trained the field crew on the new sampling equipment.'
+    const emp = { ...intake, activities: [activity('survey', source)] }
+    const { replace } = review(emp, [{ text: `${survey}, training no field crew on the new sampling equipment during the winter season.`, source: 'E1' }])
+    expect(replace('b1', 'Trained the field crew on the new sampling equipment.').applied).toHaveLength(1)
+  })
+
 })
 
 describe('repeated claims within one employer', () => {
@@ -257,5 +335,28 @@ describe('reviewed naming and repetition regressions', () => {
     const { remove, doc } = review(emp, [{ text, source: 'E1' }, { text, source: 'E2' }])
     expect(remove('b2').discarded[0]?.why).toContain('distinct evidence')
     expect(doc.experience.get(sectionId)?.bullets.every((b) => !b.removed)).toBe(true)
+  })
+})
+
+
+describe('short project alias boundaries', () => {
+  it('does not hide quantities or cross clauses when the saved title contains a number', () => {
+    const name = 'Aurora Atlas 17 Press Event'
+    for (const text of ['Raised participation in Aurora Atlas: 17%.', 'Raised participation in Aurora Atlas 17 percent.']) {
+      expect(namesProject(text, name, [])).toBe(false)
+      expect(unsupportedFigures(text, [name], projectFigureNames(name, []))).not.toEqual([])
+    }
+    expect(namesProject('Delivered Aurora Atlas 17.', name, [])).toBe(true)
+  })
+
+  it('keeps acronyms with a medial Roman letter and requires actual edition qualifiers', () => {
+    expect(namesProject('Coordinated VCOP with schools.', 'Vitamin C Outreach Programme (VCOP)', [])).toBe(true)
+    expect(namesProject('Delivered Moonwave v2.', 'Moonwave v2 Press Event', [])).toBe(true)
+    expect(namesProject('Delivered Aurora Atlas II.', 'Aurora Atlas III Press Event', [])).toBe(false)
+  })
+
+  it('does not turn an explicitly different project descriptor into the saved project', () => {
+    expect(namesProject('Managed Aurora Atlas 17 Campaign.', 'Aurora Atlas 17 Press Event', [])).toBe(false)
+    expect(namesProject('Managed Aurora Atlas Campaign.', 'Aurora Atlas Press Event', [])).toBe(false)
   })
 })
