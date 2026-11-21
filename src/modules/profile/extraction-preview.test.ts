@@ -9,7 +9,7 @@ vi.mock('@/modules/profile/extract', () => ({ extractFromNotes: vi.fn(), reviewE
 
 it('shows full existing and suggested outcomes separately from structured result choices', () => {
   const review: ExtractionReview = {
-    version: 1, sourceVersion: 'a'.repeat(64), stale: false, archived: false, notice: null, projects: [],
+    version: 1, sourceVersion: 'a'.repeat(64), stale: false, archived: false, notice: null, projects: [], evidence: [],
     items: [{
       item: { id: 'draft', key: 'key', kind: 'achievement', source: 'parser', original: 'Saved time', description: 'I saved deployment time.',
         impact: '3 hours saved for each release', result: { measure: 'Time saved', value: '3 hours', baseline: null, period: null }, project: null, projectEdited: false },
@@ -24,4 +24,11 @@ it('shows full existing and suggested outcomes separately from structured result
   expect(html).toContain('Suggested structured result: Time saved: 3 hours')
   expect(html).toContain('keep existing structured result')
   expect(html).toContain('Replacement uses the suggested outcome.')
+  expect(html).toContain('Exact profile evidence')
+  review.evidence = [{ ...review.items[0].match!, id: 'rewrite', text: 'Built a rewritten platform claim', project: 'Awards' }]
+  review.items[0].match = null
+  const unmatched = renderToStaticMarkup(createElement(ExtractionPanel, { owner: { experienceId: 'role' }, review }))
+  expect(unmatched).toContain('Compare with existing evidence in this role')
+  expect(unmatched).toContain('Awards · Built a rewritten platform claim')
+  expect(unmatched).toContain('Wording matches can miss rewrites.')
 })

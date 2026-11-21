@@ -2,9 +2,10 @@ import { createHash, randomUUID } from 'node:crypto'
 import { completeStructured, getLLMConfigStatus } from '@/modules/llm/client'
 import { ExtractedSuggestionsSchema, type DraftItem, type ExtractedActivity, type ExtractedSkill } from './extract-schema'
 import { EXTRACTION_SYSTEM, extractionPrompt, type ExtractionSubject } from './extraction-context'
+import { LLMError } from '@/modules/llm/errors'
 import { mentionedProject } from './project-mention'
 import { parseResult } from './result'
-import { cleanClaim, localResult, parseNotes } from './tag-parser'
+import { cleanClaim, localResult, parseNotes, unresolvedIntent, toolUsage } from './tag-parser'
 
 type Project = { id: string; name: string }
 export const hashExtractionValue = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
@@ -46,6 +47,12 @@ export function extractionPassageKey(body: string, original: string): string {
 export function groundClaim(claim: Omit<ExtractedActivity, 'source'>, body: string, unparsed: string): ExtractedActivity | null {
   const excerpt = claim.original.trim()
   if (!excerpt || !unparsed.includes(excerpt) || !body.includes(excerpt) || body.indexOf(excerpt) !== body.lastIndexOf(excerpt) || !/^(?:I\b|My\b)/i.test(claim.description)) return null
+  // Include source qualifiers even when the model quotes only the action phrase.
+  const at = body.indexOf(excerpt)
+  const before = body.slice(0, at)
+  const start = [...before.matchAll(/[.!?](?=\s|$)|\n/g)].at(-1)?.index ?? -1
+  const sentence = body.slice(start + 1, at + excerpt.length).trim().replace(/^(?:[-*+] |\d+\. )/, '')
+  if (unresolvedIntent(sentence)) return null
   const numbers = new Set(digits(excerpt))
   const explicit = localResult(cleanClaim(excerpt.replace(/^[-*+]\s+/, '')), null) ?? localResult('', excerpt)
   const faithful = (text: string) => digits(text).every((number) => numbers.has(number)) &&
@@ -63,7 +70,7 @@ export function groundClaim(claim: Omit<ExtractedActivity, 'source'>, body: stri
   const groundedResult = result && digits(result.value).length && Object.entries(result).every(
     ([field, part]) => part === null || supported(excerpt, part, field !== 'period') && digits(part).every((number) => numbers.has(number)),
   ) && (!result.baseline || Boolean(explicit?.baseline)) && (!explicit?.baseline || supported(explicit.value, result.value, true) && (!result.baseline || supported(explicit.baseline, result.baseline, true))) ? result : null
-  return { ...claim, description, original: excerpt, impact, result: groundedResult, source: 'llm' }
+  return { ...claim, kind: toolUsage(sentence) ? 'scope' : claim.kind, description, original: excerpt, impact, result: groundedResult, source: 'llm' }
 }
 
 export async function proposeDraft(profileId: string, subject: ExtractionSubject, projects: Project[], sourceProjectId: string | null) {
@@ -78,10 +85,17 @@ export async function proposeDraft(profileId: string, subject: ExtractionSubject
       if ((await getLLMConfigStatus(profileId)).configured) {
         const { object } = await completeStructured(profileId, extractionPrompt(subject, parsed.unparsed, projects), ExtractedSuggestionsSchema, {
           system: EXTRACTION_SYSTEM(subject.noun),
-          maxOutputTokens: 1500,
+          // Quotes and cleaned claims repeat source text; keep the response bounded in the schema.
+          maxOutputTokens: 8000,
+          redactInvalidOutput: true,
+          maxRetries: 0,
+          timeoutMs: 120_000,
           temperature: 0.2,
           feature: 'profile-extract',
         })
+        if (object.activities.length === 12 || object.skills.length === 8) {
+          notice = 'This is a bounded review pass (up to 12 activities and 8 skills). More material may remain in the note; review the source before accepting.'
+        }
         const grounded = object.activities.map((claim) => groundClaim(claim, subject.body, parsed.unparsed))
           .filter((claim) => claim !== null)
         const used = new Set<ExtractedActivity>()
@@ -101,9 +115,16 @@ export async function proposeDraft(profileId: string, subject: ExtractionSubject
       } else {
         notice = 'Local extraction used. Add a model key to also extract from free-form prose.'
       }
-    } catch {
+    } catch (error) {
       failed = true
-      notice = 'The model could not read the prose. Local extraction is available.'
+      const reasons: Partial<Record<LLMError['kind'], string>> = {
+        auth: 'The model key was refused. Check your model settings.',
+        rate_limit: 'The model rate limit was reached. Try again later.',
+        invalid_output: 'The model returned incomplete or invalid suggestions. Try a shorter passage or another configured model.',
+        timeout: 'The model timed out. Try again later.',
+      }
+      const reason = error instanceof LLMError ? reasons[error.kind] : undefined
+      notice = reason ?? 'The model could not extract suggestions. Check your model settings or try again later.'
     }
   }
 
@@ -139,5 +160,6 @@ export async function proposeDraft(profileId: string, subject: ExtractionSubject
     const identity = remember('skill', skill.name)
     if (identity) items.push({ ...identity, ...skill, kind: 'skill' })
   }
+  if (failed) notice += items.length ? ' Local suggestions were recovered, but prose extraction failed.' : ' No suggestions were recovered locally.'
   return { items, notice, failed }
 }

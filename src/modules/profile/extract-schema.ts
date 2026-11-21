@@ -10,7 +10,7 @@ const resultFields = z.object({
 })
 
 const proposedClaim = z.object({
-  kind: z.enum(['achievement', 'scope']).describe('Default to achievement. Use scope for an ongoing duty.'),
+  kind: z.enum(['achievement', 'scope']).describe('Use achievement only for completed work or a concrete contribution. Use scope for ongoing duties.'),
   description: z.string().trim().min(1).describe('A standalone first-person claim faithful to the note.'),
   original: z.string().min(1).describe('An exact contiguous excerpt from the notes supporting the entire claim.'),
   impact: z.string().nullable().describe('A source-stated outcome, if any.'),
@@ -25,8 +25,14 @@ const proposedSkill = z.object({
 })
 
 export const ExtractedSuggestionsSchema = z.object({
-  activities: z.array(proposedClaim),
-  skills: z.array(proposedSkill.extend({ original: proposedClaim.shape.original })),
+  activities: z.array(proposedClaim.extend({
+    description: proposedClaim.shape.description.max(400),
+    original: proposedClaim.shape.original.max(600),
+    impact: z.string().max(240).nullable(),
+    result: z.object({ measure: z.string().max(120), value: z.string().max(80), baseline: z.string().max(80).nullable(), period: z.string().max(80).nullable() }).nullable(),
+    projectName: z.string().max(160).nullable(),
+  })).max(12),
+  skills: z.array(proposedSkill.extend({ original: proposedClaim.shape.original.max(240) })).max(8),
 })
 
 export type ExtractedActivity = z.infer<typeof proposedClaim> & { source: z.infer<typeof suggestionSource> }

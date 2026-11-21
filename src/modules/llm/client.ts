@@ -335,6 +335,8 @@ export type CompleteOptions = {
   system?: string
   /** Cap on generated tokens. Useful for keeping costs bounded. */
   maxOutputTokens?: number
+  /** Override SDK retries for operations that must make at most one provider request. */
+  maxRetries?: number
   /** 0–1; lower = more deterministic. */
   temperature?: number
   /**
@@ -401,6 +403,7 @@ export async function complete(
       prompt,
       system: opts.system,
       maxOutputTokens: opts.maxOutputTokens,
+      ...(opts.maxRetries !== undefined ? { maxRetries: opts.maxRetries } : {}),
       ...samplingOptions(cfg.provider, modelId, opts.temperature),
       ...(tools ? { tools } : {}),
       ...(signal ? { abortSignal: signal } : {}),
@@ -487,6 +490,7 @@ export async function completeStructured<T>(
       prompt,
       system: opts.system,
       maxOutputTokens: opts.maxOutputTokens,
+      ...(opts.maxRetries !== undefined ? { maxRetries: opts.maxRetries } : {}),
       ...samplingOptions(cfg.provider, modelId, opts.temperature),
       ...(tools ? { tools } : {}),
       output: Output.object({ schema }),

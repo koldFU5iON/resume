@@ -62,6 +62,62 @@ describe.skipIf(!enabled)('saved extraction drafts in Postgres', () => {
     await prisma.user.deleteMany({ where: { id: { in: users } } })
   })
 
+  it('refuses an empty failed extraction without saving a completed draft', async () => {
+    const row = await role('Built regional tooling across Italy.')
+    vi.mocked(getLLMConfigStatus).mockResolvedValue({ configured: true } as never)
+    vi.mocked(completeStructured).mockRejectedValue(new Error('Unavailable'))
+    await expect(regenerate({ experienceId: row.id })).rejects.toThrow(/No suggestions were recovered locally/)
+    expect(await prisma.profileExtractionDraft.count({ where: { experienceId: row.id } })).toBe(0)
+  })
+
+  it('reviews and explicitly replaces an unmatched rewrite without losing links or labels', async () => {
+    const row = await role('## Achievements\n- I personally built the full-stack platform using React Router, Prisma and PostgreSQL, with specialist security support. I coordinated Marketing, Legal and regional teams against public deadlines.')
+    const label = await project(row.id, 'Awards')
+    const existing = await activity(row.id, 'Built Unity Awards platform from scratch using React Router and Prisma/PostgreSQL, handling submissions and votes at global scale', label.id)
+    const other = await role('')
+    const foreign = await activity(other.id, 'Unrelated accomplishment')
+    const owner = { experienceId: row.id }
+    const draft = await regenerate(owner)
+    expect(draft.items[0].match).toBeNull()
+    const target = draft.evidence.find((candidate) => candidate.id === existing.id)!
+    expect(target).toMatchObject({ project: 'Awards', replaceable: true })
+    expect(draft.evidence.some((candidate) => candidate.id === foreign.id)).toBe(false)
+    await expect(decide(owner, draft, 0, 'replace', { target: { id: foreign.id, version: foreign.updatedAt.toISOString() } })).rejects.toThrow(/no longer be replaced/)
+    await expect(decide(owner, draft, 0, 'replace', { target: { ...target, version: 'stale' } })).rejects.toThrow(/no longer be replaced/)
+    await decide(owner, draft, 0, 'replace', { target })
+    expect(await prisma.roleActivity.findUnique({ where: { id: existing.id } })).toMatchObject({ projectId: label.id, description: draft.items[0].item.kind === 'achievement' ? draft.items[0].item.description : '' })
+    expect(await prisma.roleActivity.count({ where: { experienceId: row.id } })).toBe(1)
+  })
+
+  it('refuses failed refreshes when all local recovery passages are already resolved', async () => {
+    const row = await role('General prose.\n## Achievements\n- Built exports')
+    const owner = { experienceId: row.id }
+    const first = await regenerate(owner)
+    await decide(owner, first, 0, 'skip')
+    const before = await review(owner)
+    vi.mocked(getLLMConfigStatus).mockResolvedValue({ configured: true } as never)
+    vi.mocked(completeStructured).mockRejectedValue(new Error('Unavailable'))
+    await expect(regenerate(owner)).rejects.toThrow(/model could not extract/)
+    expect(await review(owner)).toEqual(before)
+  })
+
+  it('cannot replace one exact source match with wording already held by another row', async () => {
+    const row = await role('## Achievements\n- Built exports')
+    const first = await activity(row.id, 'Built exports')
+    const second = await activity(row.id, 'Shipped the billing platform')
+    const owner = { experienceId: row.id }
+    const draft = await regenerate(owner)
+    const item = draft.items[0].item
+    if (item.kind !== 'achievement') throw new Error('Expected achievement')
+    await expect(decide(owner, draft, 0, 'replace', {
+      target: { id: first.id, version: first.updatedAt.toISOString() },
+      edit: { ...item, description: 'I shipped the billing platform.' },
+    })).rejects.toThrow(/Exact evidence already exists/)
+    expect(await review(owner)).toEqual(draft)
+    expect(await prisma.roleActivity.findUnique({ where: { id: first.id } })).toMatchObject({ description: first.description })
+    expect(await prisma.roleActivity.findUnique({ where: { id: second.id } })).toMatchObject({ description: second.description })
+  })
+
   it('persists edits across reload, keeps one draft, preserves a failed refresh, and resolves skipped items', async () => {
     const row = await role('Unstructured prose.\n## Achievements\n- Built Sable exports\n- Fixed the refund backlog')
     const owner = { experienceId: row.id }
