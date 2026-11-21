@@ -226,3 +226,36 @@ describe('repeated claims within one employer', () => {
     expect(replace('b2', ongoing + '.').discarded[0].why).toContain('repeats a claim')
   })
 })
+
+
+describe('reviewed naming and repetition regressions', () => {
+  it('does not let a saved acronym conceal an explicitly wrong year', () => {
+    const wrong = 'Completed Fen Water Survey 2026 (FWS).'
+    expect(namesProject(wrong, project.name, [])).toBe(false)
+    expect(conflictingProjectEdition(wrong, project.name, [])).toBe(true)
+    const { replace } = review(intake, [{ text: 'Completed Fen Water Survey 2025 (FWS).', source: 'E1' }, { text: ongoing, source: 'E2' }])
+    expect(replace('b1', wrong).discarded).toHaveLength(1)
+  })
+
+  it('distinguishes a hyphenated edition from a following measurement', () => {
+    expect(namesProject('Completed River Atlas-2.', 'River Atlas', [])).toBe(false)
+    expect(conflictingProjectEdition('Completed River Atlas-2.', 'River Atlas', [])).toBe(true)
+    expect(namesProject('Delivered Canal Survey 2 km upstream.', 'Canal Survey', [])).toBe(true)
+    expect(conflictingProjectEdition('Delivered Canal Survey 2 km upstream.', 'Canal Survey', [])).toBe(false)
+  })
+
+  it('checks the cleaned Review replacement for duplicate claims', () => {
+    const other = 'Trained volunteers to supervise ecology interns at the reserve'
+    const emp = { ...intake, activities: [activity('training', ongoing + '. ' + other)] }
+    const { replace } = review(emp, [{ text: ongoing, source: 'E1' }, { text: other, source: 'E1' }])
+    expect(replace('b2', `**${ongoing}**`).discarded[0]?.why).toContain('repeats a claim')
+  })
+
+  it('does not remove identical wording backed by distinct source scopes', () => {
+    const text = 'Surveyed tidal channels'
+    const emp = { ...intake, activities: [activity('east', text + ' in the eastern reserve'), activity('west', text + ' in the western reserve')] }
+    const { remove, doc } = review(emp, [{ text, source: 'E1' }, { text, source: 'E2' }])
+    expect(remove('b2').discarded[0]?.why).toContain('distinct evidence')
+    expect(doc.experience.get(sectionId)?.bullets.every((b) => !b.removed)).toBe(true)
+  })
+})

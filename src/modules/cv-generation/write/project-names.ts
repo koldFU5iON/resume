@@ -6,6 +6,7 @@ const trailingAcronym = /\s+\(([\p{Lu}][\p{Lu}\d]{1,9})\)$/u
 const trailingYear = /\s+((?:19|20)\d{2})$/
 const edition = /^(?:\d+|v\d+)$/
 const romanEdition = /^[IVXLCDM]+$/
+const measurementUnit = /^(?:km|cm|mm|m|kg|mg|g|ms|s|seconds?|minutes?|hours?|days?|weeks?|months?|years?|percent)$/i
 const editionLabel = /^(?:v|version|release|edition|phase|series|part|volume|vol|mark|mk)$/
 const editionSuffix = /\s+(?:(?:[Vv]ersion|[Rr]elease|[Ee]dition|[Pp]hase|[Ss]eries|[Pp]art|[Vv]ol(?:ume)?|[Mm]ark|[Mm]k)\s+)?\(?(?:[vV]?\d+(?:\.\d+)*|[IVXLCDM]+)\)?$/
 
@@ -47,7 +48,7 @@ const containsAt = (words: readonly string[], part: readonly string[], i: number
   part.every((w, j) => words[i + j] === w)
 
 /** The first identifying mention, by word index, with the employer's other project names for disambiguation. */
-export function projectMention(text: string, name: string, peers: readonly string[], requireDifferentEdition = false): number {
+function rawProjectMention(text: string, name: string, peers: readonly string[], requireDifferentEdition = false, fullOnly = false): number {
   const surface = [...text.matchAll(/[\p{L}\p{N}\p{M}]+/gu)]
   const words = surface.flatMap(([word]) => normalised(word))
   const display = projectDisplayName(name)
@@ -55,6 +56,7 @@ export function projectMention(text: string, name: string, peers: readonly strin
   const mentions: number[] = []
   for (const candidate of aliases(name)) {
     const { words: part, full, exactCase } = candidate
+    if (fullOnly && !full) continue
     // A short name shared with another project cannot identify which project it is.
     if (!full && otherNames.some((other) => {
       const distinctive = distinctiveTokens(other.join(' '))
@@ -67,7 +69,11 @@ export function projectMention(text: string, name: string, peers: readonly strin
       const next = words[end] ?? ''
       const last = surface[end - 1]
       const gap = last && surface[end] ? text.slice(last.index + last[0].length, surface[end].index) : ''
-      const isEdition = (n: number) => edition.test(words[n] ?? '') || romanEdition.test(surface[n]?.[0] ?? '')
+      const isEdition = (n: number) => {
+        // A quantity after a title is not a new edition: 'Canal Survey 2 km upstream'.
+        if (/^\d+$/.test(words[n] ?? '') && (measurementUnit.test(words[n + 1] ?? '') || /^\s*%/.test(text.slice((surface[n]?.index ?? 0) + (surface[n]?.[0].length ?? 0))))) return false
+        return edition.test(words[n] ?? '') || romanEdition.test(surface[n]?.[0] ?? '')
+      }
       if (full && part.length === 1 && !/\d/.test(part[0])) {
         if (surface[i]?.[0] !== display) return false
         // An ordinary word needs a title cue when its casing cannot identify it.
@@ -75,7 +81,7 @@ export function projectMention(text: string, name: string, peers: readonly strin
         const parenthetical = /\(\s*$/.test(text.slice(0, surface[i].index))
         if (!heading && !parenthetical && (i === 0 || !/\p{Lu}/u.test(display))) return false
       }
-      const explicitEdition = /^\s*\(?\s*$/.test(gap) && (isEdition(end) || (editionLabel.test(next) && isEdition(end + 1)))
+      const explicitEdition = /^\s*[-–—]?\s*\(?\s*$/.test(gap) && (isEdition(end) || (editionLabel.test(next) && isEdition(end + 1)))
       const dottedEdition = gap === '.' && edition.test(words[end - 1]) && edition.test(next)
       if (requireDifferentEdition) return explicitEdition || dottedEdition
       if (explicitEdition || dottedEdition) return false
@@ -88,13 +94,19 @@ export function projectMention(text: string, name: string, peers: readonly strin
   return mentions.length > 0 ? Math.min(...mentions) : -1
 }
 
+export function projectMention(text: string, name: string, peers: readonly string[]): number {
+  return conflictingProjectEdition(text, name, peers) ? -1 : rawProjectMention(text, name, peers)
+}
+
 export const namesProject = (text: string, name: string, peers: readonly string[]): boolean =>
   projectMention(text, name, peers) >= 0
 
 export function conflictingProjectEdition(text: string, name: string, peers: readonly string[]): boolean {
-  if (namesProject(text, name, peers)) return false
-  const base = projectDisplayName(name).replace(trailingAcronym, '').replace(editionSuffix, '')
-  return projectMention(text, base, peers, true) >= 0
+  const expanded = projectDisplayName(name).replace(trailingAcronym, '')
+  // An acronym cannot overrule an explicitly different edition of the expanded name.
+  if (rawProjectMention(text, expanded, peers, false, true) >= 0) return false
+  const base = expanded.replace(editionSuffix, '')
+  return rawProjectMention(text, base, peers, true) >= 0
 }
 
 /** A selected project's own figure can establish coverage independently of naming it. */

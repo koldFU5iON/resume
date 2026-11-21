@@ -465,6 +465,10 @@ export function applyEdits(doc: ReviewDoc, edits: ReviewOutput['edits'], ctx: Ap
         const rule = entryRuleProblem(emp, ctx, { summary: ex.summary, bullets: activeTexts() }, { summary: ex.summary, bullets: without })
         if (rule) { discard(rule); continue }
         const duplicate = siblings.find((b) => sameCitedClaim({ text: b.text, sources: resolve(b) }, { text: bullet.text, sources: cited }))
+        if (!duplicate && siblings.some((b) => claimText(b.text) === claimText(bullet.text))) {
+          discard('identical wording cites distinct evidence; preserve its separate scope or clarify the wording')
+          continue
+        }
         const transferred = duplicate ? bullet.sources.filter((s) => !duplicate.sources.some((d) => d.id === s.id && d.kind === s.kind)) : []
         if (duplicate) duplicate.sources = [...duplicate.sources, ...transferred]
         const note = transferred.length > 0 ? 'Kept the removed duplicate’s citations on the remaining copy.' : ''
@@ -472,15 +476,15 @@ export function applyEdits(doc: ReviewDoc, edits: ReviewOutput['edits'], ctx: Ap
         bullet.removed = true
         continue
       }
-      if (claimText(proposed) !== claimText(bullet.text) && without.some((text) => claimText(text) === claimText(proposed))) {
-        discard('it repeats a claim already stated in another bullet of this entry')
-        continue
-      }
       const ok = recheckText('bullet', proposed, ctx, {
         emp, current: ex.current, others: [ex.summary, ...without].filter(Boolean), old: bullet.text, cited: cited.map((s) => s.text),
       })
       if ('why' in ok) { discard(ok.why); continue }
       if (ok.text === bullet.text) { discard('the new text is the same as the old'); continue }
+      if (claimText(ok.text) !== claimText(bullet.text) && without.some((text) => claimText(text) === claimText(ok.text))) {
+        discard('it repeats a claim already stated in another bullet of this entry')
+        continue
+      }
       const projectNames = employerProjectPeers(emp)
       const mismatched = cited.find((s) => s.project &&
         conflictingProjectEdition(ok.text, s.project.name, projectNames) &&
