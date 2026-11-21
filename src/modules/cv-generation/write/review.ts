@@ -42,14 +42,14 @@ import { isThin } from './thin'
 import { leadWithProjects, leadWithStanding, playDownBullets, shortened, wrongTenseLines } from './bullets'
 import {
   claimedHits, credentialProblems, distinctNotableFigures, figuresIn, introducedNames, normalised, repeatedFigures, selfDescriptions,
-  unsupportedFigures, unsupportedProperNouns, unsupportedQualitative, wordCount,
+  supportedFigures, unsupportedFigures, unsupportedProperNouns, unsupportedQualitative, wordCount,
 } from './checks'
-import { activityPromptText, employerProjectNames, employerProjectPeers, evidenceTexts, figureIgnoredNames, summaryEvidenceTexts, projectPromptText, type EmployerEvidence, type Evidence } from './evidence'
-import { negationDrift, scopeDrift } from './fidelity'
+import { activityPromptText, employerProjectFigureNames, employerProjectPeers, evidenceTexts, figureIgnoredNames, summaryEvidenceTexts, projectPromptText, type EmployerEvidence, type Evidence } from './evidence'
+import { negationDrift, negationsIn, scopeDrift } from './fidelity'
 import { BULLET_MAX_WORDS, PROFILE_MAX_FIGURES, PROFILE_MAX_WORDS, SUMMARY_MAX_WORDS } from './limits'
 import { plainLine, plainProblems, plainReasons } from './plain'
 import { evidenceRefs, snippetOf } from './provenance'
-import { conflictingProjectEdition, namesProject, projectDisplayName, projectFigureNames, selectedProjectReflected } from './project-names'
+import { conflictingProjectEdition, namesProject, projectDisplayName, selectedProjectReflected } from './project-names'
 import { claimText, possibleRepeat, sameCitedClaim } from './repetition'
 import { briefText, data, requirementsBlock, requirementText } from './prompt'
 
@@ -306,10 +306,13 @@ export function recheckText(
   if (plain.length > 0) return { why: `the new text is not plain text (${plainReasons(raw, ownText, voice).join(', ')})` }
   const text = plainLine(raw)
   if (!text) return { why: 'the new text is empty' }
-  const max = kind === 'bullet' ? BULLET_MAX_WORDS : kind === 'summary' ? SUMMARY_MAX_WORDS : PROFILE_MAX_WORDS
-  if (wordCount(text) > max) return { why: `the new text is ${wordCount(text)} words; the limit is ${max}` }
+  const oldWords = wordCount(scope.old)
+  const newWords = wordCount(text)
+  const longBullet = kind === 'bullet' && oldWords > BULLET_MAX_WORDS
+  const max = kind === 'bullet' ? Math.max(BULLET_MAX_WORDS, oldWords) : kind === 'summary' ? SUMMARY_MAX_WORDS : PROFILE_MAX_WORDS
+  if (newWords > max) return { why: `the new text is ${newWords} words; the limit is ${max}` }
 
-  const names = [...figureIgnoredNames(ctx.evidence), ...(emp ? employerProjectNames(emp).flatMap(projectFigureNames) : [])]
+  const names = [...(emp ? employerProjectFigureNames(emp) : []), ...figureIgnoredNames(ctx.evidence)]
   const years = kind === 'profile' && typeof ctx.yearsOfExperience === 'number' && ctx.yearsOfExperience > 0 ? ctx.yearsOfExperience : null
   if (kind === 'profile') {
     // The one years phrase is code-supplied: exactly that phrase is allowed, any other number of years is not.
@@ -342,6 +345,13 @@ export function recheckText(
   // Meaning must not drift: no negation the evidence lacks, no superlative that loses its scope qualifier.
   if (kind === 'bullet') {
     const source = scope.cited.length > 0 ? scope.cited : texts
+    if (longBullet) {
+      const supported = supportedFigures(source, names)
+      const replacement = supportedFigures([text], names)
+      const lost = figuresIn(scope.old, { names }).find((f) => supported.has(f.key) && !replacement.has(f.key))
+      if (lost) return { why: `drops the supported figure “${lost.raw}” from the original bullet` }
+      if (negationsIn(source.join('\n')).length > 0 && negationDrift(scope.old, text).length > 0) return { why: 'drops a negation from the original bullet' }
+    }
     const neg = negationDrift(text, source.join('\n'))
     if (neg.length > 0) return { why: `adds ${neg.map((n) => `"${n}"`).join(', ')}, which the evidence does not say (a rewording must not change the meaning)` }
     const drift = scopeDrift(text, source)[0]
@@ -505,7 +515,7 @@ export function applyEdits(doc: ReviewDoc, edits: ReviewOutput['edits'], ctx: Ap
       if (lost?.project) { discard(`the rewording loses the recorded project “${lost.project.name}” from this bullet`); continue }
       // Provenance: the text is no longer the writer's. Keep the sources while the new text still states the figures the old
       // text took from them (or neither states any); otherwise clear them. Either way it is marked as edited by review.
-      const names = [...figureIgnoredNames(ctx.evidence), ...employerProjectNames(emp).flatMap(projectFigureNames)]
+      const names = [...employerProjectFigureNames(emp), ...figureIgnoredNames(ctx.evidence)]
       const oldFigures = figuresIn(bullet.text, { names }).map((f) => f.key)
       const newFigures = figuresIn(ok.text, { names }).map((f) => f.key)
       const keep = oldFigures.length === 0 || newFigures.some((k) => oldFigures.includes(k))

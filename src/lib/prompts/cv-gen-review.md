@@ -29,7 +29,7 @@ Rules for `newText`:
 - Use ONLY the supplied evidence. Numbers exactly as the evidence states them (14k and 14,000 are the same; a different figure is not). No new employer, title, date, tool, certification or qualification.
 - A tool the profile lists without evidence may be named only when the job's requirements name it.
 - Never present an item that is still in progress as finished or held.
-- Plain text, one line, no Markdown, links, HTML or ":::". At most 25 words for a bullet, 40 for a summary, 80 for the profile.
+- Plain text, one line, no Markdown, links, HTML or ":::". Aim for at most 25 words for a bullet. A replacement for a longer bullet may use up to its original word count. Preserve the supported result, values, baselines, units, timeframe, scope, ownership, mechanism, negation and identifying project context. Keep the original if you cannot preserve those details. At most 40 words for a summary and 80 for the profile.
 
 You may NOT edit titles, companies, dates, headings, certifications, education, languages, the header or the contact placeholder: code renders them from the profile, and an edit that targets them is thrown away. The competencies, skills and tools lists are read-only too. Code also re-checks every edit (figures, tools, voice, length) before applying it, and throws away one that fails: do not count on an edit to do anything the rules above forbid.
 

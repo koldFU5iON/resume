@@ -110,28 +110,34 @@ const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 const nameRe = (name: string) => new RegExp(`(?<![\\p{L}\\p{N}])${escapeRe(name.trim())}(?![\\p{L}\\p{N}])`, 'giu')
 
+/** A literal name or a matcher that masks recognized name mentions. */
+export type FigureName = string | ((text: string) => string)
+
 /** Text with the given names (skills, tools, certifications) blanked out: digits inside "ISO 27001" are part of a name, not a figure. */
-function withoutNames(text: string, names: readonly string[]): string {
+function withoutNames(text: string, names: readonly FigureName[]): string {
   let out = text
-  for (const n of names) if (/\d/.test(n) && n.trim().length >= 2) out = out.replace(nameRe(n), ' ')
+  for (const name of names) {
+    if (typeof name === 'function') out = name(out)
+    else if (/\d/.test(name) && name.trim().length >= 2) out = out.replace(nameRe(name), ' ')
+  }
   return out
 }
 
 /** The figures in a text, by value, in order of appearance. "40 percent", "forty percent" and "40%" are the same figure; 14k is 14,000. */
-export function figuresIn(text: string, opts: { names?: readonly string[]; bareOne?: boolean } = {}): Figure[] {
+export function figuresIn(text: string, opts: { names?: readonly FigureName[]; bareOne?: boolean } = {}): Figure[] {
   const t = withoutNames(text, opts.names ?? [])
   return [...digitFigures(t), ...wordFigures(t, opts.bareOne ?? false)]
 }
 
 /** The values an evidence set supports (a lone "one" counts too). */
-export function supportedFigures(evidence: readonly string[], names: readonly string[] = []): Set<string> {
+export function supportedFigures(evidence: readonly string[], names: readonly FigureName[] = []): Set<string> {
   const out = new Set<string>()
   for (const text of evidence) for (const f of figuresIn(text, { names, bareOne: true })) out.add(f.key)
   return out
 }
 
 /** Figures of `output` that no evidence text supports (by value), as written in the output. */
-export function unsupportedFigures(output: string, evidence: readonly string[], names: readonly string[] = []): string[] {
+export function unsupportedFigures(output: string, evidence: readonly string[], names: readonly FigureName[] = []): string[] {
   const ok = supportedFigures(evidence, names)
   const bad: string[] = []
   for (const f of figuresIn(output, { names })) if (!ok.has(f.key) && !bad.includes(f.raw)) bad.push(f.raw)
@@ -152,10 +158,10 @@ export function isNotableFigure(f: Figure): boolean {
   return Number(f.key) >= 100
 }
 
-const notableIn = (text: string, names: readonly string[]) => figuresIn(text, { names }).filter(isNotableFigure)
+const notableIn = (text: string, names: readonly FigureName[]) => figuresIn(text, { names }).filter(isNotableFigure)
 
 /** Notable figures (by value) that appear more than once across `parts`, as first written. */
-export function repeatedFigures(parts: readonly string[], names: readonly string[] = []): string[] {
+export function repeatedFigures(parts: readonly string[], names: readonly FigureName[] = []): string[] {
   const seen = new Map<string, { raw: string; n: number }>()
   for (const part of parts) {
     for (const f of notableIn(part, names)) {
@@ -168,7 +174,7 @@ export function repeatedFigures(parts: readonly string[], names: readonly string
 }
 
 /** Notable figures of `text` (by value) that also appear in any of `others`, as written in `text`. */
-export function sharedFigures(text: string, others: readonly string[], names: readonly string[] = []): string[] {
+export function sharedFigures(text: string, others: readonly string[], names: readonly FigureName[] = []): string[] {
   const taken = new Set(others.flatMap((o) => notableIn(o, names).map((f) => f.key)))
   const out: string[] = []
   for (const f of notableIn(text, names)) if (taken.has(f.key) && !out.includes(f.raw)) out.push(f.raw)
@@ -176,7 +182,7 @@ export function sharedFigures(text: string, others: readonly string[], names: re
 }
 
 /** The distinct notable figures in `text`, as first written. */
-export function distinctNotableFigures(text: string, names: readonly string[] = []): string[] {
+export function distinctNotableFigures(text: string, names: readonly FigureName[] = []): string[] {
   const seen = new Map<string, string>()
   for (const f of notableIn(text, names)) if (!seen.has(f.key)) seen.set(f.key, f.raw)
   return [...seen.values()]
@@ -224,7 +230,7 @@ export function phraseIndex(text: string, phrase: string): number {
 const isYear = (f: Figure) => YEAR_WORD.test(f.raw.replace(/^[£$€]/, '').trim())
 
 /** Whether a line states a figure from the project's own evidence (a bare year never counts). */
-export function projectFiguresReflected(lines: readonly string[], text: string | undefined, names: readonly string[]): boolean {
+export function projectFiguresReflected(lines: readonly string[], text: string | undefined, names: readonly FigureName[]): boolean {
   if (!text) return false
   const options = { names }
   const mine = new Set(figuresIn(text, options).filter((f) => !isYear(f)).map((f) => f.key))

@@ -17,7 +17,9 @@ import { stripWikilinks } from '@/modules/profile-map/links'
 import { buildCandidates, type CandidateActivity } from '../candidates'
 import { activityPromptText, cleanProjectLine, projectEvidenceText, type ProjectAtom } from '../project-evidence'
 import type { CvSelection, SelectedEmployer } from '../schema'
+import type { FigureName } from './checks'
 import { capOverview, capProjectText } from './limits'
+import { projectFigureNames } from './project-names'
 import { certificationStatus, educationStatus, isClaimedCapability } from './status'
 
 /** A selected project routed to the employer it belongs to. */
@@ -125,6 +127,11 @@ export function summaryEvidenceTexts(e: EmployerEvidence): string[] {
 
 export function employerProjectPeers(e: EmployerEvidence): string[] {
   return [...new Set([...employerProjectNames(e), ...(e.peerProjectNames ?? [])])]
+}
+
+export function employerProjectFigureNames(e: EmployerEvidence): FigureName[] {
+  const peers = employerProjectPeers(e)
+  return employerProjectNames(e).flatMap((name) => projectFigureNames(name, peers))
 }
 
 /** Source facts for a project-labelled activity include its recorded name. */

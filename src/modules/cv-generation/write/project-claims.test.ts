@@ -10,7 +10,7 @@ import { scripted } from '../__fixtures__/write'
 import { SelectedEmployerSchema, type CvAssembled } from '../schema'
 import type { Evidence, EmployerEvidence } from './evidence'
 import { experiencePrompt, fallbackExperience, writeExperience, type ExperienceOutput } from './experience'
-import { conflictingProjectEdition, namesProject, projectDisplayName } from './project-names'
+import { conflictingProjectEdition, namesProject, projectDisplayName, selectedProjectReflected } from './project-names'
 import { evidenceRefs, toProvenance } from './provenance'
 import { renderEmployerEntry } from './render'
 import { applyEdits, reviewDoc, reviewPrompt, type ApplyContext } from './review'
@@ -105,6 +105,40 @@ describe('experience project names', () => {
     expect(namesProject('Worked on Fen Water Survey 2025.', later, [project.name])).toBe(false)
   })
 
+  it('omits a trailing descriptor while preserving names with a version, year, or phase', () => {
+    const saved = 'Aurora Atlas v2.1 Press Event'
+    const mention = (name: string) => `Coordinated the launch for ${name} at the museum.`
+    expect(namesProject(mention('Aurora Atlas v2.1'), saved, ['Aurora Atlas v2.2 Press Event'])).toBe(true)
+    expect(namesProject(mention('Aurora Atlas v2.1'), saved, ['Aurora Atlas v2.1 Campaign'])).toBe(false)
+    expect(namesProject(mention(saved), saved, ['Aurora Atlas v2.1 Campaign'])).toBe(true)
+    for (const different of ['Aurora Atlas', 'Aurora Atlas v2.2', 'Aurora Atlas v2.1.3', 'Aurora Atlas v2 1', 'Atlas Aurora v2.1', `${saved} Phase 3`]) {
+      expect(namesProject(mention(different), saved, [])).toBe(false)
+    }
+    expect(conflictingProjectEdition(mention('Aurora Atlas v2.2'), saved, [])).toBe(true)
+    for (const title of ['Aurora Atlas II', 'Aurora Atlas 2025', 'Aurora 17 Atlas', 'Aurora Atlas Phase 2']) {
+      expect(namesProject(mention(title), `${title} Press Event`, [])).toBe(true)
+      expect(namesProject(mention('Aurora Atlas'), `${title} Press Event`, [])).toBe(false)
+    }
+  })
+
+  it('shares numeric short names in Write, Review and figure checks without appending a second name', async () => {
+    const exhibition = { id: 'exhibition', name: 'Auróra 17 Atlas v2.1 Press Event' }
+    const alias = 'Coordinated the museum launch for Aurora-17 Atlas v2.1.'
+    const original = `Coordinated the museum launch for ${exhibition.name}.`
+    const emp = { ...intake, activities: [activity('launch', original, { fromProject: exhibition })] }
+    const { result, script } = write(emp, [{ text: alias, sources: ['E1'] }])
+    const written = await result
+    expect(written.bullets).toEqual([alias])
+    expect(written.checkNotes).toEqual([])
+    expect(script.calls).toHaveLength(1)
+    const { replace } = review(emp, [{ text: original, source: 'E1' }])
+    expect(replace('b1', alias).applied).toHaveLength(1)
+    expect(replace('b1', alias.replace(/\.$/, ' across 17 galleries.')).discarded[0]?.why).toContain('figures not in the employer')
+    const sibling = { ...emp, peerProjectNames: ['Aurora 17 Atlas v2.1 Campaign'] }
+    expect(review(sibling, [{ text: original, source: 'E1' }]).replace('b1', alias).discarded).toHaveLength(1)
+    expect(selectedProjectReflected(['Surveyed 17 galleries.'], { ...exhibition, text: alias }, [])).toBe(false)
+  })
+
   it('uses the same cleaned name and alias in the writer, fallback and Review', async () => {
     const alias = 'Surveyed tidal channels for Fen Water Survey in the reserve.'
     const provided = [{ text: alias, sources: ['E1'] }, { text: ongoing, sources: ['E2'] }]
@@ -135,6 +169,49 @@ describe('experience project names', () => {
       { text: ambiguous, sources: ['E1'] }, { text: ongoing, sources: ['E2'] },
     ])
     expect((await result).bullets[0]).toContain('(Fen Water Survey 2025 (FWS))')
+  })
+})
+
+describe('over-target employer claims', () => {
+  const survey = 'Reworked the sampling plan with regional conservation teams across the reserve and trained the field crew on the updated equipment'
+  const result = 'cutting review time from 9 days to 4 days in winter without changing the inspection protocol.'
+  const qualitative = 'which kept the wetland open during winter migration without relocating the conservation volunteers.'
+  const long = `${survey}, ${result}`
+  const withoutImpact = `${survey}, ${qualitative}`
+
+  it('preserves measured and qualitative results after a clause boundary with no extra call', async () => {
+    const emp = { ...intake, activities: [activity('quantified', long), activity('qualitative', withoutImpact)] }
+    const { result, script } = write(emp, [{ text: long, sources: ['E1'] }, { text: withoutImpact, sources: ['E2'] }])
+    const written = await result
+    expect(written.bullets).toEqual([long, withoutImpact])
+    expect(written.provenance.map((b) => b.sources[0].id)).toEqual(['quantified', 'qualitative'])
+    expect(written.notes.filter((n) => n.includes('over the 25-word target'))).toHaveLength(2)
+    expect(script.calls).toHaveLength(1)
+  })
+
+  it('keeps the saved impact when the full model-free bullet exceeds the target', () => {
+    const body = `For Fen Water Survey 2025, ${survey.charAt(0).toLowerCase()}${survey.slice(1)}`
+    const emp = { ...intake, activities: [{ ...activity('fieldwork', body, { fromProject: project }), impact: result }] }
+    const fallback = fallbackExperience(emp)
+    expect(fallback.bullets).toEqual([`${body} — ${result}`])
+    expect(fallback.provenance[0].sources.map((s) => s.id)).toEqual(['fieldwork'])
+    expect(fallback.notes).toContainEqual(expect.stringContaining('over the 25-word target'))
+  })
+
+  it('allows a non-expanding Review edit while protecting supported figures and negation', () => {
+    const emp = { ...intake, activities: [activity('quantified', long)] }
+    const { replace } = review(emp, [{ text: long, source: 'E1' }])
+    expect(replace('b1', `Carefully ${long}`).discarded[0]?.why).toContain('the limit is')
+    expect(replace('b1', survey).discarded[0]?.why).toContain('drops the supported figure')
+    expect(replace('b1', long.replace('without changing the inspection protocol', 'using a new inspection protocol')).discarded[0]?.why).toContain('drops a negation')
+    expect(replace('b1', long.replace('Reworked', 'Revised')).applied).toHaveLength(1)
+  })
+
+  it('allows Review to correct unsupported figures and negations in an over-target bullet', () => {
+    const supported = long.replace('without changing the inspection protocol', 'under the updated inspection protocol')
+    const emp = { ...intake, activities: [activity('quantified', supported)] }
+    const { replace } = review(emp, [{ text: long.replace('9 days', '99 days'), source: 'E1' }])
+    expect(replace('b1', supported).applied).toHaveLength(1)
   })
 })
 
