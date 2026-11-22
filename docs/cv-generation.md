@@ -487,6 +487,14 @@ There is deliberately no spell-check and no date-format check.
 
 ## 21. Status and the input problem
 
+**Current decision (2026-11-22).** Keep the deployed graph-assisted flow unchanged
+and observe accuracy during normal use. Select already uses the user's `fast`
+model; the graph supplies additional hints alongside the full candidate menu.
+Shortlisting and further model/cost tuning are deferred. See the
+[operating decision and observation guide](knowledge-graph.md#operating-decision-observe-the-current-flow-2026-11-22)
+for the current flow diagram, one live-run baseline, known limitations and what
+to record. The notes below describe earlier implementation stages.
+
 **State before profile model PR 6 (2026-11-19).** The pipeline is complete and merged: Gather, Brief, Select, Write, Assemble, Review, Land, the run log, the readiness check and the project-evidence retrieval (sections 2 to 20). Generator tuning was paused. After ten PRs of calibration against one real job (a Senior Product Marketing Manager role at an open-source company, one owner's profile), each fix was moving the problem rather than removing it. The working conclusion: the generator is on the right track, and what stops the CV being nearly ready is the **shape of the profile data**.
 
 **Last measured run (2026-11-19, after the project-evidence change, `SELECTION_PIPELINE_VERSION` 7).** About $0.63, 11 calls, 2 minutes 31 seconds, one retry. Brief $0.07, Select under $0.01, Write $0.37, Review $0.18. Target remains about $0.45 to $0.55.
