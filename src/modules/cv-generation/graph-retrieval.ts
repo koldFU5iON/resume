@@ -4,11 +4,16 @@ import { selectionHandles } from './candidates'
 import type { CvBrief } from './schema'
 import type { Strategy } from './strategy'
 
-export function retrieveCvEvidence(graph: KnowledgeGraph, brief: CvBrief, strategy: Pick<Strategy, 'mustHave' | 'niceToHave'>): RequirementMatches[] {
-  return retrieveRequirements(graph, [
-    ...strategy.mustHave, ...strategy.niceToHave,
-    ...brief.leadWith.map((i) => i.name), ...brief.emphasise.map((i) => i.name),
-  ])
+export function retrieveCvEvidence(graph: KnowledgeGraph, brief: CvBrief, strategy: Pick<Strategy, 'mustHave' | 'niceToHave'>, handles: ReturnType<typeof selectionHandles>): RequirementMatches[] {
+  const [briefTopics, jobTopics] = [
+    [...brief.leadWith.map((i) => i.name), ...brief.emphasise.map((i) => i.name)],
+    [...strategy.mustHave, ...strategy.niceToHave],
+  ].map((topics) => [...new Set(topics.map((topic) => topic.trim()).filter(Boolean))])
+  // Share the topic budget; when one list runs out, the other uses the spare slots.
+  const topics = Array.from({ length: Math.max(briefTopics.length, jobTopics.length) }, (_, i) =>
+    [briefTopics[i], jobTopics[i]].filter((topic): topic is string => topic !== undefined)).flat()
+  const selectableIds = new Set(Object.values(handles).flatMap((section) => [...section.byId.keys()]))
+  return retrieveRequirements(graph, topics, selectableIds)
 }
 
 /** Keep graph ids internal: Select can only reference handles that its menu offers. */

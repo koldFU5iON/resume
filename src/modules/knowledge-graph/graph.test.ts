@@ -89,10 +89,13 @@ describe('profile knowledge graph', () => {
   it('excludes archived projects and tolerates dangling or duplicate links', () => {
     const source = vaultSource()
     source.projects[0].status = 'archived'
+    source.projects[0].activities = [{ ...source.experiences[0].activities[0], id: 'archived-atom', projectId: 'pr1' }]
     const vault = buildVault(source)
     vault.notes.get('a1')!.links.push({ type: 'demonstrates', id: 'missing' }, ...vault.notes.get('a1')!.links)
     const graph = buildKnowledgeGraph(vault)
     expect(graph.nodes.has('pr1')).toBe(false)
+    expect(graph.nodes.has('archived-atom')).toBe(false)
+    expect(retrieveRequirements(graph, ['Release management'])[0].matches.some((m) => m.nodeId === 'archived-atom')).toBe(false)
     expect(graph.incoming.get('s1')).toHaveLength(1)
     expect(retrieveRequirements(graph, ['Release management'])[0].matches.some((m) => m.nodeId === 'missing')).toBe(false)
   })

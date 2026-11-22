@@ -16,7 +16,7 @@ describe('CV graph retrieval boundary', () => {
     const handles = selectionHandles(candidates)
     const brief = buildBriefFor()
     const strategy = { mustHave: ['Release management'], niceToHave: ['Nuclear engineering'] }
-    const matches = retrieveCvEvidence(buildKnowledgeGraph(vault), brief, strategy)
+    const matches = retrieveCvEvidence(buildKnowledgeGraph(vault), brief, strategy, handles)
     const data = graphEvidencePrompt(matches, handles)
     expect(data).toContain('demonstrates')
     expect(data).toContain('confirmed')
@@ -54,5 +54,34 @@ describe('CV graph retrieval boundary', () => {
     expect(before.activities[0].id).toBe('e0a0')
     expect(after.activities[0].id).toBe('e0a1')
     expect(after.activities.map((a) => a.id).sort()).toEqual(before.activities.map((a) => a.id).sort())
+  })
+
+  it('keeps Brief topics alongside a long list of job requirements', () => {
+    const vault = buildVault(vaultSource())
+    const topics = Array.from({ length: 10 }, (_, i) => `Brief topic ${i}`)
+    const brief = buildBriefFor({
+      leadWith: topics.slice(0, 4).map((name) => ({ name, framing: '' })),
+      emphasise: topics.slice(4).map((name) => ({ name, framing: '', why: '' })),
+    })
+    const strategy = { mustHave: Array.from({ length: 30 }, (_, i) => `Required topic ${i}`), niceToHave: [] }
+    const results = retrieveCvEvidence(buildKnowledgeGraph(vault), brief, strategy, selectionHandles(buildCandidates(vault)))
+    expect(results).toHaveLength(24)
+    expect(results.map((r) => r.requirement)).toEqual(expect.arrayContaining(topics))
+    expect(results.filter((r) => r.requirement.startsWith('Required topic'))).toHaveLength(14)
+  })
+
+  it('filters unselectable evidence before it consumes the result limit', () => {
+    const source = vaultSource()
+    source.experiences[0].activities[0].id = 'zz-current'
+    source.projects[0].activities = Array.from({ length: 41 }, (_, i) => ({
+      ...source.experiences[0].activities[0], id: `atom-${String(i).padStart(2, '0')}`,
+      projectId: 'pr1', description: `Completed survey ${i}`,
+    }))
+    const vault = buildVault(source)
+    const handles = selectionHandles(buildCandidates(vault))
+    const results = retrieveCvEvidence(buildKnowledgeGraph(vault), buildBriefFor({ leadWith: [], emphasise: [] }), { mustHave: ['Release management'], niceToHave: [] }, handles)
+    const prompt = graphEvidencePrompt(results, handles)
+    expect(results[0].matches.some((m) => m.nodeId === 'zz-current')).toBe(true)
+    expect(prompt).toContain(`"handle":"${handles.activities.byId.get('zz-current')}"`)
   })
 })

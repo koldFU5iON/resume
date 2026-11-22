@@ -985,7 +985,8 @@ export async function runSelect(
   brief: CvBrief,
   ctx: { profileId: string; jobApplicationId: string; runId: string; deadline: number; writingDeskDocumentId?: string | null },
 ): Promise<SelectResult> {
-  const graphMatches = g.knowledgeGraph ? retrieveCvEvidence(g.knowledgeGraph, brief, g.strategy) : []
+  const handles = selectionHandles(g.candidates)
+  const graphMatches = g.knowledgeGraph ? retrieveCvEvidence(g.knowledgeGraph, brief, g.strategy, handles) : []
   const graphNotes = graphMatches.length > 0 ? [`Graph retrieval found related notes for ${graphMatches.filter((r) => r.matches.length > 0).length} of ${graphMatches.length} requirement or brief topics; matches still require evidence review.`] : []
   let failure: string
   let retries = 0
@@ -995,7 +996,6 @@ export async function runSelect(
   let used: CallUsage | undefined
   try {
     const instructions = await loadCVSelectPrompt(ctx.profileId)
-    const handles = selectionHandles(g.candidates)
     const call = await completeValidated(ctx.profileId, selectPrompt(brief, g.candidates, g.strategy, handles, graphMatches), SelectOutputSchema, {
       role: 'fast',
       system: composeSystem(instructions, OUTPUT_FORMAT),

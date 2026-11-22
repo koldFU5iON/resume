@@ -24,11 +24,15 @@ export type RequirementMatches = { requirement: string; matches: GraphMatch[] }
 
 export function buildKnowledgeGraph(vault: Vault): KnowledgeGraph {
   const scrub = makeContactScrubber(vault.identity.props.contact)
+  const archivedProjects = new Set(vault.byType.project.filter((id) => {
+    const note = vault.notes.get(id)
+    return note?.type === 'project' && note.props.status === 'archived'
+  }))
   const nodes = new Map<string, GraphNode>()
   for (const note of vault.notes.values()) {
     // Contact details, identity and search preferences never become matching evidence.
     if (note.type === 'identity' || note.type === 'preferences') continue
-    if (note.type === 'project' && note.props.status === 'archived') continue
+    if (archivedProjects.has(note.id) || (note.type === 'evidence' && archivedProjects.has(note.props.parentId))) continue
     const extra = note.type === 'evidence' ? [note.props.description, note.props.impact ?? '']
       : note.type === 'project' ? [note.props.description, ...note.props.highlights] : []
     nodes.set(note.id, {
@@ -71,7 +75,7 @@ function terms(text: string): string[] {
  * a role's tool usage onto every achievement, or across sibling projects.
  * A name hit is a retrieval signal, not a judgement of job qualification.
  */
-export function retrieveRequirements(graph: KnowledgeGraph, requirements: readonly string[]): RequirementMatches[] {
+export function retrieveRequirements(graph: KnowledgeGraph, requirements: readonly string[], selectableIds?: ReadonlySet<string>): RequirementMatches[] {
   return [...new Set(requirements.map((r) => r.trim()).filter(Boolean))].slice(0, 24).map((requirement) => {
     const query = terms(requirement).slice(0, 32)
     const found = new Map<string, GraphMatch>()
@@ -117,6 +121,6 @@ export function retrieveRequirements(graph: KnowledgeGraph, requirements: readon
         owners(support)
       }
     }
-    return { requirement, matches: [...found.values()].sort((a, b) => b.score - a.score || a.nodeId.localeCompare(b.nodeId)).slice(0, 40) }
+    return { requirement, matches: [...found.values()].filter((m) => !selectableIds || selectableIds.has(m.nodeId)).sort((a, b) => b.score - a.score || a.nodeId.localeCompare(b.nodeId)).slice(0, 40) }
   })
 }

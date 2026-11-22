@@ -38,12 +38,15 @@ evidence, including outcome qualifications, rather than graph-generated claims.
 - Matching follows names and words, not semantic embeddings. Different wording
   with no overlapping terms can be missed. The full menu remains available to
   the selector's language reasoning; an empty graph result is not a skills gap.
-- Retrieval examines at most 24 distinct topics and returns at most 40 notes per
-  topic. The prompt shows at most eight selectable matches per topic and 16,000
+- Retrieval examines at most 24 distinct topics, alternating Brief priorities
+  (lead-with, then emphasise) with job requirements (must-have, then nice-to-have).
+  A shorter list leaves its spare slots for the other. It returns at most 40
+  selectable notes per topic, filtering against the candidate menu before this
+  limit. The prompt shows at most eight selectable matches per topic and 16,000
   characters of valid JSON. These are retrieval bounds, not candidate pruning.
 - Identity and preferences are excluded. Profile contact details are scrubbed
-  from graph text. Archived projects are excluded. Graph IDs stay internal;
-  only the existing menu's handles enter the additional prompt section.
+  from graph text. Archived projects and their evidence are excluded. Graph IDs
+  stay internal; only the existing menu's handles enter the additional prompt section.
 
 ## Freshness and maintenance
 
