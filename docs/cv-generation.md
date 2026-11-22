@@ -1,5 +1,7 @@
 # CV generation (writing desk)
 
+Profile relationships now feed Select through a derived knowledge graph. See [Profile graph retrieval](knowledge-graph.md) for traversal rules, provenance, bounds and reuse invalidation.
+
 Status: **shipped.** Phases 1 to 4b are merged: the run record and log, Gather/Brief/Select, per-employer selection, the section writers and Assemble, Review, Land, stored-selection reuse, and (4b) the switch of the app to this flow. Phase 5 (deleting the legacy generator) is pending; its removal list is at the end. This file is the implementation record: it describes what the code does now. Where a history note is useful it says which phase changed a rule, but it does not keep superseded designs. The pipeline of the code being replaced is kept in [`cv-generation-legacy.md`](./cv-generation-legacy.md) until Phase 5.
 
 Related: [`llm-usage-tracking.md`](./llm-usage-tracking.md) (usage tags and attribution), [`deep-dive.md`](./deep-dive.md) (the run machinery this copies), [`llm-layer.md`](./llm-layer.md).

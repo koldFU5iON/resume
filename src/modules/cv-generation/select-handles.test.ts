@@ -7,12 +7,15 @@ vi.mock('@/modules/llm/prompt-context', () => ({
 }))
 
 import { LLMError } from '@/modules/llm/errors'
+import { buildVault } from '@/modules/profile-map/build'
+import { vaultSource } from '@/modules/profile-map/__fixtures__/source'
+import { buildKnowledgeGraph } from '@/modules/knowledge-graph/graph'
 import { completeJSON } from '@/modules/llm/complete-json'
 import { extractJSON } from '@/modules/llm/extract-json'
 import { bigCandidates } from './__fixtures__/candidates'
 import { buildBriefFor, gathered } from './__fixtures__/gathered'
 import { scripted } from './__fixtures__/write'
-import { selectionHandles } from './candidates'
+import { buildCandidates, selectionHandles } from './candidates'
 import { parseSelection } from './schema'
 import { runSelect, SelectOutputSchema } from './select'
 
@@ -28,6 +31,28 @@ const answer = (responses: Array<object | 'junk'>) => {
 beforeEach(() => vi.clearAllMocks())
 
 describe('Select short handles through the model boundary', () => {
+  it('passes graph evidence through the real Select boundary and records retrieval on model and fallback paths', async () => {
+    const vault = buildVault(vaultSource())
+    const candidates = buildCandidates(vault)
+    const handles = selectionHandles(candidates)
+    const g = gathered({ candidates, knowledgeGraph: buildKnowledgeGraph(vault), strategy: {
+      ...gathered().strategy, mustHave: ['Release management'], niceToHave: [],
+    } })
+    const llm = answer([{ employers: ['EMP1'], activities: [handles.activities.byId.get('a1')] }])
+    const selected = await runSelect(g, brief, context())
+    expect(llm.calls).toHaveLength(1)
+    expect(llm.calls[0].prompt).toContain('# Related profile evidence')
+    expect(llm.calls[0].prompt).toContain('demonstrates')
+    expect(selected.selection.mode).toBe('model')
+    expect(selected.selection.employers.flatMap((e) => e.bullets).some((a) => a.id === 'a1')).toBe(true)
+    expect(selected.notes.join(' ')).toContain('Graph retrieval')
+
+    mockJSON.mockRejectedValue(new LLMError('unavailable', 'unavailable'))
+    const fallback = await runSelect(g, brief, context())
+    expect(fallback.selection.mode).toBe('fallback')
+    expect(fallback.notes.join(' ')).toContain('Graph retrieval')
+    expect(fallback.selection.employers.flatMap((e) => e.bullets).some((a) => a.id === 'a1')).toBe(true)
+  })
   it('indexes every section deterministically and stores real IDs for all successful picks', async () => {
     const candidates = bigCandidates(3, 3, 3)
     candidates.skills[0].label = 'S3 Assembly'
