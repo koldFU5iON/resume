@@ -153,6 +153,17 @@ describe('gatherCvInputs', () => {
     expect(r.ok && JSON.stringify(r)).not.toContain('robin@example.test')
   })
 
+  it('loads a graph from the same vault and invalidates reuse after a link-only edit', async () => {
+    db.jobApplication.findFirst.mockResolvedValue(job({ jobAnalysis: analysis }) as never)
+    const vault = buildVault(vaultSource())
+    mockVault.mockResolvedValue(vault)
+    const before = await gatherCvInputs('p1', 'job-1', { runId: 'r1' })
+    expect(before.ok && before.knowledgeGraph?.nodes.has('a1')).toBe(true)
+    vault.notes.get('a1')!.links[0].via = 'exact'
+    const after = await gatherCvInputs('p1', 'job-1', { runId: 'r2' })
+    expect(before.ok && after.ok && before.inputsHash !== after.inputsHash).toBe(true)
+  })
+
   describe('a deep dive that is out of date', () => {
     const dd = (over: Record<string, unknown> = {}) => ({
       id: 'dd-9', report, inputsHash: 'old-hash', createdAt: new Date('2026-11-01T10:00:00Z'), completedAt: new Date('2026-11-01T10:05:00Z'), ...over,

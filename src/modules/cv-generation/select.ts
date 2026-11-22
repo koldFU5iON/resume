@@ -23,6 +23,8 @@
  */
 
 import * as z from 'zod'
+import { graphEvidencePrompt, graphScores, retrieveCvEvidence } from './graph-retrieval'
+import type { RequirementMatches } from '@/modules/knowledge-graph/graph'
 import { composeSystem, loadCVSelectPrompt } from '@/modules/llm/prompt-context'
 import { LLMError } from '@/modules/llm/errors'
 import { attributionOf, completeValidated, usageOfError, type CallUsage } from './call'
@@ -219,7 +221,7 @@ function inBlock(text: string): string {
 }
 
 /** The select prompt (everything but the instructions). Pure. */
-export function selectPrompt(brief: CvBrief, cands: Candidates, strategy?: Pick<Strategy, 'mustHave' | 'niceToHave'>, handles = selectionHandles(cands)): string {
+export function selectPrompt(brief: CvBrief, cands: Candidates, strategy?: Pick<Strategy, 'mustHave' | 'niceToHave'>, handles = selectionHandles(cands), graphMatches: RequirementMatches[] = []): string {
   const l = (items: readonly string[]) => (items.length > 0 ? items.map((i) => `- ${inBlock(i)}`).join('\n') : '(none)')
   const b = brief.budgets
   const required = requiredEmployers(cands)
@@ -255,6 +257,7 @@ export function selectPrompt(brief: CvBrief, cands: Candidates, strategy?: Pick<
   } else if (required.length > 1) {
     sections.push(`# Current employers\n\nThe candidate currently works at more than one employer:\n${required.map((e) => `- [${handles.employers.byId.get(e.key)}] ${e.label}`).join('\n')}\nAt least one of them must be included in \`employers\` (list it first); it counts toward the employer budget. Any others are only picked if they answer the brief.`)
   }
+  if (graphMatches.length > 0) sections.push(graphEvidencePrompt(graphMatches, handles))
   sections.push('# Candidates', candidatesToPrompt(cands, handles), 'Return your picks as one JSON object matching the schema, in a ```json code block.')
   return sections.join('\n\n')
 }
@@ -907,6 +910,7 @@ export function fallbackPicks(
     employerLimit?: number
     /** Key words of the job's requirements, matched like the brief's terms. */
     requirementTerms?: readonly string[]
+    graphScores?: ReadonlyMap<string, number>
   } = {},
 ): SelectOutput {
   const terms = [...new Set([...briefTerms(brief), ...(opts.requirementTerms ?? [])])]
@@ -938,10 +942,10 @@ export function fallbackPicks(
     activities: cands.employers.filter((e) => withBullets.has(e.key)).flatMap((e) =>
       e.activities
         .map((a, idx) => ({ a, idx, m: matches(`${a.text} ${a.impact ?? ''}`, terms) }))
-        .sort((x, y) => (activityRank(y.a) + 2 * y.m.length) - (activityRank(x.a) + 2 * x.m.length) || x.idx - y.idx)
+        .sort((x, y) => (activityRank(y.a) + 2 * y.m.length + (opts.graphScores?.get(y.a.id) ?? 0)) - (activityRank(x.a) + 2 * x.m.length + (opts.graphScores?.get(x.a.id) ?? 0)) || x.idx - y.idx)
         .map(({ a, m }) => ({
           id: a.id,
-          reason: matchReason(m, a.highlighted ? 'Highlighted in your profile' : a.kind === 'achievement' ? 'An achievement' : ''),
+          reason: matchReason(m, opts.graphScores?.has(a.id) ? 'Related through profile graph' : a.highlighted ? 'Highlighted in your profile' : a.kind === 'achievement' ? 'An achievement' : ''),
         })),
     ),
     skills: ranked(cands.skills),
@@ -955,9 +959,9 @@ export function fallbackPicks(
 }
 
 /** The fallback selection: rule picks run through the same caps. */
-export function fallbackSelection(brief: CvBrief, cands: Candidates, strategy?: Pick<Strategy, 'mustHave' | 'niceToHave'>): EnforceResult {
+export function fallbackSelection(brief: CvBrief, cands: Candidates, strategy?: Pick<Strategy, 'mustHave' | 'niceToHave'>, graphMatches: RequirementMatches[] = []): EnforceResult {
   const reqTerms = strategy ? requirementTerms(strategy) : []
-  const picks = fallbackPicks(brief, cands, { employerLimit: employersWithBullets(brief), requirementTerms: reqTerms })
+  const picks = fallbackPicks(brief, cands, { employerLimit: employersWithBullets(brief), requirementTerms: reqTerms, graphScores: graphScores(graphMatches) })
   return enforceSelection(picks, cands, brief, 'fallback', { requirementTerms: reqTerms })
 }
 
@@ -981,6 +985,8 @@ export async function runSelect(
   brief: CvBrief,
   ctx: { profileId: string; jobApplicationId: string; runId: string; deadline: number; writingDeskDocumentId?: string | null },
 ): Promise<SelectResult> {
+  const graphMatches = g.knowledgeGraph ? retrieveCvEvidence(g.knowledgeGraph, brief, g.strategy) : []
+  const graphNotes = graphMatches.length > 0 ? [`Graph retrieval found related notes for ${graphMatches.filter((r) => r.matches.length > 0).length} of ${graphMatches.length} requirement or brief topics; matches still require evidence review.`] : []
   let failure: string
   let retries = 0
   let retryReasons: string[] = []
@@ -990,7 +996,7 @@ export async function runSelect(
   try {
     const instructions = await loadCVSelectPrompt(ctx.profileId)
     const handles = selectionHandles(g.candidates)
-    const call = await completeValidated(ctx.profileId, selectPrompt(brief, g.candidates, g.strategy, handles), SelectOutputSchema, {
+    const call = await completeValidated(ctx.profileId, selectPrompt(brief, g.candidates, g.strategy, handles, graphMatches), SelectOutputSchema, {
       role: 'fast',
       system: composeSystem(instructions, OUTPUT_FORMAT),
       maxOutputTokens: MAX_OUTPUT_TOKENS.select,
@@ -1009,7 +1015,7 @@ export async function runSelect(
     referenceNotes = resolved.notes
     const enforced = enforceSelection(resolved.picks, g.candidates, brief, 'model', { requirementTerms: requirementTerms(g.strategy) })
     if (enforced.recognised > 0) {
-      return { selection: enforced.selection, model: call.model, retries, retryReasons, notes: [...referenceNotes, ...enforced.notes], usage: call.usage }
+      return { selection: enforced.selection, model: call.model, retries, retryReasons, notes: [...graphNotes, ...referenceNotes, ...enforced.notes], usage: call.usage }
     }
     failure = selectionSections.some((section) => call.value[section].length > 0)
       ? 'the answer contained no valid candidate handles'
@@ -1026,13 +1032,13 @@ export async function runSelect(
     failure = err instanceof LLMError ? `the call failed (${err.kind})` : 'the call failed'
     if (!(err instanceof LLMError)) console.error('[cv-generation] select failed', { runId: ctx.runId, err })
   }
-  const fb = fallbackSelection(brief, g.candidates, g.strategy)
+  const fb = fallbackSelection(brief, g.candidates, g.strategy, graphMatches)
   return {
     selection: fb.selection,
     model: null,
     retries,
     retryReasons,
-    notes: [`Chose by rules instead: ${failure}.`, ...referenceNotes, ...fb.notes],
+    notes: [`Chose by rules instead: ${failure}.`, ...graphNotes, ...referenceNotes, ...fb.notes],
     ...(used ? { usage: used } : {}),
   }
 }

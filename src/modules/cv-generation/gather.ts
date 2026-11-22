@@ -16,6 +16,7 @@
  */
 
 import { createHash } from 'node:crypto'
+import { buildKnowledgeGraph, type KnowledgeGraph } from '@/modules/knowledge-graph/graph'
 import { prisma } from '@/lib/db'
 import { analyseJob } from '@/modules/cv/analyse-job'
 import type { JobAnalysis } from '@/modules/jobs/schema'
@@ -33,6 +34,8 @@ export type GatherResult =
       ok: true
       job: { id: string; title: string; company: string | null; description: string }
       candidates: Candidates
+      /** Derived from this run’s profile snapshot; never persisted as a second profile. */
+      knowledgeGraph?: KnowledgeGraph
       /** Titles and names only; what the Brief reads of the profile. */
       outline: string
       strategy: Strategy
@@ -49,9 +52,10 @@ export function computeInputsHash(parts: {
   jobDescription: string
   strategy: Strategy
   deepDiveId: string | null
+  graphFingerprint?: string
 }): string {
   return createHash('sha256')
-    .update(JSON.stringify([parts.profileText, parts.jobDescription, parts.strategy, parts.deepDiveId]))
+    .update(JSON.stringify([parts.profileText, parts.jobDescription, parts.strategy, parts.deepDiveId, parts.graphFingerprint ?? null]))
     .digest('hex')
 }
 
@@ -113,6 +117,7 @@ export async function gatherCvInputs(profileId: string, jobId: string, ctx: { ru
   const snapshot = toProfileSnapshot(vault)
   const profileText = serializeProfileForLLM(snapshot)
   const candidates = buildCandidates(vault)
+  const knowledgeGraph = buildKnowledgeGraph(vault)
 
   const notes: string[] = []
   let strategy: Strategy | null = null
@@ -160,10 +165,11 @@ export async function gatherCvInputs(profileId: string, jobId: string, ctx: { ru
     ok: true,
     job: { id: job.id, title: job.title, company: job.company, description },
     candidates,
+    knowledgeGraph,
     outline: profileOutline(snapshot.headline, candidates),
     strategy,
     deepDiveId,
-    inputsHash: computeInputsHash({ profileText, jobDescription: description, strategy, deepDiveId }),
-    notes,
+    inputsHash: computeInputsHash({ profileText, jobDescription: description, strategy, deepDiveId, graphFingerprint: knowledgeGraph.fingerprint }),
+    notes: [...notes, `Knowledge graph: ${knowledgeGraph.nodes.size} profile notes available for evidence retrieval.`],
   }
 }
