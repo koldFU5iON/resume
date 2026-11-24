@@ -1,6 +1,7 @@
 import { Controller, useFormContext } from "react-hook-form"
 import { Field, FieldLabel, FieldError } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import {
   Select,
@@ -76,19 +77,33 @@ export function FormField({
               aria-invalid={fieldState.invalid}
             />
           ) : type === "date" ? (
-            <Input
-              {...field}
-              type="date"
-              value={toDateInputValue(field.value)}
-              onChange={(e) =>
-                field.onChange(
-                  e.target.value
-                    ? new Date(`${e.target.value}T00:00:00`)
-                    : undefined,
-                )
-              }
-              aria-invalid={fieldState.invalid}
-            />
+            <div className="flex gap-2">
+              <Input
+                {...field}
+                type="date"
+                value={toDateInputValue(field.value)}
+                onChange={(e) =>
+                  field.onChange(
+                    e.target.value
+                      ? new Date(`${e.target.value}T00:00:00`)
+                      : undefined,
+                  )
+                }
+                aria-invalid={fieldState.invalid}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  const now = new Date()
+                  field.onChange(
+                    new Date(now.getFullYear(), now.getMonth(), now.getDate()),
+                  )
+                }}
+              >
+                Today
+              </Button>
+            </div>
           ) : (
             <Input
               {...field}
