@@ -69,6 +69,14 @@ export function ApplicationDateBlock({ label, date, jobId, compact = false }: Ap
                   onChange={(e) => setValue(e.target.value)}
                   required
                 />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setValue(new Date().toLocaleDateString("en-CA"))}
+                >
+                  Today
+                </Button>
                 <Button type="submit" size="sm" disabled={isPending}>
                   {isPending ? "Saving..." : "Save"}
                 </Button>
