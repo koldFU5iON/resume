@@ -28,6 +28,7 @@ import {
   MAX_WRITING_DESK_CONTENT_LENGTH,
   WRITING_DESK_DOCUMENT_ORDER,
   WRITING_DESK_DOCUMENT_TYPE_LABEL,
+  type WritingDeskDocumentType,
 } from "./schema"
 import { applySectionOp, splitSections, type DraftSection, type SectionOp } from "./sections"
 import { validateDraftMarkdown, type DraftIssue } from "./validate"
@@ -459,4 +460,45 @@ export async function listDraftEvents(
     take: limit,
     select: { tool: true, createdAt: true, apiTokenId: true },
   })
+}
+
+export type LandGeneratedDraftResult =
+  | { ok: true; draftRevision: number }
+  | { ok: false; reason: "not_found" | "draft_exists" | "wrong_document_type" | "invalid"; message: string }
+
+/**
+ * Lands content the APP generated for the owner (not an agent) as a draft of
+ * one of the profile's documents of `documentType`, e.g. a generated cover
+ * letter (#471). Never touches live content; never replaces a waiting draft.
+ * The draft's history starts at create_draft, as agent drafts' does. Agent
+ * tools keep using createDraft, which only writes CV drafts.
+ */
+export async function landGeneratedDraft(
+  profileId: string,
+  deskId: string,
+  content: string,
+  documentType: WritingDeskDocumentType,
+): Promise<LandGeneratedDraftResult> {
+  const validation = validateDraftMarkdown(content)
+  if (!validation.ok) {
+    return { ok: false, reason: "invalid", message: validation.issues.filter(i => i.severity === "error").map(i => i.message).join("; ") || MESSAGES.invalid }
+  }
+  const desk = await findDeskById(profileId, deskId)
+  if (!desk) return { ok: false, reason: "not_found", message: "Writing desk document not found." }
+  if (desk.documentType !== null && desk.documentType !== documentType) return { ok: false, reason: "wrong_document_type", message: `This document isn't a ${documentType}.` }
+  if (desk.draftContent !== null) return { ok: false, reason: "draft_exists", message: MESSAGES.draft_exists }
+
+  const written = await writeAgentDraft(
+    {
+      where: { id: desk.id, profileId, draftContent: null, draftRevision: desk.draftRevision, OR: [{ documentType: null }, { documentType }] },
+      data: { draftContent: content, draftRevision: { increment: 1 }, draftUpdatedAt: new Date(), documentType },
+    },
+    { writingDeskId: desk.id, apiTokenId: null, tool: "create_draft" },
+  )
+  if (!written) {
+    const fresh = await findDeskById(profileId, desk.id)
+    if (!fresh) return { ok: false, reason: "not_found", message: "Writing desk document not found." }
+    return { ok: false, reason: "draft_exists", message: MESSAGES.draft_exists }
+  }
+  return { ok: true, draftRevision: desk.draftRevision + 1 }
 }

@@ -30,6 +30,7 @@ model WritingDeskDocument {
   sourceCv       CVDocument?             @relation("WritingDeskSourceCV", fields: [sourceCvDocumentId], references: [id], onDelete: SetNull)
   draftEvents    WritingDeskDraftEvent[]
   cvGenerations  CvGeneration[]
+  coverLetterGenerations CoverLetterGeneration[]
   llmUsageLogs   LlmUsageLog[]
 
   @@index([profileId])
