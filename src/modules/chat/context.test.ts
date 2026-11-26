@@ -68,3 +68,23 @@ describe('buildSystemPrompt', () => {
     expect(result).toContain('propose_cv_section_create')
   })
 })
+
+describe('buildSystemPrompt — writing desk', () => {
+  it('describes a job document with its job and deep dive', async () => {
+    const result = await buildSystemPrompt('profile-1', {
+      type: 'writing_desk', deskId: 'desk-1', jobId: 'job-1', title: 'Engineer', company: 'Acme', documentType: 'cv', revision: 2,
+    })
+    expect(result).toContain('for "Engineer" at Acme')
+    expect(result).toContain('Job ID: job-1')
+  })
+
+  it('describes the master CV (#469) with no job and no deep dive', async () => {
+    const result = await buildSystemPrompt('profile-1', {
+      type: 'writing_desk', deskId: 'desk-master', title: 'Master CV', isMaster: true, documentType: 'cv', revision: 1,
+    })
+    expect(result).toContain('editing their master CV')
+    expect(result).toContain('Writing Desk ID: desk-master')
+    expect(result).not.toContain('Job ID:')
+    expect(result).not.toContain('undefined')
+  })
+})

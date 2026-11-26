@@ -409,14 +409,23 @@ A re-run on unchanged inputs skips Brief and Select (about $0.06 less and about 
 - `applyRoleBudgets` moved to `src/modules/career-vertical/role-budgets.ts` (the master CV uses it).
 - `cv-generate.md` and its registry entry stay: the master CV generator loads it.
 - `analyse-job.ts` stays: `analyseJob` is the last-resort Gather input here and the deep dive uses it.
-- In the old CV editor, **Regenerate** shows only on the master CV and calls `generateMasterCV` (it used to run the legacy generator in generic mode). A job CV shows **Generate in writing desk** instead, and the "master CV changed" banner links to the job's writing desk.
+- In the old CV editor, **Regenerate** is gone: a job CV shows **Generate in writing desk** instead, and the "master CV changed" banner links to the job's writing desk. (Phase 5a briefly re-routed the master CV's Regenerate to `generateMasterCV`; the master CV move below replaced that.)
 - Legacy feature labels stay (old usage rows carry them). A saved prompt override for a removed key is ignored (loading and saving work per key).
+
+**Master CV in the writing desk (done, issue #469).** The master CV is a Writing Desk document with no job: `WritingDeskDocument.jobApplicationId` is nullable and `masterOfProfileId` (unique; equal to `profileId`) marks the profile's one master (migration `writing_desk_master_cv`). Code: `src/modules/writing-desk/master.ts`.
+
+- **Page**: `/dashboard/career-vertical/master-cv` (`MASTER_CV_HREF`), the same `WritingDesk` editor with no Delete, no external CV prompt and no job CV generation; PDF at `/api/writing-desk/master-cv/pdf`. It never appears in a job's documents and a job URL can't open it.
+- **Moving in**: the first visit (`ensureMasterCvDesk`) copies the old CV Builder master in, converted by `cvContentToDeskMarkdown` (`from-cv-content.ts`: desk blocks, `{{contact}}` in the header, hidden sections left out). The old row is never changed. Opening the old master in `/dashboard/cv-builder/[id]` redirects to the new page. Two concurrent first visits create one master (the unique column).
+- **Generating**: `generateMasterCV` (career vertical) converts the generated content and lands it as a DRAFT (`landMasterCvDraft`), never over the live master and never over a waiting draft (checked before any model call). The owner accepts or discards it in the editor's draft review, which fills `{{contact}}` on accept. `generateMasterCV` no longer writes a `CVDocument`.
+- **Readers**: `getMasterCvMarkdown` returns the desk master's live content, else the old master converted on the fly (no write), else null. MCP `get_job_context` (`masterCv`, contact values scrubbed) and the writing contract (`buildStructureGuideFromMarkdown`: the header block plus each top-level `##` heading) use it, as does "start from master CV" (source id `master-cv`; `sourceCvDocumentId` null). The old master is never listed beside the desk one.
+- **Coach**: on the master page the coach context has no job (`jobId` absent, `isMaster`); `get_writing_desk` and `propose_writing_desk_update` work unchanged.
+- **Left as is**: `getLatestMasterCV` still feeds the old editor's "master CV changed" banner for job CVs tailored from the OLD master. The old master `CVDocument` rows stay until Phase 5b decides on old documents.
 
 **Phase 5b (pending).** The legacy editors and what depends on them, each needing an owner decision first:
 
 - The guided cover letter flow (`src/modules/writing-guide/`, the editor's `/guide` and `/review` pages, prompts `cover-letter-*` and `cl-stage*`). The writing desk has a Cover Letter document type but no generator yet.
 - The coach tools that edit legacy documents (`src/modules/chat/tools.ts`: `list_cover_letters`, `get_cover_letter`, `propose_cover_letter_update`, `propose_cover_letter_section_update`, `propose_cv_update`, `propose_cv_section_create`).
-- The master CV: it is a legacy `CVDocument` edited in `/dashboard/cv-builder/[id]`, read by MCP `get_job_context` (`src/modules/mcp/context.ts`) and by the writing desk's "start from master/previous CV" (`loadSourceCv`). It needs a writing desk home before the CV editor can go.
+- ~~The master CV~~: done, see **Master CV in the writing desk** below.
 - Existing CVs and cover letters (the "View CV" / "View Cover Letter" menu links and list icons, `workspace-nav.ts`): migrate to desk documents or keep read-only. No table is dropped until then.
 
 ---
@@ -443,7 +452,8 @@ A re-run on unchanged inputs skips Brief and Select (about $0.06 less and about 
 | Project notes | `fix/cv-gen-project-notes` | The generator read only a project's `description` and `highlights`, so a project with an empty description and a long notes body looked title-only and a 7k notes body never reached Select or the writers. New `projectEvidenceText` (notes digest + atoms, above); project atoms become Select activity candidates (`fromProject`); `PROJECT_EVIDENCE_MAX_CHARS` 2,000; atoms already bullets are left out of the project text; name pins pin a project's best atoms; `SELECTION_PIPELINE_VERSION` 7; no migration. |
 | Pause | 2026-11-19 (this PR) | Tuning stopped at the point of diminishing returns; see section 21. Issue #440 covers the profile changes. |
 | 5a | issue #469 | Legacy generators removed; master CV Regenerate re-routed to `generateMasterCV`, job CV regenerate to the writing desk (section 18). |
-| 5b | pending | Legacy editors, coach tools and master CV home (section 18). |
+| 5a (master) | issue #469 | Master CV moved to a job-less Writing Desk document; generation lands as a draft; MCP and "start from master CV" read it (section 18). |
+| 5b | pending | Legacy editors, coach tools and old documents (section 18). |
 
 ---
 

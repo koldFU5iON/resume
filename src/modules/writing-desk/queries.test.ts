@@ -11,13 +11,15 @@ vi.mock("@/modules/profile/snapshot", () => ({ buildProfileSnapshot: vi.fn() }))
 vi.mock("./draft", () => ({ listDraftEvents: vi.fn() }))
 vi.mock("./fact-check", () => ({ checkFacts: vi.fn() }))
 vi.mock("./validate", () => ({ validateDraftMarkdown: vi.fn() }))
+vi.mock("./master", () => ({ getMasterCvMarkdown: vi.fn() }))
 
 import { prisma } from "@/lib/db"
 import { buildProfileSnapshot } from "@/modules/profile/snapshot"
 import { listDraftEvents } from "./draft"
 import { checkFacts } from "./fact-check"
 import { validateDraftMarkdown } from "./validate"
-import { getWritingDeskDocument, listWritingDeskDocuments, listWritingDeskJobs, listWritingDeskSourceCVs } from "./queries"
+import { getMasterCvMarkdown } from "./master"
+import { getMasterCvDeskView, getWritingDeskDocument, listWritingDeskDocuments, listWritingDeskJobs, listWritingDeskSourceCVs } from "./queries"
 
 const mockDeskFindFirst = vi.mocked(prisma.writingDeskDocument.findFirst)
 const mockDeskFindMany = vi.mocked(prisma.writingDeskDocument.findMany)
@@ -27,6 +29,7 @@ const mockBuildProfileSnapshot = vi.mocked(buildProfileSnapshot)
 const mockListDraftEvents = vi.mocked(listDraftEvents)
 const mockCheckFacts = vi.mocked(checkFacts)
 const mockValidateDraftMarkdown = vi.mocked(validateDraftMarkdown)
+const mockGetMasterCvMarkdown = vi.mocked(getMasterCvMarkdown)
 
 const DESK_ROW = {
   id: "desk-1",
@@ -72,6 +75,7 @@ describe("getWritingDeskDocument", () => {
       sourceCvDocumentId: null,
       sourceLabel: null,
       jobApplication: { id: "job-1", title: "Engineer", company: "Acme", jobDescription: null },
+      isMaster: false,
       draft: null,
     })
     expect(mockBuildProfileSnapshot).not.toHaveBeenCalled()
@@ -133,10 +137,51 @@ describe("getWritingDeskDocument", () => {
   })
 })
 
+describe("getMasterCvDeskView", () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it("reads only the profile's job-less master document, and marks it as the master", async () => {
+    mockDeskFindFirst.mockResolvedValue({ ...DESK_ROW, name: "Master CV", jobApplication: null, masterOfProfileId: "profile-1" } as never)
+
+    const desk = await getMasterCvDeskView("profile-1")
+
+    expect(mockDeskFindFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: { masterOfProfileId: "profile-1", profileId: "profile-1", jobApplicationId: null },
+    }))
+    expect(desk).toMatchObject({ id: "desk-1", name: "Master CV", jobApplication: null, isMaster: true })
+    expect(desk).not.toHaveProperty("masterOfProfileId")
+  })
+})
+
 describe("listWritingDeskSourceCVs", () => {
   beforeEach(() => vi.clearAllMocks())
 
+  it("offers the master CV first and never lists the old CV Builder master beside it", async () => {
+    mockGetMasterCvMarkdown.mockResolvedValue(":::header\n# A\n{{contact}}\n:::")
+    mockCVFindMany.mockResolvedValue([
+      { id: "old-master", jobApplicationId: null, careerVerticalId: "vertical-1", jobTitle: null, company: null, updatedAt: new Date("2026-03-04T00:00:00Z") },
+      { id: "previous-cv", jobApplicationId: "job-1", careerVerticalId: null, jobTitle: "Staff Engineer", company: "Acme", updatedAt: new Date("2026-03-03T00:00:00Z") },
+    ] as never)
+
+    await expect(listWritingDeskSourceCVs("profile-1")).resolves.toEqual([
+      { id: "master-cv", label: "Master CV", sourceType: "master-cv" },
+      { id: "previous-cv", label: "CV - Staff Engineer at Acme", sourceType: "previous-cv" },
+    ])
+  })
+
+  it("offers no master CV when the profile has none", async () => {
+    mockGetMasterCvMarkdown.mockResolvedValue(null)
+    mockCVFindMany.mockResolvedValue([
+      { id: "previous-cv", jobApplicationId: "job-1", careerVerticalId: null, jobTitle: "Staff Engineer", company: "Acme", updatedAt: new Date("2026-03-03T00:00:00Z") },
+    ] as never)
+
+    await expect(listWritingDeskSourceCVs("profile-1")).resolves.toEqual([
+      { id: "previous-cv", label: "CV - Staff Engineer at Acme", sourceType: "previous-cv" },
+    ])
+  })
+
   it("excludes generating CVs at the database boundary and preserves source provenance", async () => {
+    mockGetMasterCvMarkdown.mockResolvedValue("# Master")
     mockCVFindMany.mockResolvedValue([
       {
         id: "master-cv",
