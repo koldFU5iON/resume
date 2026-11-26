@@ -1,19 +1,54 @@
 'use client'
 
-import { useState } from 'react'
+import { useSyncExternalStore } from 'react'
 import { X } from 'lucide-react'
 
-const STORAGE_KEY = 'alpha-banner-dismissed'
+export const STORAGE_KEY = 'alpha-banner-dismissed'
+
+// Dismissal lives in localStorage, which the server can't see. Reading it in
+// render (or a useState initializer) makes the client's first render differ
+// from the server HTML and React throws a hydration error. useSyncExternalStore
+// uses getServerSnapshot (hidden) for the server and for hydration, then
+// re-renders with the real value once mounted.
+
+const listeners = new Set<() => void>()
+// In-memory fallback so dismissing still works when storage throws (private windows).
+let dismissedInMemory = false
+
+function subscribe(onChange: () => void) {
+  listeners.add(onChange)
+  window.addEventListener('storage', onChange)
+  return () => {
+    listeners.delete(onChange)
+    window.removeEventListener('storage', onChange)
+  }
+}
+
+export function isDismissed(): boolean {
+  if (dismissedInMemory) return true
+  try {
+    return Boolean(window.localStorage.getItem(STORAGE_KEY))
+  } catch {
+    return false
+  }
+}
+
+export function dismissBanner() {
+  dismissedInMemory = true
+  try {
+    window.localStorage.setItem(STORAGE_KEY, '1')
+  } catch {
+    // Storage unavailable: the in-memory flag hides it for this page session.
+  }
+  listeners.forEach((l) => l())
+}
+
+const getSnapshot = () => !isDismissed()
+const getServerSnapshot = () => false
 
 export function AlphaBanner() {
-  const [visible, setVisible] = useState(
-    () => typeof window !== 'undefined' && !localStorage.getItem(STORAGE_KEY)
-  )
-
-  function dismiss() {
-    localStorage.setItem(STORAGE_KEY, '1')
-    setVisible(false)
-  }
+  const visible = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot)
+  const dismiss = dismissBanner
 
   if (!visible) return null
 
