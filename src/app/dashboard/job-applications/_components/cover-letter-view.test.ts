@@ -14,7 +14,7 @@ const res = (status: number, body: unknown = {}) => ({ status, json: async () =>
 
 describe('requestCoverLetterAngles', () => {
   it('posts with no body by default and { fresh: true } when asked', async () => {
-    const f = vi.fn(async () => res(202))
+    const f = vi.fn<(url: string, init?: RequestInit) => Promise<ReturnType<typeof res>>>(async () => res(202))
     await expect(requestCoverLetterAngles('job 1', {}, f)).resolves.toEqual({ kind: 'started', existing: false })
     expect(f).toHaveBeenCalledWith('/api/jobs/job%201/cover-letter-generation', { method: 'POST' })
     await requestCoverLetterAngles('job1', { fresh: true }, f)
