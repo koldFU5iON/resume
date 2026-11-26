@@ -117,3 +117,15 @@ export function parseWritingDeskDocumentType(value: string | null): WritingDeskD
   const parsed = WritingDeskDocumentTypeSchema.safeParse(value)
   return parsed.success ? parsed.data : null
 }
+
+/** The master CV's page: the profile's one Writing Desk document with no job (#469). */
+export const MASTER_CV_HREF = "/dashboard/career-vertical/master-cv"
+
+/** The master CV as a PDF. */
+export const MASTER_CV_PDF_HREF = "/api/writing-desk/master-cv/pdf"
+
+/** The master CV's default document name. */
+export const MASTER_CV_NAME = "Master CV"
+
+/** The source id the "start from" pickers use for the master CV (it is a desk document, not a CVDocument). */
+export const MASTER_CV_SOURCE_ID = "master-cv"

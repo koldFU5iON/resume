@@ -156,9 +156,12 @@ function formatPageContext(ctx: PageContext): string {
       )
     case 'writing_desk':
       return (
-        `User is writing a ${ctx.documentType} document for "${ctx.title}"${ctx.company ? ` at ${ctx.company}` : ''}\n` +
-        `Writing Desk ID: ${ctx.deskId} — use get_writing_desk to fetch its Markdown, revision, job, and source CV context.\n` +
-        `Job ID: ${ctx.jobId} — use get_deep_dive with this Job ID for the deep dive report (verdict, gaps, pay, CV strategy) before writing or tailoring a CV or cover letter for it.\n` +
+        (ctx.jobId
+          ? `User is writing a ${ctx.documentType} document for "${ctx.title}"${ctx.company ? ` at ${ctx.company}` : ''}\n` +
+            `Writing Desk ID: ${ctx.deskId} — use get_writing_desk to fetch its Markdown, revision, job, and source CV context.\n` +
+            `Job ID: ${ctx.jobId} — use get_deep_dive with this Job ID for the deep dive report (verdict, gaps, pay, CV strategy) before writing or tailoring a CV or cover letter for it.\n`
+          : `User is editing their master CV: the general CV, not tailored to any job, that their job CVs can start from.\n` +
+            `Writing Desk ID: ${ctx.deskId} — use get_writing_desk to fetch its Markdown and revision.\n`) +
         `Use profile_search and profile_get_note to retrieve relevant profile evidence before making substantive career claims. ` +
         `Do not invent employers, qualifications, achievements, responsibilities, or metrics. Identify uncertainty and ask for clarification when evidence is missing.\n` +
         `Use propose_writing_desk_update for a full Markdown replacement. Include the revision returned by get_writing_desk; the user must review and confirm it before it can be applied.`

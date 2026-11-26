@@ -1,9 +1,10 @@
-import { notFound } from "next/navigation"
+import { notFound, redirect } from "next/navigation"
 import { requireProfile } from "@/lib/session"
 import { getCV } from "@/modules/cv/queries"
 import { getLatestMasterCV } from "@/modules/career-vertical/queries"
 import { JobWorkspace } from "@/components/job-workspace/job-workspace"
 import { CvEditor } from "./_components/cv-editor"
+import { MASTER_CV_HREF } from "@/modules/writing-desk/schema"
 
 type Props = { params: Promise<{ id: string }> }
 
@@ -20,12 +21,12 @@ export default async function CVEditorPage({ params }: Props) {
     masterCV !== null &&
     cv.masterCvUpdatedAt < masterCV.updatedAt
 
-  // The master CV stays: Writing Desk documents start from it, so it gets no
-  // "Deprecating soon" notice (with no job, `current` only drives that notice).
-  const isMasterCV = cv.jobApplicationId === null && cv.careerVerticalId !== null
+  // The master CV moved to the writing desk (#469): the old one opens there
+  // (its first visit copies it in; this row is left as it is).
+  if (cv.jobApplicationId === null && cv.careerVerticalId !== null) redirect(MASTER_CV_HREF)
 
   return (
-    <JobWorkspace jobId={cv.jobApplicationId} current={isMasterCV ? undefined : { kind: "cv", id: cv.id }}>
+    <JobWorkspace jobId={cv.jobApplicationId} current={{ kind: "cv", id: cv.id }}>
       <CvEditor key={cv.id} cv={{ ...cv, profileName: cv.profile.name }} stale={stale} />
     </JobWorkspace>
   )

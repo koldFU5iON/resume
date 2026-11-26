@@ -6,27 +6,27 @@ vi.mock('@/lib/session', () => ({
 vi.mock('@/lib/db', () => ({
   prisma: {
     careerVertical: { upsert: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
-    cVTemplate: { upsert: vi.fn() },
-    cVDocument: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
   },
 }))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 vi.mock('./analyse', () => ({ runCareerVerticalAnalysis: vi.fn() }))
 vi.mock('./master-cv', () => ({ generateMasterCVContent: vi.fn() }))
+vi.mock('@/modules/writing-desk/master', () => ({ landMasterCvDraft: vi.fn() }))
+vi.mock('@/modules/writing-desk/queries', () => ({ getMasterCvDeskView: vi.fn() }))
 
 import { analyseCareerVertical, generateMasterCV } from './actions'
 import { prisma } from '@/lib/db'
 import { runCareerVerticalAnalysis } from './analyse'
 import { generateMasterCVContent } from './master-cv'
 import { LLMError } from '@/modules/llm/errors'
+import { landMasterCvDraft } from '@/modules/writing-desk/master'
+import { getMasterCvDeskView } from '@/modules/writing-desk/queries'
 
 const mockVerticalUpsert = vi.mocked(prisma.careerVertical.upsert)
 const mockVerticalFindUnique = vi.mocked(prisma.careerVertical.findUnique)
 const mockVerticalUpdate = vi.mocked(prisma.careerVertical.update)
-const mockTemplateUpsert = vi.mocked(prisma.cVTemplate.upsert)
-const mockCvFindFirst = vi.mocked(prisma.cVDocument.findFirst)
-const mockCvCreate = vi.mocked(prisma.cVDocument.create)
-const mockCvUpdate = vi.mocked(prisma.cVDocument.update)
+const mockLand = vi.mocked(landMasterCvDraft)
+const mockMasterView = vi.mocked(getMasterCvDeskView)
 const mockRunAnalysis = vi.mocked(runCareerVerticalAnalysis)
 const mockGenerateMasterContent = vi.mocked(generateMasterCVContent)
 
@@ -53,7 +53,10 @@ const VERTICAL = {
   updatedAt: new Date(),
 }
 
-const CONTENT = { version: 1 as const, sections: [] }
+const CONTENT = {
+  version: 1 as const,
+  sections: [{ id: 'h', type: 'header' as const, visible: true, data: { name: 'Jane Doe', headline: 'Operations Lead', contact: { email: 'jane@example.test' } } }],
+}
 
 describe('analyseCareerVertical', () => {
   beforeEach(() => {
@@ -100,10 +103,8 @@ describe('generateMasterCV', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockVerticalFindUnique.mockResolvedValue(VERTICAL as never)
-    mockTemplateUpsert.mockResolvedValue({ id: 'default' } as never)
-    mockCvFindFirst.mockResolvedValue(null)
-    mockCvCreate.mockResolvedValue({ id: 'cv-new' } as never)
-    mockCvUpdate.mockResolvedValue({} as never)
+    mockMasterView.mockResolvedValue(null)
+    mockLand.mockResolvedValue({ ok: true, deskId: 'desk-master' })
     mockGenerateMasterContent.mockResolvedValue(CONTENT as never)
   })
 
@@ -111,7 +112,7 @@ describe('generateMasterCV', () => {
     mockVerticalFindUnique.mockResolvedValue(null)
     const res = await generateMasterCV()
     expect(res).toMatchObject({ ok: false, error: 'no_vertical' })
-    expect(mockCvCreate).not.toHaveBeenCalled()
+    expect(mockLand).not.toHaveBeenCalled()
   })
 
   it('returns no_vertical when the vertical is not ready', async () => {
@@ -120,43 +121,35 @@ describe('generateMasterCV', () => {
     expect(res).toMatchObject({ ok: false, error: 'no_vertical' })
   })
 
-  it('creates a master CVDocument linked to the vertical and generates content', async () => {
+  it('generates from the vertical and lands the master CV as a writing desk draft', async () => {
     const res = await generateMasterCV()
-    expect(res).toEqual({ ok: true, cvId: 'cv-new' })
-    expect(mockCvCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          profileId: 'profile-1',
-          careerVerticalId: 'cv-vert-1',
-          jobApplicationId: null,
-          status: 'generating',
-          jobTitle: 'Master CV',
-        }),
-      }),
-    )
+    expect(res).toEqual({ ok: true, deskId: 'desk-master' })
     expect(mockGenerateMasterContent).toHaveBeenCalledWith('profile-1', VERTICAL)
-    expect(mockCvUpdate).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        where: { id: 'cv-new' },
-        data: { generatedContent: JSON.stringify(CONTENT), status: 'draft' },
-      }),
-    )
+    const [profileId, markdown] = mockLand.mock.calls[0]
+    expect(profileId).toBe('profile-1')
+    expect(markdown).toContain(':::header')
+    expect(markdown).toContain('{{contact}}')
+    expect(markdown).not.toContain('jane@example.test')
   })
 
-  it('regenerates an existing master CV instead of creating a duplicate', async () => {
-    mockCvFindFirst.mockResolvedValue({ id: 'cv-existing' } as never)
+  it('spends nothing when a master CV draft is already waiting', async () => {
+    mockMasterView.mockResolvedValue({ draft: { content: '# waiting' } } as never)
     const res = await generateMasterCV()
-    expect(res).toEqual({ ok: true, cvId: 'cv-existing' })
-    expect(mockCvCreate).not.toHaveBeenCalled()
+    expect(res).toMatchObject({ ok: false, error: 'draft_exists' })
+    expect(mockGenerateMasterContent).not.toHaveBeenCalled()
+    expect(mockLand).not.toHaveBeenCalled()
   })
 
-  it('returns the LLM error kind and marks the document failed on generation failure', async () => {
+  it('passes a landing refusal through', async () => {
+    mockLand.mockResolvedValue({ ok: false, reason: 'draft_exists', deskId: 'desk-master', message: 'waiting' })
+    const res = await generateMasterCV()
+    expect(res).toEqual({ ok: false, error: 'draft_exists', message: 'waiting' })
+  })
+
+  it('returns the LLM error kind and lands nothing on generation failure', async () => {
     mockGenerateMasterContent.mockRejectedValue(new LLMError('no key', 'not_configured'))
     const res = await generateMasterCV()
     expect(res).toMatchObject({ ok: false, error: 'not_configured' })
-    expect(mockCvUpdate).toHaveBeenCalledWith({
-      where: { id: 'cv-new' },
-      data: { status: 'failed' },
-    })
+    expect(mockLand).not.toHaveBeenCalled()
   })
 })

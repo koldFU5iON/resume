@@ -7,14 +7,6 @@ import { useRouter } from 'next/navigation'
 import { usePageContext, useWorkspaceContext } from '@/lib/context/page-context'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import { DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable'
 import { updateSection, toggleVisibility, addCustomSection, reorderSections, markCVAccepted, unmarkCVAccepted } from '@/modules/cv/actions'
@@ -38,7 +30,6 @@ import { CustomBlock } from './blocks/custom-block'
 import { MarkdownProse } from '@/components/ui/markdown-prose'
 import { ATSScorePanel } from './ats-score-panel'
 import type { CVDocumentContent, CVSection } from '@/modules/cv/schema'
-import { generateMasterCV } from '@/modules/career-vertical/actions'
 import { jobWritingDeskHref } from '@/modules/jobs/workspace-nav'
 
 export type CVWithMeta = {
@@ -47,7 +38,6 @@ export type CVWithMeta = {
   jobTitle: string | null
   company: string | null
   jobApplicationId: string | null
-  careerVerticalId?: string | null
   jobApplication?: {
     id: string
     title: string | null
@@ -66,10 +56,7 @@ export function CvEditor({ cv, stale = false }: Props) {
   const [acceptPending, setAcceptPending] = useState(false)
   const isAccepted = status === 'accepted'
   const [, startTransition] = useTransition()
-  const [isRegenerating, setIsRegenerating] = useState(false)
-  const isMasterCV = cv.jobApplicationId === null && Boolean(cv.careerVerticalId)
   const deskHref = cv.jobApplicationId ? jobWritingDeskHref(cv.jobApplicationId) : null
-  const [showConfirm, setShowConfirm] = useState(false)
   const [showExport, setShowExport] = useState(false)
   const [jobPanelOpen, setJobPanelOpen] = useState(false)
   const [atsPanelOpen, setAtsPanelOpen] = useState(false)
@@ -198,28 +185,6 @@ export function CvEditor({ cv, stale = false }: Props) {
     toast.success('Section copied to clipboard')
   }
 
-  // Only the master CV regenerates here (from the career vertical). A job's CV
-  // is generated in that job's writing desk; the old job CV generator is gone.
-  function confirmRegenerate() {
-    setShowConfirm(false)
-    setIsRegenerating(true)
-    startTransition(async () => {
-      try {
-        const res = await generateMasterCV()
-        if (!res.ok) {
-          toast.error(res.message)
-          return
-        }
-        toast.success('Master CV regenerated')
-        router.refresh()
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : 'Regeneration failed')
-      } finally {
-        setIsRegenerating(false)
-      }
-    })
-  }
-
   async function handleToggleAccepted() {
     setAcceptPending(true)
     try {
@@ -251,32 +216,6 @@ export function CvEditor({ cv, stale = false }: Props) {
 
   return (
     <>
-      {/* Regenerate confirmation dialog */}
-      <Dialog open={showConfirm} onOpenChange={setShowConfirm}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Regenerate master CV?</DialogTitle>
-            <DialogDescription>
-              This rebuilds your master CV from your career vertical and overwrites your current edits. This action cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <button
-              onClick={() => setShowConfirm(false)}
-              className="rounded-md border border-border px-4 py-2 text-sm text-muted-foreground hover:bg-muted"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={confirmRegenerate}
-              className="rounded-md bg-destructive px-4 py-2 text-sm text-destructive-foreground hover:bg-destructive/90"
-            >
-              Regenerate
-            </button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       <div className="flex h-full flex-col print:block print:h-auto">
         {/* Toolbar */}
         <div className="border-b border-border bg-background px-4 py-2 print:hidden">
@@ -295,7 +234,7 @@ export function CvEditor({ cv, stale = false }: Props) {
             {cv.jobApplicationId && (isAccepted || status === 'draft') && (
               <button
                 onClick={handleToggleAccepted}
-                disabled={acceptPending || isRegenerating}
+                disabled={acceptPending}
                 title={isAccepted ? 'Move this CV back to draft' : 'Mark this as the CV you are sending for this job'}
                 className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted disabled:opacity-50"
               >
@@ -303,19 +242,6 @@ export function CvEditor({ cv, stale = false }: Props) {
                   ? <Loader2 className="size-3.5 animate-spin" />
                   : isAccepted ? <Undo2 className="size-3.5" /> : <CheckCircle2 className="size-3.5" />}
                 {isAccepted ? 'Back to draft' : 'Mark accepted'}
-              </button>
-            )}
-            {isMasterCV && (
-              <button
-                onClick={() => setShowConfirm(true)}
-                disabled={isRegenerating}
-                className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted disabled:opacity-50"
-              >
-                {isRegenerating
-                  ? <Loader2 className="size-3.5 animate-spin" />
-                  : <RotateCcw className="size-3.5" />
-                }
-                {isRegenerating ? 'Generating…' : 'Regenerate'}
               </button>
             )}
             {deskHref && (
@@ -391,7 +317,7 @@ export function CvEditor({ cv, stale = false }: Props) {
         {/* Body */}
         <div className="relative flex flex-1 overflow-hidden print:overflow-visible print:h-auto print:block">
           <div className="relative flex-1 overflow-y-auto bg-background p-0 md:p-6 print:overflow-visible print:h-auto print:bg-white print:p-0">
-            {stale && !isRegenerating && (
+            {stale && (
               <div className="mb-4 flex items-center justify-between gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 md:mt-0 print:hidden">
                 <p className="text-sm text-amber-700 dark:text-amber-400">
                   Your master CV changed since this CV was tailored. Generate a fresh CV for this job in its writing desk to pick up your latest positioning.
@@ -406,13 +332,6 @@ export function CvEditor({ cv, stale = false }: Props) {
                 )}
               </div>
             )}
-            {isRegenerating && (
-              <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-background/60 backdrop-blur-sm print:hidden">
-                <Loader2 className="size-8 animate-spin text-muted-foreground" />
-                <p className="text-sm font-medium text-muted-foreground">Generating your CV…</p>
-                <p className="text-xs text-muted-foreground">This takes about 15–30 seconds</p>
-              </div>
-            )}
             <div className="cv-document cv-print-area page-break-guides mx-auto w-full max-w-[794px] rounded-none shadow-none md:rounded-lg md:shadow-sm bg-background print:max-w-none print:shadow-none">
               <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
                 <SortableContext items={content.sections.map(s => s.id)} strategy={verticalListSortingStrategy}>
@@ -420,9 +339,7 @@ export function CvEditor({ cv, stale = false }: Props) {
                     <div className="flex flex-col items-center justify-center py-20 text-center">
                       <p className="text-sm font-medium text-muted-foreground">No content yet</p>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        {isMasterCV
-                          ? 'Click Regenerate to generate your master CV, or add a section below.'
-                          : deskHref
+                        {deskHref
                             ? "Generate a CV in this job's writing desk, or add a section below."
                             : 'Add a section below.'}
                       </p>

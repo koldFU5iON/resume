@@ -4,7 +4,10 @@ import { buildProfileSnapshot } from "@/modules/profile/snapshot"
 import { listDraftEvents } from "./draft"
 import { checkFacts, type FactWarning } from "./fact-check"
 import { getWritingDeskSourceLabel } from "./documents"
+import { getMasterCvMarkdown } from "./master"
 import {
+  MASTER_CV_NAME,
+  MASTER_CV_SOURCE_ID,
   WRITING_DESK_DOCUMENT_ORDER,
   parseWritingDeskDocumentType,
   type WritingDeskDocumentSummary,
@@ -30,12 +33,15 @@ export type WritingDeskWithJob = {
   sourceType: string | null
   sourceCvDocumentId: string | null
   sourceLabel: string | null
+  /** The document's job; null only on the master CV (#469). */
   jobApplication: {
     id: string
     title: string
     company: string | null
     jobDescription: string | null
-  }
+  } | null
+  /** The profile's master CV: no job, opened from the career vertical. */
+  isMaster: boolean
   /** The pending agent draft awaiting the owner's review, or null. */
   draft: {
     content: string
@@ -70,8 +76,20 @@ export async function getWritingDeskDocument(
   jobApplicationId: string,
   documentId: string,
 ): Promise<WritingDeskWithJob | null> {
+  return loadDeskView(profileId, { id: documentId, profileId, jobApplicationId })
+}
+
+/** The master CV document (#469), or null when the profile has none yet. Never matched by a job URL. */
+export async function getMasterCvDeskView(profileId: string): Promise<WritingDeskWithJob | null> {
+  return loadDeskView(profileId, { masterOfProfileId: profileId, profileId, jobApplicationId: null })
+}
+
+async function loadDeskView(
+  profileId: string,
+  where: { id?: string; profileId: string; jobApplicationId: string | null; masterOfProfileId?: string },
+): Promise<WritingDeskWithJob | null> {
   const desk = await prisma.writingDeskDocument.findFirst({
-    where: { id: documentId, profileId, jobApplicationId },
+    where,
     select: {
       id: true,
       name: true,
@@ -85,6 +103,7 @@ export async function getWritingDeskDocument(
       draftRevision: true,
       draftUpdatedAt: true,
       updatedAt: true,
+      masterOfProfileId: true,
       jobApplication: {
         select: { id: true, title: true, company: true, jobDescription: true },
       },
@@ -92,7 +111,7 @@ export async function getWritingDeskDocument(
   })
   if (!desk) return null
 
-  const { draftContent, draftRevision, draftUpdatedAt, updatedAt, ...live } = desk
+  const { draftContent, draftRevision, draftUpdatedAt, updatedAt, masterOfProfileId, ...live } = desk
   let draft: WritingDeskWithJob["draft"] = null
   if (draftContent !== null) {
     const [profile, events] = await Promise.all([
@@ -111,6 +130,7 @@ export async function getWritingDeskDocument(
 
   return {
     ...live,
+    isMaster: masterOfProfileId === profileId,
     documentType: parseWritingDeskDocumentType(live.documentType),
     draft,
   }
@@ -148,7 +168,21 @@ export async function listWritingDeskDocuments(
   }))
 }
 
+/**
+ * The CVs a document can start from: the master CV first (the desk document,
+ * or the old CV Builder master while there is no desk one yet), then the
+ * profile's other CV Builder CVs. The old master is never listed beside the
+ * desk one.
+ */
 export async function listWritingDeskSourceCVs(profileId: string): Promise<WritingDeskSourceOption[]> {
+  const [masterMarkdown, cvs] = await Promise.all([getMasterCvMarkdown(profileId), listLegacySourceCVs(profileId)])
+  const master: WritingDeskSourceOption[] = masterMarkdown
+    ? [{ id: MASTER_CV_SOURCE_ID, label: MASTER_CV_NAME, sourceType: "master-cv" }]
+    : []
+  return [...master, ...cvs.filter(cv => cv.sourceType !== "master-cv")]
+}
+
+async function listLegacySourceCVs(profileId: string): Promise<WritingDeskSourceOption[]> {
   const cvs = await prisma.cVDocument.findMany({
     where: { profileId, status: { not: "generating" } },
     select: {

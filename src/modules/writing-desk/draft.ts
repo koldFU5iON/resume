@@ -198,9 +198,11 @@ async function resolveAgentDesk(
   })
 }
 
+/** Agent drafts are always addressed by job (the master CV is not an agent target), so the job id is the resolved one. */
 async function buildState(
   profileId: string,
-  desk: { id: string; name: string; jobApplicationId: string; revision: number },
+  jobId: string,
+  desk: { id: string; name: string; revision: number },
   content: string,
   draftRevision: number,
 ): Promise<DraftState> {
@@ -208,7 +210,7 @@ async function buildState(
   return {
     deskId: desk.id,
     documentName: desk.name,
-    jobId: desk.jobApplicationId,
+    jobId,
     content,
     draftRevision,
     liveRevision: desk.revision,
@@ -282,7 +284,7 @@ export async function createDraft(
 
   return {
     ok: true,
-    value: await buildState(profileId, desk, content, desk.draftRevision + 1),
+    value: await buildState(profileId, job.id, desk, content, desk.draftRevision + 1),
   }
 }
 
@@ -295,7 +297,7 @@ export async function getDraft(profileId: string, ref: DeskRef): Promise<DraftRe
   const desk = resolved.desk
   if (!desk || desk.draftContent === null) return fail("no_draft")
 
-  return { ok: true, value: await buildState(profileId, desk, desk.draftContent, desk.draftRevision) }
+  return { ok: true, value: await buildState(profileId, job.id, desk, desk.draftContent, desk.draftRevision) }
 }
 
 function opDetail(op: SectionOp): Record<string, string> {
@@ -347,7 +349,7 @@ export async function editDraftSection(
       { writingDeskId: desk.id, apiTokenId: actor?.tokenId ?? null, tool: OP_TOOL[op.type], detail: opDetail(op) },
     )
     if (written) {
-      return { ok: true, value: await buildState(profileId, desk, applied.markdown, desk.draftRevision + 1) }
+      return { ok: true, value: await buildState(profileId, job.id, desk, applied.markdown, desk.draftRevision + 1) }
     }
   }
 

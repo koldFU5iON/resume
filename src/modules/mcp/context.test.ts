@@ -4,7 +4,7 @@ vi.mock("@/lib/db", () => ({
   prisma: {
     jobApplication: { findFirst: vi.fn() },
     cVDocument: { findFirst: vi.fn() },
-    writingDeskDocument: { findMany: vi.fn() },
+    writingDeskDocument: { findMany: vi.fn(), findUnique: vi.fn() },
   },
 }))
 vi.mock("@/modules/profile/snapshot", () => ({
@@ -22,6 +22,7 @@ import { MAX_TOOL_RESPONSE_CHARS } from "./limits"
 const mockJob = vi.mocked(prisma.jobApplication.findFirst)
 const mockCv = vi.mocked(prisma.cVDocument.findFirst)
 const mockDocs = vi.mocked(prisma.writingDeskDocument.findMany)
+const mockDeskMaster = vi.mocked(prisma.writingDeskDocument.findUnique)
 
 function docRow(i: number, name = `Doc ${i}`) {
   return {
@@ -63,6 +64,7 @@ beforeEach(() => {
   mockSerialize.mockReturnValue("# Jane Doe")
   mockDocs.mockResolvedValue([] as never)
   mockCv.mockResolvedValue(null)
+  mockDeskMaster.mockResolvedValue(null)
 })
 
 describe("getJobContext", () => {
@@ -89,7 +91,7 @@ describe("getJobContext", () => {
     const result = await getJobContext("profile-1", "job-1")
     expect(mockSerialize).toHaveBeenCalledWith(expect.anything())
     expect(mockSerialize.mock.calls[0][1]).toBeUndefined()
-    expect(result.masterCv).toContain("# Jane Doe\nPM\n{{contact}}")
+    expect(result.masterCv).toContain(":::header\n# Jane Doe\n## PM\n{{contact}}\n:::")
     expect(result.masterCv).not.toMatch(/jane@example\.test|7700/)
     expect(result.contract).toContain("{{contact}}")
   })
@@ -156,6 +158,35 @@ describe("getJobContext", () => {
     expect(result.masterCv).toContain("Jane Doe")
     expect(result.structureGuide.source).toBe("master-cv")
     expect(result.contract).toContain("Capabilities")
+  })
+
+  it("prefers the Writing Desk master CV over the old CV Builder one, and scrubs its contact details", async () => {
+    mockJob.mockResolvedValue(job as never)
+    vi.mocked(buildProfileSnapshot).mockResolvedValue({ email: "jane@example.test", phone: null, linkedin: null, github: null, website: null } as never)
+    mockDeskMaster.mockResolvedValue({
+      profileId: "profile-1",
+      content: ":::header\n# Jane Doe\njane@example.test\n:::\n\n## Selected Projects\n\nShipped things.",
+    } as never)
+    mockCv.mockResolvedValue({ generatedContent: masterContent() } as never)
+
+    const result = await getJobContext("profile-1", "job-1")
+
+    expect(mockDeskMaster.mock.calls[0][0]).toMatchObject({ where: { masterOfProfileId: "profile-1" } })
+    expect(mockCv).not.toHaveBeenCalled()
+    expect(result.masterCv).toContain("Shipped things.")
+    expect(result.masterCv).not.toContain("jane@example.test")
+    expect(result.structureGuide).toEqual({
+      source: "master-cv",
+      sections: [{ key: "header", heading: "Header" }, { key: "selected-projects", heading: "Selected Projects" }],
+    })
+    expect(result.contract).toContain("Selected Projects")
+  })
+
+  it("never reads another profile's desk master", async () => {
+    mockJob.mockResolvedValue(job as never)
+    mockDeskMaster.mockResolvedValue({ profileId: "profile-2", content: "## Not yours" } as never)
+    const result = await getJobContext("profile-1", "job-1")
+    expect(result.masterCv).toBeNull()
   })
 
   it("stays valid JSON under the response cap for worst-case field sizes", async () => {

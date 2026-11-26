@@ -19,6 +19,7 @@ import {
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { cn, formatDate } from '@/lib/utils'
+import { MASTER_CV_HREF } from '@/modules/writing-desk/schema'
 
 type CandidateJob = {
   id: string
@@ -30,9 +31,9 @@ type CandidateJob = {
 }
 
 type MasterCV = {
-  id: string
-  status: string
   updatedAt: Date
+  /** A generated version is waiting for review in the master CV editor. */
+  hasDraft: boolean
 }
 
 const THREAD_GROUPS: {
@@ -166,7 +167,7 @@ export function CareerVerticalWorkspace({
         setError(res.message)
         return
       }
-      router.push(`/dashboard/cv-builder/${res.cvId}`)
+      router.push(MASTER_CV_HREF)
     })
   }
 
@@ -384,7 +385,7 @@ export function CareerVerticalWorkspace({
             <CardFooter className="justify-between gap-3">
               {masterCV ? (
                 <span className="text-xs text-muted-foreground">
-                  Master CV {masterCV.status} · last updated {formatDate(masterCV.updatedAt)}
+                  {masterCV.hasDraft ? 'A new master CV draft is waiting for review' : `Master CV · last updated ${formatDate(masterCV.updatedAt)}`}
                 </span>
               ) : (
                 <span className="text-xs text-muted-foreground">Generating one master CV keeps it as your single source of truth.</span>
@@ -392,13 +393,13 @@ export function CareerVerticalWorkspace({
               <div className="flex gap-2">
                 {masterCV && (
                   <Link
-                    href={`/dashboard/cv-builder/${masterCV.id}`}
+                    href={MASTER_CV_HREF}
                     className={cn(buttonVariants({ size: 'sm', variant: 'outline' }))}
                   >
-                    Open master CV
+                    {masterCV.hasDraft ? 'Review draft' : 'Open master CV'}
                   </Link>
                 )}
-                <Button size="sm" onClick={handleGenerateMaster} disabled={isGenerating}>
+                <Button size="sm" onClick={handleGenerateMaster} disabled={isGenerating || Boolean(masterCV?.hasDraft)} title={masterCV?.hasDraft ? 'Accept or discard the waiting draft first' : undefined}>
                   {isGenerating && <Loader2 className="mr-1.5 size-4 animate-spin" />}
                   {isGenerating ? 'Generating…' : masterCV ? 'Regenerate master CV' : 'Generate master CV'}
                 </Button>

@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Download, FileCheck2, Pencil, Sparkles, Trash2 } from "lucide-react"
 import { toast } from "sonner"
@@ -20,6 +21,7 @@ import {
   updateWritingDeskContent,
 } from "@/modules/writing-desk/actions"
 import { writingDeskPdfHref } from "@/modules/jobs/workspace-nav"
+import { MASTER_CV_PDF_HREF } from "@/modules/writing-desk/schema"
 import { writingDeskMarkdownToText } from "@/modules/writing-desk/markdown"
 import { CONTACT_PLACEHOLDER, hasContactPlaceholder } from "@/modules/profile-map/contact"
 import type { WritingDeskDocumentType } from "@/modules/writing-desk/schema"
@@ -92,12 +94,14 @@ export function WritingDesk({
   const saveRef = useRef(save)
   useEffect(() => { saveRef.current = save })
 
+  const job = desk.jobApplication
   useWorkspaceContext(documentType ? {
     type: "writing_desk",
     deskId: desk.id,
-    jobId: desk.jobApplication.id,
-    title: desk.jobApplication.title,
-    company: desk.jobApplication.company ?? undefined,
+    jobId: job?.id,
+    title: job?.title ?? name,
+    company: job?.company ?? undefined,
+    isMaster: desk.isMaster || undefined,
     documentType,
     revision,
     sourceCvDocumentId: desk.sourceCvDocumentId ?? undefined,
@@ -226,7 +230,7 @@ export function WritingDesk({
       toast.error("Save the document before exporting")
       return
     }
-    window.open(writingDeskPdfHref(desk.jobApplication.id, desk.id), "_blank")
+    window.open(job ? writingDeskPdfHref(job.id, desk.id) : MASTER_CV_PDF_HREF, "_blank")
   }
 
   /**
@@ -236,9 +240,10 @@ export function WritingDesk({
    * recovery copy. Resolves with a message when the document is still there.
    */
   async function deleteDocument(): Promise<string | null> {
+    if (!job) return "The master CV can't be deleted here."
     await save.beginDelete()
     try {
-      const result = await deleteWritingDeskDocumentAction({ jobId: desk.jobApplication.id, documentId: desk.id }, { openNext: true })
+      const result = await deleteWritingDeskDocumentAction({ jobId: job.id, documentId: desk.id }, { openNext: true })
       if (result.ok) return null
       if (result.reason === "not_found") {
         // Already gone (another tab): stop saving to a document that no longer
@@ -304,7 +309,7 @@ export function WritingDesk({
           >
             <Pencil className="size-3.5" aria-hidden="true" />
           </Button>
-          <Button
+          {job && <Button
             variant="ghost"
             size="icon"
             className="size-7 shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive dark:hover:bg-destructive/20"
@@ -313,11 +318,11 @@ export function WritingDesk({
             onClick={() => setConfirmingDelete(true)}
           >
             <Trash2 className="size-3.5" aria-hidden="true" />
-          </Button>
+          </Button>}
         </div>
         <ReplaceWithCvPicker sources={sourceCVs} onChoose={cvId => void chooseSource(cvId)} />
         <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setBlocksOpen(true)}>Blocks</Button>
-        {(documentType === "cv" || documentType === null) && <ExternalCvPrompt documentId={desk.id} />}
+        {job && (documentType === "cv" || documentType === null) && <ExternalCvPrompt documentId={desk.id} />}
         <div className="flex overflow-hidden rounded-md border text-xs" role="group" aria-label="Editor view">
           <button type="button" aria-pressed={!showReview && mode === "markdown"} onClick={() => { setMode("markdown"); setReviewing(false) }} className={cn("px-3 py-1.5", !showReview && mode === "markdown" ? "bg-foreground text-background" : "text-muted-foreground")}>Markdown</button>
           <button type="button" aria-pressed={!showReview && mode === "preview"} onClick={() => { setMode("preview"); setReviewing(false) }} className={cn("px-3 py-1.5", !showReview && mode === "preview" ? "bg-foreground text-background" : "text-muted-foreground")}>Preview</button>
@@ -359,11 +364,18 @@ export function WritingDesk({
               Replace <code>{CONTACT_PLACEHOLDER}</code> with your contact details before exporting.
             </p>
           )}
-          {documentType === "cv" && !content.trim() && !desk.draft && (
+          {!job && documentType === "cv" && !content.trim() && !desk.draft && (
+            <div className="mb-4 space-y-2 rounded-md border bg-muted/30 px-4 py-3.5">
+              <p className="text-sm font-medium">Generate your master CV</p>
+              <p className="text-xs text-muted-foreground">Your master CV is built from your career vertical and saved here as a draft for you to accept. Or just start typing below.</p>
+              <Link href="/dashboard/career-vertical" className="text-xs font-medium underline underline-offset-2">Open your career vertical</Link>
+            </div>
+          )}
+          {job && documentType === "cv" && !content.trim() && !desk.draft && (
             <div className="mb-4 space-y-2 rounded-md border bg-muted/30 px-4 py-3.5">
               <p className="text-sm font-medium">Start this CV from your profile</p>
               <p className="text-xs text-muted-foreground">The writing desk picks the evidence that fits this job, writes the CV and saves it as a draft here. You accept or discard it; nothing live is overwritten. Or just start typing below.</p>
-              <GenerateCvForJob jobId={desk.jobApplication.id} hasCvGeneration={hasCvGeneration} readinessFixCount={readinessFixCount} />
+              <GenerateCvForJob jobId={job.id} hasCvGeneration={hasCvGeneration} readinessFixCount={readinessFixCount} />
             </div>
           )}
           {mode === "markdown"

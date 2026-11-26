@@ -16,10 +16,13 @@
 import { prisma } from "@/lib/db"
 import { toMarkdown } from "@/modules/cv/export"
 import { parseCVContent } from "@/modules/cv/schema"
+import { getMasterCvMarkdown } from "./master"
 import {
   CreateWritingDeskDocumentSchema,
   DEFAULT_WRITING_DESK_DOCUMENT_NAME,
   DeleteWritingDeskDocumentSchema,
+  MASTER_CV_NAME,
+  MASTER_CV_SOURCE_ID,
   MAX_WRITING_DESK_DOCUMENTS_PER_JOB,
   RenameWritingDeskDocumentSchema,
   WRITING_DESK_DOCUMENT_ORDER,
@@ -62,12 +65,23 @@ export function getWritingDeskSourceLabel(cv: SourceCvLabelFields): string {
 export type WritingDeskSource = {
   content: string
   sourceType: Exclude<WritingDeskSourceType, "blank">
-  sourceCvDocumentId: string
+  /** The CV Builder CV copied from; null for the master CV desk document (it is not a CVDocument). */
+  sourceCvDocumentId: string | null
   sourceLabel: string
 }
 
-/** A CV of this profile as a document source, or null when it isn't theirs (or doesn't exist). */
+/**
+ * A CV of this profile as a document source, or null when it isn't theirs
+ * (or doesn't exist). MASTER_CV_SOURCE_ID is the master CV (#469): its desk
+ * document, or the old CV Builder master converted while there is none.
+ */
 export async function loadSourceCv(profileId: string, cvId: string): Promise<WritingDeskSource | null> {
+  if (cvId === MASTER_CV_SOURCE_ID) {
+    const markdown = await getMasterCvMarkdown(profileId)
+    return markdown
+      ? { content: markdown, sourceType: "master-cv", sourceCvDocumentId: null, sourceLabel: MASTER_CV_NAME }
+      : null
+  }
   const cv = await prisma.cVDocument.findFirst({
     where: { id: cvId, profileId },
     select: {
