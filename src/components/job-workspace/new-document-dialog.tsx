@@ -25,6 +25,7 @@ import {
 } from "@/modules/writing-desk/schema"
 import { guardedNavigate } from "./navigation-guard"
 import { GenerateCvForJob } from "./generate-cv-for-job"
+import { GenerateCoverLetterForJob } from "./generate-cover-letter-for-job"
 
 /** The editor focuses its text area when it opens a document it was just asked to (see WritingDesk). */
 export const FOCUS_NEW_DOCUMENT_KEY = "writing-desk-focus-new"
@@ -216,6 +217,14 @@ export function NewDocumentDialog({
               <p className="text-sm font-medium">Or have the writing desk write it</p>
               <p className="text-xs text-muted-foreground">Picks the evidence from your profile for this job, writes the CV and saves it as a draft you accept or discard. Uses your own LLM key.</p>
               <GenerateCvForJob jobId={jobId} hasCvGeneration={hasCvGeneration} onStarted={() => onOpenChange(false)} />
+            </div>
+          )}
+
+          {documentType === "cover-letter" && (
+            <div className="grid gap-2 rounded-md border bg-muted/30 px-3 py-3">
+              <p className="text-sm font-medium">Or have the writing desk write it</p>
+              <p className="text-xs text-muted-foreground">Suggests a few angles for this job first and asks a couple of short questions, so the letter sounds like you. Then it writes the letter and saves it as a draft you accept or discard. Uses your own LLM key.</p>
+              <GenerateCoverLetterForJob jobId={jobId} onStarted={() => onOpenChange(false)} />
             </div>
           )}
 

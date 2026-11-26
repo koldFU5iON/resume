@@ -82,7 +82,13 @@ export function jobCvGenerationHref(jobId: string): string {
   return `${jobHubHref(jobId)}/cv-generation`
 }
 
-export type JobExtraDestination = { key: "deep-dive" | "cv-generation"; kind: "deep-dive" | "cv-generation"; label: string; href: string }
+/** The cover letter generation page (#471): angles first, then the letter lands as a writing desk draft. */
+export function jobCoverLetterGenerationHref(jobId: string): string {
+  return `${jobHubHref(jobId)}/cover-letter-generation`
+}
+
+export type JobExtraDestinationKind = "deep-dive" | "cv-generation" | "cover-letter-generation"
+export type JobExtraDestination = { key: JobExtraDestinationKind; kind: JobExtraDestinationKind; label: string; href: string }
 
 /**
  * The destinations "All documents" lists after the documents: Deep Dive and
@@ -93,6 +99,7 @@ export function jobExtraDestinations(jobId: string): JobExtraDestination[] {
   return [
     { key: "deep-dive", kind: "deep-dive", label: "Deep Dive", href: jobDeepDiveHref(jobId) },
     { key: "cv-generation", kind: "cv-generation", label: "CV generation", href: jobCvGenerationHref(jobId) },
+    { key: "cover-letter-generation", kind: "cover-letter-generation", label: "Cover letter generation", href: jobCoverLetterGenerationHref(jobId) },
   ]
 }
 
@@ -202,6 +209,10 @@ export function isJobDeepDivePath(pathname: string, jobId: string): boolean {
 
 export function isJobCvGenerationPath(pathname: string, jobId: string): boolean {
   return isAt(pathname.replace(/\/+$/, ""), jobCvGenerationHref(jobId))
+}
+
+export function isJobCoverLetterGenerationPath(pathname: string, jobId: string): boolean {
+  return isAt(pathname.replace(/\/+$/, ""), jobCoverLetterGenerationHref(jobId))
 }
 
 /**
