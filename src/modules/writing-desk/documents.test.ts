@@ -10,11 +10,12 @@ vi.mock("@/lib/db", () => ({
   },
 }))
 vi.mock("@/modules/cv/schema", () => ({ parseCVContent: vi.fn() }))
-vi.mock("@/modules/cv/export", () => ({ toMarkdown: vi.fn() }))
+vi.mock("./from-cv-content", () => ({ cvContentToDeskMarkdown: vi.fn() }))
 
 import { prisma } from "@/lib/db"
-import { toMarkdown } from "@/modules/cv/export"
+import { cvContentToDeskMarkdown } from "./from-cv-content"
 import {
+  copyCvToWritingDesk,
   createWritingDeskDocument,
   deleteWritingDeskDocument,
   ensurePrimaryWritingDesk,
@@ -84,7 +85,7 @@ describe("createWritingDeskDocument", () => {
       company: "Acme",
       updatedAt: new Date("2026-03-01T00:00:00Z"),
     } as never)
-    vi.mocked(toMarkdown).mockReturnValue("# From CV")
+    vi.mocked(cvContentToDeskMarkdown).mockReturnValue("# From CV")
 
     await createWritingDeskDocument(PROFILE, { jobId: "job-1", name: "CV for Acme", documentType: "cv", sourceCvId: "cv-1" })
 
@@ -245,7 +246,7 @@ describe("createWritingDeskDocument from the + dialog", () => {
       company: null,
       updatedAt: new Date("2026-03-01T00:00:00Z"),
     } as never)
-    vi.mocked(toMarkdown).mockReturnValue("# Me")
+    vi.mocked(cvContentToDeskMarkdown).mockReturnValue("# Me")
 
     await expect(createWritingDeskDocument(PROFILE, { jobId: "job-1", name: "CV 2", documentType: "cv", sourceCvId: "cv-1" }))
       .resolves.toEqual({ ok: true, id: "desk-new" })
@@ -324,5 +325,22 @@ describe("deleteWritingDeskDocument", () => {
     await expect(deleteWritingDeskDocument(PROFILE, { jobId: "job-1" }))
       .resolves.toMatchObject({ ok: false, reason: "invalid" })
     expect(mockJob).not.toHaveBeenCalled()
+  })
+})
+
+describe("copyCvToWritingDesk (#469)", () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it("refuses a CV that isn't the profile's, reading it scoped to the profile", async () => {
+    vi.mocked(prisma.cVDocument.findFirst).mockResolvedValue(null)
+    await expect(copyCvToWritingDesk("profile-1", "cv-x")).resolves.toMatchObject({ ok: false, reason: "not_found" })
+    expect(vi.mocked(prisma.cVDocument.findFirst).mock.calls[0][0]).toMatchObject({ where: { id: "cv-x", profileId: "profile-1" } })
+    expect(prisma.writingDeskDocument.create).not.toHaveBeenCalled()
+  })
+
+  it("refuses a CV with no job (desk documents other than the master belong to a job)", async () => {
+    vi.mocked(prisma.cVDocument.findFirst).mockResolvedValue({ id: "cv-1", jobApplicationId: null } as never)
+    await expect(copyCvToWritingDesk("profile-1", "cv-1")).resolves.toMatchObject({ ok: false, reason: "no_job" })
+    expect(prisma.writingDeskDocument.create).not.toHaveBeenCalled()
   })
 })

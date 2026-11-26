@@ -5,8 +5,11 @@
 // :::compact-list blocks. Used for the master CV moving into the writing
 // desk (#469) and for any later "copy to writing desk".
 //
-// Contact details are never copied: the header gets {{contact}}, which the
-// app fills in when the owner accepts a draft. Hidden sections are left out.
+// By default contact details are not copied: the header gets {{contact}},
+// which the app fills in when the owner accepts a draft (the master CV
+// copy-in, generated masters). `contact: "keep"` keeps the CV's own contact
+// line instead, for the owner's own copy or view of their CV. Hidden
+// sections are left out.
 // Pure: no DB, no network.
 
 import { CONTACT_PLACEHOLDER } from "@/modules/profile-map/contact"
@@ -19,15 +22,24 @@ function listBlock(block: "skills" | "inline-list" | "compact-list", items: read
   return lines.length > 0 ? `:::${block}\n${lines.join("\n")}\n:::` : ""
 }
 
-function headerBlock(data: Extract<CVSection, { type: "header" }>["data"]): string {
+export type CvToDeskOptions = {
+  /** "placeholder" (default): {{contact}}. "keep": the CV's own contact line, for the owner's copy or view. */
+  contact?: "placeholder" | "keep"
+}
+
+function headerBlock(data: Extract<CVSection, { type: "header" }>["data"], options: CvToDeskOptions): string {
   const location = oneLine(data.location)
+  const { email, phone, linkedin, website } = data.contact
+  const contactLine = options.contact === "keep"
+    ? [email, phone, linkedin, website].map(oneLine).filter(Boolean).join(" | ")
+    : CONTACT_PLACEHOLDER
   return [
     ":::header",
     `# ${oneLine(data.name) || "Curriculum Vitae"}`,
     ...(oneLine(data.headline) ? [`## ${oneLine(data.headline)}`] : []),
     ...(oneLine(data.subHeadline) ? [`### ${oneLine(data.subHeadline)}`] : []),
-    ...(location ? [location, ""] : []),
-    CONTACT_PLACEHOLDER,
+    ...(location && contactLine ? [location, ""] : location ? [location] : []),
+    ...(contactLine ? [contactLine] : []),
     ":::",
   ].join("\n")
 }
@@ -65,10 +77,10 @@ const GROUPED_HEADING: Partial<Record<CVSection["type"], string>> = {
   certification: "Certifications",
 }
 
-function singleSection(section: CVSection): string {
+function singleSection(section: CVSection, options: CvToDeskOptions): string {
   switch (section.type) {
     case "header":
-      return headerBlock(section.data)
+      return headerBlock(section.data, options)
     case "profile":
       return section.data.content.trim() ? `## Professional Profile\n\n${section.data.content.trim()}` : ""
     case "competencies": {
@@ -107,14 +119,14 @@ function singleSection(section: CVSection): string {
 }
 
 /** The CV as Writing Desk Markdown, in its own section order. Empty string when nothing visible has content. */
-export function cvContentToDeskMarkdown(content: CVDocumentContent): string {
+export function cvContentToDeskMarkdown(content: CVDocumentContent, options: CvToDeskOptions = {}): string {
   const visible = content.sections.filter(s => s.visible)
   const pieces: string[] = []
   for (let i = 0; i < visible.length; i++) {
     const section = visible[i]
     const heading = GROUPED_HEADING[section.type]
     if (!heading) {
-      const piece = singleSection(section)
+      const piece = singleSection(section, options)
       if (piece) pieces.push(piece)
       continue
     }

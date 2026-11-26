@@ -58,14 +58,16 @@ describe('buildSystemPrompt', () => {
     expect(result).toContain('Stripe Application')
   })
 
-  it('mentions propose_cv_section_create for cv page context regardless of ATS score', async () => {
+  it('describes an old CV as read-only and offers no CV edit tools (#469)', async () => {
     const result = await buildSystemPrompt('profile-1', {
       type: 'cv',
       cvId: 'cv-1',
       title: 'Stripe Application',
       company: 'Stripe',
     })
-    expect(result).toContain('propose_cv_section_create')
+    expect(result).toContain('read-only CV')
+    expect(result).toContain('Copy to writing desk')
+    expect(result).not.toMatch(/propose_cv_update|propose_cv_section_create/)
   })
 })
 

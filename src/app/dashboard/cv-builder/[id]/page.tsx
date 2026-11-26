@@ -3,7 +3,8 @@ import { requireProfile } from "@/lib/session"
 import { getCV } from "@/modules/cv/queries"
 import { getLatestMasterCV } from "@/modules/career-vertical/queries"
 import { JobWorkspace } from "@/components/job-workspace/job-workspace"
-import { CvEditor } from "./_components/cv-editor"
+import { CvView } from "./_components/cv-view"
+import { cvContentToDeskMarkdown } from "@/modules/writing-desk/from-cv-content"
 import { MASTER_CV_HREF } from "@/modules/writing-desk/schema"
 
 type Props = { params: Promise<{ id: string }> }
@@ -27,7 +28,12 @@ export default async function CVEditorPage({ params }: Props) {
 
   return (
     <JobWorkspace jobId={cv.jobApplicationId} current={{ kind: "cv", id: cv.id }}>
-      <CvEditor key={cv.id} cv={{ ...cv, profileName: cv.profile.name }} stale={stale} />
+      <CvView
+        key={cv.id}
+        cv={{ ...cv, profileName: cv.profile.name }}
+        markdown={cvContentToDeskMarkdown(cv.content, { contact: "keep" })}
+        stale={stale}
+      />
     </JobWorkspace>
   )
 }

@@ -321,37 +321,6 @@ export function createChatTools(profileId: string) {
       ),
     }),
 
-    propose_cv_section_create: tool({
-      description:
-        "Propose adding a new custom section to a CV document. Use when the CV is " +
-        "missing a section the user wants (e.g. a section that doesn't map to an " +
-        "existing type). The user must confirm before it is applied.",
-      inputSchema: zodSchema(
-        z.object({
-          cvId: z.string(),
-          heading: z.string().describe('The heading for the new section'),
-          subtype: z.enum(['text', 'list']),
-          rationale: z.string().describe('Why this section should be added'),
-        }),
-      ),
-    }),
-
-    propose_cv_update: tool({
-      description:
-        'Propose an update to a section of a CV document. The user must confirm before it is applied. ' +
-        'proposedData must contain the COMPLETE data object for the section (same shape as returned by get_cv_document), ' +
-        'including all required fields (e.g. outcomes: string[] for experience). Omitted required fields cause the change to be rejected.',
-      inputSchema: zodSchema(
-        z.object({
-          cvId: z.string(),
-          sectionId: z.string().describe('The id of the CVSection to update'),
-          sectionType: z.string().describe('The type of the section (e.g. "profile", "experience")'),
-          proposedData: z.record(z.string(), z.unknown()).describe('Full proposed data object for the section — must include every required field'),
-          rationale: z.string().describe('Why this change improves the CV'),
-        }),
-      ),
-    }),
-
     propose_cover_letter_update: tool({
       description:
         'Propose a full replacement of a cover letter\'s content for the user to review and confirm. Call get_cover_letter first to read the current content.',

@@ -55,3 +55,12 @@ describe('assertOwnership', () => {
     ).rejects.toThrow('Resource not found or access denied')
   })
 })
+
+describe('retired CV edit tools (#469)', () => {
+  it('no longer offers propose_cv_update or propose_cv_section_create', async () => {
+    const { createChatTools } = await import('./tools')
+    const tools = createChatTools('profile-1') as Record<string, unknown>
+    expect(tools).not.toHaveProperty('propose_cv_update')
+    expect(tools).not.toHaveProperty('propose_cv_section_create')
+  })
+})

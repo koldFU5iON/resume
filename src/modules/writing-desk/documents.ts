@@ -14,7 +14,7 @@
 // one (#377) takes the same lock, as does agent draft resolution (draft.ts).
 
 import { prisma } from "@/lib/db"
-import { toMarkdown } from "@/modules/cv/export"
+import { cvContentToDeskMarkdown } from "./from-cv-content"
 import { parseCVContent } from "@/modules/cv/schema"
 import { getMasterCvMarkdown } from "./master"
 import {
@@ -96,7 +96,8 @@ export async function loadSourceCv(profileId: string, cvId: string): Promise<Wri
   })
   if (!cv) return null
   return {
-    content: toMarkdown(parseCVContent(cv.generatedContent)),
+    // Desk blocks with the CV's own contact line: the owner's own copy of their CV.
+    content: cvContentToDeskMarkdown(parseCVContent(cv.generatedContent), { contact: "keep" }),
     sourceType: cv.jobApplicationId === null && cv.careerVerticalId !== null ? "master-cv" : "previous-cv",
     sourceCvDocumentId: cv.id,
     sourceLabel: getWritingDeskSourceLabel(cv),
@@ -243,4 +244,41 @@ export async function getPrimaryWritingDeskId(profileId: string, jobId: string):
     select: { id: true },
   })
   return first?.id ?? null
+}
+
+/** The name a CV copied from the old CV Builder gets in the writing desk (#469). */
+export const COPIED_CV_NAME = "CV (from CV Builder)"
+
+export type CopyCvToWritingDeskResult =
+  | { ok: true; jobId: string; documentId: string }
+  | { ok: false; reason: "not_found" | "no_job" | "limit" | "invalid"; message: string }
+
+/**
+ * Copies one of the profile's old CV Builder CVs into a NEW Writing Desk
+ * document on the CV's job (#469), as desk blocks with the CV's own contact
+ * line. The old CV is only read. Goes through createWritingDeskDocument, so
+ * the per-job lock and document cap apply. A CV with no job can't be copied
+ * here (every desk document but the master CV belongs to a job); it can
+ * still be picked as a source when creating a job's document.
+ */
+export async function copyCvToWritingDesk(profileId: string, cvId: string): Promise<CopyCvToWritingDeskResult> {
+  const cv = await prisma.cVDocument.findFirst({
+    where: { id: cvId, profileId },
+    select: { id: true, jobApplicationId: true },
+  })
+  if (!cv) return { ok: false, reason: "not_found", message: "CV not found." }
+  if (!cv.jobApplicationId) {
+    return { ok: false, reason: "no_job", message: "This CV isn't linked to a job. Pick it as the starting point when you add a CV document to a job." }
+  }
+
+  const created = await createWritingDeskDocument(profileId, {
+    jobId: cv.jobApplicationId,
+    name: COPIED_CV_NAME,
+    documentType: "cv",
+    sourceCvId: cv.id,
+  })
+  if (created.ok) return { ok: true, jobId: cv.jobApplicationId, documentId: created.id }
+  if (created.reason === "limit") return { ok: false, reason: "limit", message: created.message }
+  if (created.reason === "invalid") return { ok: false, reason: "invalid", message: created.message }
+  return { ok: false, reason: "not_found", message: "CV not found." }
 }

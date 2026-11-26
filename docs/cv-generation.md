@@ -421,12 +421,15 @@ A re-run on unchanged inputs skips Brief and Select (about $0.06 less and about 
 - **Coach**: on the master page the coach context has no job (`jobId` absent, `isMaster`); `get_writing_desk` and `propose_writing_desk_update` work unchanged.
 - **Left as is**: `getLatestMasterCV` still feeds the old editor's "master CV changed" banner for job CVs tailored from the OLD master. The old master `CVDocument` rows stay until Phase 5b decides on old documents.
 
-**Phase 5b (pending).** The legacy editors and what depends on them, each needing an owner decision first:
+**Phase 5b, CVs (done, issue #469).** Old CV Builder CVs are read-only; nothing is migrated in bulk and no table is dropped.
 
-- The guided cover letter flow (`src/modules/writing-guide/`, the editor's `/guide` and `/review` pages, prompts `cover-letter-*` and `cl-stage*`). The writing desk has a Cover Letter document type but no generator yet.
-- The coach tools that edit legacy documents (`src/modules/chat/tools.ts`: `list_cover_letters`, `get_cover_letter`, `propose_cover_letter_update`, `propose_cover_letter_section_update`, `propose_cv_update`, `propose_cv_section_create`).
-- ~~The master CV~~: done, see **Master CV in the writing desk** below.
-- Existing CVs and cover letters (the "View CV" / "View Cover Letter" menu links and list icons, `workspace-nav.ts`): migrate to desk documents or keep read-only. No table is dropped until then.
+- `/dashboard/cv-builder/[id]` is a read-only view (`cv-view.tsx`): the CV rendered as desk Markdown (`cvContentToDeskMarkdown(content, { contact: "keep" })`), Export (PDF, Markdown, text), the ATS check, the accepted mark, and the coach (read-only context). The editable block editor and its components are deleted, as are the server actions `updateSection`, `patchCVSectionData`, `toggleVisibility`, `addCustomSection`, `reorderSections` and `deleteCV`.
+- **Copy to writing desk** (`copyCvToWritingDesk`, `copyCvToWritingDeskAction`): a NEW document "CV (from CV Builder)" on the CV's job, desk blocks with the CV's own contact line, through `createWritingDeskDocument` (per-job lock and cap). The old CV is only read. A CV with no job can't be copied there; it can still be picked as a source when adding a job's CV document.
+- "Start from a CV" and "Replace with a CV" now copy CV Builder CVs as desk blocks (`loadSourceCv`), not the old plain Markdown.
+- Coach: `propose_cv_update` and `propose_cv_section_create` are removed. An unanswered one in an older conversation shows a "can no longer be applied" note with Dismiss (`RETIRED_WRITE_TOOLS`, `chat-message.tsx`). `get_cv_document` stays for reading.
+- The "Deprecating soon" notice says CVs are read-only; the CV Builder list links to the master CV and to the job list for new CVs.
+
+**Phase 5b, cover letters (pending, after #471).** The old cover letter editor keeps working until the writing desk can generate cover letters (#471), because its guided flow (`src/modules/writing-guide/`) is the only cover letter generator. Then: the cover letter editor goes read-only the same way, and the coach tools `list_cover_letters`, `get_cover_letter`, `propose_cover_letter_update` and `propose_cover_letter_section_update` follow.
 
 ---
 
@@ -453,7 +456,8 @@ A re-run on unchanged inputs skips Brief and Select (about $0.06 less and about 
 | Pause | 2026-11-19 (this PR) | Tuning stopped at the point of diminishing returns; see section 21. Issue #440 covers the profile changes. |
 | 5a | issue #469 | Legacy generators removed; master CV Regenerate re-routed to `generateMasterCV`, job CV regenerate to the writing desk (section 18). |
 | 5a (master) | issue #469 | Master CV moved to a job-less Writing Desk document; generation lands as a draft; MCP and "start from master CV" read it (section 18). |
-| 5b | pending | Legacy editors, coach tools and old documents (section 18). |
+| 5b (CVs) | issue #469 | Old CVs read-only with Copy to writing desk; CV edit actions and coach CV edit tools removed (section 18). |
+| 5b (cover letters) | pending, after #471 | Cover letter editor read-only and its coach tools removed (section 18). |
 
 ---
 

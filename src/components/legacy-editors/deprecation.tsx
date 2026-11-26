@@ -36,7 +36,7 @@ const REPLACEMENT: Record<LegacyEditorKind, string> = {
 }
 
 /** The short explanation shown beside the badge where there's room for one line. */
-export const LEGACY_EDITORS_EXPLANATION = "Being replaced by Writing Desk documents. They keep working for now."
+export const LEGACY_EDITORS_EXPLANATION = "Being replaced by Writing Desk documents. CVs here are read-only; the others keep working for now."
 
 export function DeprecatingSoonBadge({ className }: { className?: string }) {
   return (
@@ -113,7 +113,10 @@ export function LegacyEditorNotice({
     >
       <DeprecatingSoonBadge />
       <p className="min-w-0 flex-1 basis-64 text-sm text-amber-900 dark:text-amber-100">
-        {EDITOR_NAME[kind]} is being replaced by Writing Desk documents. It keeps working for now, and nothing you have here is removed.
+        {EDITOR_NAME[kind]} is being replaced by Writing Desk documents.{" "}
+        {kind === "cv"
+          ? "Its CVs are read-only now (copy one to the writing desk to keep editing it), and nothing you have here is removed."
+          : "It keeps working for now, and nothing you have here is removed."}
         {job
           ? atCap
             ? ` This job already has ${MAX_WRITING_DESK_DOCUMENTS_PER_JOB} documents; delete one to make room for a new ${replacement}.`
