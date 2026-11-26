@@ -6,7 +6,7 @@ import { prisma } from "@/lib/db"
 import { requireProfile } from "@/lib/session"
 import { getExternalCvPrompt } from "./external-prompt"
 import { jobHubHref, writingDeskDocumentHref } from "@/modules/jobs/workspace-nav"
-import { createWritingDeskDocument, deleteWritingDeskDocument, loadSourceCv, renameWritingDeskDocument } from "./documents"
+import { copyCvToWritingDesk, createWritingDeskDocument, deleteWritingDeskDocument, loadSourceCv, renameWritingDeskDocument } from "./documents"
 import { getWritingDeskLiveState, listWritingDeskSourceCVs, type WritingDeskSourceOption } from "./queries"
 import {
   DeleteWritingDeskDocumentSchema,
@@ -52,6 +52,20 @@ export async function createWritingDeskDocumentAction(input: unknown): Promise<C
   const result = await createWritingDeskDocument(profile.id, input)
   if (result.ok) revalidatePath(JOB_WORKSPACE_LAYOUT, "layout")
   return result
+}
+
+/**
+ * Copies one of the signed-in user's old CV Builder CVs into a new document
+ * on its job (#469) and returns where to open it. The old CV is unchanged.
+ */
+export async function copyCvToWritingDeskAction(cvId: unknown): Promise<{ ok: true; href: string } | { ok: false; message: string }> {
+  const { profile } = await requireProfile()
+  const parsed = WritingDeskIdSchema.safeParse(cvId)
+  if (!parsed.success) return { ok: false, message: "CV not found." }
+  const result = await copyCvToWritingDesk(profile.id, parsed.data)
+  if (!result.ok) return { ok: false, message: result.message }
+  revalidatePath(JOB_WORKSPACE_LAYOUT, "layout")
+  return { ok: true, href: writingDeskDocumentHref(result.jobId, result.documentId) }
 }
 
 /** Renames one of the signed-in user's documents; the job's tabs pick up the new name. */

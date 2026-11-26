@@ -1,5 +1,5 @@
 import { Document, Page, View, Text, Link, StyleSheet } from '@react-pdf/renderer'
-import type { CVWithMeta } from '../dashboard/cv-builder/[id]/_components/cv-editor'
+import type { CVWithMeta } from '@/modules/cv/types'
 import type { CVSection, HeaderData, ExperienceData, EducationData, CertificationData, LanguagesData, CustomData } from '@/modules/cv/schema'
 import { parseInlineMarkdown } from '@/modules/cv/inline-markdown'
 

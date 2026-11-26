@@ -85,3 +85,20 @@ describe("buildStructureGuideFromMarkdown", () => {
     })
   })
 })
+
+describe("cvContentToDeskMarkdown with contact: keep", () => {
+  it("keeps the CV's own contact line for the owner's copy, and still validates", () => {
+    const markdown = cvContentToDeskMarkdown(FULL, { contact: "keep" })
+    expect(markdown).toContain(":::header\n# Jane Doe\n## Operations Lead\n### Fintech | Scale-ups\nLondon, UK\n\njane@example.test | +44 7700 900123 | linkedin.com/in/jane\n:::")
+    expect(markdown).not.toContain("{{contact}}")
+    expect(validateDraftMarkdown(markdown).ok).toBe(true)
+  })
+
+  it("leaves the contact line out when the CV has none", () => {
+    const markdown = cvContentToDeskMarkdown(
+      { version: 1, sections: [{ id: "h", type: "header", visible: true, data: { name: "Jane", headline: "", contact: {} } }] },
+      { contact: "keep" },
+    )
+    expect(markdown).toBe(":::header\n# Jane\n:::")
+  })
+})

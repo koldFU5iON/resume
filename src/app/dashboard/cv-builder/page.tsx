@@ -2,7 +2,6 @@
 import Link from "next/link"
 import { requireProfile } from "@/lib/session"
 import { listCVs } from "@/modules/cv/queries"
-import { getCareerVertical } from "@/modules/career-vertical/queries"
 import { ContentContainer } from "@/app/components/ContentContainer"
 import { buttonVariants } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -12,30 +11,22 @@ import { LegacyEditorNotice } from "@/components/legacy-editors/deprecation"
 
 export default async function CVBuilderPage() {
   const { profile } = await requireProfile()
-  const [cvs, careerVertical] = await Promise.all([
-    listCVs(profile.id),
-    getCareerVertical(profile.id),
-  ])
+  const cvs = await listCVs(profile.id)
 
   return (
     <ContentContainer
       title="CV Builder"
-      description="Create and manage your CVs. Generate a tailored CV from any job application, or build a master CV to share with recruiters."
+      description="Your CVs from the old CV Builder, read-only. Open one to export it or copy it to the writing desk, where new CVs are generated and edited."
     >
       <LegacyEditorNotice kind="cv" className="mb-4 rounded-lg border" />
       <div className="mb-4 flex items-center justify-end gap-2">
-        {!careerVertical && (
-          <Link
-            href="/dashboard/career-vertical"
-            className={cn(buttonVariants({ size: "sm", variant: "outline" }))}
-          >
-            <Target className="mr-1.5 size-4" />
-            Define career vertical
-          </Link>
-        )}
+        <Link href="/dashboard/career-vertical/master-cv" className={cn(buttonVariants({ size: "sm", variant: "outline" }))}>
+          <Target className="mr-1.5 size-4" />
+          Master CV
+        </Link>
         <Link href="/dashboard/job-applications" className={cn(buttonVariants({ size: "sm" }))}>
           <Plus className="mr-1.5 size-4" />
-          Generate from a job
+          New CV from a job
         </Link>
       </div>
 
@@ -44,7 +35,7 @@ export default async function CVBuilderPage() {
           <FileText className="mx-auto mb-3 size-8 text-muted-foreground" />
           <p className="text-sm font-medium">No CVs yet</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Generate a tailored CV from a job application, or create a master CV.
+            New CVs are generated in a job&apos;s writing desk.
           </p>
         </div>
       ) : (
