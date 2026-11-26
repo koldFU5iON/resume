@@ -12,6 +12,7 @@ import { useDocumentSave } from "@/components/document-editor/use-document-save"
 import { SaveStatus } from "@/components/document-editor/save-status"
 import { DocumentSaveDialogs } from "@/components/document-editor/document-save-dialogs"
 import { GenerateCvForJob } from "@/components/job-workspace/generate-cv-for-job"
+import { GenerateCoverLetterForJob } from "@/components/job-workspace/generate-cover-letter-for-job"
 import { FOCUS_NEW_DOCUMENT_KEY } from "@/components/job-workspace/new-document-dialog"
 import {
   deleteWritingDeskDocumentAction,
@@ -369,6 +370,13 @@ export function WritingDesk({
               <p className="text-sm font-medium">Generate your master CV</p>
               <p className="text-xs text-muted-foreground">Your master CV is built from your career vertical and saved here as a draft for you to accept. Or just start typing below.</p>
               <Link href="/dashboard/career-vertical" className="text-xs font-medium underline underline-offset-2">Open your career vertical</Link>
+            </div>
+          )}
+          {job && documentType === "cover-letter" && !content.trim() && !desk.draft && (
+            <div className="mb-4 space-y-2 rounded-md border bg-muted/30 px-4 py-3.5">
+              <p className="text-sm font-medium">Write this cover letter with the writing desk</p>
+              <p className="text-xs text-muted-foreground">It suggests a few angles for this job and asks a couple of short questions first, then writes the letter and saves it here as a draft. You accept or discard it; nothing live is overwritten. Or just start typing below.</p>
+              <GenerateCoverLetterForJob jobId={job.id} />
             </div>
           )}
           {job && documentType === "cv" && !content.trim() && !desk.draft && (

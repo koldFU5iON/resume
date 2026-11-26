@@ -1,6 +1,6 @@
 # Cover letter generation (writing desk)
 
-Status: **backend shipped (PR 1 of issue #471)**. The angle picker and log page are PR 2. Until PR 2 ships, the routes below are the only way in, and the old guided cover letter editor (`src/modules/writing-guide/`) stays as it is (#469).
+Status: **shipped (issue #471: backend in PR 1, picker and page in PR 2)**. The old guided cover letter editor (`src/modules/writing-guide/`) stays until it goes read-only under #469.
 
 Related: [`cv-generation.md`](./cv-generation.md) (the run machinery this reuses), [`llm-usage-tracking.md`](./llm-usage-tracking.md).
 
@@ -103,10 +103,23 @@ Elsewhere:
 - `landGeneratedDraft` in `src/modules/writing-desk/draft.ts` lands app-generated drafts of any document type; agent tools still use the CV-only `createDraft`.
 - The routes are under `src/app/api/jobs/[id]/cover-letter-generation/`.
 
-## Next (PR 2)
+## Interface
 
-- "Generate cover letter" in the New document dialog and in an empty cover letter's empty state.
-- The angle picker: angle cards (with "check this" on unverified facts), write your own, personal questions pre-filled from the remembered answers, and tone and length options pre-selected from the last choice.
-- A run log page.
-- Review concerns to the coach through `openCoachWithDraft`.
-- Then the old cover letter editor goes read-only and its coach tools are removed (#469).
+- **Entry:** "Write a cover letter for this job" (`src/components/job-workspace/generate-cover-letter-for-job.tsx`) appears in the New document dialog when the type is Cover letter, and in the empty state of an empty cover letter document. It asks for angles and opens the page. A waiting draft (409) offers Open draft, or Discard draft and start again.
+- **Page:** `/dashboard/job-applications/view/[id]/cover-letter-generation` (`jobCoverLetterGenerationHref`), always listed in the job's "All documents" as "Cover letter generation". It shows one of these states:
+  - **empty:** how it works, and "Suggest angles";
+  - **working:** the phase's steps; `AssessmentPoller` refreshes the page while `pollSignature` is non-empty;
+  - **awaiting a choice:** the angle picker;
+  - **complete:** a link to the draft, "Write another version", the review's concerns with **Discuss with coach**, the letter preview, and "How it was made" (the log, with stage, model, time, retries, notes and an estimated cost);
+  - **failed:** the reason, a link to the waiting draft or to Settings → LLM where relevant, and "Start again".
+- **Angle picker** (`_components/angle-picker.tsx`):
+  - **Angle cards:** pitch, opening, stories, why them (with a "Check this" badge when the fact wasn't found in the sources), what it plays down, and when it fits. Plus "Write my own angle".
+  - **"Make it yours":** the personal questions. Answers to reusable topics are pre-filled from the remembered ones; the others start empty and say they're only used for this letter.
+  - **Tone and length:** tone cards with descriptions, with the company's suggested tone badged; both pre-selected from the last choice.
+  - **Remember:** a checkbox to remember the choices.
+  - **Buttons:** "Write my cover letter" and "Suggest different angles" (fresh angles; the waiting run is superseded).
+- **View logic** (no React, unit-tested) lives in `src/app/dashboard/job-applications/_components/cover-letter-view.ts`: the two POSTs, the picker's request body, the poll signature, the steps and the coach message.
+
+## Next (#469)
+
+The old cover letter editor goes read-only (with a copy to the writing desk, as old CVs did) and its coach tools (`list_cover_letters`, `get_cover_letter`, `propose_cover_letter_update`, `propose_cover_letter_section_update`) are removed.
