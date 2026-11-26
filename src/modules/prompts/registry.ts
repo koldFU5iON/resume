@@ -45,14 +45,6 @@ export const PROMPT_REGISTRY: PromptDef[] = [
     group: 'cv',
   },
   {
-    key: 'cv-evidence-score',
-    label: 'CV evidence scoring',
-    description: 'Scores each profile activity 1–10 and assigns a tier (must-include / useful-context / cut).',
-    filename: 'cv-evidence-score.md',
-    group: 'cv',
-    requiredMarkers: ['== JOB INTELLIGENCE =='],
-  },
-  {
     key: 'cv-gen-brief',
     label: 'CV generation (writing desk): brief',
     description: 'Decides what the CV must achieve for the role: the hidden question, what to lead with, emphasise and play down, and a budget per section.',
@@ -92,20 +84,6 @@ export const PROMPT_REGISTRY: PromptDef[] = [
     label: 'CV generation (writing desk): review',
     description: 'Checks the assembled CV against the evidence and the brief: removes or rewords unsupported claims, fixes repetition and voice, and lists concerns for the coach. Code re-checks every edit before applying it.',
     filename: 'cv-gen-review.md',
-    group: 'cv',
-  },
-  {
-    key: 'cv-recruiter-scan',
-    label: 'CV recruiter scan',
-    description: 'Simulates a 15-second recruiter skim to check whether the CV surfaces its strongest evidence.',
-    filename: 'cv-recruiter-scan.md',
-    group: 'cv',
-  },
-  {
-    key: 'cv-ats-context',
-    label: 'CV ATS keyword context',
-    description: 'Extracts ATS-parseable terms from the job description and classifies them as supported / adjacent / absent.',
-    filename: 'cv-ats-context.md',
     group: 'cv',
   },
   {
