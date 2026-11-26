@@ -20,18 +20,6 @@ export async function loadCVJobAnalysisPrompt(profileId: string): Promise<string
   return loadPromptText(profileId, 'cv-job-analysis')
 }
 
-export async function loadEvidenceScoringPrompt(profileId: string): Promise<string> {
-  return loadPromptText(profileId, 'cv-evidence-score')
-}
-
-export async function loadCVScanPrompt(profileId: string): Promise<string> {
-  return loadPromptText(profileId, 'cv-recruiter-scan')
-}
-
-export async function loadATSContextPrompt(profileId: string): Promise<string> {
-  return loadPromptText(profileId, 'cv-ats-context')
-}
-
 export async function loadCareerVerticalPrompt(profileId: string): Promise<string> {
   return loadPromptText(profileId, 'career-vertical')
 }

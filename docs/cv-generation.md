@@ -2,7 +2,7 @@
 
 Profile relationships now feed Select through a derived knowledge graph. See [Profile graph retrieval](knowledge-graph.md) for traversal rules, provenance, bounds and reuse invalidation.
 
-Status: **shipped.** Phases 1 to 4b are merged: the run record and log, Gather/Brief/Select, per-employer selection, the section writers and Assemble, Review, Land, stored-selection reuse, and (4b) the switch of the app to this flow. Phase 5 (deleting the legacy generator) is pending; its removal list is at the end. This file is the implementation record: it describes what the code does now. Where a history note is useful it says which phase changed a rule, but it does not keep superseded designs. The pipeline of the code being replaced is kept in [`cv-generation-legacy.md`](./cv-generation-legacy.md) until Phase 5.
+Status: **shipped.** Phases 1 to 4b are merged: the run record and log, Gather/Brief/Select, per-employer selection, the section writers and Assemble, Review, Land, stored-selection reuse, and (4b) the switch of the app to this flow. Phase 5a (issue #469: deleting the legacy generators) is done; what is left of the legacy editors is listed in section 18. This file is the implementation record: it describes what the code does now. Where a history note is useful it says which phase changed a rule, but it does not keep superseded designs.
 
 Related: [`llm-usage-tracking.md`](./llm-usage-tracking.md) (usage tags and attribution), [`deep-dive.md`](./deep-dive.md) (the run machinery this copies), [`llm-layer.md`](./llm-layer.md).
 
@@ -29,7 +29,7 @@ Goals, from the audit of the legacy generator (one 8,000-token call wrote everyt
 5. **Claimed skills stay in lists.** A skill with no evidence behind it may appear in Skills and Tools lists; in a bullet, summary or profile only if the job's requirements name it; never as a Core Competency.
 6. **Certifications and education are code-rendered, in relevance order**, with status derived from the data (in progress, expired, undated).
 7. **Coach and verification flags stay rare.** At most 3 "worth a quick check" notes per run.
-8. **Switch immediately** (done in 4b): the menu points at the writing desk; the old routes stay reachable by URL only (nothing links to them: the job menu, the job nav's "Older editors" group and the CV and cover letter list pages no longer do) until Phase 5.
+8. **Switch immediately** (done in 4b): the menu points at the writing desk; the old routes stayed reachable by URL only until Phase 5a deleted them.
 
 ---
 
@@ -321,7 +321,7 @@ Independent Projects entries are read-only context in the same Review call, with
 - **Collapsible sections** (`_components/log-sections.tsx`): `LogSection` is a heading containing a toggle button (`aria-expanded`, `aria-controls`) over a body that stays in the DOM (`hidden` when collapsed), so nothing is lost on collapse. Sections: `concerns`, `assembled`, `brief`, `selection` and one `stage:<stage>` per log row that has detail (`logSectionIds`). While a run is active every section starts collapsed; on a complete or failed run Concerns and Assembled CV start open and the rest collapsed (`defaultSectionOpen`). Open state lives in `LogSectionsProvider` (client state, only the user's own choices, `resolveSectionOpen`), which stays mounted across the poller's `router.refresh()`, so a section the user opened stays open; it is not persisted across page loads. "Expand all" / "Collapse all" (`ExpandAllButton`) sets every section. The nested native disclosures (kept/dropped, warnings, "Where each bullet came from", Markdown) are unchanged.
 - **Concerns panel** (`_components/concerns-panel.tsx`): a `LogSection`. Collapsed or open, it shows "N concerns to discuss with the coach", every title and a **Discuss all with coach** button; its body shows, per concern, the kind badge, why, the question and the evidence snippets, and a **Discuss with coach** button. Wording is suggestion-only: "the draft does not wait on them".
 - **Coach handoff** (`src/components/shell/coach-handoff.ts`): the single helper `openCoachWithDraft(text)` dispatches a `coach-draft` event; `ChatPanel` (`src/components/shell/chat-panel.tsx`) listens, fills its input, expands it, opens the panel and focuses it. **It never sends** and writes nothing to the profile. The message text is built by `concernCoachMessage` / `allConcernsCoachMessage` (`cv-generation-view.ts`): the job, the concern, why, the question and evidence, and "Don't change my profile; I'll make any change myself." The coach is due a rework: this is the only coupling (one helper, one listener).
-- **Retired pages**: `/dashboard/cv-builder/new` and `/dashboard/cover-letters/new` are linked from nowhere (the list pages' "New" buttons now go to the job list, `jobDocumentCreateLinks` offers interview prep only) and show a retirement banner (`src/components/legacy-editors/legacy-generation-banner.tsx`) pointing at the job's writing desk; the old generator runs only on an explicit click.
+- **Retired pages**: `/dashboard/cv-builder/new` and `/dashboard/cover-letters/new` were deleted in Phase 5a; those URLs now 404. The list pages' "New" buttons go to the job list.
 
 Pure view helpers live in `src/app/dashboard/job-applications/_components/cv-generation-view.ts` (stage rows, `briefRows`, `selectionGroups`, `concernRows`, `reviewSummary`, `defaultSectionOpen`, `resolveSectionOpen`, `setAllSections`, `allSectionsOpen`, `logSectionIds`, `runLogMarkdown`, `startResponseMessage`, `draftHref`).
 
@@ -331,7 +331,7 @@ Pure view helpers live in `src/app/dashboard/job-applications/_components/cv-gen
 
 Six prompt files in `src/lib/prompts/`: `cv-gen-brief.md`, `cv-gen-select.md`, `cv-gen-write-experience.md`, `cv-gen-write-skills.md`, `cv-gen-write-profile.md`, `cv-gen-review.md`. Each is registered in `PROMPT_REGISTRY` (`src/modules/prompts/registry.ts`, group `cv`, keys equal to the file names without `.md`) and loaded with `loadCV*Prompt`, so **users can override each in Settings → Prompts** (`/dashboard/settings/prompts`). The JSON Schema output contract is appended in code, so an edited prompt cannot break the output shape; and nothing in code depends on a prompt's wording. Every writer's system prompt is `composeSystem(writing rules, writing brief, prompt, output format)`: the user's writing rules and writing brief (Settings → AI writing) apply to every writer and to Review. The Brief and Select prompts' text is part of the reuse key. No prompt carries a name, contact detail, employer, title or date, or block syntax.
 
-The legacy `cv-generate.md` is not used by this flow.
+The legacy `cv-generate.md` is not used by this flow; it stays only because the master CV generator (`src/modules/career-vertical/master-cv.ts`) still uses it.
 
 ---
 
@@ -402,17 +402,22 @@ A re-run on unchanged inputs skips Brief and Select (about $0.06 less and about 
 
 ---
 
-## 18. Legacy pipeline and Phase 5
+## 18. Legacy removal (Phase 5)
 
-The legacy generator (`createAndGenerateCV` in `src/modules/cv/actions.ts`, `src/modules/cv/generate.ts`, the `cv-generate.md` prompt) is documented in [`cv-generation-legacy.md`](./cv-generation-legacy.md) and is **unlinked but still reachable** at `/dashboard/cv-builder/new` and `/dashboard/cover-letters/new` (behind a retirement banner and an explicit click). Existing legacy CVs and cover letters stay openable from the job menu and the list icons.
+**Phase 5a (done, issue #469).** The legacy generators are deleted: the `/dashboard/cv-builder/new` and `/dashboard/cover-letters/new` pages and their retirement banner, `createAndGenerateCV`, `regenerateCVContent`, `src/modules/cv/generate.ts`, `score-evidence.ts`, `scan-cv.ts`, `ats-context.ts` (with `ats-context-schema.ts`), `createCoverLetter` and the cover letter template, `formatMasterCVNarrative`, the prompts `cv-evidence-score`, `cv-recruiter-scan` and `cv-ats-context` with their `PROMPT_REGISTRY` entries and loaders, and `docs/cv-generation-legacy.md`. Re-routed rather than deleted:
 
-**Phase 5 removal list** (do in one PR; confirm usage first):
+- `applyRoleBudgets` moved to `src/modules/career-vertical/role-budgets.ts` (the master CV uses it).
+- `cv-generate.md` and its registry entry stay: the master CV generator loads it.
+- `analyse-job.ts` stays: `analyseJob` is the last-resort Gather input here and the deep dive uses it.
+- In the old CV editor, **Regenerate** shows only on the master CV and calls `generateMasterCV` (it used to run the legacy generator in generic mode). A job CV shows **Generate in writing desk** instead, and the "master CV changed" banner links to the job's writing desk.
+- Legacy feature labels stay (old usage rows carry them). A saved prompt override for a removed key is ignored (loading and saving work per key).
 
-- `src/app/dashboard/cv-builder/new/page.tsx` and `src/app/dashboard/cover-letters/new/page.tsx` (the only remaining pages that start the old generators; nothing links to them), and `src/components/legacy-editors/legacy-generation-banner.tsx`.
-- `createAndGenerateCV` (`src/modules/cv/actions.ts`) and `src/modules/cv/generate.ts` with its helpers used only by it (keep `analyse-job.ts`: `analyseJob` is still the last-resort Gather input here), `score-evidence.ts`, `scan-cv.ts`, and `src/lib/prompts/cv-generate.md` plus its `PROMPT_REGISTRY` entries (`cv-generate`, `cv-evidence-score`, `cv-recruiter-scan`) once nothing else uses them.
-- Legacy-only feature labels may stay (old usage rows carry them).
-- `docs/cv-generation-legacy.md` and its reference lines in AGENTS.md.
-- The legacy editors (`/dashboard/cv-builder/[id]`, cover letter editor) and the "View CV" / "View Cover Letter" menu links and list icons only when their data is migrated or the owner chooses to retire them.
+**Phase 5b (pending).** The legacy editors and what depends on them, each needing an owner decision first:
+
+- The guided cover letter flow (`src/modules/writing-guide/`, the editor's `/guide` and `/review` pages, prompts `cover-letter-*` and `cl-stage*`). The writing desk has a Cover Letter document type but no generator yet.
+- The coach tools that edit legacy documents (`src/modules/chat/tools.ts`: `list_cover_letters`, `get_cover_letter`, `propose_cover_letter_update`, `propose_cover_letter_section_update`, `propose_cv_update`, `propose_cv_section_create`).
+- The master CV: it is a legacy `CVDocument` edited in `/dashboard/cv-builder/[id]`, read by MCP `get_job_context` (`src/modules/mcp/context.ts`) and by the writing desk's "start from master/previous CV" (`loadSourceCv`). It needs a writing desk home before the CV editor can go.
+- Existing CVs and cover letters (the "View CV" / "View Cover Letter" menu links and list icons, `workspace-nav.ts`): migrate to desk documents or keep read-only. No table is dropped until then.
 
 ---
 
@@ -437,7 +442,8 @@ The legacy generator (`createAndGenerateCV` in `src/modules/cv/actions.ts`, `src
 | Round 3a fix | `fix/cv-gen-years-summary` | Review keeps the code-supplied years phrase (prompt input, recheck allows exactly it); the experience writer may not spend a selected activity on the summary: prompt rule, uncited-activity soft check with one retry, log note; no migration. |
 | Project notes | `fix/cv-gen-project-notes` | The generator read only a project's `description` and `highlights`, so a project with an empty description and a long notes body looked title-only and a 7k notes body never reached Select or the writers. New `projectEvidenceText` (notes digest + atoms, above); project atoms become Select activity candidates (`fromProject`); `PROJECT_EVIDENCE_MAX_CHARS` 2,000; atoms already bullets are left out of the project text; name pins pin a project's best atoms; `SELECTION_PIPELINE_VERSION` 7; no migration. |
 | Pause | 2026-11-19 (this PR) | Tuning stopped at the point of diminishing returns; see section 21. Issue #440 covers the profile changes. |
-| 5 | pending | Remove the legacy generator (list above). |
+| 5a | issue #469 | Legacy generators removed; master CV Regenerate re-routed to `generateMasterCV`, job CV regenerate to the writing desk (section 18). |
+| 5b | pending | Legacy editors, coach tools and master CV home (section 18). |
 
 ---
 
@@ -523,7 +529,7 @@ to record. The notes below describe earlier implementation stages.
 
 An approved live check can use a fresh run and compare the Select rejection counts, kept capabilities, citation notes and Review edits against the source evidence. The run log distinguishes selection reference failures from profile evidence gaps.
 
-**Legacy removal (Phase 5)** still waits until a few real CVs have gone out from this flow.
+**Legacy removal**: Phase 5a is done (issue #469); Phase 5b is listed in section 18.
 
 **Structured results (issue #440, item 1; 2026-11-19).** An achievement can carry a `Result` (`RoleActivity.result`, Json): `measure` ("asset turnaround time"), `value` ("1 hour"), optional `baseline` ("3 weeks") and `period` ("Q3 2023"). Rules and the one merge function live in `src/modules/profile/result.ts`: `combineImpact(impact, result)` gives the structured result first ("asset turnaround time: 1 hour (from 3 weeks), Q3 2023"), then the free-text impact unless every number in it is already in the result. The vault build (`profile-map/build.ts`) stores that merged text as the evidence note's `impact` and the parsed value as `result`, so the generator (`candidates.ts`, `project-evidence.ts`, provenance, Review) and every other vault reader see structured figures with **no change to the generator**. Existing profiles are untouched (the column is nullable, nothing is back-filled; `figure_in_prose` lists what to fill in). Edited on the profile in the evidence form ("Result").
 

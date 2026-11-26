@@ -3,7 +3,6 @@
 import { revalidatePath } from 'next/cache'
 import { prisma } from '@/lib/db'
 import { requireProfile } from '@/lib/session'
-import { buildCoverLetterTemplate } from './template'
 import { nanoid } from 'nanoid'
 
 type CoverLetterSection = { id: string; content: string }
@@ -23,39 +22,6 @@ function deriveSections(
     if (match) { usedIds.add(match.id); return match }
     return { id: nanoid(), content }
   })
-}
-
-export async function createCoverLetter(jobApplicationId?: string): Promise<{ id: string }> {
-  const { profile } = await requireProfile()
-
-  let jobTitle: string | null = null
-  let company: string | null = null
-
-  if (jobApplicationId) {
-    const job = await prisma.jobApplication.findFirst({
-      where: { id: jobApplicationId, profileId: profile.id },
-      select: { title: true, company: true },
-    })
-    if (job) {
-      jobTitle = job.title
-      company = job.company ?? null
-    }
-  }
-
-  const letter = await prisma.coverLetterDocument.create({
-    data: {
-      profileId: profile.id,
-      jobApplicationId: jobApplicationId ?? null,
-      jobTitle,
-      company,
-      mode: 'markdown',
-      status: 'draft',
-      content: buildCoverLetterTemplate(profile),
-    },
-    select: { id: true },
-  })
-
-  return { id: letter.id }
 }
 
 export async function linkJobToCoverLetter(

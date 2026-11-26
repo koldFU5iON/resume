@@ -9,8 +9,8 @@
 // - Shortcut: when the job moves to applied (or straight to interviewing),
 //   its most recent draft CV is accepted (`acceptedVia: 'applied'`), unless
 //   the job already has an accepted CV.
-// - Editing an accepted CV keeps it accepted. Regenerating one doesn't touch
-//   it: the new content goes into a new draft CV (see `regenerateCVContent`).
+// - Editing an accepted CV keeps it accepted. Job CVs are now generated in the
+//   writing desk, so nothing regenerates over a CV here.
 // - The user can undo an acceptance, which puts the CV back to draft.
 //
 // Every query filters by profileId.
