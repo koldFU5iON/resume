@@ -58,13 +58,35 @@ describe('buildSystemPrompt', () => {
     expect(result).toContain('Stripe Application')
   })
 
-  it('mentions propose_cv_section_create for cv page context regardless of ATS score', async () => {
+  it('describes an old CV as read-only and offers no CV edit tools (#469)', async () => {
     const result = await buildSystemPrompt('profile-1', {
       type: 'cv',
       cvId: 'cv-1',
       title: 'Stripe Application',
       company: 'Stripe',
     })
-    expect(result).toContain('propose_cv_section_create')
+    expect(result).toContain('read-only CV')
+    expect(result).toContain('Copy to writing desk')
+    expect(result).not.toMatch(/propose_cv_update|propose_cv_section_create/)
+  })
+})
+
+describe('buildSystemPrompt — writing desk', () => {
+  it('describes a job document with its job and deep dive', async () => {
+    const result = await buildSystemPrompt('profile-1', {
+      type: 'writing_desk', deskId: 'desk-1', jobId: 'job-1', title: 'Engineer', company: 'Acme', documentType: 'cv', revision: 2,
+    })
+    expect(result).toContain('for "Engineer" at Acme')
+    expect(result).toContain('Job ID: job-1')
+  })
+
+  it('describes the master CV (#469) with no job and no deep dive', async () => {
+    const result = await buildSystemPrompt('profile-1', {
+      type: 'writing_desk', deskId: 'desk-master', title: 'Master CV', isMaster: true, documentType: 'cv', revision: 1,
+    })
+    expect(result).toContain('editing their master CV')
+    expect(result).toContain('Writing Desk ID: desk-master')
+    expect(result).not.toContain('Job ID:')
+    expect(result).not.toContain('undefined')
   })
 })

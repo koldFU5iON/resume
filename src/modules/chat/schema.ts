@@ -17,7 +17,9 @@ export const PageContextSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('writing_desk'),
     deskId: z.string(),
-    jobId: z.string(),
+    /** Absent only on the master CV (#469), which has no job. */
+    jobId: z.string().optional(),
+    isMaster: z.boolean().optional(),
     title: z.string(),
     company: z.string().optional(),
     documentType: z.enum(['cv', 'cover-letter', 'interview-prep', 'other']),

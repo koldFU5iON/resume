@@ -108,6 +108,27 @@ export const PROMPT_REGISTRY: PromptDef[] = [
     group: 'cover-letter',
   },
   {
+    key: 'cl-gen-angles',
+    label: 'Cover letter (writing desk): suggest angles',
+    description: 'Suggests distinct angles for a cover letter and a few personal questions, before anything is written. Company facts only from research or the job description.',
+    filename: 'cl-gen-angles.md',
+    group: 'cover-letter',
+  },
+  {
+    key: 'cl-gen-write',
+    label: 'Cover letter (writing desk): write',
+    description: 'Writes the letter from the chosen angle, answers, tone and length, to a best-practice structure. Code adds the header, name and contact line, and checks length, generic phrases and figures.',
+    filename: 'cl-gen-write.md',
+    group: 'cover-letter',
+  },
+  {
+    key: 'cl-gen-review',
+    label: 'Cover letter (writing desk): review',
+    description: 'A fresh recruiter read: a few exact edits (re-checked in code) and concerns for the coach.',
+    filename: 'cl-gen-review.md',
+    group: 'cover-letter',
+  },
+  {
     key: 'cl-stage1-analyse',
     label: 'Cover letter: role & candidate brief',
     description: 'Stage 1 of the guided pipeline — analyses the role and produces the strategic brief that gates the later stages.',

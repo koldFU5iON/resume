@@ -2,7 +2,7 @@ import { requireProfile } from '@/lib/session'
 import { ContentContainer } from '@/app/components/ContentContainer'
 import {
   getCareerVertical,
-  getMasterCVForVertical,
+  getMasterCvSummary,
   listVerticalCandidateJobs,
 } from '@/modules/career-vertical/queries'
 import { CareerVerticalWorkspace } from './_components/career-vertical-workspace'
@@ -15,7 +15,7 @@ export default async function CareerVerticalPage() {
     listVerticalCandidateJobs(profile.id),
   ])
 
-  const masterCV = vertical ? await getMasterCVForVertical(profile.id, vertical.id) : null
+  const masterCV = vertical ? await getMasterCvSummary(profile.id) : null
 
   return (
     <ContentContainer

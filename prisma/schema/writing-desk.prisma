@@ -4,10 +4,14 @@
 
 // A job can hold several named documents (#370). The oldest (createdAt, id)
 // is the job's primary document: the one job-scoped links resolve to.
+// The profile's master CV (#469) is the one document with no job: its
+// masterOfProfileId is its profileId (unique, so one master per profile).
 model WritingDeskDocument {
   id                 String    @id @default(cuid())
   profileId          String
-  jobApplicationId   String
+  jobApplicationId   String?
+  /// Set to profileId on the profile's master CV only; null on job documents.
+  masterOfProfileId  String?   @unique
   name               String    @default("Untitled document")
   documentType       String?
   content            String    @default("")
@@ -22,10 +26,11 @@ model WritingDeskDocument {
   updatedAt          DateTime  @updatedAt
 
   profile        Profile                 @relation(fields: [profileId], references: [id], onDelete: Cascade)
-  jobApplication JobApplication          @relation(fields: [jobApplicationId], references: [id], onDelete: Cascade)
+  jobApplication JobApplication?         @relation(fields: [jobApplicationId], references: [id], onDelete: Cascade)
   sourceCv       CVDocument?             @relation("WritingDeskSourceCV", fields: [sourceCvDocumentId], references: [id], onDelete: SetNull)
   draftEvents    WritingDeskDraftEvent[]
   cvGenerations  CvGeneration[]
+  coverLetterGenerations CoverLetterGeneration[]
   llmUsageLogs   LlmUsageLog[]
 
   @@index([profileId])

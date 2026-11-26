@@ -99,8 +99,10 @@ Each tool verifies ownership before returning data. For single-row fetches the c
 | Tool | Proposes |
 |------|---------|
 | `propose_profile_update` | A change to a profile field (`section`, `field`, `currentValue`, `proposedValue`, `rationale`) |
-| `propose_cv_update` | A change to a CV section (`cvId`, `sectionId`, `proposedContent`, `rationale`) |
 | `propose_prep_note_update` | A change to a prep note block (`sessionId`, `noteId`, `blockId`, `proposedContent`) |
+| `propose_writing_desk_update` | A full Markdown replacement of a Writing Desk document (`deskId`, `proposedContent`, `expectedRevision`) |
+
+The CV edit tools `propose_cv_update` and `propose_cv_section_create` were removed when old CV Builder CVs became read-only (#469); an unanswered one in an older conversation renders a "can no longer be applied" note with Dismiss.
 
 Write tools have **no `execute` function**. The AI SDK treats them as client-side tools — the LLM emits the tool call, the client renders a `ToolConfirmationCard`, and the conversation is paused until the user calls `addToolOutput({ status: 'accepted'|'rejected' })`. The LLM then responds conversationally.
 

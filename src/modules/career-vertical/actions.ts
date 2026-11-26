@@ -7,6 +7,10 @@ import { LLMError, type LLMErrorKind } from '@/modules/llm/errors'
 import { runCareerVerticalAnalysis } from './analyse'
 import { generateMasterCVContent } from './master-cv'
 import type { CareerVerticalAnalysis } from './schema'
+import { cvContentToDeskMarkdown } from '@/modules/writing-desk/from-cv-content'
+import { landMasterCvDraft } from '@/modules/writing-desk/master'
+import { getMasterCvDeskView } from '@/modules/writing-desk/queries'
+import { MASTER_CV_HREF } from '@/modules/writing-desk/schema'
 
 type AnalyseResult =
   | { ok: true; analysis: CareerVerticalAnalysis }
@@ -51,9 +55,15 @@ export async function analyseCareerVertical(jobIds: string[]): Promise<AnalyseRe
 }
 
 type GenerateMasterCVResult =
-  | { ok: true; cvId: string }
-  | { ok: false; error: 'no_vertical' | LLMErrorKind; message: string }
+  | { ok: true; deskId: string }
+  | { ok: false; error: 'no_vertical' | 'draft_exists' | 'invalid' | LLMErrorKind; message: string }
 
+/**
+ * Generates the master CV from the career vertical and lands it as a draft of
+ * the master CV Writing Desk document (#469): the live master is never
+ * overwritten, and a draft already waiting is never replaced (nothing is
+ * generated or spent then). The owner accepts or discards it in the editor.
+ */
 export async function generateMasterCV(): Promise<GenerateMasterCVResult> {
   const { profile } = await requireProfile()
 
@@ -66,56 +76,24 @@ export async function generateMasterCV(): Promise<GenerateMasterCVResult> {
     }
   }
 
-  const template = await prisma.cVTemplate.upsert({
-    where: { id: 'default' },
-    update: {},
-    create: {
-      id: 'default',
-      name: 'Default',
-      description: 'Standard CV template',
-      isDefault: true,
-      isBuiltIn: true,
-    },
-    select: { id: true },
-  })
+  // Check before spending: a waiting draft would refuse the new one anyway.
+  const existing = await getMasterCvDeskView(profile.id)
+  if (existing?.draft) {
+    return { ok: false, error: 'draft_exists', message: 'A master CV draft is already waiting for review. Accept or discard it first.' }
+  }
 
-  // One master per career vertical. Regenerate the existing document rather
-  // than stacking duplicates every time the button is pressed.
-  const existing = await prisma.cVDocument.findFirst({
-    where: { profileId: profile.id, jobApplicationId: null, careerVerticalId: vertical.id },
-    select: { id: true },
-  })
-
-  const doc =
-    existing ??
-    (await prisma.cVDocument.create({
-      data: {
-        profileId: profile.id,
-        careerVerticalId: vertical.id,
-        jobApplicationId: null,
-        templateId: template.id,
-        generatedContent: '{}',
-        status: 'generating',
-        jobTitle: 'Master CV',
-      },
-    }))
-
+  let content
   try {
-    await prisma.cVDocument.update({ where: { id: doc.id }, data: { status: 'generating' } })
-    const content = await generateMasterCVContent(profile.id, vertical)
-    await prisma.cVDocument.update({
-      where: { id: doc.id },
-      data: { generatedContent: JSON.stringify(content), status: 'draft' },
-    })
+    content = await generateMasterCVContent(profile.id, vertical)
   } catch (err) {
-    await prisma.cVDocument
-      .update({ where: { id: doc.id }, data: { status: 'failed' } })
-      .catch(() => {})
     if (err instanceof LLMError) return { ok: false, error: err.kind, message: err.message }
     throw err
   }
 
+  const landed = await landMasterCvDraft(profile.id, cvContentToDeskMarkdown(content))
+  if (!landed.ok) return { ok: false, error: landed.reason, message: landed.message }
+
   revalidatePath('/dashboard/career-vertical')
-  revalidatePath('/dashboard/cv-builder')
-  return { ok: true, cvId: doc.id }
+  revalidatePath(MASTER_CV_HREF)
+  return { ok: true, deskId: landed.deskId }
 }

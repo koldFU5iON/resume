@@ -4,8 +4,10 @@ import {
   canAddWritingDeskDocument,
   isLegacyDocumentKind,
   unlistedWritingDeskDocument,
+  isJobCoverLetterGenerationPath,
   isJobCvGenerationPath,
   isJobDeepDivePath,
+  jobCoverLetterGenerationHref,
   jobCvGenerationHref,
   jobExtraDestinations,
   jobDocumentCreateLinks,
@@ -227,8 +229,15 @@ describe("CV generation log link", () => {
 })
 
 describe("jobExtraDestinations", () => {
-  it("lists Deep Dive and CV generation always, whether or not the job has a run", () => {
-    expect(jobExtraDestinations("job1").map((e) => e.key)).toEqual(["deep-dive", "cv-generation"])
+  it("lists Deep Dive, CV generation and cover letter generation always, whether or not the job has a run", () => {
+    expect(jobExtraDestinations("job1").map((e) => e.key)).toEqual(["deep-dive", "cv-generation", "cover-letter-generation"])
     expect(jobExtraDestinations("job1")[1].href).toBe(jobCvGenerationHref("job1"))
+    expect(jobExtraDestinations("job1")[2].href).toBe(jobCoverLetterGenerationHref("job1"))
+  })
+
+  it("recognises the cover letter generation page, and nothing under another job", () => {
+    expect(isJobCoverLetterGenerationPath(jobCoverLetterGenerationHref("job1"), "job1")).toBe(true)
+    expect(isJobCoverLetterGenerationPath(`${jobCoverLetterGenerationHref("job1")}/`, "job1")).toBe(true)
+    expect(isJobCoverLetterGenerationPath(jobCoverLetterGenerationHref("job2"), "job1")).toBe(false)
   })
 })

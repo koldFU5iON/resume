@@ -43,10 +43,13 @@ export async function getExternalCvPrompt(profileId: string, documentId: string)
   })
   if (!desk) throw new Error('Writing desk not found')
   if (desk.documentType !== null && desk.documentType !== 'cv') throw new Error('Choose a CV document to create a CV prompt')
+  // The prompt tailors a CV to a job; the master CV has none (its editor doesn't offer this).
+  const job = desk.jobApplication
+  if (!job) throw new Error('This document has no job to tailor a CV prompt to')
 
   const [run, contract] = await Promise.all([
     prisma.jobDeepDive.findFirst({
-      where: { profileId, jobApplicationId: desk.jobApplication.id, status: 'complete' },
+      where: { profileId, jobApplicationId: job.id, status: 'complete' },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       select: { report: true },
     }),
@@ -54,7 +57,7 @@ export async function getExternalCvPrompt(profileId: string, documentId: string)
   ])
   return buildExternalCvPrompt({
     documentId,
-    job: desk.jobApplication,
+    job,
     strategy: parseReport(run?.report)?.cvStrategy ?? null,
     contract,
   })

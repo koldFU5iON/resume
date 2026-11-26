@@ -25,13 +25,13 @@ vi.mock("next/navigation", () => ({
   redirect: vi.fn(() => { throw new Error("NEXT_REDIRECT") }),
 }))
 vi.mock("@/modules/cv/schema", () => ({ parseCVContent: vi.fn() }))
-vi.mock("@/modules/cv/export", () => ({ toMarkdown: vi.fn() }))
+vi.mock("./from-cv-content", () => ({ cvContentToDeskMarkdown: vi.fn() }))
 
 import { prisma } from "@/lib/db"
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 import { parseCVContent } from "@/modules/cv/schema"
-import { toMarkdown } from "@/modules/cv/export"
+import { cvContentToDeskMarkdown } from "./from-cv-content"
 import {
   createWritingDeskDocumentAction,
   deleteWritingDeskDocumentAction,
@@ -50,7 +50,7 @@ const mockDeskFindFirst = vi.mocked(prisma.writingDeskDocument.findFirst)
 const mockJobFindFirst = vi.mocked(prisma.jobApplication.findFirst)
 const mockCVFindFirst = vi.mocked(prisma.cVDocument.findFirst)
 const mockParseCVContent = vi.mocked(parseCVContent)
-const mockToMarkdown = vi.mocked(toMarkdown)
+const mockCvToDesk = vi.mocked(cvContentToDeskMarkdown)
 const mockRevalidatePath = vi.mocked(revalidatePath)
 
 describe("createWritingDeskDocumentAction", () => {
@@ -168,7 +168,7 @@ describe("setWritingDeskSource", () => {
       updatedAt: new Date("2026-03-04T00:00:00Z"),
     } as never)
     mockParseCVContent.mockReturnValue(cvContent as never)
-    mockToMarkdown.mockReturnValue("# Copied master CV")
+    mockCvToDesk.mockReturnValue("# Copied master CV")
     mockDeskUpdateMany.mockResolvedValue({ count: 1 } as never)
 
     await expect(setWritingDeskSource("desk-1", "cv-master", 7)).resolves.toEqual({
@@ -189,7 +189,7 @@ describe("setWritingDeskSource", () => {
       },
     })
     expect(mockParseCVContent).toHaveBeenCalledWith("stored-cv-content")
-    expect(mockToMarkdown).toHaveBeenCalledWith(cvContent)
+    expect(mockCvToDesk).toHaveBeenCalledWith(cvContent, { contact: "keep" })
     expect(mockDeskUpdateMany).toHaveBeenCalledWith({
       where: { id: "desk-1", profileId: "profile-1", revision: 7 },
       data: {

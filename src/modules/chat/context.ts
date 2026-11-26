@@ -131,11 +131,11 @@ function formatPageContext(ctx: PageContext): string {
   switch (ctx.type) {
     case 'cv': {
       const text =
-        `User is reviewing CV: "${ctx.title}"${ctx.company ? ` (for ${ctx.company})` : ''}\n` +
+        `User is reviewing a read-only CV from the old CV Builder: "${ctx.title}"${ctx.company ? ` (for ${ctx.company})` : ''}\n` +
         `CV ID: ${ctx.cvId} — use this with get_cv_document to fetch full content (it includes the CV's jobId; ` +
         `pass that to get_deep_dive for the job's deep dive report and CV strategy)\n` +
-        `Use propose_cv_update to edit an existing section, or propose_cv_section_create if ` +
-        `the CV is missing a section entirely.`
+        `This CV can't be edited. To change it, the user copies it to the writing desk ("Copy to writing desk"), ` +
+        `where you can propose edits to the copy. Advise on the content here; don't propose edits to this CV.`
       if (ctx.atsScore) {
         return text +
           `\n\n<ats_score>\n${ctx.atsScore}\n</ats_score>\n` +
@@ -156,9 +156,12 @@ function formatPageContext(ctx: PageContext): string {
       )
     case 'writing_desk':
       return (
-        `User is writing a ${ctx.documentType} document for "${ctx.title}"${ctx.company ? ` at ${ctx.company}` : ''}\n` +
-        `Writing Desk ID: ${ctx.deskId} — use get_writing_desk to fetch its Markdown, revision, job, and source CV context.\n` +
-        `Job ID: ${ctx.jobId} — use get_deep_dive with this Job ID for the deep dive report (verdict, gaps, pay, CV strategy) before writing or tailoring a CV or cover letter for it.\n` +
+        (ctx.jobId
+          ? `User is writing a ${ctx.documentType} document for "${ctx.title}"${ctx.company ? ` at ${ctx.company}` : ''}\n` +
+            `Writing Desk ID: ${ctx.deskId} — use get_writing_desk to fetch its Markdown, revision, job, and source CV context.\n` +
+            `Job ID: ${ctx.jobId} — use get_deep_dive with this Job ID for the deep dive report (verdict, gaps, pay, CV strategy) before writing or tailoring a CV or cover letter for it.\n`
+          : `User is editing their master CV: the general CV, not tailored to any job, that their job CVs can start from.\n` +
+            `Writing Desk ID: ${ctx.deskId} — use get_writing_desk to fetch its Markdown and revision.\n`) +
         `Use profile_search and profile_get_note to retrieve relevant profile evidence before making substantive career claims. ` +
         `Do not invent employers, qualifications, achievements, responsibilities, or metrics. Identify uncertainty and ask for clarification when evidence is missing.\n` +
         `Use propose_writing_desk_update for a full Markdown replacement. Include the revision returned by get_writing_desk; the user must review and confirm it before it can be applied.`

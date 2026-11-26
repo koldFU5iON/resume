@@ -1,4 +1,4 @@
-import type { CVWithMeta } from '../dashboard/cv-builder/[id]/_components/cv-editor'
+import type { CVWithMeta } from '@/modules/cv/types'
 import type { CVSection, HeaderData, ExperienceData, EducationData, CertificationData, LanguagesData } from '@/modules/cv/schema'
 
 type Props = { cv: CVWithMeta }

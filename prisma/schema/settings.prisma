@@ -39,6 +39,8 @@ model UserSettings {
   /// Shape: { [promptKey: string]: string } — only keys with overrides present.
   /// Keys and defaults are registered in src/modules/prompts/registry.ts.
   customPrompts         Json?
+  /// Remembered cover letter settings (#471): last tone and length, reusable answers. Zod-validated (cover-letter-generation/preferences.ts).
+  coverLetterPreferences Json?
   writingBrief          String?
   onboardingCompletedAt DateTime?
   onboardingSkippedAt   DateTime?

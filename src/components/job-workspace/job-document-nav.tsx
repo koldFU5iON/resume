@@ -11,6 +11,7 @@ import type { JobWorkspace } from "@/modules/jobs/queries"
 import {
   activeJobDocument,
   canAddWritingDeskDocument,
+  isJobCoverLetterGenerationPath,
   isJobCvGenerationPath,
   isJobDeepDivePath,
   jobDocumentCreateLinks,
@@ -53,7 +54,7 @@ export function JobDocumentNav({ workspace }: { workspace: JobWorkspace }) {
   const links = jobDocumentLinks(assets)
   const legacyCreateLinks = jobDocumentCreateLinks(assets)
   const active = activeJobDocument(pathname, links)
-    ?? (isJobDeepDivePath(pathname, workspace.jobId) ? "deep-dive" : isJobCvGenerationPath(pathname, workspace.jobId) ? "cv-generation" : null)
+    ?? (isJobDeepDivePath(pathname, workspace.jobId) ? "deep-dive" : isJobCvGenerationPath(pathname, workspace.jobId) ? "cv-generation" : isJobCoverLetterGenerationPath(pathname, workspace.jobId) ? "cover-letter-generation" : null)
   const entries: SwitcherEntry[] = [...links, ...jobExtraDestinations(workspace.jobId)]
   const canAdd = canAddWritingDeskDocument(assets)
 

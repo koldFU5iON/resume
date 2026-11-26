@@ -1,0 +1,46 @@
+// ------------------------------------------------------------
+// COVER LETTER GENERATION — angle first, then write, review and land in the
+// writing desk. Implementation record: docs/cover-letter-generation.md
+// ------------------------------------------------------------
+
+/// One row per cover letter generation run (issue #471). The run pauses at
+/// `awaiting_choice` with suggested angles until the owner picks one; then it
+/// writes, reviews and lands the letter as a writing desk DRAFT. Never written
+/// after `complete` or `failed`. The row id is the `runId` on its usage rows.
+model CoverLetterGeneration {
+  id                    String    @id @default(cuid())
+  profileId             String
+  jobApplicationId      String
+  /// The cover letter document the draft lands in; known once Land picks or creates it
+  writingDeskDocumentId String?
+  /// The complete deep dive the run drew company facts and strategy from (null: none)
+  deepDiveId            String?
+  /// queued | gathering | suggesting | awaiting_choice | writing | reviewing | landing | complete | failed
+  status                String
+  failureKind           String?
+  failureMessage        String?
+  startedAt             DateTime?
+  completedAt           DateTime?
+  /// The suggested angles and personal questions (CoverLetterAngles), validated with Zod on read
+  angles                Json?
+  /// The owner's choice: angle or own angle, answers, tone, length (CoverLetterChoice)
+  choice                Json?
+  /// The written letter: paragraphs, markdown, check notes (CoverLetterWritten)
+  letter                Json?
+  /// The review: applied and discarded edits, concerns for the coach (CoverLetterReview)
+  review                Json?
+  /// Per-stage log entries (CoverLetterLog)
+  log                   Json?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  profile             Profile              @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  jobApplication      JobApplication       @relation(fields: [jobApplicationId], references: [id], onDelete: Cascade)
+  writingDeskDocument WritingDeskDocument? @relation(fields: [writingDeskDocumentId], references: [id], onDelete: SetNull)
+  deepDive            JobDeepDive?         @relation(fields: [deepDiveId], references: [id], onDelete: SetNull)
+
+  @@index([profileId, jobApplicationId, createdAt])
+  @@index([profileId, status])
+  @@index([writingDeskDocumentId])
+  @@index([deepDiveId])
+}

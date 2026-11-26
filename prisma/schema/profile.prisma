@@ -44,6 +44,7 @@ model Profile {
   jobAssessments JobAssessment[]
   jobDeepDives   JobDeepDive[]
   cvGenerations  CvGeneration[]
+  coverLetterGenerations CoverLetterGeneration[]
 }
 
 // One table for every capability: skills, tools and competencies (kind).

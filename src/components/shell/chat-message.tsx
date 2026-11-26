@@ -43,8 +43,6 @@ function CodeBlock({ children }: { children: React.ReactNode }) {
     </div>
   )
 }
-import { patchCVSectionData, addCustomSection } from '@/modules/cv/actions'
-import type { CVSection } from '@/modules/cv/schema'
 import { patchProfileField, createTool } from '@/modules/profile/actions'
 import { updateBlock } from '@/modules/interview-prep/actions'
 import { updateCoverLetterContent, updateCoverLetterSection } from '@/modules/cover-letters/actions'
@@ -52,17 +50,10 @@ import { updateWritingDeskContent } from '@/modules/writing-desk/actions'
 import { ToolConfirmationCard } from './tool-confirmation-card'
 import { FeedbackSubmissionCard } from './feedback-submission-card'
 
-function buildWriteAction(toolName: string, args: Record<string, unknown>): (() => Promise<string | CVSection | void>) | undefined {
-  if (toolName === 'propose_cv_update') {
-    return () => patchCVSectionData(
-      args.cvId as string,
-      args.sectionId as string,
-      args.proposedData as Record<string, unknown>,
-    )
-  }
-  if (toolName === 'propose_cv_section_create') {
-    return () => addCustomSection(args.cvId as string, args.heading as string, args.subtype as 'text' | 'list')
-  }
+/** Proposal tools that were removed (#469); old conversations can still hold an unanswered one. */
+const RETIRED_WRITE_TOOLS = new Set(['propose_cv_update', 'propose_cv_section_create'])
+
+function buildWriteAction(toolName: string, args: Record<string, unknown>): (() => Promise<string | void>) | undefined {
   if (toolName === 'propose_profile_update') {
     return () => patchProfileField(args.field as string, args.proposedValue as string)
   }
@@ -229,6 +220,23 @@ export function ChatMessage({ message, onToolOutput }: ChatMessageProps) {
                   description={input.description}
                   onResult={(toolCallId, output) => onToolOutput(toolCallId, 'submit_feedback', output)}
                 />
+              )
+            }
+
+            if (state === 'input-available' && RETIRED_WRITE_TOOLS.has(toolName)) {
+              // A proposal from an earlier conversation for an editor that is now
+              // read-only (#469): nothing can apply it, so it can only be dismissed.
+              return (
+                <div key={part.toolCallId} className="w-full rounded-xl border border-border bg-background p-3 text-xs text-muted-foreground shadow-sm">
+                  <p className="mb-2">This proposed CV change can no longer be applied: old CV Builder CVs are read-only now. Copy the CV to the writing desk and ask again there.</p>
+                  <button
+                    type="button"
+                    onClick={() => onToolOutput(part.toolCallId, toolName, { status: 'rejected' })}
+                    className="rounded-md border border-border px-2.5 py-1 text-xs hover:bg-muted"
+                  >
+                    Dismiss
+                  </button>
+                </div>
               )
             }
 

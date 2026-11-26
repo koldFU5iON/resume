@@ -138,7 +138,7 @@ Fact checks are advisory; review claims yourself before accepting.
 In a CV document's Writing Desk, choose **CV prompt**, then **Copy CV prompt**.
 Paste it into your AI app with the currnt MCP connection enabled. The prompt
 includes the latest completed deep dive's CV strategy (when available), the
-master CV's starting structure, and the supported Markdown block examples.
+master CV's starting structure (the Writing Desk master CV's sections, or the old CV Builder master's until the owner opens the new one), and the supported Markdown block examples.
 It asks the agent to read profile evidence through MCP and return the complete
 CV in one Markdown code block, without writing a draft through MCP.
 
